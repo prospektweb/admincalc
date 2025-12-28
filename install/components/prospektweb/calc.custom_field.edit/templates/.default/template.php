@@ -412,7 +412,7 @@ if (empty($backUrl) && $iblockId > 0) {
         <div class="calc-field-buttons">
             <button type="submit" name="save" value="Y" class="calc-btn calc-btn-success">Сохранить</button>
             <button type="submit" name="apply" value="Y" class="calc-btn calc-btn-primary">Применить</button>
-            <a href="<?= htmlspecialcharsbx($backUrl) ?>" class="calc-btn calc-btn-link">Отмена</a>
+            <button type="button" class="calc-btn calc-btn-link" onclick="window.location.href='<?= htmlspecialcharsbx($backUrl) ?>'">Отмена</button>
         </div>
     </form>
 </div>
