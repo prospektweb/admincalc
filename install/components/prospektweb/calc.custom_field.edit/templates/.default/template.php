@@ -41,8 +41,15 @@ $elementName   = $element['NAME'] ?? '';
 $elementActive = (($element['ACTIVE'] ?? 'Y') === 'Y');
 
 // URL для возврата
-$backUrl = $arParams['BACK_URL']
-    ?? ('/bitrix/admin/iblock_list_admin.php?IBLOCK_ID=' . (int)($arParams['IBLOCK_ID'] ?? 0) . '&type=calculator&lang=' . LANGUAGE_ID);
+$iblockId = (int)($arParams['IBLOCK_ID'] ??  0);
+$backUrl = $arParams['BACK_URL'] ?? '';
+
+if (empty($backUrl) && $iblockId > 0) {
+    $backUrl = '/bitrix/admin/iblock_list_admin.php? IBLOCK_ID=' . $iblockId .  '&type=calculator&lang=' . LANGUAGE_ID;
+} elseif (empty($backUrl)) {
+    // Fallback - перейти к списку калькуляторов
+    $backUrl = '/bitrix/admin/iblock_admin.php?type=calculator&lang=' .  LANGUAGE_ID;
+}
 ?>
 
 <div class="calc-custom-field-editor" id="calc-field-editor">
