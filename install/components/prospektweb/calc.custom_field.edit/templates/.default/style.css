@@ -6,7 +6,7 @@
 /* ОСНОВНЫЕ КОНТЕЙНЕРЫ */
 /* ============================================== */
 
-. calc-custom-field-editor {
+.calc-custom-field-editor {
     max-width: 900px;
     padding: 20px;
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -44,7 +44,7 @@
 /* СТРОКИ ФОРМЫ */
 /* ============================================== */
 
-. calc-field-row {
+.calc-field-row {
     display:  flex;
     align-items: flex-start;
     margin-bottom: 16px;
@@ -61,12 +61,12 @@
     margin-bottom: 16px;
 }
 
-.calc-field-row-inline . calc-field-row {
+.calc-field-row-inline .calc-field-row {
     margin-bottom: 0;
     flex: 0 0 auto;
 }
 
-. calc-field-label {
+.calc-field-label {
     width: 180px;
     flex-shrink: 0;
     padding-top: 8px;
@@ -83,13 +83,13 @@
     margin-left: 2px;
 }
 
-. calc-field-hint {
+.calc-field-hint {
     font-size: 12px;
     color: #6b7280;
     margin-top:  6px;
 }
 
-. calc-field-hint-inline {
+.calc-field-hint-inline {
     margin-left: 8px;
     color: #6b7280;
 }
@@ -139,7 +139,7 @@
 /* ЧЕКБОКСЫ */
 /* ============================================== */
 
-. calc-checkbox {
+.calc-checkbox {
     display: inline-flex;
     align-items: center;
     gap:  8px;
@@ -202,17 +202,17 @@
     color: #6b7280;
 }
 
-. calc-type-option. active .calc-type-icon {
+.calc-type-option.active .calc-type-icon {
     color: #3b82f6;
 }
 
-. calc-type-name {
+.calc-type-name {
     font-size: 13px;
     font-weight: 500;
     color:  #6b7280;
 }
 
-. calc-type-option.active .calc-type-name {
+.calc-type-option.active .calc-type-name {
     color: #3b82f6;
 }
 
@@ -327,12 +327,12 @@
     line-height: 1;
 }
 
-. calc-option-remove:hover {
+.calc-option-remove:hover {
     background: #fee2e2;
     color: #dc2626;
 }
 
-. calc-option-add {
+.calc-option-add {
     display: inline-flex;
     align-items: center;
     gap:  8px;
@@ -418,26 +418,26 @@
     cursor: default;
 }
 
-. calc-preview-checkbox {
+.calc-preview-checkbox {
     display: flex;
     align-items: center;
     gap:  10px;
     cursor: default;
 }
 
-. calc-preview-checkbox input {
+.calc-preview-checkbox input {
     width: 18px;
     height: 18px;
 }
 
-. calc-preview-hint {
+.calc-preview-hint {
     display: block;
     font-size: 12px;
     color:  #6b7280;
     margin-top: 6px;
 }
 
-. calc-preview-empty {
+.calc-preview-empty {
     color:  #9ca3af;
     font-style: italic;
 }
@@ -484,7 +484,7 @@
     background: #2563eb;
 }
 
-. calc-btn-link {
+.calc-btn-link {
     background: transparent;
     color:  #6b7280;
 }
