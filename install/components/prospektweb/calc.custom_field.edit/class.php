@@ -214,9 +214,13 @@ class CalcCustomFieldEditComponent extends CBitrixComponent
             $defaultValue = ! empty($propValues['DEFAULT_VALUE']) ? 'Y' : 'N';
         } elseif ($fieldTypeXmlId === 'select') {
             // Для select берём из DEFAULT_OPTION (radio)
-            $defaultValue = $_POST['DEFAULT_OPTION'] ?? '';
-        } else {
-            $defaultValue = trim($propValues['DEFAULT_VALUE'] ?? '');
+            $defaultValue = $_POST['DEFAULT_OPTION'] ??  '';
+        } elseif ($fieldTypeXmlId === 'number') {
+            // Для number берём из отдельного поля
+            $defaultValue = trim($propValues['DEFAULT_VALUE_NUMBER'] ??  '');
+        } elseif ($fieldTypeXmlId === 'text') {
+            // Для text берём из отдельного поля
+            $defaultValue = trim($propValues['DEFAULT_VALUE_TEXT'] ?? '');
         }
 
         // Обработка OPTIONS для select
