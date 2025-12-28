@@ -273,7 +273,7 @@ if (empty($backUrl) && $iblockId > 0) {
                     <input type="number"
                            name="PROPERTY_VALUES[DEFAULT_VALUE_NUMBER]"
                            class="calc-input calc-input-medium"
-                           value="<? = $currentType === 'number' ?  htmlspecialcharsbx($defaultValue) : '' ?>"
+                           value="<?= $currentType === 'number' ?  htmlspecialcharsbx($defaultValue) : '' ?>"
                            step="any"
                            data-default-number>
                 </div>
