@@ -24,7 +24,6 @@ $currentType = $props['FIELD_TYPE']['VALUE_XML_ID'] ?? '';
 $isRequired  = (($props['IS_REQUIRED']['VALUE_XML_ID'] ?? 'N') === 'Y');
 
 // Для строковых/числовых свойств используем VALUE
-$fieldCode    = $props['FIELD_CODE']['VALUE'] ?? '';
 $defaultValue = $props['DEFAULT_VALUE']['VALUE'] ?? '';
 $unit         = $props['UNIT']['VALUE'] ?? '';
 $minValue     = $props['MIN_VALUE']['VALUE'] ?? '';
@@ -118,9 +117,9 @@ if (empty($backUrl) && $iblockId > 0) {
                 </div>
                 <div class="calc-field-control">
                     <input type="text"
-                           name="PROPERTY_VALUES[FIELD_CODE]"
+                           name="CODE"
                            class="calc-input calc-input-code"
-                           value="<?= htmlspecialcharsbx($fieldCode) ?>"
+                           value="<?= htmlspecialcharsbx($element['CODE'] ?? '') ?>"
                            pattern="[A-Z][A-Z0-9_]*"
                            title="Только заглавные латинские буквы, цифры и подчёркивание. Должен начинаться с буквы."
                            required

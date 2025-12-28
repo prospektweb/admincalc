@@ -37,7 +37,7 @@ class CustomFieldsService
             ],
             false,
             false,
-            ['ID', 'NAME', 'IBLOCK_ID']
+            ['ID', 'NAME', 'CODE', 'IBLOCK_ID']
         );
 
         while ($element = $rsElements->Fetch()) {
@@ -67,7 +67,7 @@ class CustomFieldsService
 
             // Формируем конфигурацию поля
             $fieldConfig = [
-                'code' => $props['FIELD_CODE'] ?? '',
+                'code' => $element['CODE'] ?? '',
                 'name' => $element['NAME'],
                 'type' => $fieldType,
                 'required' => ($props['IS_REQUIRED'] ??  'N') === 'Y',
