@@ -179,7 +179,7 @@ class CalcCustomFieldEditComponent extends CBitrixComponent
         $propValues = $_POST['PROPERTY_VALUES'] ?? [];
 
         // Валидация символьного кода
-        $fieldCode = trim($propValues['FIELD_CODE'] ??  '');
+        $fieldCode = trim($_POST['CODE'] ??  '');
         if (empty($fieldCode)) {
             $this->arResult['ERRORS'][] = 'Не указан символьный код поля';
             return false;
@@ -188,6 +188,9 @@ class CalcCustomFieldEditComponent extends CBitrixComponent
             $this->arResult['ERRORS'][] = 'Символьный код должен начинаться с буквы и содержать только заглавные латинские буквы, цифры и подчёркивание';
             return false;
         }
+
+        // Добавляем CODE в основные поля
+        $arFields['CODE'] = $fieldCode;
 
         // Валидация типа поля
         $fieldTypeXmlId = $propValues['FIELD_TYPE'] ?? '';
@@ -241,7 +244,6 @@ class CalcCustomFieldEditComponent extends CBitrixComponent
         // Формируем массив свойств
         // ВАЖНО:  для свойств типа L передаём ID варианта (VALUE_ENUM_ID)
         $arFields['PROPERTY_VALUES'] = [
-            'FIELD_CODE' => $fieldCode,
             'FIELD_TYPE' => $fieldTypeEnumId, // ID варианта списка! 
             'DEFAULT_VALUE' => $defaultValue,
             'IS_REQUIRED' => $isRequiredEnumId, // ID варианта списка! 

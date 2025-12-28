@@ -667,18 +667,11 @@ switch ($currentStep) {
         ];
 
         $customFieldsProps = [
-            'FIELD_CODE' => [
-                'NAME' => 'Символьный код поля',
-                'TYPE' => 'S',
-                'IS_REQUIRED' => 'Y',
-                'SORT' => 100,
-                'HINT' => 'Только заглавные латинские буквы, цифры и подчёркивание (например: BLEED, PAPER_TYPE)',
-            ],
             'FIELD_TYPE' => [
                 'NAME' => 'Тип поля',
                 'TYPE' => 'L',
                 'IS_REQUIRED' => 'Y',
-                'SORT' => 200,
+                'SORT' => 100,
                 'VALUES' => [
                     ['XML_ID' => 'number', 'VALUE' => 'Число (number)'],
                     ['XML_ID' => 'text', 'VALUE' => 'Текст (text)'],
@@ -689,12 +682,12 @@ switch ($currentStep) {
             'DEFAULT_VALUE' => [
                 'NAME' => 'Значение по умолчанию',
                 'TYPE' => 'S',
-                'SORT' => 300,
+                'SORT' => 200,
             ],
             'IS_REQUIRED' => [
                 'NAME' => 'Обязательное',
                 'TYPE' => 'L',
-                'SORT' => 400,
+                'SORT' => 300,
                 'VALUES' => [
                     ['XML_ID' => 'Y', 'VALUE' => 'Да'],
                     ['XML_ID' => 'N', 'VALUE' => 'Нет', 'DEF' => 'Y'],
@@ -703,37 +696,37 @@ switch ($currentStep) {
             'UNIT' => [
                 'NAME' => 'Единица измерения',
                 'TYPE' => 'S',
-                'SORT' => 500,
+                'SORT' => 400,
                 'HINT' => 'Только для типа "Число": мм, шт, %',
             ],
             'MIN_VALUE' => [
                 'NAME' => 'Минимальное значение',
                 'TYPE' => 'N',
-                'SORT' => 600,
+                'SORT' => 500,
                 'HINT' => 'Только для типа "Число"',
             ],
             'MAX_VALUE' => [
                 'NAME' => 'Максимальное значение',
                 'TYPE' => 'N',
-                'SORT' => 700,
+                'SORT' => 600,
                 'HINT' => 'Только для типа "Число"',
             ],
             'STEP_VALUE' => [
                 'NAME' => 'Шаг',
                 'TYPE' => 'N',
-                'SORT' => 800,
+                'SORT' => 700,
                 'HINT' => 'Только для типа "Число"',
             ],
             'MAX_LENGTH' => [
                 'NAME' => 'Максимальная длина',
                 'TYPE' => 'N',
-                'SORT' => 900,
+                'SORT' => 800,
                 'HINT' => 'Только для типа "Текст"',
             ],
             'OPTIONS' => [
                 'NAME' => 'Варианты выбора (для списка)',
                 'TYPE' => 'S',
-                'SORT' => 1000,
+                'SORT' => 900,
                 'MULTIPLE' => 'Y',
                 'WITH_DESCRIPTION' => 'Y',
                 'HINT' => 'Значение = код опции, Описание = отображаемый текст',
@@ -741,7 +734,7 @@ switch ($currentStep) {
             'SORT_ORDER' => [
                 'NAME' => 'Сортировка',
                 'TYPE' => 'N',
-                'SORT' => 1100,
+                'SORT' => 1000,
                 'HINT' => 'Порядок отображения поля',
             ],
         ];
