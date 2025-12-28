@@ -265,9 +265,9 @@ $backUrl = $arParams['BACK_URL']
                 <div class="calc-field-label">Значение по умолчанию</div>
                 <div class="calc-field-control">
                     <input type="number"
-                           name="PROPERTY_VALUES[DEFAULT_VALUE]"
+                           name="PROPERTY_VALUES[DEFAULT_VALUE_NUMBER]"
                            class="calc-input calc-input-medium"
-                           value="<?= $currentType === 'number' ? htmlspecialcharsbx($defaultValue) : '' ?>"
+                           value="<? = $currentType === 'number' ? htmlspecialcharsbx($defaultValue) : '' ?>"
                            step="any"
                            data-default-number>
                 </div>
@@ -301,7 +301,7 @@ $backUrl = $arParams['BACK_URL']
                 <div class="calc-field-label">Значение по умолчанию</div>
                 <div class="calc-field-control">
                     <input type="text"
-                           name="PROPERTY_VALUES[DEFAULT_VALUE]"
+                           name="PROPERTY_VALUES[DEFAULT_VALUE_TEXT]"
                            class="calc-input calc-input-wide"
                            value="<?= $currentType === 'text' ? htmlspecialcharsbx($defaultValue) : '' ?>"
                            data-default-text>
