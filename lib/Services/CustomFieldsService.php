@@ -22,7 +22,7 @@ class CustomFieldsService
             return [];
         }
 
-        if (!Loader::includeModule('iblock')) {
+        if (! Loader::includeModule('iblock')) {
             throw new \RuntimeException('Требуется модуль Bitrix iblock');
         }
 
@@ -51,19 +51,30 @@ class CustomFieldsService
 
             $props = [];
             while ($prop = $rsProps->Fetch()) {
-                $props[$prop['CODE']] = $prop['VALUE'];
+                $code = $prop['CODE'];
+                
+                // Для списочных свойств (тип "L") используем VALUE_XML_ID
+                // VALUE_XML_ID содержит символьный код варианта (number, text, checkbox, select)
+                if ($prop['PROPERTY_TYPE'] === 'L') {
+                    $props[$code] = $prop['VALUE_XML_ID'] ?? $prop['VALUE_ENUM'] ?? $prop['VALUE'];
+                } else {
+                    $props[$code] = $prop['VALUE'];
+                }
             }
+
+            // Получаем тип поля (теперь это будет "number", "text", и т.д., а не ID)
+            $fieldType = $props['FIELD_TYPE'] ?? 'text';
 
             // Формируем конфигурацию поля
             $fieldConfig = [
                 'code' => $props['FIELD_CODE'] ?? '',
                 'name' => $element['NAME'],
-                'type' => $props['FIELD_TYPE'] ?? 'text',
-                'required' => ($props['IS_REQUIRED'] ?? 'N') === 'Y',
+                'type' => $fieldType,
+                'required' => ($props['IS_REQUIRED'] ??  'N') === 'Y',
             ];
 
             // Добавляем default value с приведением типа
-            if (!empty($props['DEFAULT_VALUE'])) {
+            if (! empty($props['DEFAULT_VALUE'])) {
                 $fieldConfig['default'] = $this->castDefaultValue(
                     $props['DEFAULT_VALUE'],
                     $fieldConfig['type']
@@ -94,7 +105,7 @@ class CustomFieldsService
                     break;
 
                 case 'select':
-                    // OPTIONS теперь множественное свойство с описанием
+                    // OPTIONS — множественное свойство с описанием
                     $options = [];
                     
                     $rsOptions = \CIBlockElement::GetProperty(
@@ -105,7 +116,7 @@ class CustomFieldsService
                     );
                     
                     while ($option = $rsOptions->Fetch()) {
-                        if (!empty($option['VALUE'])) {
+                        if (! empty($option['VALUE'])) {
                             $options[] = [
                                 'value' => $option['VALUE'],
                                 'label' => $option['DESCRIPTION'] ?: $option['VALUE'],
@@ -118,7 +129,7 @@ class CustomFieldsService
                     }
                     break;
 
-                case 'checkbox':
+                case 'checkbox': 
                     // Для checkbox default должен быть boolean
                     if (isset($fieldConfig['default'])) {
                         $fieldConfig['default'] = (bool)$fieldConfig['default'];
@@ -139,21 +150,21 @@ class CustomFieldsService
      * @param string $type Тип поля (number, text, checkbox, select)
      * @return mixed Приведенное значение
      */
-    public function castDefaultValue(?string $value, string $type)
+    public function castDefaultValue(? string $value, string $type)
     {
         if ($value === null || $value === '') {
             return null;
         }
         
         switch ($type) {
-            case 'number':
+            case 'number': 
                 return (float)$value;
 
             case 'checkbox':
                 return in_array(strtolower($value), ['1', 'true', 'y', 'yes', 'да'], true);
 
             case 'text':
-            case 'select':
+            case 'select': 
             default:
                 return $value;
         }
