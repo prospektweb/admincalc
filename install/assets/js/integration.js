@@ -152,14 +152,6 @@
                     this.handleInitDone(message);
                     break;
 
-                case 'CALC_PREVIEW':
-                    this.handleCalcPreview(message);
-                    break;
-
-                case 'SAVE_REQUEST':
-                    this.handleSaveRequest(message);
-                    break;
-
                 case 'CLOSE_REQUEST':
                     this.handleCloseRequest(message);
                     break;
@@ -217,12 +209,6 @@
                 case 'SELECT_DETAILS_REQUEST':
                     await this.handleSelectDetailsRequest(message, origin);
                     break;
-                case 'REFRESH_REQUEST':
-                    await this.handleRefreshRequest(message, origin);
-                    break;
-                case 'ADD_OFFER_REQUEST':
-                    await this.handleAddOfferRequest(message, origin);
-                    break;
                 case 'REMOVE_OFFER_REQUEST':
                     this.handleRemoveOfferRequest(message, origin);
                     break;
@@ -260,22 +246,16 @@
                 case 'CHANGE_NAME_DETAIL_REQUEST':
                     await this.handleChangeNameDetailRequest(message, origin);
                     break;
-                case 'ACTIVATE_PRICE_PANEL_REQUEST':
-                    await this.handleActivatePricePanelRequest(message, origin);
-                    break;
                 case 'CLOSE_REQUEST':
                     this.handleCloseRequest(message);
                     break;
                 default:
                     console.warn('[BitrixBridge][DEBUG] Unknown pwrt message type:', message.type);
                     console.warn('[BitrixBridge][DEBUG] Known types:', [
-                        'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'REFRESH_REQUEST', 'ADD_OFFER_REQUEST', 
-                        'REMOVE_OFFER_REQUEST', 'CALC_SETTINGS_REQUEST', 'CALC_EQUIPMENT_REQUEST',
-                        'CALC_MATERIAL_VARIANT_REQUEST', 'CALC_OPERATION_VARIANT_REQUEST', 
+                        'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'CALC_SETTINGS_REQUEST', 'CALC_EQUIPMENT_REQUEST',
                         'SYNC_VARIANTS_REQUEST', 'GET_DETAIL_REQUEST', 'ADD_DETAIL_REQUEST', 
                         'ADD_NEW_GROUP_REQUEST', 'ADD_NEW_STAGE_REQUEST', 
-                        'DELETE_STAGE_REQUEST', 'DELETE_DETAIL_REQUEST', 'CHANGE_NAME_DETAIL_REQUEST',
-                        'ACTIVATE_PRICE_PANEL_REQUEST', 'CLOSE_REQUEST'
+                        'DELETE_STAGE_REQUEST', 'DELETE_DETAIL_REQUEST', 'CHANGE_NAME_DETAIL_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
         }
@@ -1649,44 +1629,6 @@
             this.isInitialized = true;
         }
 
-        /**
-         * Обработка CALC_PREVIEW
-         */
-        handleCalcPreview(message) {
-            this.logDebug('[CalcIntegration] Calculation preview received:', message.payload);
-            this.hasUnsavedChanges = true;
-            // Можно добавить дополнительную логику, например, показать превью
-        }
-
-        /**
-         * Обработка SAVE_REQUEST
-         */
-        async handleSaveRequest(message) {
-            this.logDebug('[CalcIntegration] Save request received');
-
-            try {
-                // Валидация payload
-                if (!message.payload) {
-                    throw new Error('Отсутствуют данные для сохранения');
-                }
-
-                // Отправляем данные на сервер через AJAX
-                const result = await this.saveData(message.payload);
-
-                // Отправляем результат обратно в iframe
-                this.sendMessageToIframe('SAVE_RESULT', result, message.requestId);
-
-                if (result.status === 'ok' || result.status === 'partial') {
-                    this.hasUnsavedChanges = false;
-                }
-            } catch (error) {
-                console.error('[CalcIntegration] Error saving data:', error);
-                this.sendMessageToIframe('SAVE_RESULT', {
-                    status: 'error',
-                    message: error.message,
-                }, message.requestId);
-            }
-        }
 
         /**
          * Обработка CLOSE_REQUEST
