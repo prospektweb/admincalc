@@ -242,11 +242,8 @@
                 case 'GET_DETAIL_REQUEST':
                     await this.handleGetDetailRequest(message, origin);
                     break;
-                case 'ADD_NEW_DETAIL_REQUEST':
+                case 'ADD_DETAIL_REQUEST':
                     await this.handleAddNewDetailRequest(message, origin);
-                    break;
-                case 'COPY_DETAIL_REQUEST':
-                    await this.handleCopyDetailRequest(message, origin);
                     break;
                 case 'ADD_NEW_GROUP_REQUEST':
                     await this.handleAddNewGroupRequest(message, origin);
@@ -275,8 +272,8 @@
                         'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'REFRESH_REQUEST', 'ADD_OFFER_REQUEST', 
                         'REMOVE_OFFER_REQUEST', 'CALC_SETTINGS_REQUEST', 'CALC_EQUIPMENT_REQUEST',
                         'CALC_MATERIAL_VARIANT_REQUEST', 'CALC_OPERATION_VARIANT_REQUEST', 
-                        'SYNC_VARIANTS_REQUEST', 'GET_DETAIL_REQUEST', 'ADD_NEW_DETAIL_REQUEST', 
-                        'COPY_DETAIL_REQUEST', 'ADD_NEW_GROUP_REQUEST', 'ADD_NEW_STAGE_REQUEST', 
+                        'SYNC_VARIANTS_REQUEST', 'GET_DETAIL_REQUEST', 'ADD_DETAIL_REQUEST', 
+                        'ADD_NEW_GROUP_REQUEST', 'ADD_NEW_STAGE_REQUEST', 
                         'DELETE_STAGE_REQUEST', 'DELETE_DETAIL_REQUEST', 'CHANGE_NAME_DETAIL_REQUEST',
                         'ACTIVATE_PRICE_PANEL_REQUEST', 'CLOSE_REQUEST'
                     ]);
