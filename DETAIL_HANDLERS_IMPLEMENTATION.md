@@ -57,7 +57,7 @@ Added 8 new event handlers in the `CalcIntegration` class.
 **New Handlers:**
 
 - `handleGetDetailRequest()` - GET_DETAIL_REQUEST → GET_DETAIL_RESPONSE
-- `handleAddNewDetailRequest()` - ADD_NEW_DETAIL_REQUEST → ADD_NEW_DETAIL_RESPONSE
+- `handleAddNewDetailRequest()` - ADD_DETAIL_REQUEST → ADD_DETAIL_RESPONSE
 - `handleCopyDetailRequest()` - COPY_DETAIL_REQUEST → COPY_DETAIL_RESPONSE
 - `handleAddNewGroupRequest()` - ADD_NEW_GROUP_REQUEST → ADD_NEW_GROUP_RESPONSE
 - `handleAddNewStageRequest()` - ADD_NEW_STAGE_REQUEST → ADD_NEW_STAGE_RESPONSE
