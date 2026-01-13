@@ -179,6 +179,10 @@ try {
             handleHeaderTabsAdd($request);
             break;
 
+        case 'enrichPreset':
+            handleEnrichPreset($request);
+            break;
+
         default:
             sendJsonResponse(['error' => 'Invalid action', 'message' => 'Неизвестное действие'], 400);
     }
@@ -482,6 +486,103 @@ function handleHeaderTabsAdd($request): void
             'items' => $items,
         ],
     ]);
+}
+
+/**
+ * Обработка запроса enrichPreset - обогащение пресета связями на основе выбранных деталей
+ */
+function handleEnrichPreset($request): void
+{
+    $presetId = (int)($request->get('presetId') ?? 0);
+    $detailIdsRaw = $request->get('detailIds');
+    $binding = $request->get('binding') === 'true' || $request->get('binding') === true;
+    $existingDetailId = (int)($request->get('existingDetailId') ?? 0);
+    $offerIdsRaw = $request->get('offerIds');
+    $siteId = $request->get('siteId') ?: SITE_ID;
+
+    if ($presetId <= 0) {
+        sendJsonResponse(['error' => 'Missing parameter', 'message' => 'Параметр presetId обязателен'], 400);
+    }
+
+    if (empty($detailIdsRaw)) {
+        sendJsonResponse(['error' => 'Missing parameter', 'message' => 'Параметр detailIds обязателен'], 400);
+    }
+
+    $detailIds = is_array($detailIdsRaw) ? $detailIdsRaw : explode(',', (string)$detailIdsRaw);
+    $detailIds = array_map('intval', $detailIds);
+    $detailIds = array_filter($detailIds, function($id) { return $id > 0; });
+
+    if (empty($detailIds)) {
+        sendJsonResponse(['error' => 'Invalid parameter', 'message' => 'Некорректные ID деталей'], 400);
+    }
+
+    try {
+        $detailHandler = new \Prospektweb\Calc\Services\DetailHandler();
+        $rootDetailId = null;
+
+        // Логика определения корневой детали
+        if (count($detailIds) === 1 && !$binding) {
+            // 1 деталь + binding=false → используем выбранную деталь
+            $rootDetailId = $detailIds[0];
+        } elseif (count($detailIds) >= 1 && $binding && $existingDetailId > 0) {
+            // 1+ деталей + binding=true → создаём скрепление (старая + новые)
+            $allDetailIds = array_merge([$existingDetailId], $detailIds);
+            $allDetailIds = array_unique($allDetailIds);
+            
+            $groupResult = $detailHandler->addGroup([
+                'detailIds' => $allDetailIds,
+                'offerIds' => [],
+            ]);
+            
+            if ($groupResult['status'] !== 'ok') {
+                sendJsonResponse([
+                    'error' => 'Group creation failed',
+                    'message' => $groupResult['message'] ?? 'Не удалось создать скрепление'
+                ], 500);
+            }
+            
+            $rootDetailId = $groupResult['group']['id'];
+        } elseif (count($detailIds) >= 2 && !$binding) {
+            // 2+ деталей + binding=false → создаём скрепление (только новые)
+            $groupResult = $detailHandler->addGroup([
+                'detailIds' => $detailIds,
+                'offerIds' => [],
+            ]);
+            
+            if ($groupResult['status'] !== 'ok') {
+                sendJsonResponse([
+                    'error' => 'Group creation failed',
+                    'message' => $groupResult['message'] ?? 'Не удалось создать скрепление'
+                ], 500);
+            }
+            
+            $rootDetailId = $groupResult['group']['id'];
+        } else {
+            sendJsonResponse([
+                'error' => 'Invalid parameters',
+                'message' => 'Некорректные параметры для создания/обогащения'
+            ], 400);
+        }
+
+        // Обогащаем пресет
+        $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+        $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $rootDetailId);
+
+        logInfo(sprintf(
+            'EnrichPreset success: presetId=%d, rootDetailId=%d, binding=%s',
+            $presetId,
+            $rootDetailId,
+            $binding ? 'true' : 'false'
+        ));
+
+        sendJsonResponse([
+            'success' => true,
+            'data' => $initPayload,
+        ]);
+    } catch (\Exception $e) {
+        logError('EnrichPreset error: ' . $e->getMessage());
+        sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
+    }
 }
 
 /**

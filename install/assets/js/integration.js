@@ -355,6 +355,8 @@
 
         async handleSelectDetailsRequest(message, origin) {
             const requestPayload = message.payload || {};
+            const binding = requestPayload.binding || false;
+            
             // Получить iblockId для CALC_DETAILS из initData
             const calcDetails = this.findIblockByCode('CALC_DETAILS');
             const iblockId = calcDetails?.id || requestPayload.iblockId || null;
@@ -367,14 +369,48 @@
                 lang: lang,
             });
 
-            await this.sendSelectDetailsResponse({
-                ids: selectedIds,
-                iblockId: iblockId,
-                iblockType: iblockType,
-                lang: lang,
-                requestId: message.requestId,
-                origin: origin,
-            });
+            // Режим тишины - 0 деталей выбрано
+            if (!selectedIds || selectedIds.length === 0) {
+                console.log('[BitrixBridge] No details selected, silent mode');
+                return;
+            }
+
+            try {
+                // Получаем presetId и существующую деталь
+                const presetId = this.initData?.preset?.id;
+                const existingDetails = this.initData?.preset?.properties?.CALC_DETAILS || [];
+                const existingDetailId = existingDetails.length > 0 ? existingDetails[0] : 0;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                // Вызываем обогащение пресета
+                const enrichResult = await this.enrichPreset({
+                    presetId: presetId,
+                    detailIds: selectedIds,
+                    binding: binding,
+                    existingDetailId: existingDetailId,
+                    offerIds: this.config.offerIds,
+                    siteId: this.config.siteId,
+                });
+
+                if (enrichResult.success && enrichResult.data) {
+                    // Обновляем локальный initData
+                    this.initData = enrichResult.data;
+                    
+                    // Отправляем INIT message вместо SELECT_DETAILS_RESPONSE
+                    this.sendPwrtMessage('INIT', enrichResult.data, message.requestId, origin);
+                } else {
+                    throw new Error(enrichResult.message || 'Ошибка обогащения пресета');
+                }
+            } catch (error) {
+                console.error('[BitrixBridge] Error during preset enrichment', error);
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка обогащения пресета',
+                    details: error.message,
+                }, message.requestId, origin);
+            }
         }
 
         async handleRefreshRequest(message, origin) {
@@ -1731,6 +1767,64 @@
                 this.logBridge('[BitrixBridge] AJAX getInitData failed', {
                     durationMs: Math.round(duration),
                     status: 'error',
+                    message: error.message,
+                });
+                throw error;
+            }
+        }
+
+        /**
+         * Обогащение пресета связями на основе выбранных деталей
+         * @param {Object} params - параметры обогащения
+         * @returns {Promise<Object>}
+         */
+        async enrichPreset(params) {
+            const url = this.config.ajaxEndpoint +
+                '?action=enrichPreset' +
+                '&presetId=' + encodeURIComponent(params.presetId) +
+                '&detailIds=' + encodeURIComponent(params.detailIds.join(',')) +
+                '&binding=' + encodeURIComponent(params.binding ? 'true' : 'false') +
+                '&existingDetailId=' + encodeURIComponent(params.existingDetailId || 0) +
+                '&offerIds=' + encodeURIComponent(params.offerIds.join(',')) +
+                '&siteId=' + encodeURIComponent(params.siteId) +
+                '&sessid=' + encodeURIComponent(this.config.sessid);
+
+            console.log('[BitrixBridge] AJAX enrichPreset start', {
+                presetId: params.presetId,
+                detailIds: params.detailIds,
+                binding: params.binding,
+                existingDetailId: params.existingDetailId,
+            });
+
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+
+                if (!response.ok) {
+                    console.error('[BitrixBridge] AJAX enrichPreset error response', {
+                        status: response.status,
+                    });
+                    throw new Error('HTTP error ' + response.status);
+                }
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    console.error('[BitrixBridge] AJAX enrichPreset business error', {
+                        message: data.message || data.error,
+                    });
+                    throw new Error(data.message || data.error || 'Ошибка обогащения пресета');
+                }
+
+                console.log('[BitrixBridge] AJAX enrichPreset success');
+
+                return data;
+            } catch (error) {
+                console.error('[BitrixBridge] AJAX enrichPreset failed', {
                     message: error.message,
                 });
                 throw error;

@@ -144,7 +144,7 @@ class DetailHandler
         try {
             $offerIds = $data['offerIds'] ?? [];
             $detailIds = $data['detailIds'] ?? [];
-            $name = $data['name'] ?? 'Группа скрепления';
+            $name = $data['name'] ?? ('Новая группа скрепления ' . $this->generateCosmicName());
             
             if (empty($detailIds)) {
                 return [
@@ -234,7 +234,7 @@ class DetailHandler
             }
             
             // 1. Создать новый элемент в CALC_STAGES
-            $configName = $detail['NAME'] . ' - Этап ' . (count($detail['CONFIGS']) + 1);
+            $configName = 'Этап #' . date('dmY_His');
             $configId = $this->createConfigElement($configName);
             
             if (!$configId) {
@@ -756,5 +756,21 @@ class DetailHandler
         );
         
         return 'Деталь #' . ($count + 1);
+    }
+
+    /**
+     * Генерировать космическое имя для скрепления
+     */
+    private function generateCosmicName(): string
+    {
+        $cosmicNames = [
+            'Andromeda', 'Orion', 'Nebula', 'Quasar', 'Pulsar', 
+            'Nova', 'Helios', 'Cosmos', 'Vega', 'Sirius',
+            'Altair', 'Rigel', 'Antares', 'Proxima', 'Kepler',
+            'Titan', 'Europa', 'Ganymede', 'Callisto', 'Triton',
+            'Hydrogen', 'Carbon', 'Oxygen', 'Neon', 'Argon'
+        ];
+        
+        return $cosmicNames[array_rand($cosmicNames)];
     }
 }
