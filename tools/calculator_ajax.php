@@ -566,7 +566,8 @@ function handleEnrichPreset($request): void
 
         // Обогащаем пресет
         $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
-        $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $rootDetailId);
+        $offerIds = parseOfferIds($offerIdsRaw);
+        $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $rootDetailId, $offerIds);
 
         logInfo(sprintf(
             'EnrichPreset success: presetId=%d, rootDetailId=%d, binding=%s',

@@ -35,10 +35,11 @@ class PresetEnrichmentService
      *
      * @param int $presetId ID пресета
      * @param int $rootDetailId ID корневой детали (может быть деталью или скреплением)
+     * @param array $offerIds ID торговых предложений для построения INIT payload
      * @return array Обновлённый INIT payload
      * @throws \Exception
      */
-    public function enrichPresetFromDetails(int $presetId, int $rootDetailId): array
+    public function enrichPresetFromDetails(int $presetId, int $rootDetailId, array $offerIds = []): array
     {
         if ($presetId <= 0) {
             throw new \Exception('Некорректный ID пресета');
@@ -61,8 +62,10 @@ class PresetEnrichmentService
         $this->updatePresetProperties($presetId, $linkedElements);
 
         // Возвращаем обновлённый INIT payload
-        // Нужно получить offerIds для построения payload
-        $offerIds = $this->getOffersForPreset($presetId);
+        // Если offerIds не переданы, пытаемся найти их
+        if (empty($offerIds)) {
+            $offerIds = $this->getOffersForPreset($presetId);
+        }
         
         $initPayloadService = new InitPayloadService();
         return $initPayloadService->prepareInitPayload($offerIds, SITE_ID, false);
@@ -378,14 +381,6 @@ class PresetEnrichmentService
 
         while ($offer = $result->Fetch()) {
             $offerIds[] = (int)$offer['ID'];
-        }
-
-        // Если не нашли офферов, возвращаем массив с одним элементом 0
-        // чтобы InitPayloadService мог построить payload
-        if (empty($offerIds)) {
-            // Возвращаем пустой массив, но это может привести к ошибке
-            // Лучше вернуть массив с dummy значением
-            $offerIds = [0];
         }
 
         return $offerIds;
