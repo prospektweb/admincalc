@@ -524,24 +524,35 @@ function handleEnrichPreset($request): void
         if (count($detailIds) === 1 && !$binding) {
             // 1 деталь + binding=false → используем выбранную деталь
             $rootDetailId = $detailIds[0];
-        } elseif (count($detailIds) >= 1 && $binding && $existingDetailId > 0) {
+        } elseif (count($detailIds) >= 1 && $binding) {
             // 1+ деталей + binding=true → создаём скрепление (старая + новые)
-            $allDetailIds = array_merge([$existingDetailId], $detailIds);
-            $allDetailIds = array_unique($allDetailIds);
+            $allDetailIds = $detailIds;
             
-            $groupResult = $detailHandler->addGroup([
-                'detailIds' => $allDetailIds,
-                'offerIds' => [],
-            ]);
-            
-            if ($groupResult['status'] !== 'ok') {
-                sendJsonResponse([
-                    'error' => 'Group creation failed',
-                    'message' => $groupResult['message'] ?? 'Не удалось создать скрепление'
-                ], 500);
+            // Добавляем существующую деталь, если она есть
+            if ($existingDetailId > 0) {
+                $allDetailIds = array_merge([$existingDetailId], $detailIds);
             }
             
-            $rootDetailId = $groupResult['group']['id'];
+            $allDetailIds = array_unique($allDetailIds);
+            
+            // Если только одна деталь, не создаём скрепление
+            if (count($allDetailIds) === 1) {
+                $rootDetailId = $allDetailIds[0];
+            } else {
+                $groupResult = $detailHandler->addGroup([
+                    'detailIds' => $allDetailIds,
+                    'offerIds' => [],
+                ]);
+                
+                if ($groupResult['status'] !== 'ok') {
+                    sendJsonResponse([
+                        'error' => 'Group creation failed',
+                        'message' => $groupResult['message'] ?? 'Не удалось создать скрепление'
+                    ], 500);
+                }
+                
+                $rootDetailId = $groupResult['group']['id'];
+            }
         } elseif (count($detailIds) >= 2 && !$binding) {
             // 2+ деталей + binding=false → создаём скрепление (только новые)
             $groupResult = $detailHandler->addGroup([

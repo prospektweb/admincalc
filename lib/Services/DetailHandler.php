@@ -49,7 +49,7 @@ class DetailHandler
             }
             
             // 2. Создать элемент в CALC_STAGES (пустой конфиг для первого этапа)
-            $configId = $this->createConfigElement($name);
+            $configId = $this->createConfigElement('Этап #' . date('dmY_His'));
             
             if (!$configId) {
                 // Откатываем создание детали
@@ -164,7 +164,7 @@ class DetailHandler
             }
             
             // 2. Создать конфиг для этапов скрепления
-            $configId = $this->createConfigElement($name . ' (скрепление)');
+            $configId = $this->createConfigElement('Этап #' . date('dmY_His'));
             
             if (!$configId) {
                 \CIBlockElement::Delete($groupId);
