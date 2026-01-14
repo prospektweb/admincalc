@@ -212,39 +212,32 @@
                 case 'REMOVE_OFFER_REQUEST':
                     this.handleRemoveOfferRequest(message, origin);
                     break;
-                case 'CALC_SETTINGS_REQUEST':
-                case 'CALC_EQUIPMENT_REQUEST':
-                case 'CALC_MATERIAL_VARIANT_REQUEST':
-                case 'CALC_OPERATION_VARIANT_REQUEST':
-                    console.log('[BitrixBridge][DEBUG] Matched CALC_*_REQUEST, calling handleCalcItemRequest', {
-                        type: message.type,
-                        payload: message.payload,
-                    });
-                    await this.handleCalcItemRequest(message, origin);
-                    break;
-                case 'SYNC_VARIANTS_REQUEST':
-                    await this.handleSyncVariantsRequest(message, origin);
-                    break;
-                case 'GET_DETAIL_REQUEST':
-                    await this.handleGetDetailRequest(message, origin);
-                    break;
                 case 'ADD_DETAIL_REQUEST':
                     await this.handleAddNewDetailRequest(message, origin);
                     break;
-                case 'ADD_NEW_GROUP_REQUEST':
-                    await this.handleAddNewGroupRequest(message, origin);
-                    break;
-                case 'ADD_NEW_STAGE_REQUEST':
-                    await this.handleAddNewStageRequest(message, origin);
+                case 'ADD_STAGE_REQUEST':
+                    await this.handleAddStageRequest(message, origin);
                     break;
                 case 'DELETE_STAGE_REQUEST':
                     await this.handleDeleteStageRequest(message, origin);
                     break;
-                case 'DELETE_DETAIL_REQUEST':
-                    await this.handleDeleteDetailRequest(message, origin);
+                case 'REMOVE_DETAIL_REQUEST':
+                    await this.handleRemoveDetailRequest(message, origin);
                     break;
-                case 'CHANGE_NAME_DETAIL_REQUEST':
-                    await this.handleChangeNameDetailRequest(message, origin);
+                case 'RENAME_DETAIL_REQUEST':
+                    await this.handleRenameDetailRequest(message, origin);
+                    break;
+                case 'CHANGE_SETTINGS_REQUEST':
+                    await this.handleChangeSettingsRequest(message, origin);
+                    break;
+                case 'CHANGE_OPERATION_VARIANT_REQUEST':
+                    await this.handleChangeOperationVariantRequest(message, origin);
+                    break;
+                case 'CHANGE_EQUIPMENT_REQUEST':
+                    await this.handleChangeEquipmentRequest(message, origin);
+                    break;
+                case 'CHANGE_MATERIAL_VARIANT_REQUEST':
+                    await this.handleChangeMaterialVariantRequest(message, origin);
                     break;
                 case 'CLEAR_PRESET_REQUEST':
                     await this.handleClearPresetRequest(message, origin);
@@ -255,10 +248,11 @@
                 default:
                     console.warn('[BitrixBridge][DEBUG] Unknown pwrt message type:', message.type);
                     console.warn('[BitrixBridge][DEBUG] Known types:', [
-                        'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'CALC_SETTINGS_REQUEST', 'CALC_EQUIPMENT_REQUEST',
-                        'SYNC_VARIANTS_REQUEST', 'GET_DETAIL_REQUEST', 'ADD_DETAIL_REQUEST', 
-                        'ADD_NEW_GROUP_REQUEST', 'ADD_NEW_STAGE_REQUEST', 
-                        'DELETE_STAGE_REQUEST', 'DELETE_DETAIL_REQUEST', 'CHANGE_NAME_DETAIL_REQUEST', 'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
+                        'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'ADD_DETAIL_REQUEST', 
+                        'ADD_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'REMOVE_DETAIL_REQUEST', 
+                        'RENAME_DETAIL_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST', 
+                        'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST', 
+                        'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
         }
@@ -449,250 +443,11 @@
             });
         }
 
-        async handleCalcItemRequest(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleCalcItemRequest START', {
-                messageType: message.type,
-                payload: message.payload,
-                origin: origin,
-            });
-        
-            const responseType = message.type. replace('_REQUEST', '_RESPONSE');
-            console.log('[BitrixBridge][DEBUG] Response type will be:', responseType);
-        
-            const requestPayload = message.payload || {};
-            const iblockId = requestPayload.iblockId ?  parseInt(requestPayload. iblockId, 10) : null;
-            const iblockType = requestPayload.iblockType || null;
-            const lang = requestPayload. lang || null;
-            const id = requestPayload. id ?  parseInt(requestPayload.id, 10) : null;
-            
-            const isVariantRequest = message. type === 'CALC_OPERATION_VARIANT_REQUEST' 
-                || message. type === 'CALC_MATERIAL_VARIANT_REQUEST';
-        
-            console.log('[BitrixBridge][DEBUG] Parsed request params', {
-                id:  id,
-                iblockId: iblockId,
-                iblockType: iblockType,
-                lang:  lang,
-                isVariantRequest: isVariantRequest,
-            });
-        
-            const basePayload = {
-                id: id,
-                iblockId:  iblockId,
-                iblockType: iblockType,
-                lang: lang,
-            };
-        
-            if (! id || !iblockId) {
-                console. error('[BitrixBridge][DEBUG] Invalid id or iblockId', { id, iblockId });
-                this.sendPwrtMessage(
-                    responseType,
-                    { ... basePayload, status: 'error', message: 'Invalid id or iblockId' },
-                    message.requestId,
-                    origin
-                );
-                return;
-            }
-        
-            try {
-                console.log('[BitrixBridge][DEBUG] Calling fetchRefreshData with:', {
-                    iblockId: iblockId,
-                    iblockType: iblockType,
-                    ids: [id],
-                    includeParent: isVariantRequest,
-                });
-        
-                const refreshResult = await this.fetchRefreshData([
-                    {
-                        iblockId: iblockId,
-                        iblockType: iblockType,
-                        ids:  [id],
-                        includeParent:  isVariantRequest,  // <-- НОВОЕ
-                    },
-                ]);
-        
-                console. log('[BitrixBridge][DEBUG] fetchRefreshData result:', {
-                    isArray: Array.isArray(refreshResult),
-                    length: Array.isArray(refreshResult) ? refreshResult.length : 0,
-                    firstItem: Array.isArray(refreshResult) && refreshResult[0] ? refreshResult[0] : null,
-                    rawResult: refreshResult,
-                });
-        
-                const element = Array.isArray(refreshResult)
-                    && refreshResult[0]
-                    && Array.isArray(refreshResult[0].data)
-                    ? refreshResult[0]. data[0] || null
-                    : null;
-        
-                console. log('[BitrixBridge][DEBUG] Extracted element:', {
-                    hasElement: !!element,
-                    elementId: element ?  element.id : null,
-                    elementName: element ? element. name : null,
-                    elementProperties: element ? Object.keys(element. properties || {}) : [],
-                    hasItemParent: element ?  !!element.itemParent : false,  // <-- НОВОЕ:  логируем наличие родителя
-                    itemParentId: element && element.itemParent ? element.itemParent.id : null,
-                });
-        
-                const responsePayload = {
-                    ...basePayload,
-                    status: element ? 'ok' : 'not_found',
-                    item: element,
-                };
-        
-                console. log('[BitrixBridge][DEBUG] Sending response', {
-                    type: responseType,
-                    requestId: message.requestId,
-                    status: responsePayload. status,
-                    hasItem: !!responsePayload.item,
-                    hasItemParent: responsePayload.item ?  !!responsePayload.item.itemParent : false,
-                });
-        
-                this.sendPwrtMessage(
-                    responseType,
-                    responsePayload,
-                    message.requestId,
-                    origin
-                );
-        
-                console.log('[BitrixBridge][DEBUG] handleCalcItemRequest END - success');
-        
-            } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleCalcItemRequest ERROR', {
-                    error: error,
-                    message: error.message,
-                    stack: error.stack,
-                });
-                this.sendPwrtMessage(
-                    responseType,
-                    {
-                        ...basePayload,
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
-                    },
-                    message.requestId,
-                    origin
-                );
-            }
-        }
 
-        /**
-         * Обработка запроса синхронизации вариантов
-         * Использует тот же транспорт fetchRefreshData
-         */
-        async handleSyncVariantsRequest(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleSyncVariantsRequest START', {
-                messageType: message.type,
-                payload: message.payload,
-                origin: origin,
-            });
 
-            const payload = message.payload || {};
 
-            try {
-                // Используем тот же fetchRefreshData, но с флагом action
-                const result = await this.fetchRefreshData([
-                    {
-                        action: 'syncVariants',
-                        items: payload.items || [],
-                        offerIds: payload.offerIds || [],
-                        deletedConfigIds: payload.deletedConfigIds || [],
-                        context: payload.context || {},
-                    }
-                ]);
 
-                console.log('[BitrixBridge][DEBUG] handleSyncVariantsRequest result:', {
-                    isArray: Array.isArray(result),
-                    length: Array.isArray(result) ? result.length : 0,
-                    firstItem: Array.isArray(result) && result[0] ? result[0] : null,
-                });
 
-                // Ответ будет в result[0]
-                const responsePayload = (Array.isArray(result) && result[0])
-                    ? result[0]
-                    : { status: 'error', message: 'Empty response', items: [], canCalculate: false, stats: {} };
-
-                console.log('[BitrixBridge][DEBUG] Sending SYNC_VARIANTS_RESPONSE', {
-                    requestId: message.requestId,
-                    status: responsePayload.status,
-                    itemsCount: responsePayload.items ? responsePayload.items.length : 0,
-                    canCalculate: responsePayload.canCalculate,
-                });
-
-                this.sendPwrtMessage('SYNC_VARIANTS_RESPONSE', responsePayload, message.requestId, origin);
-
-                console.log('[BitrixBridge][DEBUG] handleSyncVariantsRequest END - success');
-
-            } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleSyncVariantsRequest ERROR', {
-                    error: error,
-                    message: error.message,
-                });
-
-                this.sendPwrtMessage(
-                    'SYNC_VARIANTS_RESPONSE',
-                    {
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
-                        items: [],
-                        canCalculate: false,
-                        stats: {},
-                    },
-                    message.requestId,
-                    origin
-                );
-            }
-        }
-
-        /**
-         * Обработка запроса получения детали с вложенными элементами
-         */
-        async handleGetDetailRequest(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleGetDetailRequest START', {
-                messageType: message.type,
-                payload: message.payload,
-                origin: origin,
-            });
-
-            const payload = message.payload || {};
-
-            try {
-                const result = await this.fetchRefreshData([
-                    {
-                        action: 'getDetailWithChildren',
-                        detailId: payload.detailId || 0,
-                    }
-                ]);
-
-                const responsePayload = (Array.isArray(result) && result[0])
-                    ? result[0]
-                    : { status: 'error', message: 'Empty response' };
-
-                console.log('[BitrixBridge][DEBUG] Sending GET_DETAIL_RESPONSE', {
-                    requestId: message.requestId,
-                    status: responsePayload.status,
-                });
-
-                this.sendPwrtMessage('GET_DETAIL_RESPONSE', responsePayload, message.requestId, origin);
-
-                console.log('[BitrixBridge][DEBUG] handleGetDetailRequest END - success');
-
-            } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleGetDetailRequest ERROR', {
-                    error: error,
-                    message: error.message,
-                });
-
-                this.sendPwrtMessage(
-                    'GET_DETAIL_RESPONSE',
-                    {
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
-                    },
-                    message.requestId,
-                    origin
-                );
-            }
-        }
 
         /**
          * Обработка запроса создания новой детали
@@ -854,25 +609,50 @@
             }
         }
 
+
+
         /**
-         * Обработка запроса создания группы скрепления
+         * Обработка запроса ADD_STAGE_REQUEST
+         * Payload: { detailId }
+         * Логика:
+         * 1. Создать новый этап с названием "Этап #" + date('dmY_His')
+         * 2. Добавить этап последним в свойство CALC_STAGES детали с ID = detailId
+         * 3. Добавить этап последним в свойство CALC_STAGES пресета
+         * 4. Обогатить пресет на основе первого элемента CALC_DETAILS
+         * 5. Отправить INIT
          */
-        async handleAddNewGroupRequest(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleAddNewGroupRequest START', {
+        async handleAddStageRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleAddStageRequest START', {
                 messageType: message.type,
                 payload: message.payload,
                 origin: origin,
             });
 
             const payload = message.payload || {};
+            const detailId = payload.detailId || 0;
 
             try {
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                if (detailId <= 0) {
+                    throw new Error('Detail ID обязателен');
+                }
+
+                // Вызываем добавление этапа через AJAX
                 const result = await this.fetchRefreshData([
                     {
-                        action: 'addNewGroup',
-                        offerIds: payload.offerIds || [],
-                        detailIds: payload.detailIds || [],
-                        name: payload.name || 'Группа скрепления',
+                        action: 'addStage',
+                        detailId: detailId,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
                     }
                 ]);
 
@@ -880,26 +660,31 @@
                     ? result[0]
                     : { status: 'error', message: 'Empty response' };
 
-                console.log('[BitrixBridge][DEBUG] Sending ADD_NEW_GROUP_RESPONSE', {
-                    requestId: message.requestId,
-                    status: responsePayload.status,
-                });
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось добавить этап');
+                }
 
-                this.sendPwrtMessage('ADD_NEW_GROUP_RESPONSE', responsePayload, message.requestId, origin);
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
 
-                console.log('[BitrixBridge][DEBUG] handleAddNewGroupRequest END - success');
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleAddStageRequest END - success, INIT sent');
 
             } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleAddNewGroupRequest ERROR', {
+                console.error('[BitrixBridge][DEBUG] handleAddStageRequest ERROR', {
                     error: error,
                     message: error.message,
                 });
 
                 this.sendPwrtMessage(
-                    'ADD_NEW_GROUP_RESPONSE',
+                    'ERROR',
                     {
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
+                        message: 'Ошибка добавления этапа',
+                        details: error && error.message ? error.message : 'Unknown error',
                     },
                     message.requestId,
                     origin
@@ -908,58 +693,12 @@
         }
 
         /**
-         * Обработка запроса добавления нового этапа
-         */
-        async handleAddNewStageRequest(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleAddNewStageRequest START', {
-                messageType: message.type,
-                payload: message.payload,
-                origin: origin,
-            });
-
-            const payload = message.payload || {};
-
-            try {
-                const result = await this.fetchRefreshData([
-                    {
-                        action: 'addNewStage',
-                        detailId: payload.detailId || 0,
-                    }
-                ]);
-
-                const responsePayload = (Array.isArray(result) && result[0])
-                    ? result[0]
-                    : { status: 'error', message: 'Empty response' };
-
-                console.log('[BitrixBridge][DEBUG] Sending ADD_NEW_STAGE_RESPONSE', {
-                    requestId: message.requestId,
-                    status: responsePayload.status,
-                });
-
-                this.sendPwrtMessage('ADD_NEW_STAGE_RESPONSE', responsePayload, message.requestId, origin);
-
-                console.log('[BitrixBridge][DEBUG] handleAddNewStageRequest END - success');
-
-            } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleAddNewStageRequest ERROR', {
-                    error: error,
-                    message: error.message,
-                });
-
-                this.sendPwrtMessage(
-                    'ADD_NEW_STAGE_RESPONSE',
-                    {
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
-                    },
-                    message.requestId,
-                    origin
-                );
-            }
-        }
-
-        /**
-         * Обработка запроса удаления этапа
+         * Обработка запроса DELETE_STAGE_REQUEST
+         * Payload: { stageId }
+         * Логика:
+         * 1. Физически удалить элемент инфоблока этапа с ID = stageId через \CIBlockElement::Delete($stageId)
+         * 2. Обогатить пресет на основе первого элемента CALC_DETAILS
+         * 3. Отправить INIT
          */
         async handleDeleteStageRequest(message, origin) {
             console.log('[BitrixBridge][DEBUG] handleDeleteStageRequest START', {
@@ -969,13 +708,30 @@
             });
 
             const payload = message.payload || {};
+            const stageId = payload.stageId || 0;
 
             try {
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                if (stageId <= 0) {
+                    throw new Error('Stage ID обязателен');
+                }
+
+                // Вызываем удаление этапа через AJAX
                 const result = await this.fetchRefreshData([
                     {
                         action: 'deleteStage',
-                        configId: payload.configId || 0,
-                        detailId: payload.detailId || 0,
+                        stageId: stageId,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
                     }
                 ]);
 
@@ -983,14 +739,19 @@
                     ? result[0]
                     : { status: 'error', message: 'Empty response' };
 
-                console.log('[BitrixBridge][DEBUG] Sending DELETE_STAGE_RESPONSE', {
-                    requestId: message.requestId,
-                    status: responsePayload.status,
-                });
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось удалить этап');
+                }
 
-                this.sendPwrtMessage('DELETE_STAGE_RESPONSE', responsePayload, message.requestId, origin);
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
 
-                console.log('[BitrixBridge][DEBUG] handleDeleteStageRequest END - success');
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleDeleteStageRequest END - success, INIT sent');
 
             } catch (error) {
                 console.error('[BitrixBridge][DEBUG] handleDeleteStageRequest ERROR', {
@@ -999,10 +760,10 @@
                 });
 
                 this.sendPwrtMessage(
-                    'DELETE_STAGE_RESPONSE',
+                    'ERROR',
                     {
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
+                        message: 'Ошибка удаления этапа',
+                        details: error && error.message ? error.message : 'Unknown error',
                     },
                     message.requestId,
                     origin
@@ -1011,22 +772,64 @@
         }
 
         /**
-         * Обработка запроса удаления детали
+         * Обработка запроса REMOVE_DETAIL_REQUEST
+         * Payload: { parentId, detailId }
+         * Логика (с рекурсивной чисткой):
+         * 1. isRootParent = (parentId === CALC_DETAILS[0] пресета)
+         * 2. Убрать detailId из DETAILS родителя (parentId)
+         * 3. Проверить сколько деталей осталось в DETAILS родителя:
+         *    А) Осталась 1 деталь:
+         *       → survivorId = эта оставшаяся деталь
+         *       → Удалить скрепление parentId физически
+         *       Если isRootParent = true:
+         *          → Обогатить пресет на основе survivorId
+         *       Иначе:
+         *          → Заменить parentId на survivorId в родителе parentId
+         *          → Рекурсивно проверить родителя
+         *          → Обогатить пресет на основе CALC_DETAILS[0]
+         *    Б) Осталось 0 деталей:
+         *       → Удалить скрепление parentId физически
+         *       → Рекурсивно убрать parentId из его родителя
+         *       → Обогатить пресет на основе CALC_DETAILS[0]
+         *    В) Осталось 2+ деталей:
+         *       → Скрепление остаётся
+         *       → Обогатить пресет на основе CALC_DETAILS[0]
+         * 4. Отправить INIT
          */
-        async handleDeleteDetailRequest(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleDeleteDetailRequest START', {
+        async handleRemoveDetailRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleRemoveDetailRequest START', {
                 messageType: message.type,
                 payload: message.payload,
                 origin: origin,
             });
 
             const payload = message.payload || {};
+            const parentId = payload.parentId || 0;
+            const detailId = payload.detailId || 0;
 
             try {
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                if (parentId <= 0 || detailId <= 0) {
+                    throw new Error('Parent ID и Detail ID обязательны');
+                }
+
+                // Вызываем удаление детали через AJAX
                 const result = await this.fetchRefreshData([
                     {
-                        action: 'deleteDetail',
-                        detailId: payload.detailId || 0,
+                        action: 'removeDetail',
+                        parentId: parentId,
+                        detailId: detailId,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
                     }
                 ]);
 
@@ -1034,26 +837,31 @@
                     ? result[0]
                     : { status: 'error', message: 'Empty response' };
 
-                console.log('[BitrixBridge][DEBUG] Sending DELETE_DETAIL_RESPONSE', {
-                    requestId: message.requestId,
-                    status: responsePayload.status,
-                });
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось удалить деталь');
+                }
 
-                this.sendPwrtMessage('DELETE_DETAIL_RESPONSE', responsePayload, message.requestId, origin);
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
 
-                console.log('[BitrixBridge][DEBUG] handleDeleteDetailRequest END - success');
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleRemoveDetailRequest END - success, INIT sent');
 
             } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleDeleteDetailRequest ERROR', {
+                console.error('[BitrixBridge][DEBUG] handleRemoveDetailRequest ERROR', {
                     error: error,
                     message: error.message,
                 });
 
                 this.sendPwrtMessage(
-                    'DELETE_DETAIL_RESPONSE',
+                    'ERROR',
                     {
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
+                        message: 'Ошибка удаления детали',
+                        details: error && error.message ? error.message : 'Unknown error',
                     },
                     message.requestId,
                     origin
@@ -1062,23 +870,42 @@
         }
 
         /**
-         * Обработка запроса изменения имени детали
+         * Обработка запроса RENAME_DETAIL_REQUEST
+         * Payload: { detailId, name }
+         * Логика:
+         * 1. Изменить NAME элемента детали через \CIBlockElement::Update()
+         * 2. **Ничего не отправлять** (режим тишины)
          */
-        async handleChangeNameDetailRequest(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleChangeNameDetailRequest START', {
+        async handleRenameDetailRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleRenameDetailRequest START', {
                 messageType: message.type,
                 payload: message.payload,
                 origin: origin,
             });
 
             const payload = message.payload || {};
+            const detailId = payload.detailId || 0;
+            const name = payload.name || '';
 
             try {
+                if (detailId <= 0) {
+                    console.error('[BitrixBridge] Detail ID обязателен');
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                if (!name) {
+                    console.error('[BitrixBridge] Name обязателен');
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                // Вызываем переименование детали через AJAX
                 const result = await this.fetchRefreshData([
                     {
-                        action: 'changeNameDetail',
-                        detailId: payload.detailId || 0,
-                        newName: payload.newName || '',
+                        action: 'renameDetail',
+                        detailId: detailId,
+                        name: name,
                     }
                 ]);
 
@@ -1086,26 +913,341 @@
                     ? result[0]
                     : { status: 'error', message: 'Empty response' };
 
-                console.log('[BitrixBridge][DEBUG] Sending CHANGE_NAME_DETAIL_RESPONSE', {
-                    requestId: message.requestId,
-                    status: responsePayload.status,
-                });
+                if (responsePayload.status !== 'ok') {
+                    console.error('[BitrixBridge] renameDetail error:', responsePayload.message);
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
 
-                this.sendPwrtMessage('CHANGE_NAME_DETAIL_RESPONSE', responsePayload, message.requestId, origin);
-
-                console.log('[BitrixBridge][DEBUG] handleChangeNameDetailRequest END - success');
+                console.log('[BitrixBridge] renameDetail success for detailId:', detailId);
+                // В режиме тишины НЕ отправляем ответ обратно во фрейм
 
             } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleChangeNameDetailRequest ERROR', {
+                console.error('[BitrixBridge][DEBUG] handleRenameDetailRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+                // В режиме тишины не отправляем ошибку
+            }
+        }
+
+        /**
+         * Обработка запроса CHANGE_SETTINGS_REQUEST
+         * Payload: { settingsId, stageId }
+         * Логика:
+         * 1. Обновить свойство CALC_SETTINGS в этапе stageId значением settingsId
+         * 2. Взять первый ID из CALC_DETAILS пресета
+         * 3. Обогатить пресет на его основе
+         * 4. Отправить INIT
+         */
+        async handleChangeSettingsRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeSettingsRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const settingsId = payload.settingsId || 0;
+            const stageId = payload.stageId || 0;
+
+            try {
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                if (stageId <= 0) {
+                    throw new Error('Stage ID обязателен');
+                }
+
+                // Вызываем обновление через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeSettings',
+                        settingsId: settingsId,
+                        stageId: stageId,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось обновить настройки');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleChangeSettingsRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeSettingsRequest ERROR', {
                     error: error,
                     message: error.message,
                 });
 
                 this.sendPwrtMessage(
-                    'CHANGE_NAME_DETAIL_RESPONSE',
+                    'ERROR',
                     {
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
+                        message: 'Ошибка обновления настроек',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+            }
+        }
+
+        /**
+         * Обработка запроса CHANGE_OPERATION_VARIANT_REQUEST
+         * Payload: { operationVariantId, stageId }
+         * Логика:
+         * 1. Обновить свойство OPERATION_VARIANT в этапе stageId значением operationVariantId
+         * 2. Взять первый ID из CALC_DETAILS пресета
+         * 3. Обогатить пресет на его основе
+         * 4. Отправить INIT
+         */
+        async handleChangeOperationVariantRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeOperationVariantRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const operationVariantId = payload.operationVariantId || 0;
+            const stageId = payload.stageId || 0;
+
+            try {
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                if (stageId <= 0) {
+                    throw new Error('Stage ID обязателен');
+                }
+
+                // Вызываем обновление через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeOperationVariant',
+                        operationVariantId: operationVariantId,
+                        stageId: stageId,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось обновить вариант операции');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleChangeOperationVariantRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeOperationVariantRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка обновления варианта операции',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+            }
+        }
+
+        /**
+         * Обработка запроса CHANGE_EQUIPMENT_REQUEST
+         * Payload: { equipmentId, stageId }
+         * Логика:
+         * 1. Обновить свойство EQUIPMENT в этапе stageId значением equipmentId
+         * 2. Взять первый ID из CALC_DETAILS пресета
+         * 3. Обогатить пресет на его основе
+         * 4. Отправить INIT
+         */
+        async handleChangeEquipmentRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeEquipmentRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const equipmentId = payload.equipmentId || 0;
+            const stageId = payload.stageId || 0;
+
+            try {
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                if (stageId <= 0) {
+                    throw new Error('Stage ID обязателен');
+                }
+
+                // Вызываем обновление через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeEquipment',
+                        equipmentId: equipmentId,
+                        stageId: stageId,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось обновить оборудование');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleChangeEquipmentRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeEquipmentRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка обновления оборудования',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+            }
+        }
+
+        /**
+         * Обработка запроса CHANGE_MATERIAL_VARIANT_REQUEST
+         * Payload: { materialVariantId, stageId }
+         * Логика:
+         * 1. Обновить свойство MATERIAL_VARIANT в этапе stageId значением materialVariantId
+         * 2. Взять первый ID из CALC_DETAILS пресета
+         * 3. Обогатить пресет на его основе
+         * 4. Отправить INIT
+         */
+        async handleChangeMaterialVariantRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeMaterialVariantRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const materialVariantId = payload.materialVariantId || 0;
+            const stageId = payload.stageId || 0;
+
+            try {
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                if (stageId <= 0) {
+                    throw new Error('Stage ID обязателен');
+                }
+
+                // Вызываем обновление через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeMaterialVariant',
+                        materialVariantId: materialVariantId,
+                        stageId: stageId,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось обновить вариант материала');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleChangeMaterialVariantRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeMaterialVariantRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка обновления варианта материала',
+                        details: error && error.message ? error.message : 'Unknown error',
                     },
                     message.requestId,
                     origin
