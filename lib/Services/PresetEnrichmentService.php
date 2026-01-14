@@ -428,4 +428,96 @@ class PresetEnrichmentService
         // Записываем свойства пресета
         \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, $propertyValues);
     }
+
+    /**
+     * Добавить этап в пресет
+     *
+     * @param int $presetId ID пресета
+     * @param int $stageId ID этапа
+     * @return void
+     * @throws \Exception
+     */
+    public function addStageToPreset(int $presetId, int $stageId): void
+    {
+        if ($presetId <= 0 || $stageId <= 0) {
+            throw new \Exception('Некорректные параметры');
+        }
+
+        // Получаем текущие этапы пресета
+        $currentStages = [];
+        $rs = \CIBlockElement::GetProperty(
+            $this->presetsIblockId,
+            $presetId,
+            [],
+            ['CODE' => 'CALC_STAGES']
+        );
+        
+        while ($prop = $rs->Fetch()) {
+            if (!empty($prop['VALUE'])) {
+                $currentStages[] = (int)$prop['VALUE'];
+            }
+        }
+
+        // Добавляем новый этап, если его еще нет
+        if (!in_array($stageId, $currentStages)) {
+            $currentStages[] = $stageId;
+        }
+
+        // Обновляем свойство CALC_STAGES
+        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
+            'CALC_STAGES' => $currentStages,
+        ]);
+    }
+
+    /**
+     * Обновить свойство этапа
+     *
+     * @param int $stageId ID этапа
+     * @param string $propertyCode Код свойства
+     * @param mixed $value Значение
+     * @return void
+     * @throws \Exception
+     */
+    public function updateStageProperty(int $stageId, string $propertyCode, $value): void
+    {
+        if ($stageId <= 0) {
+            throw new \Exception('Некорректный ID этапа');
+        }
+
+        if (empty($propertyCode)) {
+            throw new \Exception('Код свойства обязателен');
+        }
+
+        // Обновляем свойство этапа
+        \CIBlockElement::SetPropertyValuesEx($stageId, $this->stagesIblockId, [
+            $propertyCode => $value,
+        ]);
+    }
+
+    /**
+     * Получить первый ID из CALC_DETAILS пресета
+     *
+     * @param int $presetId ID пресета
+     * @return int|null Первый ID детали или null
+     */
+    public function getFirstDetailFromPreset(int $presetId): ?int
+    {
+        if ($presetId <= 0) {
+            return null;
+        }
+
+        // Получаем первую деталь из пресета
+        $rs = \CIBlockElement::GetProperty(
+            $this->presetsIblockId,
+            $presetId,
+            ['sort' => 'asc'],
+            ['CODE' => 'CALC_DETAILS']
+        );
+        
+        if ($prop = $rs->Fetch()) {
+            return !empty($prop['VALUE']) ? (int)$prop['VALUE'] : null;
+        }
+
+        return null;
+    }
 }
