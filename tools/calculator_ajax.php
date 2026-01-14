@@ -183,6 +183,10 @@ try {
             handleEnrichPreset($request);
             break;
 
+        case 'clearPreset':
+            handleClearPreset($request);
+            break;
+
         default:
             sendJsonResponse(['error' => 'Invalid action', 'message' => 'Неизвестное действие'], 400);
     }
@@ -593,6 +597,33 @@ function handleEnrichPreset($request): void
         ]);
     } catch (\Exception $e) {
         logError('EnrichPreset error: ' . $e->getMessage());
+        sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
+    }
+}
+
+/**
+ * Обработка запроса clearPreset - очистка свойств пресета
+ */
+function handleClearPreset($request): void
+{
+    $presetId = (int)($request->get('presetId') ?? 0);
+
+    if ($presetId <= 0) {
+        sendJsonResponse(['error' => 'Missing parameter', 'message' => 'Параметр presetId обязателен'], 400);
+    }
+
+    try {
+        $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+        $enrichmentService->clearPreset($presetId);
+
+        logInfo(sprintf('ClearPreset success: presetId=%d', $presetId));
+
+        sendJsonResponse([
+            'success' => true,
+            'data' => ['presetId' => $presetId],
+        ]);
+    } catch (\Exception $e) {
+        logError('ClearPreset error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
 }
