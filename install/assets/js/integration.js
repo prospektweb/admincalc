@@ -246,7 +246,7 @@
                 case 'CHANGE_NAME_DETAIL_REQUEST':
                     await this.handleChangeNameDetailRequest(message, origin);
                     break;
-                case 'CLEAR_PRESET':
+                case 'CLEAR_PRESET_REQUEST':
                     await this.handleClearPresetRequest(message, origin);
                     break;
                 case 'CLOSE_REQUEST':
@@ -258,7 +258,7 @@
                         'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'CALC_SETTINGS_REQUEST', 'CALC_EQUIPMENT_REQUEST',
                         'SYNC_VARIANTS_REQUEST', 'GET_DETAIL_REQUEST', 'ADD_DETAIL_REQUEST', 
                         'ADD_NEW_GROUP_REQUEST', 'ADD_NEW_STAGE_REQUEST', 
-                        'DELETE_STAGE_REQUEST', 'DELETE_DETAIL_REQUEST', 'CHANGE_NAME_DETAIL_REQUEST', 'CLEAR_PRESET', 'CLOSE_REQUEST'
+                        'DELETE_STAGE_REQUEST', 'DELETE_DETAIL_REQUEST', 'CHANGE_NAME_DETAIL_REQUEST', 'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
         }
