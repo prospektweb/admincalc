@@ -246,6 +246,9 @@
                 case 'CHANGE_NAME_DETAIL_REQUEST':
                     await this.handleChangeNameDetailRequest(message, origin);
                     break;
+                case 'CLEAR_PRESET':
+                    await this.handleClearPresetRequest(message, origin);
+                    break;
                 case 'CLOSE_REQUEST':
                     this.handleCloseRequest(message);
                     break;
@@ -255,7 +258,7 @@
                         'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'CALC_SETTINGS_REQUEST', 'CALC_EQUIPMENT_REQUEST',
                         'SYNC_VARIANTS_REQUEST', 'GET_DETAIL_REQUEST', 'ADD_DETAIL_REQUEST', 
                         'ADD_NEW_GROUP_REQUEST', 'ADD_NEW_STAGE_REQUEST', 
-                        'DELETE_STAGE_REQUEST', 'DELETE_DETAIL_REQUEST', 'CHANGE_NAME_DETAIL_REQUEST', 'CLOSE_REQUEST'
+                        'DELETE_STAGE_REQUEST', 'DELETE_DETAIL_REQUEST', 'CHANGE_NAME_DETAIL_REQUEST', 'CLEAR_PRESET', 'CLOSE_REQUEST'
                     ]);
             }
         }
@@ -693,6 +696,7 @@
 
         /**
          * Обработка запроса создания новой детали
+         * Создаёт деталь и обогащает пресет
          */
         async handleAddNewDetailRequest(message, origin) {
             console.log('[BitrixBridge][DEBUG] handleAddNewDetailRequest START', {
@@ -702,36 +706,83 @@
             });
 
             const payload = message.payload || {};
+            const binding = payload.binding || false;
+            const name = payload.name || '';
+            const offerIds = payload.offerIds || [];
 
             try {
-                // Используем fetchRefreshData с action
-                const result = await this.fetchRefreshData([
+                // Получаем presetId и существующую деталь из initData
+                const presetId = this.initData?.preset?.id;
+                const existingDetails = this.initData?.preset?.properties?.CALC_DETAILS || [];
+                const existingDetailId = existingDetails.length > 0 ? existingDetails[0] : 0;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                // Шаг 1: Создаём новую деталь (с 1 этапом, который создаётся автоматически)
+                const createResult = await this.fetchRefreshData([
                     {
                         action: 'addNewDetail',
-                        offerIds: payload.offerIds || [],
-                        name: payload.name || '',
+                        offerIds: offerIds,
+                        name: name,
                     }
                 ]);
 
-                console.log('[BitrixBridge][DEBUG] handleAddNewDetailRequest result:', {
-                    isArray: Array.isArray(result),
-                    length: Array.isArray(result) ? result.length : 0,
-                    firstItem: Array.isArray(result) && result[0] ? result[0] : null,
+                console.log('[BitrixBridge][DEBUG] Detail created:', {
+                    isArray: Array.isArray(createResult),
+                    length: Array.isArray(createResult) ? createResult.length : 0,
+                    firstItem: Array.isArray(createResult) && createResult[0] ? createResult[0] : null,
                 });
 
-                // Ответ будет в result[0]
-                const responsePayload = (Array.isArray(result) && result[0])
-                    ? result[0]
+                const createResponsePayload = (Array.isArray(createResult) && createResult[0])
+                    ? createResult[0]
                     : { status: 'error', message: 'Empty response' };
 
-                console.log('[BitrixBridge][DEBUG] Sending ADD_NEW_DETAIL_RESPONSE', {
-                    requestId: message.requestId,
-                    status: responsePayload.status,
+                if (createResponsePayload.status !== 'ok') {
+                    throw new Error(createResponsePayload.message || 'Не удалось создать деталь');
+                }
+
+                const newDetailId = createResponsePayload.detail?.id;
+                if (!newDetailId) {
+                    throw new Error('ID новой детали не получен');
+                }
+
+                // Шаг 2: Определяем список деталей для обогащения
+                let detailIds = [newDetailId];
+                
+                if (binding && existingDetailId > 0) {
+                    // Если binding=true и есть существующая деталь, создаём скрепление
+                    detailIds = [newDetailId]; // Новая деталь будет в списке для создания скрепления
+                } else if (binding && existingDetailId === 0) {
+                    // Если binding=true но нет существующей детали, используем только новую
+                    detailIds = [newDetailId];
+                } else {
+                    // Если binding=false, используем только новую деталь
+                    detailIds = [newDetailId];
+                }
+
+                // Шаг 3: Вызываем обогащение пресета
+                const enrichResult = await this.enrichPreset({
+                    presetId: presetId,
+                    detailIds: detailIds,
+                    binding: binding,
+                    existingDetailId: existingDetailId,
+                    offerIds: this.config.offerIds,
+                    siteId: this.config.siteId,
                 });
 
-                this.sendPwrtMessage('ADD_NEW_DETAIL_RESPONSE', responsePayload, message.requestId, origin);
-
-                console.log('[BitrixBridge][DEBUG] handleAddNewDetailRequest END - success');
+                if (enrichResult.success && enrichResult.data) {
+                    // Обновляем локальный initData
+                    this.initData = enrichResult.data;
+                    
+                    // Шаг 4: Отправляем INIT message вместо ADD_DETAIL_RESPONSE
+                    this.sendPwrtMessage('INIT', enrichResult.data, message.requestId, origin);
+                    
+                    console.log('[BitrixBridge][DEBUG] handleAddNewDetailRequest END - success, INIT sent');
+                } else {
+                    throw new Error(enrichResult.message || 'Ошибка обогащения пресета');
+                }
 
             } catch (error) {
                 console.error('[BitrixBridge][DEBUG] handleAddNewDetailRequest ERROR', {
@@ -740,10 +791,10 @@
                 });
 
                 this.sendPwrtMessage(
-                    'ADD_NEW_DETAIL_RESPONSE',
+                    'ERROR',
                     {
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
+                        message: 'Ошибка создания детали',
+                        details: error && error.message ? error.message : 'Unknown error',
                     },
                     message.requestId,
                     origin
@@ -1059,6 +1110,65 @@
                     message.requestId,
                     origin
                 );
+            }
+        }
+
+        /**
+         * Обработка запроса очистки пресета
+         * Очищает свойства пресета без отправки ответа (режим тишины)
+         */
+        async handleClearPresetRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleClearPresetRequest START', {
+                messageType: message.type,
+                origin: origin,
+            });
+
+            try {
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+
+                if (!presetId) {
+                    console.error('[BitrixBridge] PresetId not found in initData');
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                // Вызываем очистку пресета через AJAX
+                const url = this.config.ajaxEndpoint +
+                    '?action=clearPreset' +
+                    '&presetId=' + encodeURIComponent(presetId) +
+                    '&sessid=' + encodeURIComponent(this.config.sessid);
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+
+                if (!response.ok) {
+                    console.error('[BitrixBridge] clearPreset HTTP error:', response.status);
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    console.error('[BitrixBridge] clearPreset business error:', data.message || data.error);
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                console.log('[BitrixBridge] clearPreset success for presetId:', presetId);
+                // В режиме тишины НЕ отправляем ответ обратно во фрейм
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleClearPresetRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+                // В режиме тишины не отправляем ошибку
             }
         }
 

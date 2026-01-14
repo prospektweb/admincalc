@@ -105,11 +105,18 @@ class PresetEnrichmentService
         }
 
         // Собираем этапы детали (CALC_STAGES или CALC_STAGES_BINDINGS)
+        // Для BINDING собираем из CALC_STAGES_BINDINGS, для DETAIL из CALC_STAGES
         $stageIds = [];
-        if ($detail['TYPE'] === 'BINDING' && !empty($detail['CALC_STAGES_BINDINGS'])) {
-            $stageIds = $detail['CALC_STAGES_BINDINGS'];
-        } elseif (!empty($detail['CALC_STAGES'])) {
-            $stageIds = $detail['CALC_STAGES'];
+        if ($detail['TYPE'] === 'BINDING') {
+            // Для BINDING используем CALC_STAGES_BINDINGS, если есть
+            if (!empty($detail['CALC_STAGES_BINDINGS'])) {
+                $stageIds = $detail['CALC_STAGES_BINDINGS'];
+            }
+        } else {
+            // Для обычной DETAIL используем CALC_STAGES
+            if (!empty($detail['CALC_STAGES'])) {
+                $stageIds = $detail['CALC_STAGES'];
+            }
         }
 
         foreach ($stageIds as $stageId) {
@@ -384,5 +391,41 @@ class PresetEnrichmentService
         }
 
         return $offerIds;
+    }
+
+    /**
+     * Очистить свойства пресета
+     *
+     * @param int $presetId ID пресета
+     * @return void
+     * @throws \Exception
+     */
+    public function clearPreset(int $presetId): void
+    {
+        if ($presetId <= 0) {
+            throw new \Exception('Некорректный ID пресета');
+        }
+
+        // Проверяем существование пресета
+        $preset = $this->getPresetById($presetId);
+        if (!$preset) {
+            throw new \Exception('Пресет не найден');
+        }
+
+        // Очищаем все свойства пресета
+        $propertyValues = [
+            'CALC_STAGES' => false,
+            'CALC_SETTINGS' => false,
+            'CALC_MATERIALS' => false,
+            'CALC_MATERIALS_VARIANTS' => false,
+            'CALC_OPERATIONS' => false,
+            'CALC_OPERATIONS_VARIANTS' => false,
+            'CALC_EQUIPMENT' => false,
+            'CALC_DETAILS' => false,
+            'CALC_DETAILS_VARIANTS' => false,
+        ];
+
+        // Записываем свойства пресета
+        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, $propertyValues);
     }
 }
