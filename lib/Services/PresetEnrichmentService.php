@@ -211,6 +211,12 @@ class PresetEnrichmentService
 
         // Записываем свойства пресета
         \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, $propertyValues);
+
+        // Сброс кэша для чтения актуальных данных
+        if (defined('BX_COMP_MANAGED_CACHE')) {
+            global $CACHE_MANAGER;
+            $CACHE_MANAGER->ClearByTag('iblock_id_' . $this->presetsIblockId);
+        }
     }
 
     /**
