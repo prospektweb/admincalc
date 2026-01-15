@@ -17,7 +17,7 @@ class DetailHandler
     
     public function __construct()
     {
-        if (!Loader::includeModule('iblock')) {
+        if (! Loader::includeModule('iblock')) {
             throw new \RuntimeException('Требуется модуль Bitrix iblock');
         }
         
@@ -26,6 +26,27 @@ class DetailHandler
         $this->detailsIblockId = $configManager->getIblockId('CALC_DETAILS');
         $this->stagesIblockId = $configManager->getIblockId('CALC_STAGES');
         $this->presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
+    }
+
+    /**
+     * Логирование для отладки
+     */
+    private function logDebug(string $label, $data = null): void
+    {
+        $logDir = $_SERVER['DOCUMENT_ROOT'] . '/local/logs';
+        $logFile = $logDir . '/detail_handler.log';
+
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0755, true);
+        }
+
+        $str = date('c') . ' [' . $label .  "]\n";
+        if ($data !== null) {
+            $str .= print_r($data, true) . "\n";
+        }
+        $str .= "-----------------------------\n";
+
+        file_put_contents($logFile, $str, FILE_APPEND | LOCK_EX);
     }
 
     /**
@@ -38,12 +59,12 @@ class DetailHandler
     {
         try {
             $offerIds = $data['offerIds'] ?? [];
-            $name = !empty($data['name']) ? $data['name'] : $this->generateDetailName();
+            $name = ! empty($data['name']) ? $data['name'] : $this->generateDetailName();
             
             // 1. Создать элемент в CALC_DETAILS с TYPE = DETAIL
             $detailId = $this->createDetailElement($name, 'DETAIL');
             
-            if (!$detailId) {
+            if (! $detailId) {
                 return [
                     'status' => 'error',
                     'message' => 'Не удалось создать деталь',
@@ -55,7 +76,7 @@ class DetailHandler
             
             if (!$configId) {
                 // Откатываем создание детали
-                \CIBlockElement::Delete($detailId);
+                \CIBlockElement:: Delete($detailId);
                 return [
                     'status' => 'error',
                     'message' => 'Не удалось создать конфигурацию',
@@ -118,7 +139,7 @@ class DetailHandler
             // Копируем деталь рекурсивно
             $result = $this->copyDetailRecursive($originalDetail);
             
-            if (!$result || $result['status'] !== 'ok') {
+            if (! $result || $result['status'] !== 'ok') {
                 return [
                     'status' => 'error',
                     'message' => 'Не удалось скопировать деталь',
@@ -146,7 +167,7 @@ class DetailHandler
         try {
             $offerIds = $data['offerIds'] ?? [];
             $detailIds = $data['detailIds'] ?? [];
-            $name = $data['name'] ?? ('Новая группа скрепления ' . $this->generateCosmicName());
+            $name = $data['name'] ??  ('Новая группа скрепления ' . $this->generateCosmicName());
             
             if (empty($detailIds)) {
                 return [
@@ -168,8 +189,8 @@ class DetailHandler
             // 2. Создать конфиг для этапов скрепления
             $configId = $this->createConfigElement('Этап #' . date('dmY_His'));
             
-            if (!$configId) {
-                \CIBlockElement::Delete($groupId);
+            if (! $configId) {
+                \CIBlockElement:: Delete($groupId);
                 return [
                     'status' => 'error',
                     'message' => 'Не удалось создать конфигурацию',
@@ -177,12 +198,12 @@ class DetailHandler
             }
             
             // 3. Заполнить свойство DETAILS массивом detailIds
-            \CIBlockElement::SetPropertyValuesEx($groupId, $this->detailsIblockId, [
+            \CIBlockElement:: SetPropertyValuesEx($groupId, $this->detailsIblockId, [
                 'DETAILS' => $detailIds,
             ]);
             
             // 4. Связать через CALC_STAGES (для всех типов деталей)
-            \CIBlockElement::SetPropertyValuesEx($groupId, $this->detailsIblockId, [
+            \CIBlockElement:: SetPropertyValuesEx($groupId, $this->detailsIblockId, [
                 'CALC_STAGES' => [$configId],
             ]);
             
@@ -250,7 +271,7 @@ class DetailHandler
             $existingConfigs = $detail['CONFIGS'];
             $existingConfigs[] = $configId;
             
-            \CIBlockElement::SetPropertyValuesEx($detailId, $this->detailsIblockId, [
+            \CIBlockElement:: SetPropertyValuesEx($detailId, $this->detailsIblockId, [
                 'CALC_STAGES' => $existingConfigs,
             ]);
             
@@ -280,7 +301,7 @@ class DetailHandler
     {
         try {
             $configId = (int)($data['configId'] ?? 0);
-            $detailId = (int)($data['detailId'] ?? 0);
+            $detailId = (int)($data['detailId'] ??  0);
             
             if ($configId <= 0 || $detailId <= 0) {
                 return [
@@ -300,7 +321,7 @@ class DetailHandler
             }
             
             // 1. Удалить элемент из CALC_STAGES
-            if (!\CIBlockElement::Delete($configId)) {
+            if (!\CIBlockElement:: Delete($configId)) {
                 return [
                     'status' => 'error',
                     'message' => 'Не удалось удалить конфигурацию',
@@ -313,7 +334,7 @@ class DetailHandler
                 return $id != $configId;
             });
             
-            \CIBlockElement::SetPropertyValuesEx($detailId, $this->detailsIblockId, [
+            \CIBlockElement:: SetPropertyValuesEx($detailId, $this->detailsIblockId, [
                 'CALC_STAGES' => array_values($newConfigs),
             ]);
             
@@ -364,7 +385,7 @@ class DetailHandler
             
             // 2. Удалить все конфиги
             foreach ($configIds as $configId) {
-                \CIBlockElement::Delete($configId);
+                \CIBlockElement:: Delete($configId);
             }
             
             // 3. Удалить деталь
@@ -417,7 +438,7 @@ class DetailHandler
             
             // 1. Обновить NAME элемента в CALC_DETAILS
             $el = new \CIBlockElement();
-            if (!$el->Update($detailId, ['NAME' => $newName])) {
+            if (! $el->Update($detailId, ['NAME' => $newName])) {
                 return [
                     'status' => 'error',
                     'message' => 'Не удалось обновить имя детали',
@@ -463,12 +484,12 @@ class DetailHandler
                 ];
             }
             
-            // Обновить NAME элемента через CIBlockElement::Update()
+            // Обновить NAME элемента через CIBlockElement:: Update()
             $el = new \CIBlockElement();
             if (!$el->Update($detailId, ['NAME' => $name])) {
                 return [
                     'status' => 'error',
-                    'message' => 'Не удалось обновить имя детали: ' . $el->LAST_ERROR,
+                    'message' => 'Не удалось обновить имя детали:  ' . $el->LAST_ERROR,
                 ];
             }
             
@@ -487,15 +508,21 @@ class DetailHandler
     }
 
     /**
-     * Удалить деталь из скрепления с рекурсивной логикой чистки
-     * 
-     * @param int $parentId ID родительского скрепления
-     * @param int $detailId ID детали для удаления
-     * @param int $presetId ID пресета
-     * @return array Ответ с информацией о результате операции
-     */
+    * Удалить деталь из скрепления с рекурсивной логикой чистки
+    * 
+    * @param int $parentId ID родительского скрепления
+    * @param int $detailId ID детали для удаления
+    * @param int $presetId ID пресета
+    * @return array Ответ с информацией о результате операции
+    */
     public function removeDetailFromBinding(int $parentId, int $detailId, int $presetId): array
     {
+        $this->logDebug('removeDetailFromBinding START', [
+            'parentId' => $parentId,
+            'detailId' => $detailId,
+            'presetId' => $presetId,
+        ]);
+
         try {
             if ($parentId <= 0 || $detailId <= 0 || $presetId <= 0) {
                 return [
@@ -509,8 +536,19 @@ class DetailHandler
             $firstDetailId = $presetDetails[0] ?? 0;
             $isRootParent = ($parentId === $firstDetailId);
 
+            $this->logDebug('removeDetailFromBinding presetDetails', [
+                'presetDetails' => $presetDetails,
+                'firstDetailId' => $firstDetailId,
+                'isRootParent' => $isRootParent,
+            ]);
+
             // Получаем родителя
             $parent = $this->getDetailById($parentId);
+            
+            $this->logDebug('removeDetailFromBinding parent', [
+                'parent' => $parent,
+            ]);
+
             if (!$parent || $parent['TYPE'] !== 'BINDING') {
                 return [
                     'status' => 'error',
@@ -520,17 +558,44 @@ class DetailHandler
 
             // Убираем detailId из DETAILS родителя
             $remainingDetails = array_filter($parent['DETAIL_IDS'], function($id) use ($detailId) {
-                return $id != $detailId;
+                return (int)$id !== (int)$detailId;
             });
             $remainingDetails = array_values($remainingDetails);
             $remainingCount = count($remainingDetails);
+
+            $this->logDebug('removeDetailFromBinding remaining', [
+                'originalDetailIds' => $parent['DETAIL_IDS'],
+                'detailIdToRemove' => $detailId,
+                'remainingDetails' => $remainingDetails,
+                'remainingCount' => $remainingCount,
+            ]);
 
             // Логика в зависимости от количества оставшихся деталей
             if ($remainingCount === 1) {
                 // А) Осталась 1 деталь
                 $survivorId = $remainingDetails[0];
                 
-                // Удаляем скрепление parentId физически
+                $this->logDebug('removeDetailFromBinding remainingCount=1', [
+                    'survivorId' => $survivorId,
+                    'isRootParent' => $isRootParent,
+                ]);
+
+                // СНАЧАЛА находим родителя и сохраняем его данные (пока скрепление ещё существует)
+                $grandParent = null;
+                $grandParentDetailIds = null;
+                if (! $isRootParent) {
+                    $grandParent = $this->findParentOfDetail($parentId, $presetId);
+                    if ($grandParent) {
+                        $grandParentDetailIds = $grandParent['DETAIL_IDS'];  // Сохраняем ДО удаления
+                    }
+                    
+                    $this->logDebug('removeDetailFromBinding grandParent BEFORE delete', [
+                        'grandParent' => $grandParent,
+                        'grandParentDetailIds' => $grandParentDetailIds,
+                    ]);
+                }
+
+                // ПОТОМ удаляем скрепление физически
                 $this->deleteDetailPhysically($parentId);
 
                 if ($isRootParent) {
@@ -543,11 +608,28 @@ class DetailHandler
                         'enrichmentDetailId' => $survivorId,
                     ];
                 } else {
-                    // Заменить parentId на survivorId в родителе parentId
-                    $grandParent = $this->findParentOfDetail($parentId, $presetId);
-                    if ($grandParent) {
-                        $this->replaceDetailInParent($grandParent['ID'], $parentId, $survivorId);
-                        // Рекурсивно проверить родителя (если нужно)
+                    // Заменить parentId на survivorId в родителе
+                    if ($grandParent && $grandParentDetailIds) {
+                        $this->logDebug('removeDetailFromBinding BEFORE replaceDetailInParent', [
+                            'grandParentId' => $grandParent['ID'],
+                            'grandParentDetailIds' => $grandParentDetailIds,
+                            'oldDetailId' => $parentId,
+                            'newDetailId' => $survivorId,
+                        ]);
+
+                        // Передаём сохранённые DETAIL_IDS, чтобы не читать из БД после удаления
+                        $this->replaceDetailInParent(
+                            $grandParent['ID'], 
+                            $parentId, 
+                            $survivorId, 
+                            $grandParentDetailIds
+                        );
+
+                        // Проверяем результат
+                        $updatedGrandParent = $this->getDetailById($grandParent['ID']);
+                        $this->logDebug('removeDetailFromBinding AFTER replaceDetailInParent', [
+                            'updatedGrandParentDetailIds' => $updatedGrandParent ?  $updatedGrandParent['DETAIL_IDS'] :  null,
+                        ]);
                     }
                     
                     return [
@@ -561,7 +643,26 @@ class DetailHandler
             } elseif ($remainingCount === 0) {
                 // Б) Осталось 0 деталей
                 
-                // Удаляем скрепление parentId физически
+                $this->logDebug('removeDetailFromBinding remainingCount=0', [
+                    'isRootParent' => $isRootParent,
+                ]);
+
+                // СНАЧАЛА находим родителя и сохраняем его данные (пока скрепление ещё существует)
+                $grandParent = null;
+                $grandParentDetailIds = null;
+                if (!$isRootParent) {
+                    $grandParent = $this->findParentOfDetail($parentId, $presetId);
+                    if ($grandParent) {
+                        $grandParentDetailIds = $grandParent['DETAIL_IDS'];
+                    }
+                    
+                    $this->logDebug('removeDetailFromBinding grandParent BEFORE delete (empty)', [
+                        'grandParent' => $grandParent,
+                        'grandParentDetailIds' => $grandParentDetailIds,
+                    ]);
+                }
+
+                // ПОТОМ удаляем скрепление физически
                 $this->deleteDetailPhysically($parentId);
 
                 if ($isRootParent) {
@@ -569,13 +670,12 @@ class DetailHandler
                     return [
                         'status' => 'ok',
                         'action' => 'binding_deleted_empty',
-                        'needsEnrichment' => false,  // Нечего обогащать
-                        'needsClear' => true,        // Нужно очистить пресет
+                        'needsEnrichment' => false,
+                        'needsClear' => true,
                     ];
                 }
 
                 // Рекурсивно убрать parentId из его родителя
-                $grandParent = $this->findParentOfDetail($parentId, $presetId);
                 if ($grandParent) {
                     return $this->removeDetailFromBinding($grandParent['ID'], $parentId, $presetId);
                 }
@@ -589,8 +689,13 @@ class DetailHandler
             } else {
                 // В) Осталось 2+ деталей
                 
+                $this->logDebug('removeDetailFromBinding remainingCount>=2', [
+                    'remainingCount' => $remainingCount,
+                    'remainingDetails' => $remainingDetails,
+                ]);
+
                 // Обновляем DETAILS родителя
-                \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
+                \CIBlockElement:: SetPropertyValuesEx($parentId, $this->detailsIblockId, [
                     'DETAILS' => $remainingDetails,
                 ]);
 
@@ -604,6 +709,11 @@ class DetailHandler
             }
 
         } catch (\Exception $e) {
+            $this->logDebug('removeDetailFromBinding EXCEPTION', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return [
                 'status' => 'error',
                 'message' => $e->getMessage(),
@@ -616,6 +726,8 @@ class DetailHandler
      */
     private function deleteDetailPhysically(int $detailId): void
     {
+        $this->logDebug('deleteDetailPhysically', ['detailId' => $detailId]);
+
         $detail = $this->getDetailById($detailId);
         if ($detail) {
             // Удалить все конфигурации
@@ -633,15 +745,32 @@ class DetailHandler
      */
     private function findParentOfDetail(int $detailId, int $presetId): ?array
     {
+        $this->logDebug('findParentOfDetail START', [
+            'detailId' => $detailId,
+            'presetId' => $presetId,
+        ]);
+
         $presetDetails = $this->getPresetDetails($presetId);
         
         if (empty($presetDetails)) {
+            $this->logDebug('findParentOfDetail presetDetails EMPTY');
             return null;
         }
 
         // Рекурсивный поиск родителя
         $rootDetailId = $presetDetails[0];
-        return $this->findParentRecursive($rootDetailId, $detailId);
+        
+        $this->logDebug('findParentOfDetail searching from root', [
+            'rootDetailId' => $rootDetailId,
+        ]);
+
+        $result = $this->findParentRecursive($rootDetailId, $detailId);
+        
+        $this->logDebug('findParentOfDetail RESULT', [
+            'result' => $result,
+        ]);
+
+        return $result;
     }
 
     /**
@@ -672,48 +801,74 @@ class DetailHandler
     }
 
     /**
-     * Заменить деталь в родителе
-     */
-    
-    private function replaceDetailInParent(int $parentId, int $oldDetailId, int $newDetailId): void
+    * Заменить деталь в родителе
+    * 
+    * @param int $parentId ID родителя
+    * @param int $oldDetailId ID старой детали
+    * @param int $newDetailId ID новой детали
+    * @param array|null $parentDetails Массив DETAIL_IDS родителя (если уже прочитан)
+    */
+    private function replaceDetailInParent(int $parentId, int $oldDetailId, int $newDetailId, ? array $parentDetails = null): void
     {
-        $parent = $this->getDetailById($parentId);
-        
-        if ($parent && $parent['TYPE'] === 'BINDING') {
-            $details = $parent['DETAIL_IDS'];
-            
-            $oldDetailId = (int)$oldDetailId;
-            $newDetailId = (int)$newDetailId;
-            
-            $replaced = false;
-            foreach ($details as $key => $value) {
-                if ((int)$value === $oldDetailId) {
-                    $details[$key] = $newDetailId;
-                    $replaced = true;
-                    break;
-                }
+        $this->logDebug('replaceDetailInParent START', [
+            'parentId' => $parentId,
+            'oldDetailId' => $oldDetailId,
+            'newDetailId' => $newDetailId,
+            'parentDetailsProvided' => $parentDetails !== null,
+        ]);
+
+        // Если передан массив деталей — используем его, иначе читаем из БД
+        if ($parentDetails === null) {
+            $parent = $this->getDetailById($parentId);
+            if (! $parent || $parent['TYPE'] !== 'BINDING') {
+                $this->logDebug('replaceDetailInParent parent NOT BINDING or NOT FOUND');
+                return;
             }
-            
-            if ($replaced) {
-                \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
-                    'DETAILS' => $details,
-                ]);
+            $details = $parent['DETAIL_IDS'];
+        } else {
+            $details = $parentDetails;
+        }
+
+        $this->logDebug('replaceDetailInParent details before', [
+            'details' => $details,
+        ]);
+
+        $oldDetailId = (int)$oldDetailId;
+        $newDetailId = (int)$newDetailId;
+        
+        $replaced = false;
+        foreach ($details as $key => $value) {
+            if ((int)$value === $oldDetailId) {
+                $details[$key] = $newDetailId;
+                $replaced = true;
+                break;
             }
         }
+        
+        $this->logDebug('replaceDetailInParent details after', [
+            'details' => $details,
+            'replaced' => $replaced,
+        ]);
+
+        if ($replaced) {
+            \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
+                'DETAILS' => $details,
+            ]);
+            
+            $this->logDebug('replaceDetailInParent SetPropertyValuesEx called');
+        }
     }
+
+
 
     /**
      * Получить детали пресета
      */
     private function getPresetDetails(int $presetId): array
     {
-        // Получаем ID инфоблока пресетов
-        $configManager = new \Prospektweb\Calc\Config\ConfigManager();
-        $presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
-        
-        $element = \CIBlockElement::GetList(
+        $element = \CIBlockElement:: GetList(
             [],
-            ['ID' => $presetId, 'IBLOCK_ID' => $presetsIblockId],  // ← Добавить IBLOCK_ID
+            ['ID' => $presetId, 'IBLOCK_ID' => $this->presetsIblockId],
             false,
             false,
             ['ID']
@@ -725,15 +880,15 @@ class DetailHandler
     
         // Получаем множественное свойство CALC_DETAILS
         $details = [];
-        $rs = \CIBlockElement::GetProperty(
-            $presetsIblockId,  // ← ИСПРАВИТЬ: было 0, нужен presetsIblockId
+        $rs = \CIBlockElement:: GetProperty(
+            $this->presetsIblockId,
             $presetId,
             [],
             ['CODE' => 'CALC_DETAILS']
         );
         
         while ($prop = $rs->Fetch()) {
-            if (!empty($prop['VALUE'])) {
+            if (! empty($prop['VALUE'])) {
                 $details[] = (int)$prop['VALUE'];
             }
         }
@@ -763,7 +918,7 @@ class DetailHandler
         ];
         
         // Если это группа (BINDING), загружаем вложенные детали
-        if ($detail['TYPE'] === 'BINDING' && !empty($detail['DETAIL_IDS'])) {
+        if ($detail['TYPE'] === 'BINDING' && ! empty($detail['DETAIL_IDS'])) {
             $result['detailIds'] = $detail['DETAIL_IDS'];
             $result['children'] = [];
             
@@ -815,12 +970,12 @@ class DetailHandler
     /**
      * Создать элемент детали
      */
-    private function createDetailElement(string $name, string $type): ?int
+    private function createDetailElement(string $name, string $type): ? int
     {
         $el = new \CIBlockElement();
         
         // Получаем ID значения свойства TYPE по XML_ID
-        // XML_ID для детали: "DETAIL", для группы скрепления: "BINDING"
+        // XML_ID для детали:  "DETAIL", для группы скрепления: "BINDING"
         $typeValueId = $this->getListPropertyValueId($this->detailsIblockId, 'TYPE', $type);
         
         $fields = [
@@ -834,7 +989,7 @@ class DetailHandler
         
         $id = $el->Add($fields);
         
-        return $id ? (int)$id : null;
+        return $id ?  (int)$id : null;
     }
 
     /**
@@ -860,7 +1015,7 @@ class DetailHandler
      */
     private function linkConfigToDetail(int $detailId, array $configIds): void
     {
-        \CIBlockElement::SetPropertyValuesEx($detailId, $this->detailsIblockId, [
+        \CIBlockElement:: SetPropertyValuesEx($detailId, $this->detailsIblockId, [
             'CALC_STAGES' => $configIds,
         ]);
     }
@@ -888,11 +1043,11 @@ class DetailHandler
         $type = $properties['TYPE']['VALUE_XML_ID'] ?? 'DETAIL';
         $configIds = is_array($properties['CALC_STAGES']['VALUE']) 
             ? $properties['CALC_STAGES']['VALUE'] 
-            : (!empty($properties['CALC_STAGES']['VALUE']) ? [$properties['CALC_STAGES']['VALUE']] : []);
+            : (! empty($properties['CALC_STAGES']['VALUE']) ? [$properties['CALC_STAGES']['VALUE']] : []);
         
         $detailIds = is_array($properties['DETAILS']['VALUE']) 
             ? $properties['DETAILS']['VALUE'] 
-            : (!empty($properties['DETAILS']['VALUE']) ? [$properties['DETAILS']['VALUE']] : []);
+            : (! empty($properties['DETAILS']['VALUE']) ? [$properties['DETAILS']['VALUE']] : []);
         
         return [
             'ID' => (int)$fields['ID'],
@@ -914,7 +1069,7 @@ class DetailHandler
         
         $configs = [];
         
-        $result = \CIBlockElement::GetList(
+        $result = \CIBlockElement:: GetList(
             [],
             ['ID' => $configIds, 'IBLOCK_ID' => $this->stagesIblockId],
             false,
@@ -937,12 +1092,12 @@ class DetailHandler
      */
     private function copyDetailRecursive(array $originalDetail): array
     {
-        $newName = $originalDetail['NAME'] . ' (копия)';
+        $newName = $originalDetail['NAME'] .  ' (копия)';
         
         // Создаем копию детали
         $newDetailId = $this->createDetailElement($newName, $originalDetail['TYPE']);
         
-        if (!$newDetailId) {
+        if (! $newDetailId) {
             return [
                 'status' => 'error',
                 'message' => 'Не удалось создать копию детали',
@@ -961,7 +1116,7 @@ class DetailHandler
         // Связываем конфигурации с новой деталью (используем CALC_STAGES для всех типов)
         $this->linkConfigToDetail($newDetailId, $newConfigIds);
         
-        // Рекурсивно копируем вложенные детали для групп
+        // Рекур��ивно копируем вложенные детали для групп
         $children = [];
         if ($originalDetail['TYPE'] === 'BINDING' && !empty($originalDetail['DETAIL_IDS'])) {
             $newDetailIds = [];
@@ -978,7 +1133,7 @@ class DetailHandler
             }
             
             // Связываем вложенные детали
-            \CIBlockElement::SetPropertyValuesEx($newDetailId, $this->detailsIblockId, [
+            \CIBlockElement:: SetPropertyValuesEx($newDetailId, $this->detailsIblockId, [
                 'DETAILS' => $newDetailIds,
             ]);
         }
@@ -1031,7 +1186,7 @@ class DetailHandler
         
         // Копируем значения свойств
         foreach ($properties as $prop) {
-            if (!empty($prop['VALUE'])) {
+            if (! empty($prop['VALUE'])) {
                 $newFields['PROPERTY_VALUES'][$prop['CODE']] = $prop['VALUE'];
             }
         }
