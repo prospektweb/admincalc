@@ -14,7 +14,7 @@ class DetailHandler
     private const MODULE_ID = 'prospektweb.calc';
 
     private int $detailsIblockId;
-    private int $configIblockId;
+    private int $stagesIblockId;
     private int $presetsIblockId;
     
     public function __construct()
@@ -24,7 +24,7 @@ class DetailHandler
         }
         
         $this->detailsIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_DETAILS', 0);
-        $this->configIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_STAGES', 0);
+        $this->stagesIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_STAGES', 0);
         $configManager = new \Prospektweb\Calc\Config\ConfigManager();
         $this->presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
     }
@@ -836,7 +836,7 @@ class DetailHandler
         $el = new \CIBlockElement();
         
         $fields = [
-            'IBLOCK_ID' => $this->configIblockId,
+            'IBLOCK_ID' => $this->stagesIblockId,
             'NAME' => $name,
             'ACTIVE' => 'Y',
         ];
@@ -907,7 +907,7 @@ class DetailHandler
         
         $result = \CIBlockElement::GetList(
             [],
-            ['ID' => $configIds, 'IBLOCK_ID' => $this->configIblockId],
+            ['ID' => $configIds, 'IBLOCK_ID' => $this->stagesIblockId],
             false,
             false,
             ['ID', 'NAME']
@@ -998,7 +998,7 @@ class DetailHandler
     {
         $element = \CIBlockElement::GetList(
             [],
-            ['ID' => $configId, 'IBLOCK_ID' => $this->configIblockId],
+            ['ID' => $configId, 'IBLOCK_ID' => $this->stagesIblockId],
             false,
             false,
             ['ID', 'NAME']
@@ -1014,7 +1014,7 @@ class DetailHandler
         $el = new \CIBlockElement();
         
         $newFields = [
-            'IBLOCK_ID' => $this->configIblockId,
+            'IBLOCK_ID' => $this->stagesIblockId,
             'NAME' => $fields['NAME'] . ' (копия)',
             'ACTIVE' => 'Y',
             'PROPERTY_VALUES' => [],
