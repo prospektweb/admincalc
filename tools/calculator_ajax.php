@@ -607,6 +607,8 @@ function handleEnrichPreset($request): void
 function handleClearPreset($request): void
 {
     $presetId = (int)($request->get('presetId') ?? 0);
+    $offerIdsRaw = $request->get('offerIds');
+    $siteId = $request->get('siteId') ?: SITE_ID;
 
     if ($presetId <= 0) {
         sendJsonResponse(['error' => 'Missing parameter', 'message' => 'Параметр presetId обязателен'], 400);
@@ -618,9 +620,14 @@ function handleClearPreset($request): void
 
         logInfo(sprintf('ClearPreset success: presetId=%d', $presetId));
 
+        // Получаем обновленный INIT payload после очистки
+        $offerIds = parseOfferIds($offerIdsRaw);
+        $initPayloadService = new InitPayloadService();
+        $initPayload = $initPayloadService->prepareInitPayload($offerIds, $siteId, false);
+
         sendJsonResponse([
             'success' => true,
-            'data' => ['presetId' => $presetId],
+            'data' => $initPayload,
         ]);
     } catch (\Exception $e) {
         logError('ClearPreset error: ' . $e->getMessage());

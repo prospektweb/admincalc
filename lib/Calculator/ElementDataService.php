@@ -341,6 +341,86 @@ class ElementDataService
                             ];
                         }
                         continue 2;
+                    
+                    case 'changeOperationQuantity':
+                        // New handler for CHANGE_OPERATION_QUANTITY_REQUEST (silent mode)
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $quantityValue = $request['quantityValue'] ?? 0;
+                        
+                        if ($stageId > 0) {
+                            $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
+                            
+                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                'OPERATION_QUANTITY' => $quantityValue,
+                            ]);
+                            
+                            $result[] = [
+                                'status' => 'ok',
+                                'stageId' => $stageId,
+                            ];
+                        } else {
+                            $result[] = [
+                                'status' => 'error',
+                                'message' => 'Stage ID обязателен',
+                            ];
+                        }
+                        continue 2;
+                    
+                    case 'changeMaterialQuantity':
+                        // New handler for CHANGE_MATERIAL_QUANTITY_REQUEST (silent mode)
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $quantityValue = $request['quantityValue'] ?? 0;
+                        
+                        if ($stageId > 0) {
+                            $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
+                            
+                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                'MATERIAL_QUANTITY' => $quantityValue,
+                            ]);
+                            
+                            $result[] = [
+                                'status' => 'ok',
+                                'stageId' => $stageId,
+                            ];
+                        } else {
+                            $result[] = [
+                                'status' => 'error',
+                                'message' => 'Stage ID обязателен',
+                            ];
+                        }
+                        continue 2;
+                    
+                    case 'changeCustomFieldsValue':
+                        // New handler for CHANGE_CUSTOM_FIELDS_VALUE_REQUEST (silent mode)
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $customFieldsValue = $request['customFieldsValue'] ?? [];
+                        
+                        if ($stageId > 0 && !empty($customFieldsValue)) {
+                            $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
+                            
+                            $values = [];
+                            foreach ($customFieldsValue as $field) {
+                                $values[] = [
+                                    'VALUE' => $field['CODE'],        // CODE идёт в VALUE
+                                    'DESCRIPTION' => $field['VALUE'], // VALUE идёт в DESCRIPTION
+                                ];
+                            }
+                            
+                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                'CUSTOM_FIELDS_VALUE' => $values,
+                            ]);
+                            
+                            $result[] = [
+                                'status' => 'ok',
+                                'stageId' => $stageId,
+                            ];
+                        } else {
+                            $result[] = [
+                                'status' => 'error',
+                                'message' => 'Stage ID и customFieldsValue обязательны',
+                            ];
+                        }
+                        continue 2;
                         
                     case 'deleteDetail':
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();

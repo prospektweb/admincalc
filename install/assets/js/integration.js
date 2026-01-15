@@ -239,6 +239,15 @@
                 case 'CHANGE_MATERIAL_VARIANT_REQUEST':
                     await this.handleChangeMaterialVariantRequest(message, origin);
                     break;
+                case 'CHANGE_OPERATION_QUANTITY_REQUEST':
+                    await this.handleChangeOperationQuantity(message, origin);
+                    break;
+                case 'CHANGE_MATERIAL_QUANTITY_REQUEST':
+                    await this.handleChangeMaterialQuantity(message, origin);
+                    break;
+                case 'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST':
+                    await this.handleChangeCustomFieldsValue(message, origin);
+                    break;
                 case 'CLEAR_PRESET_REQUEST':
                     await this.handleClearPresetRequest(message, origin);
                     break;
@@ -251,8 +260,9 @@
                         'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'ADD_DETAIL_REQUEST', 
                         'ADD_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'REMOVE_DETAIL_REQUEST', 
                         'RENAME_DETAIL_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST', 
-                        'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST', 
-                        'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
+                        'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
+                        'CHANGE_OPERATION_QUANTITY_REQUEST', 'CHANGE_MATERIAL_QUANTITY_REQUEST', 
+                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
         }
@@ -1256,8 +1266,177 @@
         }
 
         /**
+         * Обработка запроса CHANGE_OPERATION_QUANTITY_REQUEST (silent mode)
+         * Payload: { stageId, quantityValue }
+         * Логика:
+         * 1. Обновить свойство OPERATION_QUANTITY в этапе stageId значением quantityValue
+         * 2. Ничего не отправлять (режим тишины)
+         */
+        async handleChangeOperationQuantity(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeOperationQuantity START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const stageId = payload.stageId || 0;
+            const quantityValue = payload.quantityValue || 0;
+
+            try {
+                if (stageId <= 0) {
+                    console.error('[BitrixBridge] Stage ID обязателен');
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                // Вызываем обновление через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeOperationQuantity',
+                        stageId: stageId,
+                        quantityValue: quantityValue,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    console.error('[BitrixBridge] changeOperationQuantity error:', responsePayload.message);
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                console.log('[BitrixBridge] changeOperationQuantity success for stageId:', stageId);
+                // В режиме тишины НЕ отправляем ответ обратно во фрейм
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeOperationQuantity ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+                // В режиме тишины не отправляем ошибку
+            }
+        }
+
+        /**
+         * Обработка запроса CHANGE_MATERIAL_QUANTITY_REQUEST (silent mode)
+         * Payload: { stageId, quantityValue }
+         * Логика:
+         * 1. Обновить свойство MATERIAL_QUANTITY в этапе stageId значением quantityValue
+         * 2. Ничего не отправлять (режим тишины)
+         */
+        async handleChangeMaterialQuantity(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeMaterialQuantity START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const stageId = payload.stageId || 0;
+            const quantityValue = payload.quantityValue || 0;
+
+            try {
+                if (stageId <= 0) {
+                    console.error('[BitrixBridge] Stage ID обязателен');
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                // Вызываем обновление через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeMaterialQuantity',
+                        stageId: stageId,
+                        quantityValue: quantityValue,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    console.error('[BitrixBridge] changeMaterialQuantity error:', responsePayload.message);
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                console.log('[BitrixBridge] changeMaterialQuantity success for stageId:', stageId);
+                // В режиме тишины НЕ отправляем ответ обратно во фрейм
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeMaterialQuantity ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+                // В режиме тишины не отправляем ошибку
+            }
+        }
+
+        /**
+         * Обработка запроса CHANGE_CUSTOM_FIELDS_VALUE_REQUEST (silent mode)
+         * Payload: { stageId, customFieldsValue: [{ CODE, VALUE }, ...] }
+         * Логика:
+         * 1. Записать в множественное свойство CUSTOM_FIELDS_VALUE этапа stageId
+         * 2. CODE → VALUE поля, VALUE → DESCRIPTION поля
+         * 3. Ничего не отправлять (режим тишины)
+         */
+        async handleChangeCustomFieldsValue(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeCustomFieldsValue START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const stageId = payload.stageId || 0;
+            const customFieldsValue = payload.customFieldsValue || [];
+
+            try {
+                if (stageId <= 0 || customFieldsValue.length === 0) {
+                    console.error('[BitrixBridge] Stage ID и customFieldsValue обязательны');
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                // Вызываем обновление через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeCustomFieldsValue',
+                        stageId: stageId,
+                        customFieldsValue: customFieldsValue,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    console.error('[BitrixBridge] changeCustomFieldsValue error:', responsePayload.message);
+                    // В режиме тишины не отправляем ошибку
+                    return;
+                }
+
+                console.log('[BitrixBridge] changeCustomFieldsValue success for stageId:', stageId);
+                // В режиме тишины НЕ отправляем ответ обратно во фрейм
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeCustomFieldsValue ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+                // В режиме тишины не отправляем ошибку
+            }
+        }
+
+        /**
          * Обработка запроса очистки пресета
-         * Очищает свойства пресета без отправки ответа (режим тишины)
+         * Очищает свойства пресета и отправляет INIT
          */
         async handleClearPresetRequest(message, origin) {
             console.log('[BitrixBridge][DEBUG] handleClearPresetRequest START', {
@@ -1268,17 +1447,19 @@
             try {
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
-                    console.error('[BitrixBridge] PresetId not found in initData');
-                    // В режиме тишины не отправляем ошибку
-                    return;
+                    throw new Error('PresetId not found in initData');
                 }
 
                 // Вызываем очистку пресета через AJAX
                 const url = this.config.ajaxEndpoint +
                     '?action=clearPreset' +
                     '&presetId=' + encodeURIComponent(presetId) +
+                    '&offerIds=' + encodeURIComponent(offerIds.join(',')) +
+                    '&siteId=' + encodeURIComponent(siteId) +
                     '&sessid=' + encodeURIComponent(this.config.sessid);
 
                 const response = await fetch(url, {
@@ -1289,28 +1470,42 @@
                 });
 
                 if (!response.ok) {
-                    console.error('[BitrixBridge] clearPreset HTTP error:', response.status);
-                    // В режиме тишины не отправляем ошибку
-                    return;
+                    throw new Error('HTTP error ' + response.status);
                 }
 
                 const data = await response.json();
 
                 if (!data.success) {
-                    console.error('[BitrixBridge] clearPreset business error:', data.message || data.error);
-                    // В режиме тишины не отправляем ошибку
-                    return;
+                    throw new Error(data.message || data.error || 'Ошибка очистки пресета');
                 }
 
                 console.log('[BitrixBridge] clearPreset success for presetId:', presetId);
-                // В режиме тишины НЕ отправляем ответ обратно во фрейм
+
+                // Обновляем локальный initData если есть
+                if (data.data) {
+                    this.initData = data.data;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleClearPresetRequest END - success, INIT sent');
 
             } catch (error) {
                 console.error('[BitrixBridge][DEBUG] handleClearPresetRequest ERROR', {
                     error: error,
                     message: error.message,
                 });
-                // В режиме тишины не отправляем ошибку
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка очистки пресета',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
             }
         }
 

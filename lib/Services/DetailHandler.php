@@ -179,9 +179,9 @@ class DetailHandler
                 'DETAILS' => $detailIds,
             ]);
             
-            // 4. Связать через CALC_STAGES (для групп используем CALC_STAGES_BINDINGS)
+            // 4. Связать через CALC_STAGES (для всех типов деталей)
             \CIBlockElement::SetPropertyValuesEx($groupId, $this->detailsIblockId, [
-                'CALC_STAGES_BINDINGS' => [$configId],
+                'CALC_STAGES' => [$configId],
             ]);
             
             return [
@@ -562,12 +562,20 @@ class DetailHandler
                 // Удаляем скрепление parentId физически
                 $this->deleteDetailPhysically($parentId);
 
-                if (!$isRootParent) {
-                    // Рекурсивно убрать parentId из его родителя
-                    $grandParent = $this->findParentOfDetail($parentId, $presetId);
-                    if ($grandParent) {
-                        return $this->removeDetailFromBinding($grandParent['ID'], $parentId, $presetId);
-                    }
+                if ($isRootParent) {
+                    // Если удалили корневое скрепление и оно пустое — нужно очистить пресет
+                    return [
+                        'status' => 'ok',
+                        'action' => 'binding_deleted_empty',
+                        'needsEnrichment' => false,  // Нечего обогащать
+                        'needsClear' => true,        // Нужно очистить пресет
+                    ];
+                }
+
+                // Рекурсивно убрать parentId из его родителя
+                $grandParent = $this->findParentOfDetail($parentId, $presetId);
+                if ($grandParent) {
+                    return $this->removeDetailFromBinding($grandParent['ID'], $parentId, $presetId);
                 }
 
                 return [
@@ -934,15 +942,8 @@ class DetailHandler
             }
         }
         
-        // Связываем конфигурации с новой деталью
-        if ($originalDetail['TYPE'] === 'DETAIL') {
-            $this->linkConfigToDetail($newDetailId, $newConfigIds);
-        } else {
-            // Для групп используем CALC_STAGES_BINDINGS
-            \CIBlockElement::SetPropertyValuesEx($newDetailId, $this->detailsIblockId, [
-                'CALC_STAGES_BINDINGS' => $newConfigIds,
-            ]);
-        }
+        // Связываем конфигурации с новой деталью (используем CALC_STAGES для всех типов)
+        $this->linkConfigToDetail($newDetailId, $newConfigIds);
         
         // Рекурсивно копируем вложенные детали для групп
         $children = [];
