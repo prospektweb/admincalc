@@ -104,19 +104,10 @@ class PresetEnrichmentService
             return $linkedElements;
         }
 
-        // Собираем этапы детали (CALC_STAGES или CALC_STAGES_BINDINGS)
-        // Для BINDING собираем из CALC_STAGES_BINDINGS, для DETAIL из CALC_STAGES
+        // Собираем этапы детали из CALC_STAGES (для всех типов деталей)
         $stageIds = [];
-        if ($detail['TYPE'] === 'BINDING') {
-            // Для BINDING используем CALC_STAGES_BINDINGS, если есть
-            if (!empty($detail['CALC_STAGES_BINDINGS'])) {
-                $stageIds = $detail['CALC_STAGES_BINDINGS'];
-            }
-        } else {
-            // Для обычной DETAIL используем CALC_STAGES
-            if (!empty($detail['CALC_STAGES'])) {
-                $stageIds = $detail['CALC_STAGES'];
-            }
+        if (!empty($detail['CALC_STAGES'])) {
+            $stageIds = $detail['CALC_STAGES'];
         }
 
         foreach ($stageIds as $stageId) {
@@ -270,10 +261,6 @@ class PresetEnrichmentService
             ? $properties['CALC_STAGES']['VALUE'] 
             : (!empty($properties['CALC_STAGES']['VALUE']) ? [$properties['CALC_STAGES']['VALUE']] : []);
         
-        $calcStagesBindings = is_array($properties['CALC_STAGES_BINDINGS']['VALUE']) 
-            ? $properties['CALC_STAGES_BINDINGS']['VALUE'] 
-            : (!empty($properties['CALC_STAGES_BINDINGS']['VALUE']) ? [$properties['CALC_STAGES_BINDINGS']['VALUE']] : []);
-        
         $details = is_array($properties['DETAILS']['VALUE']) 
             ? $properties['DETAILS']['VALUE'] 
             : (!empty($properties['DETAILS']['VALUE']) ? [$properties['DETAILS']['VALUE']] : []);
@@ -283,7 +270,6 @@ class PresetEnrichmentService
             'NAME' => $fields['NAME'],
             'TYPE' => $type,
             'CALC_STAGES' => array_map('intval', $calcStages),
-            'CALC_STAGES_BINDINGS' => array_map('intval', $calcStagesBindings),
             'DETAILS' => array_map('intval', $details),
         ];
     }
