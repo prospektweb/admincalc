@@ -81,9 +81,9 @@ class SyncVariantsHandler
     private function processItem(array $item): ?array
     {
         $detailsIblockId = $this->getIblockId('CALC_DETAILS');
-        $configIblockId = $this->getIblockId('CALC_STAGES');
+        $stagesIblockId = $this->getIblockId('CALC_STAGES');
         
-        if ($detailsIblockId <= 0 || $configIblockId <= 0) {
+        if ($detailsIblockId <= 0 || $stagesIblockId <= 0) {
             $this->errors[] = ['itemId' => $item['id'], 'message' => 'Инфоблоки не настроены'];
             return null;
         }
@@ -112,7 +112,7 @@ class SyncVariantsHandler
             // Для деталей: создаём конфигурации и связываем через CALC_STAGES
             $configIds = [];
             foreach ($item['calculators'] ?? [] as $calc) {
-                $configId = $this->createOrUpdateConfig($configIblockId, $calc, $item['name']);
+                $configId = $this->createOrUpdateConfig($stagesIblockId, $calc, $item['name']);
                 if ($configId) {
                     $configIds[] = $configId;
                     $processedCalculators[] = [
@@ -137,7 +137,7 @@ class SyncVariantsHandler
             $finishingConfigIds = [];
             
             foreach ($item['bindingCalculators'] ?? [] as $calc) {
-                $configId = $this->createOrUpdateConfig($configIblockId, $calc, $item['name'] . ' (скрепление)');
+                $configId = $this->createOrUpdateConfig($stagesIblockId, $calc, $item['name'] . ' (скрепление)');
                 if ($configId) {
                     $bindingConfigIds[] = $configId;
                     $processedCalculators[] = ['id' => $calc['id'], 'configId' => $configId];
@@ -146,7 +146,7 @@ class SyncVariantsHandler
             }
             
             foreach ($item['finishingCalculators'] ?? [] as $calc) {
-                $configId = $this->createOrUpdateConfig($configIblockId, $calc, $item['name'] . ' (финиш)');
+                $configId = $this->createOrUpdateConfig($stagesIblockId, $calc, $item['name'] . ' (финиш)');
                 if ($configId) {
                     $finishingConfigIds[] = $configId;
                     $processedCalculators[] = ['id' => $calc['id'], 'configId' => $configId];
