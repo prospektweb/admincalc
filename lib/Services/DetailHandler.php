@@ -674,17 +674,27 @@ class DetailHandler
     /**
      * Заменить деталь в родителе
      */
+    
     private function replaceDetailInParent(int $parentId, int $oldDetailId, int $newDetailId): void
     {
         $parent = $this->getDetailById($parentId);
         
         if ($parent && $parent['TYPE'] === 'BINDING') {
             $details = $parent['DETAIL_IDS'];
-            $key = array_search($oldDetailId, $details);
             
-            if ($key !== false) {
-                $details[$key] = $newDetailId;
-                
+            $oldDetailId = (int)$oldDetailId;
+            $newDetailId = (int)$newDetailId;
+            
+            $replaced = false;
+            foreach ($details as $key => $value) {
+                if ((int)$value === $oldDetailId) {
+                    $details[$key] = $newDetailId;
+                    $replaced = true;
+                    break;
+                }
+            }
+            
+            if ($replaced) {
                 \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
                     'DETAILS' => $details,
                 ]);
