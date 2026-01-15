@@ -861,7 +861,7 @@ class DetailHandler
         $fields = $element->GetFields();
         $properties = $element->GetProperties();
         
-        $type = $properties['TYPE']['VALUE'] ?? 'DETAIL';
+        $type = $properties['TYPE']['VALUE_XML_ID'] ?? 'DETAIL';
         $configIds = is_array($properties['CALC_STAGES']['VALUE']) 
             ? $properties['CALC_STAGES']['VALUE'] 
             : (!empty($properties['CALC_STAGES']['VALUE']) ? [$properties['CALC_STAGES']['VALUE']] : []);
