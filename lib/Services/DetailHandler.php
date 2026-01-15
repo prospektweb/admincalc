@@ -11,8 +11,6 @@ use Bitrix\Iblock\ElementTable;
  */
 class DetailHandler
 {
-    private const MODULE_ID = 'prospektweb.calc';
-
     private int $detailsIblockId;
     private int $stagesIblockId;
     private int $presetsIblockId;
@@ -23,9 +21,10 @@ class DetailHandler
             throw new \RuntimeException('Требуется модуль Bitrix iblock');
         }
         
-        $this->detailsIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_DETAILS', 0);
-        $this->stagesIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_STAGES', 0);
         $configManager = new \Prospektweb\Calc\Config\ConfigManager();
+        
+        $this->detailsIblockId = $configManager->getIblockId('CALC_DETAILS');
+        $this->stagesIblockId = $configManager->getIblockId('CALC_STAGES');
         $this->presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
     }
 
