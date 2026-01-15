@@ -60,9 +60,286 @@ class ElementDataService
                         $result[] = $handler->addStage($request);
                         continue 2;
                         
-                    case 'deleteStage':
+                    case 'addStage':
+                        // New handler for ADD_STAGE_REQUEST
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();
-                        $result[] = $handler->deleteStage($request);
+                        $detailHandler = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                        
+                        $addResult = $handler->addStage($request);
+                        if ($addResult['status'] === 'ok') {
+                            // Add stage to preset
+                            $presetId = (int)($request['presetId'] ?? 0);
+                            $stageId = $addResult['config']['id'] ?? 0;
+                            
+                            if ($presetId > 0 && $stageId > 0) {
+                                $detailHandler->addStageToPreset($presetId, $stageId);
+                                
+                                // Enrich preset based on first detail
+                                $firstDetailId = $detailHandler->getFirstDetailFromPreset($presetId);
+                                if ($firstDetailId) {
+                                    $offerIds = $request['offerIds'] ?? [];
+                                    $siteId = $request['siteId'] ?? SITE_ID;
+                                    $initPayload = $detailHandler->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                    
+                                    $addResult['initPayload'] = $initPayload;
+                                }
+                            }
+                        }
+                        
+                        $result[] = $addResult;
+                        continue 2;
+                        
+                    case 'deleteStage':
+                        // Updated handler for DELETE_STAGE_REQUEST
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        if ($stageId > 0) {
+                            // Physically delete stage element
+                            if (!\CIBlockElement::Delete($stageId)) {
+                                $result[] = [
+                                    'status' => 'error',
+                                    'message' => 'Не удалось удалить этап',
+                                ];
+                                continue 2;
+                            }
+                            
+                            // Enrich preset based on first detail
+                            if ($presetId > 0) {
+                                $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                                $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                                
+                                if ($firstDetailId) {
+                                    $offerIds = $request['offerIds'] ?? [];
+                                    $siteId = $request['siteId'] ?? SITE_ID;
+                                    $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                    
+                                    $result[] = [
+                                        'status' => 'ok',
+                                        'stageId' => $stageId,
+                                        'initPayload' => $initPayload,
+                                    ];
+                                } else {
+                                    $result[] = [
+                                        'status' => 'ok',
+                                        'stageId' => $stageId,
+                                    ];
+                                }
+                            } else {
+                                $result[] = [
+                                    'status' => 'ok',
+                                    'stageId' => $stageId,
+                                ];
+                            }
+                        } else {
+                            $result[] = [
+                                'status' => 'error',
+                                'message' => 'Stage ID обязателен',
+                            ];
+                        }
+                        continue 2;
+                    
+                    case 'removeDetail':
+                        // New handler for REMOVE_DETAIL_REQUEST with recursive logic
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $parentId = (int)($request['parentId'] ?? 0);
+                        $detailId = (int)($request['detailId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        $removeResult = $handler->removeDetailFromBinding($parentId, $detailId, $presetId);
+                        
+                        if ($removeResult['status'] === 'ok' && !empty($removeResult['needsEnrichment'])) {
+                            // Enrich preset
+                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                            $enrichDetailId = $removeResult['enrichmentDetailId'] ?? null;
+                            
+                            if ($enrichDetailId) {
+                                $offerIds = $request['offerIds'] ?? [];
+                                $siteId = $request['siteId'] ?? SITE_ID;
+                                $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $enrichDetailId, $offerIds);
+                                
+                                $removeResult['initPayload'] = $initPayload;
+                            }
+                        }
+                        
+                        $result[] = $removeResult;
+                        continue 2;
+                    
+                    case 'renameDetail':
+                        // New handler for RENAME_DETAIL_REQUEST (silent mode)
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $detailId = (int)($request['detailId'] ?? 0);
+                        $name = $request['name'] ?? '';
+                        
+                        $result[] = $handler->renameDetail($detailId, $name);
+                        continue 2;
+                    
+                    case 'changeSettings':
+                        // New handler for CHANGE_SETTINGS_REQUEST
+                        $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                        $settingsId = (int)($request['settingsId'] ?? 0);
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        if ($stageId > 0) {
+                            // Update CALC_SETTINGS property
+                            $enrichmentService->updateStageProperty($stageId, 'CALC_SETTINGS', $settingsId);
+                            
+                            // Enrich preset based on first detail
+                            if ($presetId > 0) {
+                                $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                                
+                                if ($firstDetailId) {
+                                    $offerIds = $request['offerIds'] ?? [];
+                                    $siteId = $request['siteId'] ?? SITE_ID;
+                                    $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                    
+                                    $result[] = [
+                                        'status' => 'ok',
+                                        'initPayload' => $initPayload,
+                                    ];
+                                } else {
+                                    $result[] = [
+                                        'status' => 'ok',
+                                    ];
+                                }
+                            } else {
+                                $result[] = [
+                                    'status' => 'ok',
+                                ];
+                            }
+                        } else {
+                            $result[] = [
+                                'status' => 'error',
+                                'message' => 'Stage ID обязателен',
+                            ];
+                        }
+                        continue 2;
+                    
+                    case 'changeOperationVariant':
+                        // New handler for CHANGE_OPERATION_VARIANT_REQUEST
+                        $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                        $operationVariantId = (int)($request['operationVariantId'] ?? 0);
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        if ($stageId > 0) {
+                            // Update OPERATION_VARIANT property
+                            $enrichmentService->updateStageProperty($stageId, 'OPERATION_VARIANT', $operationVariantId);
+                            
+                            // Enrich preset based on first detail
+                            if ($presetId > 0) {
+                                $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                                
+                                if ($firstDetailId) {
+                                    $offerIds = $request['offerIds'] ?? [];
+                                    $siteId = $request['siteId'] ?? SITE_ID;
+                                    $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                    
+                                    $result[] = [
+                                        'status' => 'ok',
+                                        'initPayload' => $initPayload,
+                                    ];
+                                } else {
+                                    $result[] = [
+                                        'status' => 'ok',
+                                    ];
+                                }
+                            } else {
+                                $result[] = [
+                                    'status' => 'ok',
+                                ];
+                            }
+                        } else {
+                            $result[] = [
+                                'status' => 'error',
+                                'message' => 'Stage ID обязателен',
+                            ];
+                        }
+                        continue 2;
+                    
+                    case 'changeEquipment':
+                        // New handler for CHANGE_EQUIPMENT_REQUEST
+                        $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                        $equipmentId = (int)($request['equipmentId'] ?? 0);
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        if ($stageId > 0) {
+                            // Update EQUIPMENT property
+                            $enrichmentService->updateStageProperty($stageId, 'EQUIPMENT', $equipmentId);
+                            
+                            // Enrich preset based on first detail
+                            if ($presetId > 0) {
+                                $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                                
+                                if ($firstDetailId) {
+                                    $offerIds = $request['offerIds'] ?? [];
+                                    $siteId = $request['siteId'] ?? SITE_ID;
+                                    $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                    
+                                    $result[] = [
+                                        'status' => 'ok',
+                                        'initPayload' => $initPayload,
+                                    ];
+                                } else {
+                                    $result[] = [
+                                        'status' => 'ok',
+                                    ];
+                                }
+                            } else {
+                                $result[] = [
+                                    'status' => 'ok',
+                                ];
+                            }
+                        } else {
+                            $result[] = [
+                                'status' => 'error',
+                                'message' => 'Stage ID обязателен',
+                            ];
+                        }
+                        continue 2;
+                    
+                    case 'changeMaterialVariant':
+                        // New handler for CHANGE_MATERIAL_VARIANT_REQUEST
+                        $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                        $materialVariantId = (int)($request['materialVariantId'] ?? 0);
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        if ($stageId > 0) {
+                            // Update MATERIAL_VARIANT property
+                            $enrichmentService->updateStageProperty($stageId, 'MATERIAL_VARIANT', $materialVariantId);
+                            
+                            // Enrich preset based on first detail
+                            if ($presetId > 0) {
+                                $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                                
+                                if ($firstDetailId) {
+                                    $offerIds = $request['offerIds'] ?? [];
+                                    $siteId = $request['siteId'] ?? SITE_ID;
+                                    $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                    
+                                    $result[] = [
+                                        'status' => 'ok',
+                                        'initPayload' => $initPayload,
+                                    ];
+                                } else {
+                                    $result[] = [
+                                        'status' => 'ok',
+                                    ];
+                                }
+                            } else {
+                                $result[] = [
+                                    'status' => 'ok',
+                                ];
+                            }
+                        } else {
+                            $result[] = [
+                                'status' => 'error',
+                                'message' => 'Stage ID обязателен',
+                            ];
+                        }
                         continue 2;
                         
                     case 'deleteDetail':

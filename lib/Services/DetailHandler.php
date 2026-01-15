@@ -437,6 +437,287 @@ class DetailHandler
     }
 
     /**
+     * Переименовать деталь (используется для RENAME_DETAIL_REQUEST)
+     * 
+     * @param int $detailId ID детали
+     * @param string $name Новое имя
+     * @return array Ответ об успешности операции
+     */
+    public function renameDetail(int $detailId, string $name): array
+    {
+        try {
+            if ($detailId <= 0) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указан ID детали',
+                ];
+            }
+            
+            $name = trim($name);
+            if (empty($name)) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Имя не может быть пустым',
+                ];
+            }
+            
+            // Обновить NAME элемента через CIBlockElement::Update()
+            $el = new \CIBlockElement();
+            if (!$el->Update($detailId, ['NAME' => $name])) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не удалось обновить имя детали: ' . $el->LAST_ERROR,
+                ];
+            }
+            
+            return [
+                'status' => 'ok',
+                'detailId' => $detailId,
+                'name' => $name,
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Удалить деталь из скрепления с рекурсивной логикой чистки
+     * 
+     * @param int $parentId ID родительского скрепления
+     * @param int $detailId ID детали для удаления
+     * @param int $presetId ID пресета
+     * @return array Ответ с информацией о результате операции
+     */
+    public function removeDetailFromBinding(int $parentId, int $detailId, int $presetId): array
+    {
+        try {
+            if ($parentId <= 0 || $detailId <= 0 || $presetId <= 0) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Некорректные параметры',
+                ];
+            }
+
+            // Получаем пресет для определения isRootParent
+            $presetDetails = $this->getPresetDetails($presetId);
+            $firstDetailId = $presetDetails[0] ?? 0;
+            $isRootParent = ($parentId === $firstDetailId);
+
+            // Получаем родителя
+            $parent = $this->getDetailById($parentId);
+            if (!$parent || $parent['TYPE'] !== 'BINDING') {
+                return [
+                    'status' => 'error',
+                    'message' => 'Родитель не найден или не является скреплением',
+                ];
+            }
+
+            // Убираем detailId из DETAILS родителя
+            $remainingDetails = array_filter($parent['DETAIL_IDS'], function($id) use ($detailId) {
+                return $id != $detailId;
+            });
+            $remainingDetails = array_values($remainingDetails);
+            $remainingCount = count($remainingDetails);
+
+            // Логика в зависимости от количества оставшихся деталей
+            if ($remainingCount === 1) {
+                // А) Осталась 1 деталь
+                $survivorId = $remainingDetails[0];
+                
+                // Удаляем скрепление parentId физически
+                $this->deleteDetailPhysically($parentId);
+
+                if ($isRootParent) {
+                    // Обогатить пресет на основе survivorId
+                    return [
+                        'status' => 'ok',
+                        'action' => 'survivor_as_root',
+                        'survivorId' => $survivorId,
+                        'needsEnrichment' => true,
+                        'enrichmentDetailId' => $survivorId,
+                    ];
+                } else {
+                    // Заменить parentId на survivorId в родителе parentId
+                    $grandParent = $this->findParentOfDetail($parentId, $presetId);
+                    if ($grandParent) {
+                        $this->replaceDetailInParent($grandParent['ID'], $parentId, $survivorId);
+                        // Рекурсивно проверить родителя (если нужно)
+                    }
+                    
+                    return [
+                        'status' => 'ok',
+                        'action' => 'survivor_replaced',
+                        'survivorId' => $survivorId,
+                        'needsEnrichment' => true,
+                        'enrichmentDetailId' => $firstDetailId,
+                    ];
+                }
+            } elseif ($remainingCount === 0) {
+                // Б) Осталось 0 деталей
+                
+                // Удаляем скрепление parentId физически
+                $this->deleteDetailPhysically($parentId);
+
+                if (!$isRootParent) {
+                    // Рекурсивно убрать parentId из его родителя
+                    $grandParent = $this->findParentOfDetail($parentId, $presetId);
+                    if ($grandParent) {
+                        return $this->removeDetailFromBinding($grandParent['ID'], $parentId, $presetId);
+                    }
+                }
+
+                return [
+                    'status' => 'ok',
+                    'action' => 'binding_deleted_empty',
+                    'needsEnrichment' => true,
+                    'enrichmentDetailId' => $firstDetailId > 0 ? $firstDetailId : null,
+                ];
+            } else {
+                // В) Осталось 2+ деталей
+                
+                // Обновляем DETAILS родителя
+                \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
+                    'DETAILS' => $remainingDetails,
+                ]);
+
+                return [
+                    'status' => 'ok',
+                    'action' => 'detail_removed',
+                    'remainingCount' => $remainingCount,
+                    'needsEnrichment' => true,
+                    'enrichmentDetailId' => $firstDetailId,
+                ];
+            }
+
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Физически удалить деталь со всеми этапами
+     */
+    private function deleteDetailPhysically(int $detailId): void
+    {
+        $detail = $this->getDetailById($detailId);
+        if ($detail) {
+            // Удалить все конфигурации
+            foreach ($detail['CONFIGS'] as $configId) {
+                \CIBlockElement::Delete($configId);
+            }
+            
+            // Удалить саму деталь
+            \CIBlockElement::Delete($detailId);
+        }
+    }
+
+    /**
+     * Найти родителя детали в структуре пресета
+     */
+    private function findParentOfDetail(int $detailId, int $presetId): ?array
+    {
+        $presetDetails = $this->getPresetDetails($presetId);
+        
+        if (empty($presetDetails)) {
+            return null;
+        }
+
+        // Рекурсивный поиск родителя
+        $rootDetailId = $presetDetails[0];
+        return $this->findParentRecursive($rootDetailId, $detailId);
+    }
+
+    /**
+     * Рекурсивный поиск родителя
+     */
+    private function findParentRecursive(int $currentId, int $targetId): ?array
+    {
+        $current = $this->getDetailById($currentId);
+        
+        if (!$current || $current['TYPE'] !== 'BINDING') {
+            return null;
+        }
+
+        // Проверяем, содержит ли текущий элемент целевую деталь
+        if (in_array($targetId, $current['DETAIL_IDS'])) {
+            return $current;
+        }
+
+        // Рекурсивно проверяем детей
+        foreach ($current['DETAIL_IDS'] as $childId) {
+            $result = $this->findParentRecursive($childId, $targetId);
+            if ($result) {
+                return $result;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Заменить деталь в родителе
+     */
+    private function replaceDetailInParent(int $parentId, int $oldDetailId, int $newDetailId): void
+    {
+        $parent = $this->getDetailById($parentId);
+        
+        if ($parent && $parent['TYPE'] === 'BINDING') {
+            $details = $parent['DETAIL_IDS'];
+            $key = array_search($oldDetailId, $details);
+            
+            if ($key !== false) {
+                $details[$key] = $newDetailId;
+                
+                \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
+                    'DETAILS' => $details,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Получить детали пресета
+     */
+    private function getPresetDetails(int $presetId): array
+    {
+        $element = \CIBlockElement::GetList(
+            [],
+            ['ID' => $presetId],
+            false,
+            false,
+            ['ID', 'PROPERTY_CALC_DETAILS']
+        )->Fetch();
+
+        if (!$element) {
+            return [];
+        }
+
+        // Получаем множественное свойство CALC_DETAILS
+        $details = [];
+        $rs = \CIBlockElement::GetProperty(
+            0,
+            $presetId,
+            [],
+            ['CODE' => 'CALC_DETAILS']
+        );
+        
+        while ($prop = $rs->Fetch()) {
+            if (!empty($prop['VALUE'])) {
+                $details[] = (int)$prop['VALUE'];
+            }
+        }
+
+        return $details;
+    }
+
+    /**
      * Получить деталь с вложенными элементами (рекурсивно)
      * 
      * @param int $detailId ID детали
