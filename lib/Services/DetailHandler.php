@@ -15,7 +15,8 @@ class DetailHandler
 
     private int $detailsIblockId;
     private int $configIblockId;
-
+    private int $presetsIblockId;
+    
     public function __construct()
     {
         if (!Loader::includeModule('iblock')) {
@@ -24,6 +25,8 @@ class DetailHandler
         
         $this->detailsIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_DETAILS', 0);
         $this->configIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_STAGES', 0);
+        $configManager = new \Prospektweb\Calc\Config\ConfigManager();
+        $this->presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
     }
 
     /**
@@ -695,22 +698,26 @@ class DetailHandler
      */
     private function getPresetDetails(int $presetId): array
     {
+        // Получаем ID инфоблока пресетов
+        $configManager = new \Prospektweb\Calc\Config\ConfigManager();
+        $presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
+        
         $element = \CIBlockElement::GetList(
             [],
-            ['ID' => $presetId],
+            ['ID' => $presetId, 'IBLOCK_ID' => $presetsIblockId],  // ← Добавить IBLOCK_ID
             false,
             false,
-            ['ID', 'PROPERTY_CALC_DETAILS']
+            ['ID']
         )->Fetch();
-
+    
         if (!$element) {
             return [];
         }
-
+    
         // Получаем множественное свойство CALC_DETAILS
         $details = [];
         $rs = \CIBlockElement::GetProperty(
-            0,
+            $presetsIblockId,  // ← ИСПРАВИТЬ: было 0, нужен presetsIblockId
             $presetId,
             [],
             ['CODE' => 'CALC_DETAILS']
@@ -721,7 +728,7 @@ class DetailHandler
                 $details[] = (int)$prop['VALUE'];
             }
         }
-
+    
         return $details;
     }
 
