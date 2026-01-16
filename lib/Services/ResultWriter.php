@@ -13,13 +13,19 @@ class ResultWriter
     /** @var ConfigManager */
     protected ConfigManager $configManager;
 
+    /** @var CatalogPriceService */
+    protected CatalogPriceService $catalogPriceService;
+
     public function __construct()
     {
         $this->configManager = new ConfigManager();
+        $this->catalogPriceService = new CatalogPriceService();
     }
 
     /**
      * Записывает цену товара.
+     *
+     * @deprecated Use CatalogPriceService::writePrice() directly
      *
      * @param int    $productId   ID товара.
      * @param int    $priceTypeId ID типа цены.
@@ -38,57 +44,20 @@ class ResultWriter
         ?int $quantityFrom = null,
         ?int $quantityTo = null
     ): bool {
-        if (!Loader::includeModule('catalog')) {
-            return false;
-        }
-
-        if ($productId <= 0 || $priceTypeId <= 0 || $price <= 0) {
-            return false;
-        }
-
-        // Ищем существующую цену
-        $filter = [
-            'PRODUCT_ID' => $productId,
-            'CATALOG_GROUP_ID' => $priceTypeId,
-        ];
-
-        if ($quantityFrom !== null) {
-            $filter['QUANTITY_FROM'] = $quantityFrom;
-        }
-        if ($quantityTo !== null) {
-            $filter['QUANTITY_TO'] = $quantityTo;
-        }
-
-        $priceRes = \CPrice::GetList([], $filter);
-
-        if ($arPrice = $priceRes->Fetch()) {
-            // Обновляем существующую цену
-            return (bool)\CPrice::Update($arPrice['ID'], [
-                'PRICE' => $price,
-                'CURRENCY' => $currency,
-            ]);
-        } else {
-            // Создаём новую цену
-            $params = [
-                'PRODUCT_ID' => $productId,
-                'CATALOG_GROUP_ID' => $priceTypeId,
-                'PRICE' => $price,
-                'CURRENCY' => $currency,
-            ];
-
-            if ($quantityFrom !== null) {
-                $params['QUANTITY_FROM'] = $quantityFrom;
-            }
-            if ($quantityTo !== null) {
-                $params['QUANTITY_TO'] = $quantityTo;
-            }
-
-            return (bool)\CPrice::Add($params);
-        }
+        return $this->catalogPriceService->writePrice(
+            $productId,
+            $priceTypeId,
+            $price,
+            $currency,
+            $quantityFrom,
+            $quantityTo
+        );
     }
 
     /**
      * Записывает диапазоны цен для товара.
+     *
+     * @deprecated Use CatalogPriceService::writePriceRanges() directly
      *
      * @param int    $productId   ID товара.
      * @param int    $priceTypeId ID типа цены.
@@ -103,45 +72,18 @@ class ResultWriter
         array $ranges,
         string $currency = 'RUB'
     ): bool {
-        if (!Loader::includeModule('catalog')) {
-            return false;
-        }
-
-        if ($productId <= 0 || $priceTypeId <= 0 || empty($ranges)) {
-            return false;
-        }
-
-        // Удаляем существующие цены для этого типа
-        $this->deletePrices($productId, $priceTypeId);
-
-        // Добавляем новые цены
-        $success = true;
-
-        foreach ($ranges as $range) {
-            if (!isset($range['value'])) {
-                continue;
-            }
-
-            $params = [
-                'PRODUCT_ID' => $productId,
-                'CATALOG_GROUP_ID' => $priceTypeId,
-                'PRICE' => (float)$range['value'],
-                'CURRENCY' => $currency,
-                'QUANTITY_FROM' => $range['from'] ?? false,
-                'QUANTITY_TO' => $range['to'] ?? false,
-            ];
-
-            $result = \CPrice::Add($params);
-            if (!$result) {
-                $success = false;
-            }
-        }
-
-        return $success;
+        return $this->catalogPriceService->writePriceRanges(
+            $productId,
+            $priceTypeId,
+            $ranges,
+            $currency
+        );
     }
 
     /**
      * Удаляет цены товара для указанного типа.
+     *
+     * @deprecated Use CatalogPriceService::deletePricesByType() directly
      *
      * @param int $productId   ID товара.
      * @param int $priceTypeId ID типа цены.
@@ -150,29 +92,13 @@ class ResultWriter
      */
     public function deletePrices(int $productId, int $priceTypeId): bool
     {
-        if (!Loader::includeModule('catalog')) {
-            return false;
-        }
-
-        $priceRes = \CPrice::GetList(
-            [],
-            [
-                'PRODUCT_ID' => $productId,
-                'CATALOG_GROUP_ID' => $priceTypeId,
-            ]
-        );
-
-        while ($row = $priceRes->Fetch()) {
-            if (isset($row['ID'])) {
-                \CPrice::Delete((int)$row['ID']);
-            }
-        }
-
-        return true;
+        return $this->catalogPriceService->deletePricesByType($productId, $priceTypeId);
     }
 
     /**
      * Обновляет закупочную цену товара.
+     *
+     * @deprecated Use CatalogPriceService::updatePurchasingPrice() directly
      *
      * @param int    $productId ID товара.
      * @param float  $price     Цена.
@@ -182,22 +108,13 @@ class ResultWriter
      */
     public function updatePurchasingPrice(int $productId, float $price, string $currency = 'RUB'): bool
     {
-        if (!Loader::includeModule('catalog')) {
-            return false;
-        }
-
-        if ($productId <= 0 || $price <= 0) {
-            return false;
-        }
-
-        return (bool)\CCatalogProduct::Update($productId, [
-            'PURCHASING_PRICE' => $price,
-            'PURCHASING_CURRENCY' => $currency,
-        ]);
+        return $this->catalogPriceService->updatePurchasingPrice($productId, $price, $currency);
     }
 
     /**
      * Обновляет физические параметры товара.
+     *
+     * @deprecated Use CatalogPriceService::updateProductParams() directly
      *
      * @param int   $productId ID товара.
      * @param array $params    Параметры (WIDTH, LENGTH, HEIGHT, WEIGHT, MEASURE).
@@ -206,29 +123,7 @@ class ResultWriter
      */
     public function updateProductParams(int $productId, array $params): bool
     {
-        if (!Loader::includeModule('catalog')) {
-            return false;
-        }
-
-        if ($productId <= 0 || empty($params)) {
-            return false;
-        }
-
-        // Фильтруем допустимые поля
-        $allowedFields = ['WIDTH', 'LENGTH', 'HEIGHT', 'WEIGHT', 'MEASURE'];
-        $fields = [];
-
-        foreach ($allowedFields as $field) {
-            if (array_key_exists($field, $params) && $params[$field] !== null) {
-                $fields[$field] = $params[$field];
-            }
-        }
-
-        if (empty($fields)) {
-            return true;
-        }
-
-        return (bool)\CCatalogProduct::Update($productId, $fields);
+        return $this->catalogPriceService->updateProductParams($productId, $params);
     }
 
     /**
