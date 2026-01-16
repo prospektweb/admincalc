@@ -5,6 +5,7 @@ namespace Prospektweb\Calc\Services;
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Config\ConfigManager;
 use Prospektweb\Calc\Config\SettingsManager;
+use Prospektweb\Calc\Services\CatalogPriceService;
 
 /**
  * Сервис управления ценами пресета
@@ -49,11 +50,13 @@ class PresetPriceService
                 ];
             }
 
-            // 1. Очистить все текущие цены пресета
-            $this->clearPresetPrices($presetId);
+            $catalogPriceService = new CatalogPriceService();
 
-            // 2. Преобразовать payload в структуру цен пресета и записать новые цены
-            $pricesData = [];
+            // 1. Очистить ВСЕ текущие цены пресета
+            $catalogPriceService->deleteAllPrices($presetId);
+
+            // 2. Преобразовать payload в структуру [typeId => [ranges]]
+            $pricesByType = [];
             
             foreach ($prices as $range) {
                 $typeId = (int)($range['typeId'] ?? 0);
@@ -62,20 +65,20 @@ class PresetPriceService
                     continue;
                 }
 
-                if (!isset($pricesData[$typeId])) {
-                    $pricesData[$typeId] = [];
+                if (!isset($pricesByType[$typeId])) {
+                    $pricesByType[$typeId] = [];
                 }
 
-                $pricesData[$typeId][] = [
+                $pricesByType[$typeId][] = [
                     'price' => isset($range['price']) ? (float)$range['price'] : 0,
                     'currency' => $range['currency'] ?? 'PRC',
-                    'quantityFrom' => isset($range['quantityFrom']) ? (int)$range['quantityFrom'] : 0,
+                    'quantityFrom' => isset($range['quantityFrom']) ? (int)$range['quantityFrom'] : null,
                     'quantityTo' => isset($range['quantityTo']) ? (int)$range['quantityTo'] : null,
                 ];
             }
 
-            // 3. Сохранить новые цены
-            $this->savePresetPrices($presetId, $pricesData);
+            // 3. Записать новые цены
+            $catalogPriceService->writePriceRangesMultiType($presetId, $pricesByType);
 
             return [
                 'status' => 'ok',
@@ -90,103 +93,4 @@ class PresetPriceService
         }
     }
 
-    /**
-     * Получить цены пресета
-     *
-     * @param int $presetId ID пресета
-     * @return array Массив цен по типам [typeId => [диапазоны]]
-     */
-    private function getPresetPrices(int $presetId): array
-    {
-        if ($presetId <= 0 || $this->presetsIblockId <= 0) {
-            return [];
-        }
-
-        // Получаем свойство PRICES пресета
-        $rsProperty = \CIBlockElement::GetProperty(
-            $this->presetsIblockId,
-            $presetId,
-            [],
-            ['CODE' => 'PRICES']
-        );
-
-        if ($prop = $rsProperty->Fetch()) {
-            $value = $prop['VALUE'] ?? '';
-            
-            if (!empty($value)) {
-                $decoded = json_decode($value, true);
-                
-                if (is_array($decoded)) {
-                    return $decoded;
-                }
-            }
-        }
-
-        return [];
-    }
-
-    /**
-     * Очистить цены пресета
-     *
-     * @param int $presetId ID пресета
-     */
-    private function clearPresetPrices(int $presetId): void
-    {
-        if ($presetId <= 0 || $this->presetsIblockId <= 0) {
-            return;
-        }
-
-        // Очистить свойство PRICES у пресета
-        // Используем паттерн: сначала false, потом новые данные
-        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
-            'PRICES' => false,
-        ]);
-    }
-
-    /**
-     * Сохранить цены пресета
-     *
-     * @param int $presetId ID пресета
-     * @param array $prices Массив цен по типам
-     */
-    private function savePresetPrices(int $presetId, array $prices): void
-    {
-        if ($presetId <= 0 || $this->presetsIblockId <= 0) {
-            return;
-        }
-
-        $encoded = json_encode($prices, JSON_UNESCAPED_UNICODE);
-
-        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
-            'PRICES' => $encoded,
-        ]);
-    }
-
-    /**
-     * Получить ID базового типа цены
-     *
-     * @return int
-     */
-    private function getBasePriceGroupId(): int
-    {
-        try {
-            $baseGroup = \CCatalogGroup::GetBaseGroup();
-            
-            if ($baseGroup && isset($baseGroup['ID'])) {
-                return (int)$baseGroup['ID'];
-            }
-
-            // Если не найден базовый, берем первый доступный
-            $result = \CCatalogGroup::GetListArray();
-            
-            if (is_array($result) && !empty($result)) {
-                return (int)$result[0]['ID'];
-            }
-
-        } catch (\Exception $e) {
-            // Fallback на ID = 1
-        }
-
-        return 1;
-    }
 }
