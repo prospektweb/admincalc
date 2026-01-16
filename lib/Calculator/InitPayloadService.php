@@ -337,6 +337,8 @@ class InitPayloadService
             }
         }
 
+        $settingsManager = new \Prospektweb\Calc\Config\SettingsManager();
+
         return [
             'siteId' => (string)$resolvedSiteId,
             'userId' => $userId,
@@ -344,6 +346,8 @@ class InitPayloadService
             'timestamp' => time(),
             'url' => $siteUrl,
             'priceRounding' => (float)Option::get(self::MODULE_ID, 'PRICE_ROUNDING', 1),
+            'defaultExtraValue' => $settingsManager->getDefaultExtraValue(),
+            'defaultExtraCurrency' => $settingsManager->getDefaultExtraCurrency(),
         ];
     }
 

@@ -266,6 +266,12 @@
                 case 'CHANGE_SORT_STAGE_REQUEST':
                     await this.handleChangeSortStageRequest(message, origin);
                     break;
+                case 'PRICE_TYPE_SELECT':
+                    await this.handlePriceTypeSelectRequest(message, origin);
+                    break;
+                case 'CHANGE_RANGES':
+                    await this.handleChangeRangesRequest(message, origin);
+                    break;
                 case 'CLOSE_REQUEST':
                     this.handleCloseRequest(message);
                     break;
@@ -280,6 +286,7 @@
                         'CHANGE_OPERATION_QUANTITY_REQUEST', 'CHANGE_MATERIAL_QUANTITY_REQUEST', 
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST',
+                        'PRICE_TYPE_SELECT', 'CHANGE_RANGES',
                         'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
@@ -1959,6 +1966,166 @@
                     'ERROR',
                     {
                         message: 'Ошибка очистки пресета',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+            }
+        }
+
+        /**
+         * Обработка запроса PRICE_TYPE_SELECT
+         * Payload: { types: [{ id: int, active: bool }, ...] }
+         * Логика:
+         * 1. Получить текущие цены пресета
+         * 2. Определить базовый тип цены
+         * 3. Для каждого типа цены:
+         *    - Если active: false — удалить диапазоны
+         *    - Если active: true и был неактивен — скопировать из базового с настройками по умолчанию
+         * 4. Сохранить цены, обогатить пресет, отправить INIT
+         */
+        async handlePriceTypeSelectRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handlePriceTypeSelectRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const types = payload.types || [];
+
+            try {
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                if (!Array.isArray(types) || types.length === 0) {
+                    throw new Error('Types обязателен');
+                }
+
+                // Вызываем обработку через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'priceTypeSelect',
+                        presetId: presetId,
+                        types: types,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось обработать выбор типов цен');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handlePriceTypeSelectRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handlePriceTypeSelectRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка выбора типов цен',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+            }
+        }
+
+        /**
+         * Обработка запроса CHANGE_RANGES
+         * Payload: [{ typeId, price, currency, quantityFrom, quantityTo }, ...]
+         * Логика:
+         * 1. Полностью заменить цены в пресете
+         * 2. Сохранить, обогатить пресет, отправить INIT
+         */
+        async handleChangeRangesRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeRangesRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const ranges = Array.isArray(payload) ? payload : (payload.ranges || []);
+
+            try {
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                if (!Array.isArray(ranges) || ranges.length === 0) {
+                    throw new Error('Ranges обязателен');
+                }
+
+                // Вызываем обработку через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeRanges',
+                        presetId: presetId,
+                        ranges: ranges,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось обновить диапазоны цен');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleChangeRangesRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeRangesRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка обновления диапазонов цен',
                         details: error && error.message ? error.message : 'Unknown error',
                     },
                     message.requestId,

@@ -182,4 +182,48 @@ class SettingsManager
             $this->setMarketingPriceSettings($settings['marketingPrice']);
         }
     }
+
+    /**
+     * Получить значение наценки по умолчанию
+     *
+     * @return int
+     */
+    public function getDefaultExtraValue(): int
+    {
+        $value = (int)$this->configManager->getOption('DEFAULT_EXTRA_VALUE', '10');
+        return $value >= 0 ? $value : 10;
+    }
+
+    /**
+     * Установить значение наценки по умолчанию
+     *
+     * @param int $value Значение наценки (только положительные и 0)
+     */
+    public function setDefaultExtraValue(int $value): void
+    {
+        $this->configManager->setOption('DEFAULT_EXTRA_VALUE', (string)max(0, $value));
+    }
+
+    /**
+     * Получить валюту наценки по умолчанию
+     *
+     * @return string RUB или PRC
+     */
+    public function getDefaultExtraCurrency(): string
+    {
+        $value = $this->configManager->getOption('DEFAULT_EXTRA_CURRENCY_VALUE', 'PRC');
+        return in_array($value, ['RUB', 'PRC']) ? $value : 'PRC';
+    }
+
+    /**
+     * Установить валюту наценки по умолчанию
+     *
+     * @param string $currency Код валюты (RUB или PRC)
+     */
+    public function setDefaultExtraCurrency(string $currency): void
+    {
+        if (in_array($currency, ['RUB', 'PRC'])) {
+            $this->configManager->setOption('DEFAULT_EXTRA_CURRENCY_VALUE', $currency);
+        }
+    }
 }
