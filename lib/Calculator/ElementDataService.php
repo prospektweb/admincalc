@@ -453,6 +453,127 @@ class ElementDataService
                         $handler = new \Prospektweb\Calc\Services\PricePanelHandler();
                         $result[] = $handler->handleActivation($request);
                         continue 2;
+                    
+                    case 'addDetailToBinding':
+                        // New handler for ADD_DETAIL_TO_BINDING_REQUEST
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $parentId = (int)($request['parentId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        $addResult = $handler->addDetailToBinding($parentId);
+                        
+                        if ($addResult['status'] === 'ok' && $presetId > 0) {
+                            // Enrich preset based on CALC_DETAILS[0]
+                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                            $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                            
+                            if ($firstDetailId) {
+                                $offerIds = $request['offerIds'] ?? [];
+                                $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                $addResult['initPayload'] = $initPayload;
+                            }
+                        }
+                        
+                        $result[] = $addResult;
+                        continue 2;
+                    
+                    case 'changeDetailSort':
+                        // New handler for CHANGE_DETAIL_SORT_REQUEST
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $parentId = (int)($request['parentId'] ?? 0);
+                        $sorting = $request['sorting'] ?? [];
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        $sortResult = $handler->changeDetailSort($parentId, $sorting);
+                        
+                        if ($sortResult['status'] === 'ok' && $presetId > 0) {
+                            // Enrich preset based on CALC_DETAILS[0]
+                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                            $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                            
+                            if ($firstDetailId) {
+                                $offerIds = $request['offerIds'] ?? [];
+                                $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                $sortResult['initPayload'] = $initPayload;
+                            }
+                        }
+                        
+                        $result[] = $sortResult;
+                        continue 2;
+                    
+                    case 'changeDetailLevel':
+                        // New handler for CHANGE_DETAIL_LEVEL_REQUEST
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $fromParentId = (int)($request['fromParentId'] ?? 0);
+                        $detailId = (int)($request['detailId'] ?? 0);
+                        $toParentId = (int)($request['toParentId'] ?? 0);
+                        $sorting = $request['sorting'] ?? [];
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        $levelResult = $handler->changeDetailLevel($fromParentId, $detailId, $toParentId, $sorting);
+                        
+                        if ($levelResult['status'] === 'ok' && $presetId > 0) {
+                            // Enrich preset based on CALC_DETAILS[0]
+                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                            $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                            
+                            if ($firstDetailId) {
+                                $offerIds = $request['offerIds'] ?? [];
+                                $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                $levelResult['initPayload'] = $initPayload;
+                            }
+                        }
+                        
+                        $result[] = $levelResult;
+                        continue 2;
+                    
+                    case 'changeSortStage':
+                        // New handler for CHANGE_SORT_STAGE_REQUEST
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $detailId = (int)($request['detailId'] ?? 0);
+                        $sorting = $request['sorting'] ?? [];
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        $stageResult = $handler->changeSortStage($detailId, $sorting);
+                        
+                        if ($stageResult['status'] === 'ok' && $presetId > 0) {
+                            // Enrich preset based on CALC_DETAILS[0]
+                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                            $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                            
+                            if ($firstDetailId) {
+                                $offerIds = $request['offerIds'] ?? [];
+                                $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                $stageResult['initPayload'] = $initPayload;
+                            }
+                        }
+                        
+                        $result[] = $stageResult;
+                        continue 2;
+                    
+                    case 'addDetailsToBinding':
+                        // New handler for adding selected details to binding
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $parentId = (int)($request['parentId'] ?? 0);
+                        $detailIds = $request['detailIds'] ?? [];
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        
+                        $addDetailsResult = $handler->addDetailsToBinding($parentId, $detailIds);
+                        
+                        if ($addDetailsResult['status'] === 'ok' && $presetId > 0) {
+                            // Enrich preset based on CALC_DETAILS[0]
+                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                            $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                            
+                            if ($firstDetailId) {
+                                $offerIds = $request['offerIds'] ?? [];
+                                $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                $addDetailsResult['initPayload'] = $initPayload;
+                            }
+                        }
+                        
+                        $result[] = $addDetailsResult;
+                        continue 2;
                 }
             }
 
