@@ -575,15 +575,16 @@ class ElementDataService
                         $result[] = $addDetailsResult;
                         continue 2;
                     
-                    case 'priceTypeSelect':
-                        // Handler for PRICE_TYPE_SELECT
+
+                    case 'changePricePreset':
+                        // Handler for CHANGE_PRICE_PRESET_REQUEST
                         $priceService = new \Prospektweb\Calc\Services\PresetPriceService();
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $types = $request['types'] ?? [];
+                        $prices = $request['prices'] ?? [];
                         
-                        $priceResult = $priceService->handlePriceTypeSelect($presetId, $types);
+                        $pricesResult = $priceService->changePricePreset($presetId, $prices);
                         
-                        if ($priceResult['status'] === 'ok') {
+                        if ($pricesResult['status'] === 'ok') {
                             // Enrich preset
                             $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
                             $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
@@ -592,35 +593,11 @@ class ElementDataService
                                 $offerIds = $request['offerIds'] ?? [];
                                 $siteId = $request['siteId'] ?? SITE_ID;
                                 $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
-                                $priceResult['initPayload'] = $initPayload;
+                                $pricesResult['initPayload'] = $initPayload;
                             }
                         }
                         
-                        $result[] = $priceResult;
-                        continue 2;
-                    
-                    case 'changeRanges':
-                        // Handler for CHANGE_RANGES
-                        $priceService = new \Prospektweb\Calc\Services\PresetPriceService();
-                        $presetId = (int)($request['presetId'] ?? 0);
-                        $ranges = $request['ranges'] ?? [];
-                        
-                        $rangesResult = $priceService->handleChangeRanges($presetId, $ranges);
-                        
-                        if ($rangesResult['status'] === 'ok') {
-                            // Enrich preset
-                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
-                            $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
-                            
-                            if ($firstDetailId) {
-                                $offerIds = $request['offerIds'] ?? [];
-                                $siteId = $request['siteId'] ?? SITE_ID;
-                                $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
-                                $rangesResult['initPayload'] = $initPayload;
-                            }
-                        }
-                        
-                        $result[] = $rangesResult;
+                        $result[] = $pricesResult;
                         continue 2;
                 }
             }
