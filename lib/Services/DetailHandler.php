@@ -851,6 +851,12 @@ class DetailHandler
         ]);
 
         if ($replaced) {
+            // 1. Сначала очистить свойство DETAILS
+            \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
+                'DETAILS' => false,
+            ]);
+            
+            // 2. Записать обновленный массив деталей с нужным порядком
             \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
                 'DETAILS' => $details,
             ]);
@@ -1422,7 +1428,12 @@ class DetailHandler
                 ];
             }
 
-            // Записать sorting в DETAILS родителя
+            // 1. Сначала очистить свойство DETAILS
+            \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
+                'DETAILS' => false,
+            ]);
+            
+            // 2. Записать sorting в DETAILS родителя с нужным порядком
             \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
                 'DETAILS' => array_map('intval', $sorting),
             ]);
@@ -1483,11 +1494,20 @@ class DetailHandler
                 return (int)$id !== (int)$detailId;
             });
             
+            // Очистить и записать заново для fromParent
+            \CIBlockElement::SetPropertyValuesEx($fromParentId, $this->detailsIblockId, [
+                'DETAILS' => false,
+            ]);
+            
             \CIBlockElement::SetPropertyValuesEx($fromParentId, $this->detailsIblockId, [
                 'DETAILS' => array_values($fromDetails),
             ]);
             
-            // 2. В toParentId записать DETAILS = sorting
+            // 2. В toParentId записать DETAILS = sorting (с очисткой)
+            \CIBlockElement::SetPropertyValuesEx($toParentId, $this->detailsIblockId, [
+                'DETAILS' => false,
+            ]);
+            
             \CIBlockElement::SetPropertyValuesEx($toParentId, $this->detailsIblockId, [
                 'DETAILS' => array_map('intval', $sorting),
             ]);
@@ -1541,7 +1561,12 @@ class DetailHandler
                 ];
             }
 
-            // Записать sorting в CALC_STAGES детали
+            // 1. Сначала очистить свойство CALC_STAGES
+            \CIBlockElement::SetPropertyValuesEx($detailId, $this->detailsIblockId, [
+                'CALC_STAGES' => false,
+            ]);
+            
+            // 2. Записать sorting в CALC_STAGES детали с нужным порядком
             \CIBlockElement::SetPropertyValuesEx($detailId, $this->detailsIblockId, [
                 'CALC_STAGES' => array_map('intval', $sorting),
             ]);

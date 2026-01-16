@@ -56,6 +56,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     // Сохраняем настройки округления цен
     Option::set($module_id, 'PRICE_ROUNDING', (float)($_POST['PRICE_ROUNDING'] ?? 1));
 
+    // Сохраняем настройки наценки
+    if (isset($_POST['DEFAULT_EXTRA_VALUE'])) {
+        $settingsManager->setDefaultExtraValue((int)$_POST['DEFAULT_EXTRA_VALUE']);
+    }
+    if (isset($_POST['DEFAULT_EXTRA_CURRENCY_VALUE'])) {
+        $settingsManager->setDefaultExtraCurrency((string)$_POST['DEFAULT_EXTRA_CURRENCY_VALUE']);
+    }
+
     LocalRedirect($APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID . '&saved=Y');
 }
 
@@ -168,6 +176,29 @@ $tabControl->Begin();
                 </option>
                 <?php endforeach; ?>
             </select>
+        </td>
+    </tr>
+
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE') ?></td>
+        <td>
+            <input type="number" name="DEFAULT_EXTRA_VALUE" value="<?= htmlspecialcharsbx($settingsManager->getDefaultExtraValue()) ?>" min="0" step="1" style="width: 100px;">
+            <br><span style="color: #777; font-size: 11px;">Значение наценки по умолчанию (только положительные значения и 0)</span>
+        </td>
+    </tr>
+
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_CURRENCY') ?></td>
+        <td>
+            <select name="DEFAULT_EXTRA_CURRENCY_VALUE">
+                <option value="RUB" <?= $settingsManager->getDefaultExtraCurrency() === 'RUB' ? 'selected' : '' ?>>
+                    Рубли (RUB)
+                </option>
+                <option value="PRC" <?= $settingsManager->getDefaultExtraCurrency() === 'PRC' ? 'selected' : '' ?>>
+                    Проценты (PRC)
+                </option>
+            </select>
+            <br><span style="color: #777; font-size: 11px;">Валюта наценки по умолчанию</span>
         </td>
     </tr>
 

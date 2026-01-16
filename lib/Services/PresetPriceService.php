@@ -1,0 +1,266 @@
+<?php
+
+namespace Prospektweb\Calc\Services;
+
+use Bitrix\Main\Loader;
+use Prospektweb\Calc\Config\ConfigManager;
+use Prospektweb\Calc\Config\SettingsManager;
+
+/**
+ * Сервис управления ценами пресета
+ */
+class PresetPriceService
+{
+    private int $presetsIblockId;
+    private ConfigManager $configManager;
+    private SettingsManager $settingsManager;
+
+    public function __construct()
+    {
+        if (!Loader::includeModule('iblock')) {
+            throw new \RuntimeException('Требуется модуль Bitrix iblock');
+        }
+
+        if (!Loader::includeModule('catalog')) {
+            throw new \RuntimeException('Требуется модуль Bitrix catalog');
+        }
+
+        $this->configManager = new ConfigManager();
+        $this->settingsManager = new SettingsManager();
+        $this->presetsIblockId = $this->configManager->getIblockId('CALC_PRESETS');
+    }
+
+    /**
+     * Обработка выбора типов цен (PRICE_TYPE_SELECT)
+     *
+     * @param int $presetId ID пресета
+     * @param array $types Массив типов цен с флагами активности [{ id: int, active: bool }, ...]
+     * @return array Результат операции
+     */
+    public function handlePriceTypeSelect(int $presetId, array $types): array
+    {
+        try {
+            if ($presetId <= 0) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указан ID пресета',
+                ];
+            }
+
+            // 1. Получить текущие цены пресета
+            $currentPrices = $this->getPresetPrices($presetId);
+
+            // 2. Определить базовый тип цены в Bitrix
+            $baseGroupId = $this->getBasePriceGroupId();
+
+            // 3. Получить настройки по умолчанию
+            $defaultExtraValue = $this->settingsManager->getDefaultExtraValue();
+            $defaultExtraCurrency = $this->settingsManager->getDefaultExtraCurrency();
+
+            // 4. Обработать каждый тип цены из payload
+            $updatedPrices = [];
+            
+            foreach ($types as $typeInfo) {
+                $typeId = (int)($typeInfo['id'] ?? 0);
+                $active = (bool)($typeInfo['active'] ?? false);
+
+                if ($typeId <= 0) {
+                    continue;
+                }
+
+                if (!$active) {
+                    // Если active: false — удалить диапазоны этого типа цены
+                    // (просто не добавляем в updatedPrices)
+                    continue;
+                }
+
+                // Если active: true
+                if (isset($currentPrices[$typeId]) && !empty($currentPrices[$typeId])) {
+                    // Тип уже был активен — не трогать, копируем существующие диапазоны
+                    $updatedPrices[$typeId] = $currentPrices[$typeId];
+                } else {
+                    // Тип был неактивен — скопировать диапазоны из базового типа цен
+                    $baseRanges = $currentPrices[$baseGroupId] ?? [];
+                    
+                    if (empty($baseRanges)) {
+                        // Если базовых диапазонов нет, создаем один диапазон по умолчанию
+                        $baseRanges = [
+                            [
+                                'price' => $defaultExtraValue,
+                                'currency' => $defaultExtraCurrency,
+                                'quantityFrom' => 0,
+                                'quantityTo' => null,
+                            ],
+                        ];
+                    }
+
+                    // Копируем структуру диапазонов, устанавливая значения по умолчанию
+                    $newRanges = [];
+                    foreach ($baseRanges as $range) {
+                        $newRanges[] = [
+                            'price' => $defaultExtraValue,
+                            'currency' => $defaultExtraCurrency,
+                            'quantityFrom' => $range['quantityFrom'] ?? 0,
+                            'quantityTo' => $range['quantityTo'] ?? null,
+                        ];
+                    }
+                    
+                    $updatedPrices[$typeId] = $newRanges;
+                }
+            }
+
+            // 5. Сохранить обновлённые цены в пресет
+            $this->savePresetPrices($presetId, $updatedPrices);
+
+            return [
+                'status' => 'ok',
+                'presetId' => $presetId,
+                'prices' => $updatedPrices,
+            ];
+
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Обработка изменения диапазонов цен (CHANGE_RANGES)
+     *
+     * @param int $presetId ID пресета
+     * @param array $ranges Массив диапазонов цен
+     * @return array Результат операции
+     */
+    public function handleChangeRanges(int $presetId, array $ranges): array
+    {
+        try {
+            if ($presetId <= 0) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указан ID пресета',
+                ];
+            }
+
+            // 1. Преобразовать payload в структуру цен пресета
+            $prices = [];
+            
+            foreach ($ranges as $range) {
+                $typeId = (int)($range['typeId'] ?? 0);
+                
+                if ($typeId <= 0) {
+                    continue;
+                }
+
+                if (!isset($prices[$typeId])) {
+                    $prices[$typeId] = [];
+                }
+
+                $prices[$typeId][] = [
+                    'price' => isset($range['price']) ? (float)$range['price'] : 0,
+                    'currency' => $range['currency'] ?? 'PRC',
+                    'quantityFrom' => isset($range['quantityFrom']) ? (int)$range['quantityFrom'] : 0,
+                    'quantityTo' => isset($range['quantityTo']) ? (int)$range['quantityTo'] : null,
+                ];
+            }
+
+            // 2. Сохранить в пресет (полная замена)
+            $this->savePresetPrices($presetId, $prices);
+
+            return [
+                'status' => 'ok',
+                'presetId' => $presetId,
+                'prices' => $prices,
+            ];
+
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Получить цены пресета
+     *
+     * @param int $presetId ID пресета
+     * @return array Массив цен по типам [typeId => [диапазоны]]
+     */
+    private function getPresetPrices(int $presetId): array
+    {
+        if ($presetId <= 0 || $this->presetsIblockId <= 0) {
+            return [];
+        }
+
+        // Получаем свойство PRICES пресета
+        $rsProperty = \CIBlockElement::GetProperty(
+            $this->presetsIblockId,
+            $presetId,
+            [],
+            ['CODE' => 'PRICES']
+        );
+
+        if ($prop = $rsProperty->Fetch()) {
+            $value = $prop['VALUE'] ?? '';
+            
+            if (!empty($value)) {
+                $decoded = json_decode($value, true);
+                
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * Сохранить цены пресета
+     *
+     * @param int $presetId ID пресета
+     * @param array $prices Массив цен по типам
+     */
+    private function savePresetPrices(int $presetId, array $prices): void
+    {
+        if ($presetId <= 0 || $this->presetsIblockId <= 0) {
+            return;
+        }
+
+        $encoded = json_encode($prices, JSON_UNESCAPED_UNICODE);
+
+        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
+            'PRICES' => $encoded,
+        ]);
+    }
+
+    /**
+     * Получить ID базового типа цены
+     *
+     * @return int
+     */
+    private function getBasePriceGroupId(): int
+    {
+        try {
+            $baseGroup = \CCatalogGroup::GetBaseGroup();
+            
+            if ($baseGroup && isset($baseGroup['ID'])) {
+                return (int)$baseGroup['ID'];
+            }
+
+            // Если не найден базовый, берем первый доступный
+            $result = \CCatalogGroup::GetListArray();
+            
+            if (is_array($result) && !empty($result)) {
+                return (int)$result[0]['ID'];
+            }
+
+        } catch (\Exception $e) {
+            // Fallback на ID = 1
+        }
+
+        return 1;
+    }
+}
