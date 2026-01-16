@@ -5,6 +5,7 @@ namespace Prospektweb\Calc\Services;
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Config\ConfigManager;
 use Prospektweb\Calc\Config\SettingsManager;
+use Prospektweb\Calc\Services\CatalogPriceService;
 
 /**
  * Сервис управления ценами пресета
