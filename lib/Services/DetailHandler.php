@@ -1226,4 +1226,337 @@ class DetailHandler
         
         return $cosmicNames[array_rand($cosmicNames)];
     }
+
+    /**
+     * Добавить новую деталь в скрепление
+     * 
+     * @param int $parentId ID родительского скрепления
+     * @return array Ответ с данными новой детали
+     */
+    public function addDetailToBinding(int $parentId): array
+    {
+        try {
+            if ($parentId <= 0) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указан ID родительского скрепления',
+                ];
+            }
+
+            // Проверяем, что родитель существует и является скреплением
+            $parent = $this->getDetailById($parentId);
+            if (!$parent) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Родительское скрепление не найдено',
+                ];
+            }
+
+            if ($parent['TYPE'] !== 'BINDING') {
+                return [
+                    'status' => 'error',
+                    'message' => 'Родитель не является скреплением',
+                ];
+            }
+
+            // 1. Создать новую деталь с TYPE = DETAIL и 1 пустым этапом
+            $name = $this->generateDetailName();
+            $detailId = $this->createDetailElement($name, 'DETAIL');
+            
+            if (!$detailId) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не удалось создать деталь',
+                ];
+            }
+            
+            // Создать элемент в CALC_STAGES (пустой конфиг для первого этапа)
+            $configId = $this->createConfigElement('Этап #' . date('dmY_His'));
+            
+            if (!$configId) {
+                // Откатываем создание детали
+                \CIBlockElement::Delete($detailId);
+                return [
+                    'status' => 'error',
+                    'message' => 'Не удалось создать конфигурацию',
+                ];
+            }
+            
+            // Связать конфиг с деталью через свойство CALC_STAGES
+            $this->linkConfigToDetail($detailId, [$configId]);
+            
+            // 2. Добавить ID новой детали в свойство DETAILS родителя
+            $existingDetails = $parent['DETAIL_IDS'];
+            $existingDetails[] = $detailId;
+            
+            \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
+                'DETAILS' => $existingDetails,
+            ]);
+            
+            return [
+                'status' => 'ok',
+                'detail' => [
+                    'id' => $detailId,
+                    'name' => $name,
+                    'type' => 'DETAIL',
+                ],
+                'config' => [
+                    'id' => $configId,
+                ],
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Добавить выбранные детали в скрепление
+     * 
+     * @param int $parentId ID родительского скрепления
+     * @param array $detailIds ID выбранных деталей
+     * @return array Ответ об успешности операции
+     */
+    public function addDetailsToBinding(int $parentId, array $detailIds): array
+    {
+        try {
+            if ($parentId <= 0) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указан ID родительского скрепления',
+                ];
+            }
+
+            if (empty($detailIds)) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указаны детали для добавления',
+                ];
+            }
+
+            // Проверяем, что родитель существует и является скреплением
+            $parent = $this->getDetailById($parentId);
+            if (!$parent) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Родительское скрепление не найдено',
+                ];
+            }
+
+            if ($parent['TYPE'] !== 'BINDING') {
+                return [
+                    'status' => 'error',
+                    'message' => 'Родитель не является скреплением',
+                ];
+            }
+
+            // 1. Получить текущие DETAILS родителя
+            $existingDetails = $parent['DETAIL_IDS'];
+            
+            // 2. Добавить новые detailIds (избегаем дубликатов)
+            foreach ($detailIds as $detailId) {
+                if (!in_array($detailId, $existingDetails)) {
+                    $existingDetails[] = (int)$detailId;
+                }
+            }
+            
+            // 3. Записать обновлённый массив
+            \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
+                'DETAILS' => $existingDetails,
+            ]);
+            
+            return [
+                'status' => 'ok',
+                'parentId' => $parentId,
+                'addedDetails' => $detailIds,
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Изменить сортировку деталей в скреплении
+     * 
+     * @param int $parentId ID родительского скрепления
+     * @param array $sorting Новый порядок ID деталей
+     * @return array Ответ об успешности операции
+     */
+    public function changeDetailSort(int $parentId, array $sorting): array
+    {
+        try {
+            if ($parentId <= 0) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указан ID родительского скрепления',
+                ];
+            }
+
+            if (empty($sorting)) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указан порядок сортировки',
+                ];
+            }
+
+            // Проверяем, что родитель существует и является скреплением
+            $parent = $this->getDetailById($parentId);
+            if (!$parent) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Родительское скрепление не найдено',
+                ];
+            }
+
+            if ($parent['TYPE'] !== 'BINDING') {
+                return [
+                    'status' => 'error',
+                    'message' => 'Родитель не является скреплением',
+                ];
+            }
+
+            // Записать sorting в DETAILS родителя
+            \CIBlockElement::SetPropertyValuesEx($parentId, $this->detailsIblockId, [
+                'DETAILS' => array_map('intval', $sorting),
+            ]);
+            
+            return [
+                'status' => 'ok',
+                'parentId' => $parentId,
+                'sorting' => $sorting,
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Перенести деталь между скреплениями
+     * 
+     * @param int $fromParentId ID исходного скрепления
+     * @param int $detailId ID переносимой детали
+     * @param int $toParentId ID целевого скрепления
+     * @param array $sorting Новый порядок деталей в целевом скреплении
+     * @return array Ответ об успешности операции
+     */
+    public function changeDetailLevel(int $fromParentId, int $detailId, int $toParentId, array $sorting): array
+    {
+        try {
+            if ($fromParentId <= 0 || $detailId <= 0 || $toParentId <= 0) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указаны обязательные параметры',
+                ];
+            }
+
+            // Проверяем существование родителей
+            $fromParent = $this->getDetailById($fromParentId);
+            $toParent = $this->getDetailById($toParentId);
+            
+            if (!$fromParent || !$toParent) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Одно из скреплений не найдено',
+                ];
+            }
+
+            if ($fromParent['TYPE'] !== 'BINDING' || $toParent['TYPE'] !== 'BINDING') {
+                return [
+                    'status' => 'error',
+                    'message' => 'Один из родителей не является скреплением',
+                ];
+            }
+
+            // 1. Убрать detailId из свойства DETAILS у fromParentId
+            $fromDetails = array_filter($fromParent['DETAIL_IDS'], function($id) use ($detailId) {
+                return (int)$id !== (int)$detailId;
+            });
+            
+            \CIBlockElement::SetPropertyValuesEx($fromParentId, $this->detailsIblockId, [
+                'DETAILS' => array_values($fromDetails),
+            ]);
+            
+            // 2. В toParentId записать DETAILS = sorting
+            \CIBlockElement::SetPropertyValuesEx($toParentId, $this->detailsIblockId, [
+                'DETAILS' => array_map('intval', $sorting),
+            ]);
+            
+            return [
+                'status' => 'ok',
+                'fromParentId' => $fromParentId,
+                'toParentId' => $toParentId,
+                'detailId' => $detailId,
+                'sorting' => $sorting,
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Изменить сортировку этапов детали
+     * 
+     * @param int $detailId ID детали или детали-скрепления
+     * @param array $sorting Новый порядок ID этапов
+     * @return array Ответ об успешности операции
+     */
+    public function changeSortStage(int $detailId, array $sorting): array
+    {
+        try {
+            if ($detailId <= 0) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указан ID детали',
+                ];
+            }
+
+            if (empty($sorting)) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Не указан порядок сортировки',
+                ];
+            }
+
+            // Проверяем существование детали
+            $detail = $this->getDetailById($detailId);
+            if (!$detail) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Деталь не найдена',
+                ];
+            }
+
+            // Записать sorting в CALC_STAGES детали
+            \CIBlockElement::SetPropertyValuesEx($detailId, $this->detailsIblockId, [
+                'CALC_STAGES' => array_map('intval', $sorting),
+            ]);
+            
+            return [
+                'status' => 'ok',
+                'detailId' => $detailId,
+                'sorting' => $sorting,
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
 }

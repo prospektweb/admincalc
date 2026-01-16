@@ -251,18 +251,36 @@
                 case 'CLEAR_PRESET_REQUEST':
                     await this.handleClearPresetRequest(message, origin);
                     break;
+                case 'ADD_DETAIL_TO_BINDING_REQUEST':
+                    await this.handleAddDetailToBindingRequest(message, origin);
+                    break;
+                case 'SELECT_DETAILS_TO_BINDING_REQUEST':
+                    await this.handleSelectDetailsToBindingRequest(message, origin);
+                    break;
+                case 'CHANGE_DETAIL_SORT_REQUEST':
+                    await this.handleChangeDetailSortRequest(message, origin);
+                    break;
+                case 'CHANGE_DETAIL_LEVEL_REQUEST':
+                    await this.handleChangeDetailLevelRequest(message, origin);
+                    break;
+                case 'CHANGE_SORT_STAGE_REQUEST':
+                    await this.handleChangeSortStageRequest(message, origin);
+                    break;
                 case 'CLOSE_REQUEST':
                     this.handleCloseRequest(message);
                     break;
                 default:
                     console.warn('[BitrixBridge][DEBUG] Unknown pwrt message type:', message.type);
                     console.warn('[BitrixBridge][DEBUG] Known types:', [
-                        'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'ADD_DETAIL_REQUEST', 
+                        'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'SELECT_DETAILS_TO_BINDING_REQUEST',
+                        'ADD_DETAIL_REQUEST', 'ADD_DETAIL_TO_BINDING_REQUEST',
                         'ADD_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'REMOVE_DETAIL_REQUEST', 
                         'RENAME_DETAIL_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST', 
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_OPERATION_QUANTITY_REQUEST', 'CHANGE_MATERIAL_QUANTITY_REQUEST', 
-                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
+                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST',
+                        'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST',
+                        'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
         }
@@ -1431,6 +1449,446 @@
                     message: error.message,
                 });
                 // В режиме тишины не отправляем ошибку
+            }
+        }
+
+        /**
+         * Обработка запроса ADD_DETAIL_TO_BINDING_REQUEST
+         * Payload: { parentId }
+         * Логика:
+         * 1. Создать новую деталь с TYPE = DETAIL и 1 пустым этапом
+         * 2. Добавить ID новой детали в свойство DETAILS родителя
+         * 3. Переобогатить пресет на основе CALC_DETAILS[0]
+         * 4. Отправить INIT
+         */
+        async handleAddDetailToBindingRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleAddDetailToBindingRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const parentId = payload.parentId || 0;
+
+            try {
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                if (parentId <= 0) {
+                    throw new Error('Parent ID обязателен');
+                }
+
+                // Вызываем создание детали и добавление в скрепление через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'addDetailToBinding',
+                        parentId: parentId,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось добавить деталь в скрепление');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleAddDetailToBindingRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleAddDetailToBindingRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка добавления детали в скрепление',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+            }
+        }
+
+        /**
+         * Обработка запроса SELECT_DETAILS_TO_BINDING_REQUEST
+         * Payload: { parentId }
+         * Логика:
+         * 1. Показать окно выбора деталей
+         * 2. После завершения выбора — добавить выбранные детали в DETAILS родителя
+         * 3. Переобогатить пресет на основе CALC_DETAILS[0]
+         * 4. Отправить INIT
+         */
+        async handleSelectDetailsToBindingRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleSelectDetailsToBindingRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const parentId = payload.parentId || 0;
+
+            try {
+                if (parentId <= 0) {
+                    throw new Error('Parent ID обязателен');
+                }
+
+                // Получить iblockId для CALC_DETAILS из initData
+                const calcDetails = this.findIblockByCode('CALC_DETAILS');
+                const iblockId = calcDetails?.id || null;
+                const iblockType = calcDetails?.type || null;
+                const lang = this.initData?.lang || null;
+
+                // 1. Показать окно выбора деталей
+                const selectedIds = await this.openElementSelectionDialog({
+                    iblockId: iblockId,
+                    iblockType: iblockType,
+                    lang: lang,
+                });
+
+                // Режим тишины - 0 деталей выбрано
+                if (!selectedIds || selectedIds.length === 0) {
+                    console.log('[BitrixBridge] No details selected, silent mode');
+                    return;
+                }
+
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                // 2. Добавить выбранные детали в скрепление через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'addDetailsToBinding',
+                        parentId: parentId,
+                        detailIds: selectedIds,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось добавить детали в скрепление');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleSelectDetailsToBindingRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleSelectDetailsToBindingRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка добавления выбранных деталей в скрепление',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+            }
+        }
+
+        /**
+         * Обработка запроса CHANGE_DETAIL_SORT_REQUEST
+         * Payload: { parentId, sorting }
+         * Логика:
+         * 1. В свойство DETAILS родителя записать массив sorting
+         * 2. Переобогатить пресет на основе CALC_DETAILS[0]
+         * 3. Отправить INIT
+         */
+        async handleChangeDetailSortRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeDetailSortRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const parentId = payload.parentId || 0;
+            const sorting = payload.sorting || [];
+
+            try {
+                if (parentId <= 0) {
+                    throw new Error('Parent ID обязателен');
+                }
+
+                if (!Array.isArray(sorting) || sorting.length === 0) {
+                    throw new Error('Sorting обязателен');
+                }
+
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                // Вызываем изменение сортировки через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeDetailSort',
+                        parentId: parentId,
+                        sorting: sorting,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось изменить сортировку деталей');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleChangeDetailSortRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeDetailSortRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка изменения сортировки деталей',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+            }
+        }
+
+        /**
+         * Обработка запроса CHANGE_DETAIL_LEVEL_REQUEST
+         * Payload: { fromParentId, detailId, toParentId, sorting }
+         * Логика:
+         * 1. Убрать detailId из DETAILS у fromParentId
+         * 2. В toParentId записать DETAILS = sorting
+         * 3. Переобогатить пресет на основе CALC_DETAILS[0]
+         * 4. Отправить INIT
+         */
+        async handleChangeDetailLevelRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeDetailLevelRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const fromParentId = payload.fromParentId || 0;
+            const detailId = payload.detailId || 0;
+            const toParentId = payload.toParentId || 0;
+            const sorting = payload.sorting || [];
+
+            try {
+                if (fromParentId <= 0 || detailId <= 0 || toParentId <= 0) {
+                    throw new Error('fromParentId, detailId, toParentId обязательны');
+                }
+
+                if (!Array.isArray(sorting) || sorting.length === 0) {
+                    throw new Error('Sorting обязателен');
+                }
+
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                // Вызываем перенос детали через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeDetailLevel',
+                        fromParentId: fromParentId,
+                        detailId: detailId,
+                        toParentId: toParentId,
+                        sorting: sorting,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось перенести деталь между скреплениями');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleChangeDetailLevelRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeDetailLevelRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка переноса детали между скреплениями',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+            }
+        }
+
+        /**
+         * Обработка запроса CHANGE_SORT_STAGE_REQUEST
+         * Payload: { detailId, sorting }
+         * Логика:
+         * 1. В свойство CALC_STAGES детали записать массив sorting
+         * 2. Переобогатить пресет на основе CALC_DETAILS[0]
+         * 3. Отправить INIT
+         */
+        async handleChangeSortStageRequest(message, origin) {
+            console.log('[BitrixBridge][DEBUG] handleChangeSortStageRequest START', {
+                messageType: message.type,
+                payload: message.payload,
+                origin: origin,
+            });
+
+            const payload = message.payload || {};
+            const detailId = payload.detailId || 0;
+            const sorting = payload.sorting || [];
+
+            try {
+                if (detailId <= 0) {
+                    throw new Error('Detail ID обязателен');
+                }
+
+                if (!Array.isArray(sorting) || sorting.length === 0) {
+                    throw new Error('Sorting обязателен');
+                }
+
+                // Получаем presetId из initData
+                const presetId = this.initData?.preset?.id;
+                const offerIds = this.config.offerIds || [];
+                const siteId = this.config.siteId || SITE_ID;
+
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                // Вызываем изменение сортировки этапов через AJAX
+                const result = await this.fetchRefreshData([
+                    {
+                        action: 'changeSortStage',
+                        detailId: detailId,
+                        sorting: sorting,
+                        presetId: presetId,
+                        offerIds: offerIds,
+                        siteId: siteId,
+                    }
+                ]);
+
+                const responsePayload = (Array.isArray(result) && result[0])
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось изменить сортировку этапов');
+                }
+
+                // Обновляем локальный initData
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+
+                // Отправляем INIT message
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+                console.log('[BitrixBridge][DEBUG] handleChangeSortStageRequest END - success, INIT sent');
+
+            } catch (error) {
+                console.error('[BitrixBridge][DEBUG] handleChangeSortStageRequest ERROR', {
+                    error: error,
+                    message: error.message,
+                });
+
+                this.sendPwrtMessage(
+                    'ERROR',
+                    {
+                        message: 'Ошибка изменения сортировки этапов',
+                        details: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
             }
         }
 
