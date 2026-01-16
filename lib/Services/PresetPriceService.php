@@ -30,14 +30,16 @@ class PresetPriceService
         $this->presetsIblockId = $this->configManager->getIblockId('CALC_PRESETS');
     }
 
+
+
     /**
-     * Обработка выбора типов цен (PRICE_TYPE_SELECT)
+     * Обработка изменения диапазонов цен (CHANGE_PRICE_PRESET_REQUEST)
      *
      * @param int $presetId ID пресета
-     * @param array $types Массив типов цен с флагами активности [{ id: int, active: bool }, ...]
+     * @param array $prices Массив диапазонов цен
      * @return array Результат операции
      */
-    public function handlePriceTypeSelect(int $presetId, array $types): array
+    public function changePricePreset(int $presetId, array $prices): array
     {
         try {
             if ($presetId <= 0) {
@@ -47,117 +49,24 @@ class PresetPriceService
                 ];
             }
 
-            // 1. Получить текущие цены пресета
-            $currentPrices = $this->getPresetPrices($presetId);
+            // 1. Очистить все текущие цены пресета
+            $this->clearPresetPrices($presetId);
 
-            // 2. Определить базовый тип цены в Bitrix
-            $baseGroupId = $this->getBasePriceGroupId();
-
-            // 3. Получить настройки по умолчанию
-            $defaultExtraValue = $this->settingsManager->getDefaultExtraValue();
-            $defaultExtraCurrency = $this->settingsManager->getDefaultExtraCurrency();
-
-            // 4. Обработать каждый тип цены из payload
-            $updatedPrices = [];
+            // 2. Преобразовать payload в структуру цен пресета и записать новые цены
+            $pricesData = [];
             
-            foreach ($types as $typeInfo) {
-                $typeId = (int)($typeInfo['id'] ?? 0);
-                $active = (bool)($typeInfo['active'] ?? false);
-
-                if ($typeId <= 0) {
-                    continue;
-                }
-
-                if (!$active) {
-                    // Если active: false — удалить диапазоны этого типа цены
-                    // (просто не добавляем в updatedPrices)
-                    continue;
-                }
-
-                // Если active: true
-                if (isset($currentPrices[$typeId]) && !empty($currentPrices[$typeId])) {
-                    // Тип уже был активен — не трогать, копируем существующие диапазоны
-                    $updatedPrices[$typeId] = $currentPrices[$typeId];
-                } else {
-                    // Тип был неактивен — скопировать диапазоны из базового типа цен
-                    $baseRanges = $currentPrices[$baseGroupId] ?? [];
-                    
-                    if (empty($baseRanges)) {
-                        // Если базовых диапазонов нет, создаем один диапазон по умолчанию
-                        $baseRanges = [
-                            [
-                                'price' => $defaultExtraValue,
-                                'currency' => $defaultExtraCurrency,
-                                'quantityFrom' => 0,
-                                'quantityTo' => null,
-                            ],
-                        ];
-                    }
-
-                    // Копируем структуру диапазонов, устанавливая значения по умолчанию
-                    $newRanges = [];
-                    foreach ($baseRanges as $range) {
-                        $newRanges[] = [
-                            'price' => $defaultExtraValue,
-                            'currency' => $defaultExtraCurrency,
-                            'quantityFrom' => $range['quantityFrom'] ?? 0,
-                            'quantityTo' => $range['quantityTo'] ?? null,
-                        ];
-                    }
-                    
-                    $updatedPrices[$typeId] = $newRanges;
-                }
-            }
-
-            // 5. Сохранить обновлённые цены в пресет
-            $this->savePresetPrices($presetId, $updatedPrices);
-
-            return [
-                'status' => 'ok',
-                'presetId' => $presetId,
-                'prices' => $updatedPrices,
-            ];
-
-        } catch (\Exception $e) {
-            return [
-                'status' => 'error',
-                'message' => $e->getMessage(),
-            ];
-        }
-    }
-
-    /**
-     * Обработка изменения диапазонов цен (CHANGE_RANGES)
-     *
-     * @param int $presetId ID пресета
-     * @param array $ranges Массив диапазонов цен
-     * @return array Результат операции
-     */
-    public function handleChangeRanges(int $presetId, array $ranges): array
-    {
-        try {
-            if ($presetId <= 0) {
-                return [
-                    'status' => 'error',
-                    'message' => 'Не указан ID пресета',
-                ];
-            }
-
-            // 1. Преобразовать payload в структуру цен пресета
-            $prices = [];
-            
-            foreach ($ranges as $range) {
+            foreach ($prices as $range) {
                 $typeId = (int)($range['typeId'] ?? 0);
                 
                 if ($typeId <= 0) {
                     continue;
                 }
 
-                if (!isset($prices[$typeId])) {
-                    $prices[$typeId] = [];
+                if (!isset($pricesData[$typeId])) {
+                    $pricesData[$typeId] = [];
                 }
 
-                $prices[$typeId][] = [
+                $pricesData[$typeId][] = [
                     'price' => isset($range['price']) ? (float)$range['price'] : 0,
                     'currency' => $range['currency'] ?? 'PRC',
                     'quantityFrom' => isset($range['quantityFrom']) ? (int)$range['quantityFrom'] : 0,
@@ -165,13 +74,12 @@ class PresetPriceService
                 ];
             }
 
-            // 2. Сохранить в пресет (полная замена)
-            $this->savePresetPrices($presetId, $prices);
+            // 3. Сохранить новые цены
+            $this->savePresetPrices($presetId, $pricesData);
 
             return [
                 'status' => 'ok',
                 'presetId' => $presetId,
-                'prices' => $prices,
             ];
 
         } catch (\Exception $e) {
@@ -215,6 +123,24 @@ class PresetPriceService
         }
 
         return [];
+    }
+
+    /**
+     * Очистить цены пресета
+     *
+     * @param int $presetId ID пресета
+     */
+    private function clearPresetPrices(int $presetId): void
+    {
+        if ($presetId <= 0 || $this->presetsIblockId <= 0) {
+            return;
+        }
+
+        // Очистить свойство PRICES у пресета
+        // Используем паттерн: сначала false, потом новые данные
+        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
+            'PRICES' => false,
+        ]);
     }
 
     /**
