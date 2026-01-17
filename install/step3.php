@@ -1205,28 +1205,28 @@ switch ($currentStep) {
         installLog("Сохранено: PRODUCT_IBLOCK_ID = " . $installData['product_iblock_id'], 'success');
         installLog("Сохранено: SKU_IBLOCK_ID = " . $installData['sku_iblock_id'], 'success');
 
-        // Добавление свойства PRESET в инфоблок торговых предложений
-        $skuIblockId = $installData['sku_iblock_id'];
+        // Добавление свойства CALC_PRESET в инфоблок товаров (Product)
+        $productIblockId = $installData['product_iblock_id'];
         $presetsIblockId = $installData['iblock_ids']['CALC_PRESETS'] ?? 0;
 
-        if ($skuIblockId > 0 && $presetsIblockId > 0) {
+        if ($productIblockId > 0 && $presetsIblockId > 0) {
             installLog("");
-            installLog("Добавление свойства CALC_PRESET в инфоблок ТП...", 'header');
+            installLog("Добавление свойства CALC_PRESET в инфоблок товаров...", 'header');
             
             $propertyCode = 'CALC_PRESET';
             
             // Проверяем, существует ли свойство
             $rsProperty = \CIBlockProperty::GetList(
                 [],
-                ['IBLOCK_ID' => $skuIblockId, 'CODE' => $propertyCode]
+                ['IBLOCK_ID' => $productIblockId, 'CODE' => $propertyCode]
             );
             
             if ($arProperty = $rsProperty->Fetch()) {
-                installLog("  → Свойство {$propertyCode} уже существует (ID: {$arProperty['ID']})", 'warning');
+                installLog("  → Свойство {$propertyCode} уже существует в инфоблоке товаров (ID: {$arProperty['ID']})", 'warning');
             } else {
                 // Создаём свойство
                 $arNewProperty = [
-                    'IBLOCK_ID' => $skuIblockId,
+                    'IBLOCK_ID' => $productIblockId,
                     'ACTIVE' => 'Y',
                     'CODE' => $propertyCode,
                     'NAME' => 'Пресет калькуляции',
@@ -1234,7 +1234,7 @@ switch ($currentStep) {
                     'MULTIPLE' => 'N',
                     'MULTIPLE_CNT' => 1,
                     'IS_REQUIRED' => 'N',
-                    'SORT' => 999,
+                    'SORT' => 500,
                     'COL_COUNT' => 1,
                     'LINK_IBLOCK_ID' => $presetsIblockId,
                 ];
@@ -1243,7 +1243,7 @@ switch ($currentStep) {
                 $propId = $ibp->Add($arNewProperty);
                 
                 if ($propId) {
-                    installLog("  → Создано свойство {$propertyCode} (ID: {$propId})", 'success');
+                    installLog("  → Создано свойство {$propertyCode} в инфоблоке товаров (ID: {$propId})", 'success');
                 } else {
                     $error = getBitrixError();
                     installLog("  → Ошибка создания свойства {$propertyCode}: {$error}", 'error');
@@ -1251,8 +1251,8 @@ switch ($currentStep) {
                 }
             }
         } else {
-            if ($skuIblockId <= 0) {
-                installLog("  → Пропуск создания CALC_PRESET: SKU Iblock ID не задан", 'warning');
+            if ($productIblockId <= 0) {
+                installLog("  → Пропуск создания CALC_PRESET: Product Iblock ID не задан", 'warning');
             }
             if ($presetsIblockId <= 0) {
                 installLog("  → Пропуск создания CALC_PRESET: CALC_PRESETS не создан", 'warning');

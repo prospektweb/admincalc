@@ -322,6 +322,7 @@ var ProspekwebCalc = {
 
     /**
      * Предварительная проверка/создание CALC_PRESET для выбранных ТП
+     * Упрощенная логика: один пресет на товар, конфликтов больше нет
      * @param {Array} offers
      * @returns {Promise<{success: boolean, presetId?: number, skipPresetCheck: boolean, cancelled?: boolean, error?: boolean}>}
      * When preset exists: {success: true, presetId: number, skipPresetCheck: true}
@@ -335,6 +336,7 @@ var ProspekwebCalc = {
         var siteId = BX.message('SITE_ID') || (typeof SITE_ID !== 'undefined' ? SITE_ID : 's1');
 
         try {
+            // Проверяем наличие пресета у товара
             var checkUrl = ajaxEndpoint +
                 '?action=checkPresets' +
                 '&offerIds=' + encodeURIComponent(offerIds.join(',')) +
@@ -352,28 +354,25 @@ var ProspekwebCalc = {
                 throw new Error((checkData && (checkData.message || checkData.error)) || 'Ошибка проверки пресетов');
             }
 
-            if (!checkData.data || typeof checkData.data.needsConfirmation === 'undefined' || typeof checkData.data.samePresetForAll === 'undefined') {
+            if (!checkData.data) {
                 throw new Error('Некорректный ответ проверки пресетов');
             }
 
-            var needsConfirmation = Boolean(checkData.data.needsConfirmation);
-            var samePresetForAll = Boolean(checkData.data.samePresetForAll);
-            var uniquePresets = Array.isArray(checkData.data.uniquePresets) ? checkData.data.uniquePresets : [];
+            var hasPreset = Boolean(checkData.data.hasPreset);
+            var presetId = checkData.data.presetId ? parseInt(checkData.data.presetId, 10) : null;
 
-            var presetId = null;
-            if (samePresetForAll && uniquePresets.length === 1) {
-                presetId = parseInt(uniquePresets[0], 10) || null;
-            }
-
-            if (!needsConfirmation) {
+            if (hasPreset && presetId) {
+                // Пресет уже есть у товара — используем его
                 return { success: true, presetId: presetId, skipPresetCheck: true };
             }
 
+            // Пресета нет — запрашиваем подтверждение на создание
             var confirmed = confirm(this.PRESET_CONFIRM_MESSAGE);
             if (!confirmed) {
                 return { success: false, cancelled: true, skipPresetCheck: true };
             }
 
+            // Создаём новый пресет (автоматически привяжется к товару)
             var createUrl = ajaxEndpoint +
                 '?action=createAndAssignPreset' +
                 '&offerIds=' + encodeURIComponent(offerIds.join(',')) +

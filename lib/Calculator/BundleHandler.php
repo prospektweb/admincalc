@@ -34,12 +34,20 @@ class BundleHandler
      */
     public function createPreset(array $offerIds, ?string $name = null): int
     {
+        // 1. Получить ID товара из первого ТП (все ТП принадлежат одному товару)
+        $productId = $this->getProductIdFromOffer($offerIds[0]);
+        
+        if ($productId <= 0) {
+            throw new \Exception('Не удалось определить товар для ТП');
+        }
+        
         $iblockId = $this->configManager->getIblockId('CALC_PRESETS');
         
         if ($iblockId <= 0) {
             throw new \Exception('Инфоблок CALC_PRESETS не настроен');
         }
         
+        // 2. Создать элемент пресета
         $el = new \CIBlockElement();
         $presetId = $el->Add([
             'IBLOCK_ID' => $iblockId,
@@ -54,14 +62,39 @@ class BundleHandler
             throw new \Exception('Ошибка создания пресета: ' . $el->LAST_ERROR);
         }
         
-        // Привязываем preset к выбранным ТП
-        foreach ($offerIds as $offerId) {
-            \CIBlockElement::SetPropertyValuesEx((int)$offerId, false, [
-                'CALC_PRESET' => $presetId,
-            ]);
-        }
+        // 3. Привязать пресет к ТОВАРУ (не к ТП!)
+        $productIblockId = $this->configManager->getProductIblockId();
+        
+        \CIBlockElement::SetPropertyValuesEx($productId, $productIblockId, [
+            'CALC_PRESET' => $presetId,
+        ]);
         
         return (int)$presetId;
+    }
+    
+    /**
+     * Получить ID товара из ТП
+     * 
+     * @param int $offerId ID торгового предложения
+     * @return int ID товара
+     */
+    private function getProductIdFromOffer(int $offerId): int
+    {
+        $skuIblockId = $this->configManager->getSkuIblockId();
+        
+        $rsOffer = \CIBlockElement::GetList(
+            [],
+            ['ID' => $offerId, 'IBLOCK_ID' => $skuIblockId],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'PROPERTY_CML2_LINK']
+        );
+        
+        if ($offer = $rsOffer->Fetch()) {
+            return (int)($offer['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+        }
+        
+        return 0;
     }
     
     /**
@@ -148,26 +181,26 @@ class BundleHandler
     }
     
     /**
-     * Удалить preset и очистить привязки в ТП
+     * Удалить preset и очистить привязки в ТОВАРЕ
      * 
      * @param int $presetId ID пресета
      */
     public function deletePreset(int $presetId): void
     {
-        // Очищаем привязки в ТП
-        $skuIblockId = $this->configManager->getSkuIblockId();
+        // Очищаем привязки в ТОВАРЕ (не в ТП!)
+        $productIblockId = $this->configManager->getProductIblockId();
         
-        if ($skuIblockId > 0) {
-            $rsOffers = \CIBlockElement::GetList(
+        if ($productIblockId > 0) {
+            $rsProducts = \CIBlockElement::GetList(
                 [],
-                ['IBLOCK_ID' => $skuIblockId, 'PROPERTY_CALC_PRESET' => $presetId],
+                ['IBLOCK_ID' => $productIblockId, 'PROPERTY_CALC_PRESET' => $presetId],
                 false,
                 false,
                 ['ID']
             );
             
-            while ($arOffer = $rsOffers->Fetch()) {
-                \CIBlockElement::SetPropertyValuesEx((int)$arOffer['ID'], false, [
+            while ($arProduct = $rsProducts->Fetch()) {
+                \CIBlockElement::SetPropertyValuesEx((int)$arProduct['ID'], $productIblockId, [
                     'CALC_PRESET' => false,
                 ]);
             }

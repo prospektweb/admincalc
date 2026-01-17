@@ -228,7 +228,7 @@ function handleGetInitData($request): void
 }
 
 /**
- * Обработка запроса checkPresets - проверка CALC_PRESET у торговых предложений
+ * Обработка запроса checkPresets - проверка CALC_PRESET у товара
  */
 function handleCheckPresets($request): void
 {
@@ -245,47 +245,65 @@ function handleCheckPresets($request): void
     }
 
     try {
-        $uniquePresets = [];
-        $offersWithoutPreset = [];
-
-        $dbRes = \CIBlockElement::GetList(
+        $configManager = new \Prospektweb\Calc\Config\ConfigManager();
+        $skuIblockId = $configManager->getSkuIblockId();
+        $productIblockId = $configManager->getProductIblockId();
+        
+        // 1. Получить productId из первого ТП
+        $rsOffer = \CIBlockElement::GetList(
             [],
-            ['ID' => $offerIds],
+            ['ID' => $offerIds[0], 'IBLOCK_ID' => $skuIblockId],
             false,
+            ['nTopCount' => 1],
+            ['ID', 'PROPERTY_CML2_LINK']
+        );
+        
+        $productId = null;
+        if ($offer = $rsOffer->Fetch()) {
+            $productId = (int)($offer['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+        }
+        
+        if (!$productId) {
+            sendJsonResponse(['error' => 'Product not found', 'message' => 'Не удалось определить товар'], 400);
+        }
+        
+        // 2. Получить CALC_PRESET из товара
+        $rsProduct = \CIBlockElement::GetList(
+            [],
+            ['ID' => $productId, 'IBLOCK_ID' => $productIblockId],
             false,
+            ['nTopCount' => 1],
             ['ID', 'PROPERTY_CALC_PRESET']
         );
-
-        while ($item = $dbRes->Fetch()) {
-            $presetId = isset($item['PROPERTY_CALC_PRESET_VALUE']) ? (int)$item['PROPERTY_CALC_PRESET_VALUE'] : 0;
-            $offerId = (int)$item['ID'];
-
-            if ($presetId > 0) {
-                $uniquePresets[$presetId] = $presetId;
-            } else {
-                $offersWithoutPreset[] = $offerId;
-            }
+        
+        $presetId = null;
+        if ($product = $rsProduct->Fetch()) {
+            $presetId = $product['PROPERTY_CALC_PRESET_VALUE'] ?? null;
+            $presetId = $presetId ? (int)$presetId : null;
         }
-
-        $uniquePresetList = array_values($uniquePresets);
-        $samePresetForAll = count($uniquePresetList) === 1 && empty($offersWithoutPreset);
-        $needsConfirmation = !$samePresetForAll;
-
+        
+        // 3. Возвращаем результат
+        $hasPreset = $presetId !== null && $presetId > 0;
+        
         logInfo(sprintf(
-            'CheckPresets for offers: %s. uniquePresets=%s, offersWithoutPreset=%s, needsConfirmation=%s',
+            'CheckPresets for offers: %s. productId=%d, presetId=%s, hasPreset=%s',
             implode(',', $offerIds),
-            implode(',', $uniquePresetList),
-            implode(',', $offersWithoutPreset),
-            $needsConfirmation ? 'yes' : 'no'
+            $productId,
+            $presetId ?? 'null',
+            $hasPreset ? 'yes' : 'no'
         ));
 
         sendJsonResponse([
             'success' => true,
             'data' => [
-                'needsConfirmation' => $needsConfirmation,
-                'samePresetForAll' => $samePresetForAll,
-                'uniquePresets' => $uniquePresetList,
-                'offersWithoutPreset' => $offersWithoutPreset,
+                'productId' => $productId,
+                'presetId' => $presetId,
+                'hasPreset' => $hasPreset,
+                'needsConfirmation' => !$hasPreset,
+                'samePresetForAll' => $hasPreset,
+                // Конфликтов больше нет - один пресет на товар
+                'uniquePresets' => $hasPreset ? [$presetId] : [],
+                'offersWithoutPreset' => $hasPreset ? [] : $offerIds,
             ],
         ]);
     } catch (\Exception $e) {
