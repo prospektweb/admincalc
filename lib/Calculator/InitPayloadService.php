@@ -294,8 +294,25 @@ class InitPayloadService
      */
     private function getProductIdFromOffer(array $offer): int
     {
-        // Получить ID товара из свойства CML2_LINK (или аналога)
-        return (int)($offer['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+        // Сначала проверяем прямое поле (если добавлено)
+        if (!empty($offer['productId'])) {
+            return (int)$offer['productId'];
+        }
+        
+        // Затем ищем в properties
+        if (isset($offer['properties']['CML2_LINK']['VALUE'])) {
+            return (int)$offer['properties']['CML2_LINK']['VALUE'];
+        }
+        
+        // Fallback через CCatalogSku
+        if (! empty($offer['id'])) {
+            $skuParent = \CCatalogSku::GetProductInfo((int)$offer['id']);
+            if (!empty($skuParent['ID'])) {
+                return (int)$skuParent['ID'];
+            }
+        }
+        
+        return 0;
     }
     
     /**
