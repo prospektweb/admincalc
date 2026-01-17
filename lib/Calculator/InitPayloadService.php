@@ -244,68 +244,93 @@ class InitPayloadService
 
     /**
      * Анализировать состояние PRESET у торговых предложений
+     * Все ТП принадлежат одному товару, берём productId из первого
      * 
      * @param array $offers Массив ТП
      * @return array Результат анализа
      */
     private function analyzeBundles(array $offers): array
     {
-        $presetIds = [];
-        $offersWithPreset = [];
-        $offersWithoutPreset = [];
-        
-        foreach ($offers as $offer) {
-            $presetId = $this->extractPresetId($offer);
-            
-            if ($presetId !== null && $presetId > 0) {
-                $presetIds[$presetId] = $presetId;
-                $offersWithPreset[$offer['id']] = $presetId;
-            } else {
-                $offersWithoutPreset[] = $offer['id'];
-            }
-        }
-        
-        $uniquePresetIds = array_values($presetIds);
-        
-        // Сценарий A: У всех одинаковый preset → используем существующий
-        if (count($uniquePresetIds) === 1 && empty($offersWithoutPreset)) {
-            return [
-                'scenario' => 'EXISTING_PRESET',
-                'bundleId' => $uniquePresetIds[0],
-            ];
-        }
-        
-        // Сценарий B: Ни у кого нет preset → создаём новый
-        if (empty($uniquePresetIds)) {
+        if (empty($offers)) {
             return [
                 'scenario' => 'NEW_BUNDLE',
                 'bundleId' => null,
             ];
         }
         
-        // Сценарий C: Смешанная ситуация → создаём новый
+        // Все ТП принадлежат одному товару, берём productId из первого
+        $productId = $this->getProductIdFromOffer($offers[0]);
+        
+        if ($productId <= 0) {
+            return [
+                'scenario' => 'NEW_BUNDLE',
+                'bundleId' => null,
+            ];
+        }
+        
+        // Получаем CALC_PRESET из товара
+        $presetId = $this->getPresetFromProduct($productId);
+        
+        if ($presetId !== null && $presetId > 0) {
+            // У товара есть preset → используем существующий
+            return [
+                'scenario' => 'EXISTING_PRESET',
+                'bundleId' => $presetId,
+            ];
+        }
+        
+        // У товара нет preset → создаём новый
         return [
-            'scenario' => 'CONFLICT',
+            'scenario' => 'NEW_BUNDLE',
             'bundleId' => null,
         ];
     }
-
+    
     /**
-     * Извлечь presetId из offer
+     * Получить ID товара из offer
      * 
      * @param array $offer Данные ТП
-     * @return int|null
+     * @return int ID товара
      */
-    private function extractPresetId(array $offer): ?int
+    private function getProductIdFromOffer(array $offer): int
     {
-        $value = $offer['properties']['CALC_PRESET']['VALUE'] ?? null;
-        
-        if ($value === null || $value === false || $value === '' || $value === '0') {
+        // Получить ID товара из свойства CML2_LINK (или аналога)
+        return (int)($offer['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+    }
+    
+    /**
+     * Получить presetId из товара
+     * 
+     * @param int $productId ID товара
+     * @return int|null ID пресета или null
+     */
+    private function getPresetFromProduct(int $productId): ?int
+    {
+        if ($productId <= 0) {
             return null;
         }
         
-        $intValue = (int)$value;
-        return $intValue > 0 ? $intValue : null;
+        $configManager = new ConfigManager();
+        $productIblockId = $configManager->getProductIblockId();
+        
+        if ($productIblockId <= 0) {
+            return null;
+        }
+        
+        $rsProduct = \CIBlockElement::GetList(
+            [],
+            ['ID' => $productId, 'IBLOCK_ID' => $productIblockId],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'PROPERTY_CALC_PRESET']
+        );
+        
+        if ($product = $rsProduct->Fetch()) {
+            $presetId = $product['PROPERTY_CALC_PRESET_VALUE'] ?? null;
+            return $presetId ? (int)$presetId : null;
+        }
+        
+        return null;
     }
 
     /**
