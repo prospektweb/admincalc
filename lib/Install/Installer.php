@@ -143,7 +143,6 @@ class Installer
         $iblocks['CALC_OPERATIONS_VARIANTS'] = $this->iblockCreator->createOperationsVariantsIblock();
         $iblocks['CALC_EQUIPMENT'] = $this->iblockCreator->createEquipmentIblock();
         $iblocks['CALC_DETAILS'] = $this->iblockCreator->createDetailsIblock();
-        $iblocks['CALC_DETAILS_VARIANTS'] = $this->iblockCreator->createDetailsVariantsIblock();
 
         foreach ($iblocks as $code => $id) {
             if ($id <= 0) {
@@ -166,7 +165,6 @@ class Installer
         $relations = [
             ['CALC_MATERIALS', 'CALC_MATERIALS_VARIANTS'],
             ['CALC_OPERATIONS', 'CALC_OPERATIONS_VARIANTS'],
-            ['CALC_DETAILS', 'CALC_DETAILS_VARIANTS'],
         ];
 
         foreach ($relations as [$parentCode, $offersCode]) {
@@ -284,7 +282,6 @@ class Installer
         // Удаляем инфоблоки
         $iblockCodes = [
             'CALC_STAGES',
-            'CALC_STAGES_VARIANTS',
             'CALC_SETTINGS',
             'CALC_MATERIALS',
             'CALC_MATERIALS_VARIANTS',
@@ -292,7 +289,6 @@ class Installer
             'CALC_OPERATIONS_VARIANTS',
             'CALC_EQUIPMENT',
             'CALC_DETAILS',
-            'CALC_DETAILS_VARIANTS',
         ];
 
         foreach ($iblockCodes as $code) {

@@ -423,7 +423,6 @@ class InitPayloadService
             'OFFERS' => $configManager->getSkuIblockId(),
             'CALC_PRESETS' => (int)($moduleIblocks['CALC_PRESETS'] ?? 0),
             'CALC_STAGES' => (int)($moduleIblocks['CALC_STAGES'] ?? 0),
-            'CALC_STAGES_VARIANTS' => (int)($moduleIblocks['CALC_STAGES_VARIANTS'] ?? 0),
             'CALC_SETTINGS' => (int)($moduleIblocks['CALC_SETTINGS'] ?? 0),
             'CALC_CUSTOM_FIELDS' => (int)($moduleIblocks['CALC_CUSTOM_FIELDS'] ?? 0),
             'CALC_MATERIALS' => (int)($moduleIblocks['CALC_MATERIALS'] ?? 0),
@@ -432,14 +431,11 @@ class InitPayloadService
             'CALC_OPERATIONS_VARIANTS' => (int)($moduleIblocks['CALC_OPERATIONS_VARIANTS'] ?? 0),
             'CALC_EQUIPMENT' => (int)($moduleIblocks['CALC_EQUIPMENT'] ?? 0),
             'CALC_DETAILS' => (int)($moduleIblocks['CALC_DETAILS'] ?? 0),
-            'CALC_DETAILS_VARIANTS' => (int)($moduleIblocks['CALC_DETAILS_VARIANTS'] ?? 0),
         ];
 
         $parentMap = [
             'CALC_MATERIALS_VARIANTS' => 'CALC_MATERIALS',
             'CALC_OPERATIONS_VARIANTS' => 'CALC_OPERATIONS',
-            'CALC_DETAILS_VARIANTS' => 'CALC_DETAILS',
-            'CALC_STAGES_VARIANTS' => 'CALC_STAGES',
         ];
 
         $result = [];
