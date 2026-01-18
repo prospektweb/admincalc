@@ -599,6 +599,40 @@ class ElementDataService
                         
                         $result[] = $pricesResult;
                         continue 2;
+                        
+                    case 'updateStageProperty':
+                        // Handler for CHANGE_OPTIONS_OPERATION and CHANGE_OPTIONS_MATERIAL
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $propertyCode = $request['propertyCode'] ?? '';
+                        $value = $request['value'] ?? '';
+                        
+                        if ($stageId > 0 && !empty($propertyCode)) {
+                            $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
+                            if ($stagesIblockId > 0) {
+                                \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                    $propertyCode => $value
+                                ]);
+                            }
+                        }
+                        $result[] = ['status' => 'ok'];
+                        continue 2;
+                        
+                    case 'updateSettingsProperty':
+                        // Handler for CHANGE_LOGIC
+                        $settingsId = (int)($request['settingsId'] ?? 0);
+                        $propertyCode = $request['propertyCode'] ?? '';
+                        $value = $request['value'] ?? '';
+                        
+                        if ($settingsId > 0 && !empty($propertyCode)) {
+                            $settingsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_SETTINGS', 0);
+                            if ($settingsIblockId > 0) {
+                                \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
+                                    $propertyCode => $value
+                                ]);
+                            }
+                        }
+                        $result[] = ['status' => 'ok'];
+                        continue 2;
                 }
             }
 
