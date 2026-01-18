@@ -70,6 +70,7 @@ class InitPayloadService
             'priceTypes' => $this->getPriceTypes(),
             'preset' => $preset,
             'elementsStore' => $this->elementsStore ?? [],
+            'elementsSiblings' => $this->buildElementsSiblings($preset),
         ];
     }
 
@@ -1045,5 +1046,155 @@ class InitPayloadService
         }
 
         return $priceTypes;
+    }
+
+    /**
+     * Собирает "соседние" варианты операций/материалов для всех этапов пресета
+     * 
+     * @param array|null $preset Данные пресета
+     * @return array Массив соседних вариантов по этапам
+     */
+    private function buildElementsSiblings(?array $preset): array
+    {
+        if (!$preset || empty($preset['properties']['CALC_STAGES'])) {
+            return [];
+        }
+        
+        $stageIds = $preset['properties']['CALC_STAGES'];
+        $configManager = new ConfigManager();
+        $stagesIblockId = $configManager->getIblockId('CALC_STAGES');
+        $operationsVariantsIblockId = $configManager->getIblockId('CALC_OPERATIONS_VARIANTS');
+        $materialsVariantsIblockId = $configManager->getIblockId('CALC_MATERIALS_VARIANTS');
+        
+        $result = [];
+        
+        foreach ($stageIds as $stageId) {
+            $stageId = (int)$stageId;
+            if ($stageId <= 0) continue;
+            
+            // Получаем данные этапа
+            $stageData = $this->getStageData($stagesIblockId, $stageId);
+            if (!$stageData) continue;
+            
+            $siblings = [
+                'stageId' => $stageId,
+                'CALC_OPERATIONS_VARIANTS' => [],
+                'CALC_MATERIALS_VARIANTS' => [],
+            ];
+            
+            // Соседние варианты операций
+            $operationVariantId = (int)($stageData['OPERATION_VARIANT'] ?? 0);
+            if ($operationVariantId > 0) {
+                $parentId = $this->getParentIdByCml2Link($operationVariantId);
+                if ($parentId > 0) {
+                    $siblings['CALC_OPERATIONS_VARIANTS'] = $this->getSiblingVariants(
+                        $operationsVariantsIblockId,
+                        $parentId
+                    );
+                }
+            }
+            
+            // Соседние варианты материалов
+            $materialVariantId = (int)($stageData['MATERIAL_VARIANT'] ?? 0);
+            if ($materialVariantId > 0) {
+                $parentId = $this->getParentIdByCml2Link($materialVariantId);
+                if ($parentId > 0) {
+                    $siblings['CALC_MATERIALS_VARIANTS'] = $this->getSiblingVariants(
+                        $materialsVariantsIblockId,
+                        $parentId
+                    );
+                }
+            }
+            
+            $result[] = $siblings;
+        }
+        
+        return $result;
+    }
+
+    /**
+     * Получить данные этапа
+     */
+    private function getStageData(int $iblockId, int $stageId): ?array
+    {
+        $element = \CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => $iblockId, 'ID' => $stageId],
+            false,
+            false,
+            ['ID']
+        )->GetNextElement();
+        
+        if (!$element) return null;
+        
+        $properties = $element->GetProperties();
+        
+        return [
+            'OPERATION_VARIANT' => $properties['OPERATION_VARIANT']['VALUE'] ?? null,
+            'MATERIAL_VARIANT' => $properties['MATERIAL_VARIANT']['VALUE'] ?? null,
+        ];
+    }
+
+    /**
+     * Получить родительский ID через CML2_LINK
+     */
+    private function getParentIdByCml2Link(int $variantId): int
+    {
+        $element = \CIBlockElement::GetList(
+            [],
+            ['ID' => $variantId],
+            false,
+            false,
+            ['ID', 'PROPERTY_CML2_LINK']
+        )->Fetch();
+        
+        return (int)($element['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+    }
+
+    /**
+     * Получить все варианты с одинаковым CML2_LINK (соседние)
+     * Структура элементов идентична elementsStore
+     */
+    private function getSiblingVariants(int $iblockId, int $parentId): array
+    {
+        if ($iblockId <= 0 || $parentId <= 0) {
+            return [];
+        }
+        
+        $elementDataService = new ElementDataService();
+        
+        // Получаем все варианты с данным родителем
+        $variantIds = [];
+        $res = \CIBlockElement::GetList(
+            ['SORT' => 'ASC', 'NAME' => 'ASC'],
+            [
+                'IBLOCK_ID' => $iblockId,
+                'ACTIVE' => 'Y',
+                'PROPERTY_CML2_LINK' => $parentId,
+            ],
+            false,
+            false,
+            ['ID']
+        );
+        
+        while ($row = $res->Fetch()) {
+            $variantIds[] = (int)$row['ID'];
+        }
+        
+        if (empty($variantIds)) {
+            return [];
+        }
+        
+        // Загружаем данные через ElementDataService (формат как в elementsStore)
+        $payload = $elementDataService->prepareRefreshPayload([
+            [
+                'iblockId' => $iblockId,
+                'iblockType' => null,
+                'ids' => $variantIds,
+                'includeParent' => false,
+            ],
+        ]);
+        
+        return $payload[0]['data'] ?? [];
     }
 }
