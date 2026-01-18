@@ -1085,7 +1085,7 @@ class InitPayloadService
             // Соседние варианты операций
             $operationVariantId = (int)($stageData['OPERATION_VARIANT'] ?? 0);
             if ($operationVariantId > 0) {
-                $parentId = $this->getParentIdByCml2Link($operationVariantId);
+                $parentId = $this->getParentIdByCml2Link($operationVariantId, $operationsVariantsIblockId);
                 if ($parentId > 0) {
                     $siblings['CALC_OPERATIONS_VARIANTS'] = $this->getSiblingVariants(
                         $operationsVariantsIblockId,
@@ -1097,7 +1097,7 @@ class InitPayloadService
             // Соседние варианты материалов
             $materialVariantId = (int)($stageData['MATERIAL_VARIANT'] ?? 0);
             if ($materialVariantId > 0) {
-                $parentId = $this->getParentIdByCml2Link($materialVariantId);
+                $parentId = $this->getParentIdByCml2Link($materialVariantId, $materialsVariantsIblockId);
                 if ($parentId > 0) {
                     $siblings['CALC_MATERIALS_VARIANTS'] = $this->getSiblingVariants(
                         $materialsVariantsIblockId,
@@ -1137,18 +1137,34 @@ class InitPayloadService
 
     /**
      * Получить родительский ID через CML2_LINK
+     * 
+     * @param int $variantId ID варианта
+     * @param int $iblockId ID инфоблока варианта
+     * @return int ID родительского элемента (0 если не найден)
      */
-    private function getParentIdByCml2Link(int $variantId): int
+    private function getParentIdByCml2Link(int $variantId, int $iblockId): int
     {
+        if ($variantId <= 0 || $iblockId <= 0) {
+            return 0;
+        }
+        
+        // Получаем элемент с его свойствами
         $element = \CIBlockElement::GetList(
             [],
-            ['ID' => $variantId],
+            ['ID' => $variantId, 'IBLOCK_ID' => $iblockId],
             false,
             false,
-            ['ID', 'PROPERTY_CML2_LINK']
-        )->Fetch();
+            ['ID']
+        )->GetNextElement();
         
-        return (int)($element['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+        if (!$element) {
+            return 0;
+        }
+        
+        $properties = $element->GetProperties();
+        $parentId = (int)($properties['CML2_LINK']['VALUE'] ?? 0);
+        
+        return $parentId;
     }
 
     /**
