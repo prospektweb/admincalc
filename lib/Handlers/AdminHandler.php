@@ -220,7 +220,6 @@ class AdminHandler
         ];
 
         $allowedCodesForList = [
-            'CALC_DETAILS_VARIANTS',
             'CALC_MATERIALS_VARIANTS',
             'CALC_OPERATIONS_VARIANTS',
             'CALC_EQUIPMENT',
@@ -489,7 +488,6 @@ class AdminHandler
         $iblockTypes = [
             'CALC_PRESETS' => 'calculator',
             'CALC_STAGES' => 'calculator_catalog',
-            'CALC_STAGES_VARIANTS' => 'calculator_catalog',
             'CALC_SETTINGS' => 'calculator',
             'CALC_CUSTOM_FIELDS' => 'calculator',
             'CALC_MATERIALS' => 'calculator_catalog',
@@ -498,7 +496,6 @@ class AdminHandler
             'CALC_OPERATIONS_VARIANTS' => 'calculator_catalog',
             'CALC_EQUIPMENT' => 'calculator_catalog',
             'CALC_DETAILS' => 'calculator_catalog',
-            'CALC_DETAILS_VARIANTS' => 'calculator_catalog',
         ];
         
         foreach ($moduleIblocks as $code => $iblockId) {

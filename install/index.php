@@ -432,7 +432,6 @@ class prospektweb_calc extends CModule
             'CALC_OPERATIONS_VARIANTS',
             'CALC_EQUIPMENT',
             'CALC_DETAILS',
-            'CALC_DETAILS_VARIANTS',
         ];
 
         foreach ($iblockCodes as $code) {
@@ -488,7 +487,6 @@ class prospektweb_calc extends CModule
         $iblockCodes = [
             'CALC_PRESETS',
             'CALC_STAGES',
-            'CALC_STAGES_VARIANTS',
             'CALC_SETTINGS',
             'CALC_MATERIALS',
             'CALC_MATERIALS_VARIANTS',
@@ -496,7 +494,6 @@ class prospektweb_calc extends CModule
             'CALC_OPERATIONS_VARIANTS',
             'CALC_EQUIPMENT',
             'CALC_DETAILS',
-            'CALC_DETAILS_VARIANTS',
         ];
 
         foreach ($iblockCodes as $code) {

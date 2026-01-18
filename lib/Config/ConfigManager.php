@@ -22,7 +22,6 @@ class ConfigManager
     private const IBLOCK_TYPES = [
         'CALC_PRESETS' => 'calculator',
         'CALC_STAGES' => 'calculator_catalog',
-        'CALC_STAGES_VARIANTS' => 'calculator_catalog',
         'CALC_SETTINGS' => 'calculator',
         'CALC_CUSTOM_FIELDS' => 'calculator',
         'CALC_MATERIALS' => 'calculator_catalog',
@@ -31,7 +30,6 @@ class ConfigManager
         'CALC_OPERATIONS_VARIANTS' => 'calculator_catalog',
         'CALC_EQUIPMENT' => 'calculator_catalog',
         'CALC_DETAILS' => 'calculator_catalog',
-        'CALC_DETAILS_VARIANTS' => 'calculator_catalog',
     ];
 
     /**

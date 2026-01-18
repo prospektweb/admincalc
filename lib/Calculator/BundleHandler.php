@@ -260,7 +260,6 @@ class BundleHandler
             'operationsVariants' => 'CALC_OPERATIONS_VARIANTS',
             'equipment' => 'CALC_EQUIPMENT',
             'details' => 'CALC_DETAILS',
-            'detailsVariants' => 'CALC_DETAILS_VARIANTS',
         ];
         
         $properties = [];

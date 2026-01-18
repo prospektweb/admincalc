@@ -184,7 +184,6 @@ class DependencyTracker
         $operationsVariantsId = $this->configManager->getIblockId('CALC_OPERATIONS_VARIANTS');
         $equipmentId = $this->configManager->getIblockId('CALC_EQUIPMENT');
         $detailsId = $this->configManager->getIblockId('CALC_DETAILS');
-        $detailsVariantsId = $this->configManager->getIblockId('CALC_DETAILS_VARIANTS');
 
         if ($iblockId === $materialsId || $iblockId === $materialsVariantsId) {
             return 'material';
