@@ -60,10 +60,8 @@ if ($deleteData) {
         
         // Порядок важен: сначала варианты (SKU), потом родительские
         $iblockCodes = [
-            'CALC_STAGES_VARIANTS',
             'CALC_MATERIALS_VARIANTS',
             'CALC_OPERATIONS_VARIANTS',
-            'CALC_DETAILS_VARIANTS',
             'CALC_STAGES',
             'CALC_MATERIALS',
             'CALC_OPERATIONS',
@@ -131,10 +129,8 @@ if ($deleteData) {
         // Шаг 1.3: Разрываем SKU-связи
         uninstallLog(Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_STEP1_3'), 'header');
         $skuRelations = [
-            'CALC_STAGES' => 'CALC_STAGES_VARIANTS',
             'CALC_MATERIALS' => 'CALC_MATERIALS_VARIANTS',
             'CALC_OPERATIONS' => 'CALC_OPERATIONS_VARIANTS',
-            'CALC_DETAILS' => 'CALC_DETAILS_VARIANTS',
         ];
         
         foreach ($skuRelations as $parentCode => $offersCode) {

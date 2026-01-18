@@ -29,7 +29,6 @@ class HeaderTabsService
             'operations' => $this->configManager->getIblockId('CALC_OPERATIONS'),
             'operationsVariants' => $this->configManager->getIblockId('CALC_OPERATIONS_VARIANTS'),
             'details' => $this->configManager->getIblockId('CALC_DETAILS'),
-            'detailsVariants' => $this->configManager->getIblockId('CALC_DETAILS_VARIANTS'),
             'equipment' => $this->configManager->getIblockId('CALC_EQUIPMENT'),
         ];
 

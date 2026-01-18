@@ -414,7 +414,6 @@ class PresetEnrichmentService
             'CALC_OPERATIONS_VARIANTS' => false,
             'CALC_EQUIPMENT' => false,
             'CALC_DETAILS' => false,
-            'CALC_DETAILS_VARIANTS' => false,
         ];
 
         // Записываем свойства пресета

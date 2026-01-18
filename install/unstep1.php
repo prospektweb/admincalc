@@ -28,7 +28,6 @@ if (Loader::includeModule('iblock')) {
         'CALC_OPERATIONS_VARIANTS' => 'Варианты операций',
         'CALC_EQUIPMENT' => 'Оборудование',
         'CALC_DETAILS' => 'Детали',
-        'CALC_DETAILS_VARIANTS' => 'Варианты деталей',
     ];
 
     foreach ($iblockCodes as $code => $name) {
