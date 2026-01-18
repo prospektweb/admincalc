@@ -61,7 +61,7 @@ Added 7 new properties to CALC_CONFIG infoblock for storing calculator configura
 
 **Modified Files:**
 - `lib/Install/IblockCreator.php` - Added properties to `createCalcConfigIblock()`
-- `install/step3.php` - Added properties to `$configProps` and property binding updates
+- `install/step3.php` - Added properties to `$settingsProps` and property binding updates
 
 ### 4. Class Registration
 
