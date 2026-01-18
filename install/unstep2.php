@@ -175,22 +175,22 @@ if ($deleteData) {
         $errors[] = Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_MODULES_NOT_LOADED');
     }
 
-    // Удаление свойства CALC_PRESET из инфоблока ТП
-    $skuIblockId = (int)Option::get($moduleId, 'SKU_IBLOCK_ID', 0);
-    if ($skuIblockId > 0) {
-        uninstallLog('Удаление свойства CALC_PRESET из инфоблока ТП... ', 'header');
+    // Удаление свойства CALC_PRESET из инфоблока товаров (Product)
+    $productIblockId = (int)Option::get($moduleId, 'PRODUCT_IBLOCK_ID', 0);
+    if ($productIblockId > 0) {
+        uninstallLog('Удаление свойства CALC_PRESET из инфоблока товаров...', 'header');
         $rsProperty = \CIBlockProperty::GetList([], [
-            'IBLOCK_ID' => $skuIblockId,
+            'IBLOCK_ID' => $productIblockId,
             'CODE' => 'CALC_PRESET'
         ]);
         if ($arProperty = $rsProperty->Fetch()) {
             if (\CIBlockProperty::Delete($arProperty['ID'])) {
                 uninstallLog("  → CALC_PRESET (ID: {$arProperty['ID']}): " . Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_DELETED_SUCCESS'), 'success');
             } else {
-                uninstallLog("  → CALC_PRESET:  " . Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_DELETE_ERROR'), 'error');
+                uninstallLog("  → CALC_PRESET: " . Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_DELETE_ERROR'), 'error');
             }
         } else {
-            uninstallLog("  → CALC_PRESET:  свойство не найдено", 'warning');
+            uninstallLog("  → CALC_PRESET: свойство не найдено", 'warning');
         }
         uninstallLog('');
     }

@@ -17,6 +17,8 @@ class PresetEnrichmentService
     private int $detailsIblockId;
     private int $stagesIblockId;
     private int $presetsIblockId;
+    private int $operationsVariantsIblockId;
+    private int $materialsVariantsIblockId;
 
     public function __construct()
     {
@@ -28,6 +30,8 @@ class PresetEnrichmentService
         $this->detailsIblockId = $configManager->getIblockId('CALC_DETAILS');
         $this->stagesIblockId = $configManager->getIblockId('CALC_STAGES');
         $this->presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
+        $this->operationsVariantsIblockId = $configManager->getIblockId('CALC_OPERATIONS_VARIANTS');
+        $this->materialsVariantsIblockId = $configManager->getIblockId('CALC_MATERIALS_VARIANTS');
     }
 
     /**
@@ -140,7 +144,7 @@ class PresetEnrichmentService
                     }
 
                     // Получаем родительскую операцию через CML2_LINK
-                    $parentId = $this->getParentByCml2Link($variantId);
+                    $parentId = $this->getParentByCml2Link($variantId, $this->operationsVariantsIblockId);
                     if ($parentId && !in_array($parentId, $linkedElements['operations'])) {
                         $linkedElements['operations'][] = $parentId;
                     }
@@ -157,7 +161,7 @@ class PresetEnrichmentService
                     }
 
                     // Получаем родительский материал через CML2_LINK
-                    $parentId = $this->getParentByCml2Link($variantId);
+                    $parentId = $this->getParentByCml2Link($variantId, $this->materialsVariantsIblockId);
                     if ($parentId && !in_array($parentId, $linkedElements['materials'])) {
                         $linkedElements['materials'][] = $parentId;
                     }
@@ -339,23 +343,36 @@ class PresetEnrichmentService
      * Получить родительский элемент через CML2_LINK
      *
      * @param int $variantId ID варианта
+     * @param int $iblockId ID инфоблока варианта
      * @return int|null ID родительского элемента
      */
-    private function getParentByCml2Link(int $variantId): ?int
+    private function getParentByCml2Link(int $variantId, int $iblockId = 0): ?int
     {
+        if ($variantId <= 0) {
+            return null;
+        }
+        
+        // Если iblockId не передан, пробуем получить из элемента
+        $filter = ['ID' => $variantId];
+        if ($iblockId > 0) {
+            $filter['IBLOCK_ID'] = $iblockId;
+        }
+        
         $element = \CIBlockElement::GetList(
             [],
-            ['ID' => $variantId],
+            $filter,
             false,
             false,
-            ['ID', 'PROPERTY_CML2_LINK']
-        )->Fetch();
+            ['ID', 'IBLOCK_ID']
+        )->GetNextElement();
 
         if (!$element) {
             return null;
         }
-
-        $parentId = (int)($element['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+        
+        $properties = $element->GetProperties();
+        $parentId = (int)($properties['CML2_LINK']['VALUE'] ?? 0);
+        
         return $parentId > 0 ? $parentId : null;
     }
 

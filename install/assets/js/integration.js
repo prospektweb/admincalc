@@ -275,6 +275,12 @@
                 case 'CHANGE_OPTIONS_MATERIAL':
                     await this.handleChangeOptionsMaterial(message, origin);
                     break;
+                case 'CLEAR_OPTIONS_OPERATION':
+                    await this.handleClearOptionsOperation(message, origin);
+                    break;
+                case 'CLEAR_OPTIONS_MATERIAL':
+                    await this.handleClearOptionsMaterial(message, origin);
+                    break;
                 case 'CHANGE_LOGIC':
                     await this.handleChangeLogic(message, origin);
                     break;
@@ -293,6 +299,8 @@
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
+                        'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL',
+                        'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL',
                         'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
@@ -349,6 +357,54 @@
             });
 
             this.iframeWindow.postMessage(message, origin);
+        }
+
+        /**
+         * Обновить свойство этапа в локальном this.initData без AJAX
+         * Ищет этап в elementsStore.CALC_STAGES и обновляет указанное свойство
+         * 
+         * @param {number} stageId - ID этапа
+         * @param {string} propertyCode - Код свойства (OPTIONS_OPERATION, OPTIONS_MATERIAL и т.д.)
+         * @param {string} value - Новое значение
+         */
+        updateStagePropertyInInitData(stageId, propertyCode, value) {
+            if (!this.initData || !this.initData.elementsStore) {
+                console.warn('[BitrixBridge] updateStagePropertyInInitData: initData или elementsStore отсутствует');
+                return;
+            }
+            
+            const stages = this.initData.elementsStore.CALC_STAGES;
+            if (!Array.isArray(stages)) {
+                console.warn('[BitrixBridge] updateStagePropertyInInitData: CALC_STAGES не массив');
+                return;
+            }
+            
+            // Ищем этап по ID
+            for (let i = 0; i < stages.length; i++) {
+                const stage = stages[i];
+                if (parseInt(stage.id, 10) === stageId || parseInt(stage.ID, 10) === stageId) {
+                    // Обновляем свойство
+                    if (!stage.properties) {
+                        stage.properties = {};
+                    }
+                    
+                    // Устанавливаем значение свойства
+                    if (!stage.properties[propertyCode]) {
+                        stage.properties[propertyCode] = {};
+                    }
+                    stage.properties[propertyCode].VALUE = value;
+                    
+                    console.log('[BitrixBridge] updateStagePropertyInInitData: обновлён этап', {
+                        stageId: stageId,
+                        propertyCode: propertyCode,
+                        value: value ? value.substring(0, 50) + '...' : '(пусто)'
+                    });
+                    
+                    return;
+                }
+            }
+            
+            console.warn('[BitrixBridge] updateStagePropertyInInitData: этап не найден', { stageId });
         }
 
         buildPayloadSummary(type, payload) {
@@ -1106,6 +1162,14 @@
                     throw new Error(responsePayload.message || 'Не удалось обновить вариант операции');
                 }
 
+                // Очищаем OPTIONS_OPERATION, т.к. старые настройки не актуальны для нового варианта
+                await this.fetchRefreshData([{
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'OPTIONS_OPERATION',
+                    value: ''
+                }]);
+
                 // Обновляем локальный initData
                 if (responsePayload.initPayload) {
                     this.initData = responsePayload.initPayload;
@@ -1267,6 +1331,14 @@
                 if (responsePayload.status !== 'ok') {
                     throw new Error(responsePayload.message || 'Не удалось обновить вариант материала');
                 }
+
+                // Очищаем OPTIONS_MATERIAL, т.к. старые настройки не актуальны для нового варианта
+                await this.fetchRefreshData([{
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'OPTIONS_MATERIAL',
+                    value: ''
+                }]);
 
                 // Обновляем локальный initData
                 if (responsePayload.initPayload) {
@@ -2066,50 +2138,144 @@
          * Записывает json в свойство OPTIONS_OPERATION этапа
          * Ничего не отправляет в ответ
          */
+        /**
+         * Обработка CHANGE_OPTIONS_OPERATION
+         * Payload: { stageId, json }
+         * Записывает json в свойство OPTIONS_OPERATION этапа
+         * Использует "лёгкое обогащение" - модификация this.initData без AJAX
+         */
         async handleChangeOptionsOperation(message, origin) {
             const payload = message.payload || {};
-            const stageId = payload.stageId;
-            const json = payload.json;
+            const stageId = parseInt(payload.stageId, 10);
+            const json = payload.json || '';
             
-            if (!stageId) return;
+            if (!stageId) {
+                console.warn('[BitrixBridge] CHANGE_OPTIONS_OPERATION: stageId не указан');
+                return;
+            }
             
             try {
+                // 1. Сохраняем на сервере
                 await this.fetchRefreshData([{
                     action: 'updateStageProperty',
                     stageId: stageId,
                     propertyCode: 'OPTIONS_OPERATION',
                     value: json
                 }]);
+                
+                // 2. Лёгкое обогащение - обновляем локально this.initData
+                this.updateStagePropertyInInitData(stageId, 'OPTIONS_OPERATION', json);
+                
+                // 3. Отправляем модифицированный INIT
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_OPERATION error:', error);
             }
-            // Ничего не отправляем в ответ
         }
 
         /**
          * Обработка CHANGE_OPTIONS_MATERIAL
          * Payload: { stageId, json }
          * Записывает json в свойство OPTIONS_MATERIAL этапа
-         * Ничего не отправляет в ответ
+         * Использует "лёгкое обогащение" - модификация this.initData без AJAX
          */
         async handleChangeOptionsMaterial(message, origin) {
             const payload = message.payload || {};
-            const stageId = payload.stageId;
-            const json = payload.json;
+            const stageId = parseInt(payload.stageId, 10);
+            const json = payload.json || '';
             
-            if (!stageId) return;
+            if (!stageId) {
+                console.warn('[BitrixBridge] CHANGE_OPTIONS_MATERIAL: stageId не указан');
+                return;
+            }
             
             try {
+                // 1. Сохраняем на сервере
                 await this.fetchRefreshData([{
                     action: 'updateStageProperty',
                     stageId: stageId,
                     propertyCode: 'OPTIONS_MATERIAL',
                     value: json
                 }]);
+                
+                // 2. Лёгкое обогащение
+                this.updateStagePropertyInInitData(stageId, 'OPTIONS_MATERIAL', json);
+                
+                // 3. Отправляем модифицированный INIT
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_MATERIAL error:', error);
             }
-            // Ничего не отправляем в ответ
+        }
+
+        /**
+         * Обработка CLEAR_OPTIONS_OPERATION
+         * Payload: { stageId }
+         * Очищает свойство OPTIONS_OPERATION у этапа
+         */
+        async handleClearOptionsOperation(message, origin) {
+            const payload = message.payload || {};
+            const stageId = parseInt(payload.stageId, 10);
+            
+            if (!stageId) {
+                console.warn('[BitrixBridge] CLEAR_OPTIONS_OPERATION: stageId не указан');
+                return;
+            }
+            
+            try {
+                // 1. Очищаем на сервере
+                await this.fetchRefreshData([{
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'OPTIONS_OPERATION',
+                    value: ''
+                }]);
+                
+                // 2. Лёгкое обогащение
+                this.updateStagePropertyInInitData(stageId, 'OPTIONS_OPERATION', '');
+                
+                // 3. Отправляем модифицированный INIT
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                
+            } catch (error) {
+                console.error('[BitrixBridge] CLEAR_OPTIONS_OPERATION error:', error);
+            }
+        }
+
+        /**
+         * Обработка CLEAR_OPTIONS_MATERIAL
+         * Payload: { stageId }
+         * Очищает свойство OPTIONS_MATERIAL у этапа
+         */
+        async handleClearOptionsMaterial(message, origin) {
+            const payload = message.payload || {};
+            const stageId = parseInt(payload.stageId, 10);
+            
+            if (!stageId) {
+                console.warn('[BitrixBridge] CLEAR_OPTIONS_MATERIAL: stageId не указан');
+                return;
+            }
+            
+            try {
+                // 1. Очищаем на сервере
+                await this.fetchRefreshData([{
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'OPTIONS_MATERIAL',
+                    value: ''
+                }]);
+                
+                // 2. Лёгкое обогащение
+                this.updateStagePropertyInInitData(stageId, 'OPTIONS_MATERIAL', '');
+                
+                // 3. Отправляем модифицированный INIT
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                
+            } catch (error) {
+                console.error('[BitrixBridge] CLEAR_OPTIONS_MATERIAL error:', error);
+            }
         }
 
         /**
