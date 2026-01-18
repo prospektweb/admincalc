@@ -467,7 +467,7 @@ switch ($currentStep) {
     case 2:
         installLog("ШАГ 2 из {$totalSteps}: СОЗДАНИЕ ИНФОБЛОКОВ", 'header');
         
-        $configProps = [
+        $settingsProps = [
             'CALC_SETTINGS' => [
                 'NAME' => 'Калькулятор',
                 'TYPE' => 'E',
@@ -794,7 +794,7 @@ switch ($currentStep) {
         ];
 
         // Свойства инфоблока:  Сборки для расчётов
-        $bundlesProps = [
+        $presetsProps = [
             // Привязки к catalog (CALC_STAGES, CALC_SETTINGS)
             'CALC_STAGES' => [
                 'NAME' => 'Этапы калькуляций',
@@ -862,8 +862,8 @@ switch ($currentStep) {
             ],
         ];
 
-        $installData['iblock_ids']['CALC_PRESETS'] = createIblockWithLog('calculator', 'CALC_PRESETS', 'Пресеты', $bundlesProps);
-        $installData['iblock_ids']['CALC_STAGES'] = createIblockWithLog('calculator_catalog', 'CALC_STAGES', 'Этапы', $configProps);
+        $installData['iblock_ids']['CALC_PRESETS'] = createIblockWithLog('calculator', 'CALC_PRESETS', 'Пресеты', $presetsProps);
+        $installData['iblock_ids']['CALC_STAGES'] = createIblockWithLog('calculator_catalog', 'CALC_STAGES', 'Этапы', $settingsProps);
         $installData['iblock_ids']['CALC_STAGES_VARIANTS'] = createIblockWithLog('calculator_catalog', 'CALC_STAGES_VARIANTS', 'Варианты этапов', $stagesVariantsProps);
         $installData['iblock_ids']['CALC_SETTINGS'] = createIblockWithLog('calculator', 'CALC_SETTINGS', 'Калькуляторы', $settingsProps);
         $installData['iblock_ids']['CALC_MATERIALS'] = createIblockWithLog('calculator_catalog', 'CALC_MATERIALS', 'Материалы', $materialsProps);
