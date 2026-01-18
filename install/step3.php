@@ -542,6 +542,16 @@ switch ($currentStep) {
                 'MULTIPLE_CNT' => 1,
                 'SORT' => 900,
             ],
+            'OPTIONS_OPERATION' => [
+                'NAME' => 'Настройки выбора варианта операции',
+                'TYPE' => 'S',
+                'SORT' => 1000,
+            ],
+            'OPTIONS_MATERIAL' => [
+                'NAME' => 'Настройки выбора варианта материала',
+                'TYPE' => 'S',
+                'SORT' => 1010,
+            ],
         ];
         
         $settingsProps = [
@@ -622,6 +632,11 @@ switch ($currentStep) {
                 'MULTIPLE' => 'Y',
                 'MULTIPLE_CNT' => 3,
                 // LINK_IBLOCK_ID будет установлен позже в секции обновления свойств
+            ],
+            'LOGIC' => [
+                'NAME' => 'Логика калькулятора',
+                'TYPE' => 'S',
+                'SORT' => 800,
             ],
         ];
         

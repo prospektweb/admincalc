@@ -269,6 +269,15 @@
                 case 'CHANGE_PRICE_PRESET_REQUEST':
                     await this.handleChangePricePresetRequest(message, origin);
                     break;
+                case 'CHANGE_OPTIONS_OPERATION':
+                    await this.handleChangeOptionsOperation(message, origin);
+                    break;
+                case 'CHANGE_OPTIONS_MATERIAL':
+                    await this.handleChangeOptionsMaterial(message, origin);
+                    break;
+                case 'CHANGE_LOGIC':
+                    await this.handleChangeLogic(message, origin);
+                    break;
                 case 'CLOSE_REQUEST':
                     this.handleCloseRequest(message);
                     break;
@@ -2049,6 +2058,84 @@
                     origin
                 );
             }
+        }
+
+        /**
+         * Обработка CHANGE_OPTIONS_OPERATION
+         * Payload: { stageId, json }
+         * Записывает json в свойство OPTIONS_OPERATION этапа
+         * Ничего не отправляет в ответ
+         */
+        async handleChangeOptionsOperation(message, origin) {
+            const payload = message.payload || {};
+            const stageId = payload.stageId;
+            const json = payload.json;
+            
+            if (!stageId) return;
+            
+            try {
+                await this.fetchRefreshData([{
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'OPTIONS_OPERATION',
+                    value: json
+                }]);
+            } catch (error) {
+                console.error('[BitrixBridge] CHANGE_OPTIONS_OPERATION error:', error);
+            }
+            // Ничего не отправляем в ответ
+        }
+
+        /**
+         * Обработка CHANGE_OPTIONS_MATERIAL
+         * Payload: { stageId, json }
+         * Записывает json в свойство OPTIONS_MATERIAL этапа
+         * Ничего не отправляет в ответ
+         */
+        async handleChangeOptionsMaterial(message, origin) {
+            const payload = message.payload || {};
+            const stageId = payload.stageId;
+            const json = payload.json;
+            
+            if (!stageId) return;
+            
+            try {
+                await this.fetchRefreshData([{
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'OPTIONS_MATERIAL',
+                    value: json
+                }]);
+            } catch (error) {
+                console.error('[BitrixBridge] CHANGE_OPTIONS_MATERIAL error:', error);
+            }
+            // Ничего не отправляем в ответ
+        }
+
+        /**
+         * Обработка CHANGE_LOGIC
+         * Payload: { settingsId, json }
+         * Записывает json в свойство LOGIC калькулятора
+         * Ничего не отправляет в ответ
+         */
+        async handleChangeLogic(message, origin) {
+            const payload = message.payload || {};
+            const settingsId = payload.settingsId;
+            const json = payload.json;
+            
+            if (!settingsId) return;
+            
+            try {
+                await this.fetchRefreshData([{
+                    action: 'updateSettingsProperty',
+                    settingsId: settingsId,
+                    propertyCode: 'LOGIC',
+                    value: json
+                }]);
+            } catch (error) {
+                console.error('[BitrixBridge] CHANGE_LOGIC error:', error);
+            }
+            // Ничего не отправляем в ответ
         }
 
         /**

@@ -451,6 +451,10 @@ class InitPayloadService
             }
 
             $iblock = \CIBlock::GetArrayByID($id) ?: [];
+            
+            // Получаем свойства инфоблока
+            $properties = $this->getIblockProperties($id);
+            
             $result[] = [
                 'id' => $id,
                 'code' => $code,
@@ -459,10 +463,72 @@ class InitPayloadService
                 'parent' => isset($parentMap[$code], $map[$parentMap[$code]]) && (int)$map[$parentMap[$code]] > 0
                     ? (int)$map[$parentMap[$code]]
                     : null,
+                'properties' => $properties,
             ];
         }
 
         return $result;
+    }
+
+    /**
+     * Получить свойства инфоблока
+     *
+     * @param int $iblockId ID инфоблока
+     * @return array Массив свойств
+     */
+    private function getIblockProperties(int $iblockId): array
+    {
+        $properties = [];
+        
+        $rsProperties = \CIBlockProperty::GetList(
+            ['SORT' => 'ASC', 'ID' => 'ASC'],
+            ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y']
+        );
+        
+        while ($prop = $rsProperties->Fetch()) {
+            $property = [
+                'ID' => (int)$prop['ID'],
+                'CODE' => $prop['CODE'] ?? '',
+                'NAME' => $prop['NAME'] ?? '',
+                'PROPERTY_TYPE' => $prop['PROPERTY_TYPE'] ?? '',
+                'MULTIPLE' => $prop['MULTIPLE'] ?? 'N',
+                'IS_REQUIRED' => $prop['IS_REQUIRED'] ?? 'N',
+                'SORT' => (int)($prop['SORT'] ?? 500),
+                'DEFAULT_VALUE' => $prop['DEFAULT_VALUE'] ?? '',
+                'LINK_IBLOCK_ID' => $prop['LINK_IBLOCK_ID'] ? (int)$prop['LINK_IBLOCK_ID'] : null,
+                'USER_TYPE' => $prop['USER_TYPE'] ?? null,
+                'USER_TYPE_SETTINGS' => $prop['USER_TYPE_SETTINGS'] ?? null,
+                'WITH_DESCRIPTION' => $prop['WITH_DESCRIPTION'] ?? 'N',
+                'MULTIPLE_CNT' => $prop['MULTIPLE_CNT'] ?? 5,
+                'ROW_COUNT' => $prop['ROW_COUNT'] ?? 1,
+                'COL_COUNT' => $prop['COL_COUNT'] ?? 30,
+            ];
+            
+            // Если тип свойства - список (L), получаем варианты значений
+            if ($prop['PROPERTY_TYPE'] === 'L') {
+                $enums = [];
+                $rsEnums = \CIBlockPropertyEnum::GetList(
+                    ['SORT' => 'ASC', 'ID' => 'ASC'],
+                    ['PROPERTY_ID' => $prop['ID']]
+                );
+                
+                while ($enum = $rsEnums->Fetch()) {
+                    $enums[] = [
+                        'ID' => (int)$enum['ID'],
+                        'VALUE' => $enum['VALUE'] ?? '',
+                        'XML_ID' => $enum['XML_ID'] ?? '',
+                        'DEF' => $enum['DEF'] ?? 'N',
+                        'SORT' => (int)($enum['SORT'] ?? 500),
+                    ];
+                }
+                
+                $property['ENUMS'] = $enums;
+            }
+            
+            $properties[] = $property;
+        }
+        
+        return $properties;
     }
 
     /**
