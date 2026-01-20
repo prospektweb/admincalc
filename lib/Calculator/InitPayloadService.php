@@ -1062,7 +1062,6 @@ class InitPayloadService
         
         $stageIds = $preset['properties']['CALC_STAGES'];
         $configManager = new ConfigManager();
-        $stagesIblockId = $configManager->getIblockId('CALC_STAGES');
         $operationsIblockId = $configManager->getIblockId('CALC_OPERATIONS');
         $operationsVariantsIblockId = $configManager->getIblockId('CALC_OPERATIONS_VARIANTS');
         $materialsIblockId = $configManager->getIblockId('CALC_MATERIALS');
@@ -1088,38 +1087,47 @@ class InitPayloadService
             $stageId = (int)$stageId;
             if ($stageId <= 0) continue;
             
-            // Получаем данные этапа
-            $stageData = $this->getStageData($stagesIblockId, $stageId);
-            if (!$stageData) continue;
-            
             $siblings = [
                 'stageId' => $stageId,
                 'CALC_OPERATIONS_VARIANTS' => [],
                 'CALC_MATERIALS_VARIANTS' => [],
             ];
             
-            // Соседние варианты операций
-            $operationVariantId = (int)($stageData['OPERATION_VARIANT'] ?? 0);
-            if ($operationVariantId > 0) {
-                $parentId = $operationVariantsMap['offerToParent'][$operationVariantId] ?? 0;
-                if ($parentId <= 0 && in_array($operationVariantId, $operationParentIds, true)) {
-                    $parentId = $operationVariantId;
-                }
-                if ($parentId > 0) {
-                    $siblings['CALC_OPERATIONS_VARIANTS'] = $operationVariantsMap['byParent'][$parentId] ?? [];
-                }
+            $operationVariantsSelected = $this->getStageSelectedVariants(
+                $stageId,
+                'CALC_OPERATIONS_VARIANTS',
+                $operationsVariantsIblockId
+            );
+            $materialVariantsSelected = $this->getStageSelectedVariants(
+                $stageId,
+                'CALC_MATERIALS_VARIANTS',
+                $materialsVariantsIblockId
+            );
+
+            $operationParentIds = $this->collectParentIdsFromOffers($operationVariantsSelected);
+            $materialParentIds = $this->collectParentIdsFromOffers($materialVariantsSelected);
+
+            $operationSiblingIds = $this->loadSiblingOfferIds(
+                $operationsIblockId,
+                $operationParentIds
+            );
+            $materialSiblingIds = $this->loadSiblingOfferIds(
+                $materialsIblockId,
+                $materialParentIds
+            );
+
+            if (!empty($operationSiblingIds)) {
+                $siblings['CALC_OPERATIONS_VARIANTS'] = $this->loadOfferElements(
+                    $operationsVariantsIblockId,
+                    $operationSiblingIds
+                );
             }
-            
-            // Соседние варианты материалов
-            $materialVariantId = (int)($stageData['MATERIAL_VARIANT'] ?? 0);
-            if ($materialVariantId > 0) {
-                $parentId = $materialVariantsMap['offerToParent'][$materialVariantId] ?? 0;
-                if ($parentId <= 0 && in_array($materialVariantId, $materialParentIds, true)) {
-                    $parentId = $materialVariantId;
-                }
-                if ($parentId > 0) {
-                    $siblings['CALC_MATERIALS_VARIANTS'] = $materialVariantsMap['byParent'][$parentId] ?? [];
-                }
+
+            if (!empty($materialSiblingIds)) {
+                $siblings['CALC_MATERIALS_VARIANTS'] = $this->loadOfferElements(
+                    $materialsVariantsIblockId,
+                    $materialSiblingIds
+                );
             }
             
             $result[] = $siblings;
@@ -1129,25 +1137,80 @@ class InitPayloadService
     }
 
     /**
-     * Получить список родительских элементов из elementsStore.
-     *
-     * @param array $elements
-     * @return array
+     * Получить выбранные варианты для этапа.
      */
-    private function collectParentIdsFromStore(array $elements): array
+    private function getStageSelectedVariants(int $stageId, string $propertyCode, int $offersIblockId): array
+    {
+        $stageData = $this->elementsStore[$stageId] ?? null;
+        if (is_array($stageData) && isset($stageData[$propertyCode])) {
+            return $this->normalizeVariantsFromStore($stageData[$propertyCode], $offersIblockId);
+        }
+
+        $stageFromStore = $this->findStageInStore($stageId);
+        if ($stageFromStore === null) {
+            return [];
+        }
+        
+        $properties = $stageFromStore['properties'] ?? [];
+        if (!isset($properties[$propertyCode])) {
+            return [];
+        }
+
+        return $this->normalizeVariantsFromStore($properties[$propertyCode]['VALUE'] ?? [], $offersIblockId);
+    }
+
+    private function normalizeVariantsFromStore($value, int $offersIblockId): array
+    {
+        if (is_array($value) && isset($value[0]) && is_array($value[0]) && isset($value[0]['id'])) {
+            return $value;
+        }
+
+        $ids = [];
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                $itemId = (int)$item;
+                if ($itemId > 0) {
+                    $ids[] = $itemId;
+                }
+            }
+        } else {
+            $itemId = (int)$value;
+            if ($itemId > 0) {
+                $ids[] = $itemId;
+            }
+        }
+
+        if (empty($ids) || $offersIblockId <= 0) {
+            return [];
+        }
+
+        return $this->loadOfferElements($offersIblockId, $ids);
+    }
+
+    private function findStageInStore(int $stageId): ?array
+    {
+        foreach ($this->elementsStore['CALC_STAGES'] ?? [] as $stage) {
+            if ((int)($stage['id'] ?? 0) === $stageId) {
+                return $stage;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Получить список родительских элементов для выбранных ТП.
+     */
+    private function collectParentIdsFromOffers(array $offers): array
     {
         $parentIds = [];
 
-        foreach ($elements as $element) {
-            if (!is_array($element)) {
+        foreach ($offers as $offer) {
+            if (!is_array($offer)) {
                 continue;
             }
 
-            $parentId = (int)($element['productId'] ?? 0);
-            if ($parentId <= 0) {
-                $parentId = (int)($element['id'] ?? 0);
-            }
-
+            $parentId = $this->getParentIdFromOffer($offer);
             if ($parentId > 0) {
                 $parentIds[] = $parentId;
             }
@@ -1157,96 +1220,94 @@ class InitPayloadService
     }
 
     /**
-     * Собрать варианты ТП по списку родительских элементов.
-     *
-     * @param int $productIblockId
-     * @param int $offersIblockId
-     * @param array $parentIds
-     * @return array
+     * Получить parentId из элемента ТП.
      */
-    private function loadVariantsByParents(int $productIblockId, int $offersIblockId, array $parentIds): array
+    private function getParentIdFromOffer(array $offer): int
     {
-        $variantsByParent = [];
-        $offerToParent = [];
-
-        if ($productIblockId <= 0 || $offersIblockId <= 0 || empty($parentIds)) {
-            return [
-                'byParent' => [],
-                'offerToParent' => [],
-            ];
+        $parentId = (int)($offer['productId'] ?? 0);
+        if ($parentId > 0) {
+            return $parentId;
         }
 
-        $elementDataService = new ElementDataService();
-
-        foreach ($parentIds as $parentId) {
-            $parentId = (int)$parentId;
-            if ($parentId <= 0) {
-                continue;
+        $properties = $offer['properties'] ?? [];
+        if (isset($properties['CML2_LINK']['VALUE'])) {
+            $parentId = (int)$properties['CML2_LINK']['VALUE'];
+            if ($parentId > 0) {
+                return $parentId;
             }
-
-            $offersData = \CCatalogSKU::getOffersList(
-                [$parentId],
-                $productIblockId,
-                [],
-                ['ID'],
-                ['ID']
-            );
-
-            $offerIds = [];
-            if (is_array($offersData) && !empty($offersData[$parentId])) {
-                foreach ($offersData[$parentId] as $offer) {
-                    $offerId = (int)($offer['ID'] ?? 0);
-                    if ($offerId > 0) {
-                        $offerIds[] = $offerId;
-                        $offerToParent[$offerId] = $parentId;
-                    }
-                }
-            }
-
-            if (empty($offerIds)) {
-                $variantsByParent[$parentId] = [];
-                continue;
-            }
-
-            $payload = $elementDataService->prepareRefreshPayload([
-                [
-                    'iblockId' => $offersIblockId,
-                    'iblockType' => null,
-                    'ids' => $offerIds,
-                    'includeParent' => false,
-                ],
-            ]);
-
-            $variantsByParent[$parentId] = $payload[0]['data'] ?? [];
         }
 
-        return [
-            'byParent' => $variantsByParent,
-            'offerToParent' => $offerToParent,
-        ];
+        if (isset($properties['CML2_LINK']['VALUE_ID'])) {
+            $parentId = (int)$properties['CML2_LINK']['VALUE_ID'];
+            if ($parentId > 0) {
+                return $parentId;
+            }
+        }
+
+        $fields = $offer['fields'] ?? [];
+        if (isset($fields['CML2_LINK'])) {
+            $parentId = (int)$fields['CML2_LINK'];
+            if ($parentId > 0) {
+                return $parentId;
+            }
+        }
+
+        return 0;
     }
 
     /**
-     * Получить данные этапа
+     * Получить список offerId для parentId (объединенный).
      */
-    private function getStageData(int $iblockId, int $stageId): ?array
+    private function loadSiblingOfferIds(int $productIblockId, array $parentIds): array
     {
-        $element = \CIBlockElement::GetList(
+        if ($productIblockId <= 0 || empty($parentIds)) {
+            return [];
+        }
+
+        $offersData = \CCatalogSKU::getOffersList(
+            $parentIds,
+            $productIblockId,
             [],
-            ['IBLOCK_ID' => $iblockId, 'ID' => $stageId],
-            false,
-            false,
+            ['ID'],
             ['ID']
-        )->GetNextElement();
-        
-        if (!$element) return null;
-        
-        $properties = $element->GetProperties();
-        
-        return [
-            'OPERATION_VARIANT' => $properties['OPERATION_VARIANT']['VALUE'] ?? null,
-            'MATERIAL_VARIANT' => $properties['MATERIAL_VARIANT']['VALUE'] ?? null,
-        ];
+        );
+
+        $offerIds = [];
+        if (is_array($offersData)) {
+            foreach ($offersData as $offersByParent) {
+                foreach ($offersByParent as $offer) {
+                    $offerId = (int)($offer['ID'] ?? 0);
+                    if ($offerId > 0) {
+                        $offerIds[] = $offerId;
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique($offerIds));
     }
 
+    /**
+     * Загрузить элементы ТП в формате elementsStore.
+     */
+    private function loadOfferElements(int $offersIblockId, array $offerIds): array
+    {
+        if ($offersIblockId <= 0 || empty($offerIds)) {
+            return [];
+        }
+        
+        $elementDataService = new ElementDataService();
+        
+        // Загружаем данные через ElementDataService (формат как в elementsStore)
+        $payload = $elementDataService->prepareRefreshPayload([
+            [
+                'iblockId' => $offersIblockId,
+                'iblockType' => null,
+                'ids' => $offerIds,
+                'includeParent' => false,
+            ],
+        ]);
+        
+        return $payload[0]['data'] ?? [];
+    }
 }
