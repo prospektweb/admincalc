@@ -1187,6 +1187,31 @@ class InitPayloadService
         return $this->loadOfferElements($offersIblockId, $ids);
     }
 
+    /**
+     * Резервный сбор parentId из списка элементов.
+     */
+    private function collectParentIdsFromStore(array $elements): array
+    {
+        $parentIds = [];
+
+        foreach ($elements as $element) {
+            if (!is_array($element)) {
+                continue;
+            }
+
+            $parentId = (int)($element['productId'] ?? 0);
+            if ($parentId <= 0) {
+                $parentId = (int)($element['id'] ?? 0);
+            }
+
+            if ($parentId > 0) {
+                $parentIds[] = $parentId;
+            }
+        }
+
+        return array_values(array_unique($parentIds));
+    }
+
     private function findStageInStore(int $stageId): ?array
     {
         foreach ($this->elementsStore['CALC_STAGES'] ?? [] as $stage) {
