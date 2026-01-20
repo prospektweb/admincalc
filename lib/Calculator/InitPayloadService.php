@@ -1090,8 +1090,26 @@ class InitPayloadService
                 $materialsVariantsIblockId
             );
 
+            $operationReason = null;
+            if (empty($operationVariantsSelected)) {
+                $operationReason = 'Нет выбранных ТП в этапе';
+            }
+
+            $materialReason = null;
+            if (empty($materialVariantsSelected)) {
+                $materialReason = 'Нет выбранных ТП в этапе';
+            }
+
             $operationParentIds = $this->collectParentIdsFromOffers($operationVariantsSelected);
             $materialParentIds = $this->collectParentIdsFromOffers($materialVariantsSelected);
+
+            if ($operationReason === null && empty($operationParentIds)) {
+                $operationReason = 'Не найден parentId у выбранных ТП';
+            }
+
+            if ($materialReason === null && empty($materialParentIds)) {
+                $materialReason = 'Не найден parentId у выбранных ТП';
+            }
 
             $operationSiblingIds = $this->loadSiblingOfferIds(
                 $operationsIblockId,
@@ -1101,6 +1119,14 @@ class InitPayloadService
                 $materialsIblockId,
                 $materialParentIds
             );
+
+            if ($operationReason === null && empty($operationSiblingIds)) {
+                $operationReason = 'Не найдены соседи для parentId (проверьте SKU‑связь/инфоблок)';
+            }
+
+            if ($materialReason === null && empty($materialSiblingIds)) {
+                $materialReason = 'Не найдены соседи для parentId (проверьте SKU‑связь/инфоблок)';
+            }
 
             if (!empty($operationSiblingIds)) {
                 $siblings['CALC_OPERATIONS_VARIANTS'] = $this->loadOfferElements(
@@ -1114,6 +1140,14 @@ class InitPayloadService
                     $materialsVariantsIblockId,
                     $materialSiblingIds
                 );
+            }
+
+            if ($operationReason !== null) {
+                $siblings['CALC_OPERATIONS_VARIANTS_REASON'] = $operationReason;
+            }
+
+            if ($materialReason !== null) {
+                $siblings['CALC_MATERIALS_VARIANTS_REASON'] = $materialReason;
             }
             
             $result[] = $siblings;
