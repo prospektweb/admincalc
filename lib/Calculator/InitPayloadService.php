@@ -1067,6 +1067,20 @@ class InitPayloadService
         $materialsIblockId = $configManager->getIblockId('CALC_MATERIALS');
         $materialsVariantsIblockId = $configManager->getIblockId('CALC_MATERIALS_VARIANTS');
         
+        $operationParentIds = $this->collectParentIdsFromStore($this->elementsStore['CALC_OPERATIONS'] ?? []);
+        $materialParentIds = $this->collectParentIdsFromStore($this->elementsStore['CALC_MATERIALS'] ?? []);
+
+        $operationVariantsMap = $this->loadVariantsByParents(
+            $operationsIblockId,
+            $operationsVariantsIblockId,
+            $operationParentIds
+        );
+        $materialVariantsMap = $this->loadVariantsByParents(
+            $materialsIblockId,
+            $materialsVariantsIblockId,
+            $materialParentIds
+        );
+
         $result = [];
         
         foreach ($stageIds as $stageId) {
