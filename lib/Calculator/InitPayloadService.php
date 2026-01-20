@@ -1081,23 +1081,23 @@ class InitPayloadService
             
             $operationVariantsSelected = $this->getStageSelectedVariants(
                 $stageId,
-                'CALC_OPERATIONS_VARIANTS',
+                'OPERATION_VARIANT',
                 $operationsVariantsIblockId
             );
             $materialVariantsSelected = $this->getStageSelectedVariants(
                 $stageId,
-                'CALC_MATERIALS_VARIANTS',
+                'MATERIAL_VARIANT',
                 $materialsVariantsIblockId
             );
 
             $operationReason = null;
             if (empty($operationVariantsSelected)) {
-                $operationReason = 'Нет выбранных ТП в этапе';
+                $operationReason = 'Нет выбранных ТП в этапе ' . $stageId;
             }
 
             $materialReason = null;
             if (empty($materialVariantsSelected)) {
-                $materialReason = 'Нет выбранных ТП в этапе';
+                $materialReason = 'Нет выбранных ТП в этапе ' . $stageId;
             }
 
             $operationParentIds = $this->collectParentIdsFromOffers($operationVariantsSelected);
