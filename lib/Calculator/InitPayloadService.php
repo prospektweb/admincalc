@@ -43,6 +43,7 @@ class InitPayloadService
         
         // Определяем presetId
         $presetId = $analysis['bundleId'];
+        $productId = (int)($analysis['productId'] ?? 0);
         
         if ($presetId === null || $forceCreatePreset) {
             // Создаём новый постоянный preset
@@ -54,6 +55,9 @@ class InitPayloadService
 
         // Загружаем preset с данными
         $preset = $this->loadPreset($presetId);
+
+        // Загружаем товар, из которого получен presetId
+        $product = $this->loadProduct($productId);
 
         // Собираем контекст
         $context = $this->buildContext($siteId);
@@ -69,6 +73,7 @@ class InitPayloadService
             'selectedOffers' => $selectedOffers,
             'priceTypes' => $this->getPriceTypes(),
             'preset' => $preset,
+            'product' => $product,
             'elementsStore' => $this->elementsStore ?? [],
             'elementsSiblings' => $this->buildElementsSiblings($preset),
         ];
@@ -256,6 +261,7 @@ class InitPayloadService
             return [
                 'scenario' => 'NEW_BUNDLE',
                 'bundleId' => null,
+                'productId' => 0,
             ];
         }
         
@@ -266,6 +272,7 @@ class InitPayloadService
             return [
                 'scenario' => 'NEW_BUNDLE',
                 'bundleId' => null,
+                'productId' => 0,
             ];
         }
         
@@ -277,6 +284,7 @@ class InitPayloadService
             return [
                 'scenario' => 'EXISTING_PRESET',
                 'bundleId' => $presetId,
+                'productId' => $productId,
             ];
         }
         
@@ -284,6 +292,7 @@ class InitPayloadService
         return [
             'scenario' => 'NEW_BUNDLE',
             'bundleId' => null,
+            'productId' => $productId,
         ];
     }
     
@@ -592,6 +601,34 @@ class InitPayloadService
         $this->elementsStore = $this->buildElementsStore($propertiesRaw);
 
         return $presetElement;
+    }
+
+    /**
+    * Загрузить товар со всеми данными для INIT payload
+    *
+    * @param int $productId ID товара
+    * @return array|null
+    */
+    private function loadProduct(int $productId): ?array
+    {
+        if ($productId <= 0) {
+            return null;
+        }
+
+        $configManager = new ConfigManager();
+        $iblockId = $configManager->getProductIblockId();
+        if ($iblockId <= 0) {
+            return null;
+        }
+
+        $elementDataService = new ElementDataService();
+        $productElement = $elementDataService->loadSingleElement($iblockId, $productId, null, true);
+
+        if (!$productElement) {
+            return null;
+        }
+
+        return $productElement;
     }
 
     /**
