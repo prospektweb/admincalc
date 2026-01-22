@@ -638,6 +638,11 @@ switch ($currentStep) {
                 'TYPE' => 'S',
                 'SORT' => 800,
             ],
+            'LOGIC_JSON' => [
+                'NAME' => 'Логика (JSON)',
+                'TYPE' => 'S',
+                'SORT' => 1020,
+            ],
         ];
         
         $materialsProps = [
