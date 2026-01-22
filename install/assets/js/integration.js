@@ -275,6 +275,9 @@
                 case 'CHANGE_OPTIONS_MATERIAL':
                     await this.handleChangeOptionsMaterial(message, origin);
                     break;
+                case 'SAVE_LOGIC_JSON_REQUEST':
+                    await this.handleSaveLogicJsonRequest(message, origin);
+                    break;
                 case 'CLEAR_OPTIONS_OPERATION':
                     await this.handleClearOptionsOperation(message, origin);
                     break;
@@ -300,6 +303,7 @@
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL',
+                        'SAVE_LOGIC_JSON_REQUEST',
                         'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL',
                         'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
                     ]);
@@ -405,6 +409,58 @@
             }
             
             console.warn('[BitrixBridge] updateStagePropertyInInitData: этап не найден', { stageId });
+        }
+
+        updateStagePropertyInInitDataWithRaw(stageId, propertyCode, value, rawValue) {
+            if (!this.initData || !this.initData.elementsStore) {
+                console.warn('[BitrixBridge] updateStagePropertyInInitDataWithRaw: initData или elementsStore отсутствует');
+                return;
+            }
+
+            const stages = this.initData.elementsStore.CALC_STAGES;
+            if (!Array.isArray(stages)) {
+                console.warn('[BitrixBridge] updateStagePropertyInInitDataWithRaw: CALC_STAGES не массив');
+                return;
+            }
+
+            for (let i = 0; i < stages.length; i++) {
+                const stage = stages[i];
+                if (parseInt(stage.id, 10) === stageId || parseInt(stage.ID, 10) === stageId) {
+                    if (!stage.properties) {
+                        stage.properties = {};
+                    }
+
+                    if (!stage.properties[propertyCode]) {
+                        stage.properties[propertyCode] = {};
+                    }
+
+                    stage.properties[propertyCode].VALUE = value;
+                    stage.properties[propertyCode]['~VALUE'] = rawValue;
+
+                    console.log('[BitrixBridge] updateStagePropertyInInitDataWithRaw: обновлён этап', {
+                        stageId: stageId,
+                        propertyCode: propertyCode,
+                        value: value ? value.substring(0, 50) + '...' : '(пусто)'
+                    });
+
+                    return;
+                }
+            }
+
+            console.warn('[BitrixBridge] updateStagePropertyInInitDataWithRaw: этап не найден', { stageId });
+        }
+
+        escapeHtmlValue(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
         }
 
         buildPayloadSummary(type, payload) {
@@ -2207,6 +2263,40 @@
                 
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_MATERIAL error:', error);
+            }
+        }
+
+        /**
+         * Обработка SAVE_LOGIC_JSON_REQUEST
+         * Payload: { stageId, json }
+         * Записывает json в свойство LOGIC_JSON этапа
+         * Учитывает преобразование Bitrix для text/html (VALUE + ~VALUE)
+         */
+        async handleSaveLogicJsonRequest(message, origin) {
+            const payload = message.payload || {};
+            const stageId = parseInt(payload.stageId, 10);
+            const rawJson = payload.json || '';
+
+            if (!stageId) {
+                console.warn('[BitrixBridge] SAVE_LOGIC_JSON_REQUEST: stageId не указан');
+                return;
+            }
+
+            try {
+                await this.fetchRefreshData([{
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'LOGIC_JSON',
+                    value: rawJson
+                }]);
+
+                const safeJson = this.escapeHtmlValue(rawJson);
+                this.updateStagePropertyInInitDataWithRaw(stageId, 'LOGIC_JSON', safeJson, rawJson);
+
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+
+            } catch (error) {
+                console.error('[BitrixBridge] SAVE_LOGIC_JSON_REQUEST error:', error);
             }
         }
 
