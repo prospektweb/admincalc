@@ -633,15 +633,11 @@ switch ($currentStep) {
                 'MULTIPLE_CNT' => 3,
                 // LINK_IBLOCK_ID будет установлен позже в секции обновления свойств
             ],
-            'LOGIC' => [
+            'LOGIC_JSON' => [
                 'NAME' => 'Логика калькулятора',
                 'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
                 'SORT' => 800,
-            ],
-            'LOGIC_JSON' => [
-                'NAME' => 'Логика (JSON)',
-                'TYPE' => 'S',
-                'SORT' => 1020,
             ],
         ];
         

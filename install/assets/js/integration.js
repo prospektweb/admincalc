@@ -450,6 +450,45 @@
             console.warn('[BitrixBridge] updateStagePropertyInInitDataWithRaw: этап не найден', { stageId });
         }
 
+        updateSettingsPropertyInInitDataWithRaw(settingsId, propertyCode, value, rawValue) {
+            if (!this.initData || !this.initData.elementsStore) {
+                console.warn('[BitrixBridge] updateSettingsPropertyInInitDataWithRaw: initData или elementsStore отсутствует');
+                return;
+            }
+
+            const settings = this.initData.elementsStore.CALC_SETTINGS;
+            if (!Array.isArray(settings)) {
+                console.warn('[BitrixBridge] updateSettingsPropertyInInitDataWithRaw: CALC_SETTINGS не массив');
+                return;
+            }
+
+            for (let i = 0; i < settings.length; i++) {
+                const setting = settings[i];
+                if (parseInt(setting.id, 10) === settingsId || parseInt(setting.ID, 10) === settingsId) {
+                    if (!setting.properties) {
+                        setting.properties = {};
+                    }
+
+                    if (!setting.properties[propertyCode]) {
+                        setting.properties[propertyCode] = {};
+                    }
+
+                    setting.properties[propertyCode].VALUE = value;
+                    setting.properties[propertyCode]['~VALUE'] = rawValue;
+
+                    console.log('[BitrixBridge] updateSettingsPropertyInInitDataWithRaw: обновлены настройки', {
+                        settingsId: settingsId,
+                        propertyCode: propertyCode,
+                        value: value ? value.substring(0, 50) + '...' : '(пусто)'
+                    });
+
+                    return;
+                }
+            }
+
+            console.warn('[BitrixBridge] updateSettingsPropertyInInitDataWithRaw: настройки не найдены', { settingsId });
+        }
+
         escapeHtmlValue(value) {
             if (value === null || value === undefined) {
                 return '';
@@ -2268,30 +2307,30 @@
 
         /**
          * Обработка SAVE_LOGIC_JSON_REQUEST
-         * Payload: { stageId, json }
-         * Записывает json в свойство LOGIC_JSON этапа
+         * Payload: { settingsId, json }
+         * Записывает json в свойство LOGIC_JSON калькулятора
          * Учитывает преобразование Bitrix для text/html (VALUE + ~VALUE)
          */
         async handleSaveLogicJsonRequest(message, origin) {
             const payload = message.payload || {};
-            const stageId = parseInt(payload.stageId, 10);
+            const settingsId = parseInt(payload.settingsId, 10);
             const rawJson = payload.json || '';
 
-            if (!stageId) {
-                console.warn('[BitrixBridge] SAVE_LOGIC_JSON_REQUEST: stageId не указан');
+            if (!settingsId) {
+                console.warn('[BitrixBridge] SAVE_LOGIC_JSON_REQUEST: settingsId не указан');
                 return;
             }
 
             try {
                 await this.fetchRefreshData([{
-                    action: 'updateStageProperty',
-                    stageId: stageId,
+                    action: 'updateSettingsProperty',
+                    settingsId: settingsId,
                     propertyCode: 'LOGIC_JSON',
                     value: rawJson
                 }]);
 
                 const safeJson = this.escapeHtmlValue(rawJson);
-                this.updateStagePropertyInInitDataWithRaw(stageId, 'LOGIC_JSON', safeJson, rawJson);
+                this.updateSettingsPropertyInInitDataWithRaw(settingsId, 'LOGIC_JSON', safeJson, rawJson);
 
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
 
@@ -2371,7 +2410,7 @@
         /**
          * Обработка CHANGE_LOGIC
          * Payload: { settingsId, json }
-         * Записывает json в свойство LOGIC калькулятора
+         * Записывает json в свойство LOGIC_JSON калькулятора
          * Ничего не отправляет в ответ
          */
         async handleChangeLogic(message, origin) {
@@ -2385,7 +2424,7 @@
                 await this.fetchRefreshData([{
                     action: 'updateSettingsProperty',
                     settingsId: settingsId,
-                    propertyCode: 'LOGIC',
+                    propertyCode: 'LOGIC_JSON',
                     value: json
                 }]);
             } catch (error) {
