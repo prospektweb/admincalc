@@ -724,12 +724,12 @@ class ElementDataService
                 'code' => $fields['CODE'] ?? null,
                 'productId' => $productId > 0 ? $productId : null,
                 'name' => $fields['NAME'] ?? '',
-                'dimensions' => [
+                'attributes' => [
                     'width' => isset($productData['WIDTH']) ? (float)$productData['WIDTH'] : null,
                     'height' => isset($productData['HEIGHT']) ? (float)$productData['HEIGHT'] :  null,
                     'length' => isset($productData['LENGTH']) ? (float)$productData['LENGTH'] : null,
+                    'weight' => isset($productData['WEIGHT']) ? (float)$productData['WEIGHT'] : null,
                 ],
-                'weight' => isset($productData['WEIGHT']) ? (float)$productData['WEIGHT'] : null,
                 'measure' => $measureInfo,
                 'measureRatio' => $measureRatio,
                 'purchasingPrice' => $purchasingPrice,
@@ -738,7 +738,6 @@ class ElementDataService
                 'properties' => $properties,
             ];
 
-            // ========== НОВОЕ: Загрузка кастомных полей ==========
             // Если элемент имеет свойство CUSTOM_FIELDS, загружаем конфигурацию полей
             if (isset($properties['CUSTOM_FIELDS']) && !empty($properties['CUSTOM_FIELDS']['VALUE'])) {
                 $customFieldsService = new \Prospektweb\Calc\Services\CustomFieldsService();
@@ -757,7 +756,7 @@ class ElementDataService
             }
             // =====================================================
 
-            // ========== НОВОЕ:  Загрузка родительского элемента ==========
+            // ========== Загрузка родительского элемента ==========
             if ($includeParent && $productId > 0) {
                 $parentData = $this->loadParentElement($productId);
                 if ($parentData !== null) {
@@ -813,8 +812,6 @@ class ElementDataService
             'properties' => $properties,
         ];
     }
-
-    // ...  остальные методы без изменений (normalizeIds, getMeasureRatio, getMeasureInfo, getPrices)
 
     private function normalizeIds($ids): array
     {
