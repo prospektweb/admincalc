@@ -153,19 +153,18 @@ class InitPayloadService
                 'iblockId' => (int)$element['IBLOCK_ID'],
                 'name' => $element['NAME'] ?? '',
                 'code' => $element['CODE'] ?? null,
-                'fields' => [
+                'dimensions' => [
                     'width' => isset($productData['WIDTH']) ? (float)$productData['WIDTH'] : null,
-                    'height' => isset($productData['HEIGHT']) ? (float)$productData['HEIGHT'] : null,
+                    'height' => isset($productData['HEIGHT']) ? (float)$productData['HEIGHT'] :  null,
                     'length' => isset($productData['LENGTH']) ? (float)$productData['LENGTH'] : null,
-                    'weight' => isset($productData['WEIGHT']) ? (float)$productData['WEIGHT'] : null,
                 ],
+                'weight' => isset($productData['WEIGHT']) ? (float)$productData['WEIGHT'] : null,
                 'measure' => $measureInfo,
                 'measureRatio' => $measureRatio,
                 'prices' => $prices,
                 'purchasingPrice' => $purchasingPrice,
                 'purchasingCurrency' => $purchasingCurrency,
                 'properties' => $properties,
-                // bundleId теперь не нужен в offer, он общий для всех
             ];
         }
 
