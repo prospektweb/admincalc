@@ -724,12 +724,12 @@ class ElementDataService
                 'code' => $fields['CODE'] ?? null,
                 'productId' => $productId > 0 ? $productId : null,
                 'name' => $fields['NAME'] ?? '',
-                'fields' => [
+                'dimensions' => [
                     'width' => isset($productData['WIDTH']) ? (float)$productData['WIDTH'] : null,
                     'height' => isset($productData['HEIGHT']) ? (float)$productData['HEIGHT'] :  null,
                     'length' => isset($productData['LENGTH']) ? (float)$productData['LENGTH'] : null,
-                    'weight' => isset($productData['WEIGHT']) ? (float)$productData['WEIGHT'] : null,
                 ],
+                'weight' => isset($productData['WEIGHT']) ? (float)$productData['WEIGHT'] : null,
                 'measure' => $measureInfo,
                 'measureRatio' => $measureRatio,
                 'purchasingPrice' => $purchasingPrice,
