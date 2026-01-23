@@ -692,13 +692,7 @@ class ElementDataService
             }
 
             $fields = $elementObject->GetFields();
-            $propertiesRaw = $elementObject->GetProperties();
-
-            $properties = [];
-            foreach ($propertiesRaw as $prop) {
-                $code = $prop['CODE'] ?: (string)$prop['ID'];
-                $properties[$code] = $prop;
-            }
+            $properties = PropertyPayloadLoader::loadElementProperties((int)$fields['IBLOCK_ID'], (int)$fields['ID']);
 
             $productData = \CCatalogProduct::GetByID($elementId) ?: [];
             $measureInfo = $this->getMeasureInfo((int)($productData['MEASURE'] ?? 0));
@@ -796,13 +790,7 @@ class ElementDataService
         }
 
         $fields = $elementObject->GetFields();
-        $propertiesRaw = $elementObject->GetProperties();
-
-        $properties = [];
-        foreach ($propertiesRaw as $prop) {
-            $code = $prop['CODE'] ?:  (string)$prop['ID'];
-            $properties[$code] = $prop;
-        }
+        $properties = PropertyPayloadLoader::loadElementProperties((int)$fields['IBLOCK_ID'], (int)$fields['ID']);
 
         return [
             'id' => (int)$fields['ID'],
@@ -829,6 +817,7 @@ class ElementDataService
 
         return $normalized;
     }
+
 
     private function getMeasureRatio(int $productId): ?float
     {
