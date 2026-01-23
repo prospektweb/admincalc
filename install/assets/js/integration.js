@@ -275,8 +275,8 @@
                 case 'CHANGE_OPTIONS_MATERIAL':
                     await this.handleChangeOptionsMaterial(message, origin);
                     break;
-                case 'SAVE_LOGIC_JSON_REQUEST':
-                    await this.handleSaveLogicJsonRequest(message, origin);
+                case 'SAVE_CALC_LOGIC_REQUEST':
+                    await this.handleSaveCalcLogicRequest(message, origin);
                     break;
                 case 'CLEAR_OPTIONS_OPERATION':
                     await this.handleClearOptionsOperation(message, origin);
@@ -303,7 +303,7 @@
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL',
-                        'SAVE_LOGIC_JSON_REQUEST',
+                        'SAVE_CALC_LOGIC_REQUEST',
                         'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL',
                         'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
                     ]);
@@ -450,6 +450,49 @@
             console.warn('[BitrixBridge] updateStagePropertyInInitDataWithRaw: этап не найден', { stageId });
         }
 
+        updateStagePropertyInInitDataWithDescriptions(stageId, propertyCode, items) {
+            if (!this.initData || !this.initData.elementsStore) {
+                console.warn('[BitrixBridge] updateStagePropertyInInitDataWithDescriptions: initData или elementsStore отсутствует');
+                return;
+            }
+
+            const stages = this.initData.elementsStore.CALC_STAGES;
+            if (!Array.isArray(stages)) {
+                console.warn('[BitrixBridge] updateStagePropertyInInitDataWithDescriptions: CALC_STAGES не массив');
+                return;
+            }
+
+            const values = Array.isArray(items) ? items.map((item) => item.value ?? item.VALUE ?? '') : [];
+            const descriptions = Array.isArray(items) ? items.map((item) => item.description ?? item.DESCRIPTION ?? '') : [];
+
+            for (let i = 0; i < stages.length; i++) {
+                const stage = stages[i];
+                if (parseInt(stage.id, 10) === stageId || parseInt(stage.ID, 10) === stageId) {
+                    if (!stage.properties) {
+                        stage.properties = {};
+                    }
+
+                    if (!stage.properties[propertyCode]) {
+                        stage.properties[propertyCode] = {};
+                    }
+
+                    stage.properties[propertyCode].VALUE = values;
+                    stage.properties[propertyCode]['~VALUE'] = values;
+                    stage.properties[propertyCode].DESCRIPTION = descriptions;
+
+                    console.log('[BitrixBridge] updateStagePropertyInInitDataWithDescriptions: обновлён этап', {
+                        stageId: stageId,
+                        propertyCode: propertyCode,
+                        count: values.length,
+                    });
+
+                    return;
+                }
+            }
+
+            console.warn('[BitrixBridge] updateStagePropertyInInitDataWithDescriptions: этап не найден', { stageId });
+        }
+
         updateSettingsPropertyInInitDataWithRaw(settingsId, propertyCode, value, rawValue) {
             if (!this.initData || !this.initData.elementsStore) {
                 console.warn('[BitrixBridge] updateSettingsPropertyInInitDataWithRaw: initData или elementsStore отсутствует');
@@ -487,6 +530,49 @@
             }
 
             console.warn('[BitrixBridge] updateSettingsPropertyInInitDataWithRaw: настройки не найдены', { settingsId });
+        }
+
+        updateSettingsPropertyInInitDataWithDescriptions(settingsId, propertyCode, items) {
+            if (!this.initData || !this.initData.elementsStore) {
+                console.warn('[BitrixBridge] updateSettingsPropertyInInitDataWithDescriptions: initData или elementsStore отсутствует');
+                return;
+            }
+
+            const settings = this.initData.elementsStore.CALC_SETTINGS;
+            if (!Array.isArray(settings)) {
+                console.warn('[BitrixBridge] updateSettingsPropertyInInitDataWithDescriptions: CALC_SETTINGS не массив');
+                return;
+            }
+
+            const values = Array.isArray(items) ? items.map((item) => item.value ?? item.VALUE ?? '') : [];
+            const descriptions = Array.isArray(items) ? items.map((item) => item.description ?? item.DESCRIPTION ?? '') : [];
+
+            for (let i = 0; i < settings.length; i++) {
+                const setting = settings[i];
+                if (parseInt(setting.id, 10) === settingsId || parseInt(setting.ID, 10) === settingsId) {
+                    if (!setting.properties) {
+                        setting.properties = {};
+                    }
+
+                    if (!setting.properties[propertyCode]) {
+                        setting.properties[propertyCode] = {};
+                    }
+
+                    setting.properties[propertyCode].VALUE = values;
+                    setting.properties[propertyCode]['~VALUE'] = values;
+                    setting.properties[propertyCode].DESCRIPTION = descriptions;
+
+                    console.log('[BitrixBridge] updateSettingsPropertyInInitDataWithDescriptions: обновлены настройки', {
+                        settingsId: settingsId,
+                        propertyCode: propertyCode,
+                        count: values.length,
+                    });
+
+                    return;
+                }
+            }
+
+            console.warn('[BitrixBridge] updateSettingsPropertyInInitDataWithDescriptions: настройки не найдены', { settingsId });
         }
 
         escapeHtmlValue(value) {
@@ -2306,36 +2392,100 @@
         }
 
         /**
-         * Обработка SAVE_LOGIC_JSON_REQUEST
-         * Payload: { settingsId, json }
-         * Записывает json в свойство LOGIC_JSON калькулятора
-         * Учитывает преобразование Bitrix для text/html (VALUE + ~VALUE)
+         * Обработка SAVE_CALC_LOGIC_REQUEST
+         * Payload: { settingsId, stageId, calcSettings: { logicJson, params }, stageWiring: { inputs, outputs } }
+         * Записывает данные в LOGIC_JSON/PARAMS калькулятора и INPUTS/OUTPUTS этапа.
+         * Использует "лёгкое обогащение" - модификация this.initData без AJAX
          */
-        async handleSaveLogicJsonRequest(message, origin) {
+        async handleSaveCalcLogicRequest(message, origin) {
             const payload = message.payload || {};
             const settingsId = parseInt(payload.settingsId, 10);
-            const rawJson = payload.json || '';
+            const stageId = parseInt(payload.stageId, 10);
+            const calcSettings = payload.calcSettings || {};
+            const stageWiring = payload.stageWiring || {};
 
-            if (!settingsId) {
-                console.warn('[BitrixBridge] SAVE_LOGIC_JSON_REQUEST: settingsId не указан');
+            if (!settingsId && !stageId) {
+                console.warn('[BitrixBridge] SAVE_CALC_LOGIC_REQUEST: settingsId/stageId не указан');
                 return;
             }
 
-            try {
-                await this.fetchRefreshData([{
+            const rawLogicJson = calcSettings.logicJson || '';
+            const params = Array.isArray(calcSettings.params) ? calcSettings.params : [];
+            const inputs = Array.isArray(stageWiring.inputs) ? stageWiring.inputs : [];
+            const outputs = Array.isArray(stageWiring.outputs) ? stageWiring.outputs : [];
+
+            const toValueDescriptionList = (items, valueKey, descriptionKey) => {
+                if (!Array.isArray(items) || items.length === 0) {
+                    return false;
+                }
+
+                return items.map((item) => ({
+                    VALUE: item?.[valueKey] ?? '',
+                    DESCRIPTION: item?.[descriptionKey] ?? '',
+                }));
+            };
+
+            const refreshPayload = [];
+
+            if (settingsId) {
+                refreshPayload.push({
                     action: 'updateSettingsProperty',
                     settingsId: settingsId,
                     propertyCode: 'LOGIC_JSON',
-                    value: rawJson
-                }]);
+                    value: rawLogicJson,
+                });
+                refreshPayload.push({
+                    action: 'updateSettingsProperty',
+                    settingsId: settingsId,
+                    propertyCode: 'PARAMS',
+                    value: toValueDescriptionList(params, 'name', 'type'),
+                });
+            }
 
-                const safeJson = this.escapeHtmlValue(rawJson);
-                this.updateSettingsPropertyInInitDataWithRaw(settingsId, 'LOGIC_JSON', safeJson, rawJson);
+            if (stageId) {
+                refreshPayload.push({
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'INPUTS',
+                    value: toValueDescriptionList(inputs, 'name', 'path'),
+                });
+                refreshPayload.push({
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'OUTPUTS',
+                    value: toValueDescriptionList(outputs, 'key', 'var'),
+                });
+            }
+
+            try {
+                await this.fetchRefreshData(refreshPayload);
+
+                if (settingsId) {
+                    const safeJson = this.escapeHtmlValue(rawLogicJson);
+                    this.updateSettingsPropertyInInitDataWithRaw(settingsId, 'LOGIC_JSON', safeJson, rawLogicJson);
+                    this.updateSettingsPropertyInInitDataWithDescriptions(
+                        settingsId,
+                        'PARAMS',
+                        params.map((item) => ({ value: item?.name ?? '', description: item?.type ?? '' }))
+                    );
+                }
+
+                if (stageId) {
+                    this.updateStagePropertyInInitDataWithDescriptions(
+                        stageId,
+                        'INPUTS',
+                        inputs.map((item) => ({ value: item?.name ?? '', description: item?.path ?? '' }))
+                    );
+                    this.updateStagePropertyInInitDataWithDescriptions(
+                        stageId,
+                        'OUTPUTS',
+                        outputs.map((item) => ({ value: item?.key ?? '', description: item?.var ?? '' }))
+                    );
+                }
 
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
-
             } catch (error) {
-                console.error('[BitrixBridge] SAVE_LOGIC_JSON_REQUEST error:', error);
+                console.error('[BitrixBridge] SAVE_CALC_LOGIC_REQUEST error:', error);
             }
         }
 

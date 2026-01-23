@@ -641,7 +641,6 @@ class DemoDataCreator
         
         // Элемент "Листовая печать" для цифровой лазерной
         $properties = [
-            'PATH_TO_SCRIPT' => '/local/php_interface/prospektweb.calc/calculators/digital_laser_sheet.php',
             'USE_OPERATION_VARIANT' => $this->getListPropertyValueId($settingsIblockId, 'USE_OPERATION_VARIANT', 'Y'),
             'USE_OPERATION_QUANTITY' => $this->getListPropertyValueId($settingsIblockId, 'USE_OPERATION_QUANTITY', 'Y'),
             'USE_MATERIAL_VARIANT' => $this->getListPropertyValueId($settingsIblockId, 'USE_MATERIAL_VARIANT', 'Y'),
@@ -678,9 +677,7 @@ class DemoDataCreator
             'roll_lamination',
             'Рулонное ламинирование',
             $laminationSection,
-            [
-                'PATH_TO_SCRIPT' => '/local/php_interface/prospektweb.calc/calculators/roll_lamination.php',
-            ]
+            []
         );
         
         if ($elementId) {
