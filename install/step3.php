@@ -475,25 +475,34 @@ switch ($currentStep) {
                 'IS_REQUIRED' => 'N',
                 'SORT' => 100,
             ],
-            'COST' => [
-                'NAME' => 'Стоимость этапа',
-                'TYPE' => 'N',
-                'MULTIPLE' => 'N',
-                'IS_REQUIRED' => 'N',
+            'INPUTS' => [
+                'NAME' => 'Проводка входов',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 1,
+                'WITH_DESCRIPTION' => 'Y',
                 'SORT' => 150,
+            ],
+            'OUTPUTS' => [
+                'NAME' => 'Проводка результатов',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 1,
+                'WITH_DESCRIPTION' => 'Y',
+                'SORT' => 160,
             ],
             'OPERATION_VARIANT' => [
                 'NAME' => 'Вариант операции',
                 'TYPE' => 'E',
                 'MULTIPLE' => 'N',
-                'IS_REQUIRED' => 'Y',
+                'IS_REQUIRED' => 'N',
                 'SORT' => 200,
             ],
             'OPERATION_QUANTITY' => [
                 'NAME' => 'Операция | Количество',
                 'TYPE' => 'N',
                 'MULTIPLE' => 'N',
-                'IS_REQUIRED' => 'Y',
+                'IS_REQUIRED' => 'N',
                 'DEFAULT_VALUE' => 1,
                 'SORT' => 300,
             ],
@@ -515,7 +524,7 @@ switch ($currentStep) {
                 'NAME' => 'Материал | Количество',
                 'TYPE' => 'N',
                 'MULTIPLE' => 'N',
-                'IS_REQUIRED' => 'Y',
+                'IS_REQUIRED' => 'N',
                 'DEFAULT_VALUE' => 1,
                 'SORT' => 600,
             ],
@@ -528,39 +537,19 @@ switch ($currentStep) {
                 'IS_REQUIRED' => 'N',
                 'SORT' => 700,
             ],
-            'PREV_STAGE' => [
-                'NAME' => 'Предыдущий этап',
-                'TYPE' => 'E',
-                'MULTIPLE' => 'N',
-                'MULTIPLE_CNT' => 1,
-                'SORT' => 800,
-            ],
-            'NEXT_STAGE' => [
-                'NAME' => 'Следующий этап',
-                'TYPE' => 'E',
-                'MULTIPLE' => 'N',
-                'MULTIPLE_CNT' => 1,
-                'SORT' => 900,
-            ],
             'OPTIONS_OPERATION' => [
                 'NAME' => 'Настройки выбора варианта операции',
                 'TYPE' => 'S',
-                'SORT' => 1000,
+                'SORT' => 800,
             ],
             'OPTIONS_MATERIAL' => [
                 'NAME' => 'Настройки выбора варианта материала',
                 'TYPE' => 'S',
-                'SORT' => 1010,
+                'SORT' => 810,
             ],
         ];
         
         $settingsProps = [
-            'PATH_TO_SCRIPT' => [
-                'NAME' => 'Скрипт калькуляции',
-                'TYPE' => 'S',
-                'USER_TYPE' => 'FileMan',
-                'SORT' => 100,
-            ],
             'USE_OPERATION_VARIANT' => [
                 'NAME' => 'Активировать выбор варианта Операции',
                 'TYPE' => 'L',
@@ -638,6 +627,14 @@ switch ($currentStep) {
                 'TYPE' => 'S',
                 'USER_TYPE' => 'HTML',
                 'SORT' => 800,
+            ],
+            'PARAMS' => [
+                'NAME' => 'Паспорт входов',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 1,
+                'WITH_DESCRIPTION' => 'Y',
+                'SORT' => 810,
             ],
         ];
         
@@ -987,19 +984,6 @@ switch ($currentStep) {
                 }
             }
 
-            // Обновляем PREV_STAGE
-            $rsPrevStage = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $stagesIblockId, 'CODE' => 'PREV_STAGE']);
-            if ($arProperty = $rsPrevStage->Fetch()) {
-                $ibp->Update($arProperty['ID'], ['LINK_IBLOCK_ID' => $stagesIblockId]);
-                installLog("  → Обновлено свойство PREV_STAGE", 'success');
-            }
-
-            // Обновляем NEXT_STAGE
-            $rsNextStage = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $stagesIblockId, 'CODE' => 'NEXT_STAGE']);
-            if ($arProperty = $rsNextStage->Fetch()) {
-                $ibp->Update($arProperty['ID'], ['LINK_IBLOCK_ID' => $stagesIblockId]);
-                installLog("  → Обновлено свойство NEXT_STAGE", 'success');
-            }
         }
         
         // Обновление свойств CALC_DETAILS с привязками к инфоблокам
