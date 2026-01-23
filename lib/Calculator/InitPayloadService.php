@@ -124,14 +124,7 @@ class InitPayloadService
             }
 
             $element = $elementObject->GetFields();
-            $propertiesRaw = $elementObject->GetProperties();
-
-            $properties = [];
-
-            foreach ($propertiesRaw as $prop) {
-                $code = $prop['CODE'] ?: (string)$prop['ID'];
-                $properties[$code] = $prop;
-            }
+            $properties = PropertyPayloadLoader::loadElementProperties((int)$element['IBLOCK_ID'], $offerId);
 
             $productData = \CCatalogProduct::GetByID($offerId) ?: [];
             $measureInfo = $this->getMeasureInfo((int)($productData['MEASURE'] ?? 0));
@@ -669,6 +662,7 @@ class InitPayloadService
 
         return $result;
     }
+
 
     /**
      * Собирает элементы в elementsStore по коду свойства.
