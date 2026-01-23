@@ -153,12 +153,12 @@ class InitPayloadService
                 'iblockId' => (int)$element['IBLOCK_ID'],
                 'name' => $element['NAME'] ?? '',
                 'code' => $element['CODE'] ?? null,
-                'dimensions' => [
+                'attributes' => [
                     'width' => isset($productData['WIDTH']) ? (float)$productData['WIDTH'] : null,
                     'height' => isset($productData['HEIGHT']) ? (float)$productData['HEIGHT'] :  null,
                     'length' => isset($productData['LENGTH']) ? (float)$productData['LENGTH'] : null,
+                    'weight' => isset($productData['WEIGHT']) ? (float)$productData['WEIGHT'] : null,
                 ],
-                'weight' => isset($productData['WEIGHT']) ? (float)$productData['WEIGHT'] : null,
                 'measure' => $measureInfo,
                 'measureRatio' => $measureRatio,
                 'prices' => $prices,
