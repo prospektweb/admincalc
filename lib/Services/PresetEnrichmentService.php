@@ -16,6 +16,7 @@ class PresetEnrichmentService
 
     private int $detailsIblockId;
     private int $stagesIblockId;
+    private int $settingsIblockId;
     private int $presetsIblockId;
     private int $operationsVariantsIblockId;
     private int $materialsVariantsIblockId;
@@ -29,6 +30,7 @@ class PresetEnrichmentService
         $configManager = new ConfigManager();
         $this->detailsIblockId = $configManager->getIblockId('CALC_DETAILS');
         $this->stagesIblockId = $configManager->getIblockId('CALC_STAGES');
+        $this->settingsIblockId = $configManager->getIblockId('CALC_SETTINGS');
         $this->presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
         $this->operationsVariantsIblockId = $configManager->getIblockId('CALC_OPERATIONS_VARIANTS');
         $this->materialsVariantsIblockId = $configManager->getIblockId('CALC_MATERIALS_VARIANTS');
@@ -94,6 +96,7 @@ class PresetEnrichmentService
                 'materials' => [],
                 'materialsVariants' => [],
                 'equipment' => [],
+                'customFields' => [],
             ];
         }
 
@@ -124,12 +127,25 @@ class PresetEnrichmentService
             if ($stage) {
                 // CALC_SETTINGS (калькулятор)
                 if (!empty($stage['CALC_SETTINGS'])) {
-                    $calcSettingsId = is_array($stage['CALC_SETTINGS']) 
-                        ? $stage['CALC_SETTINGS'][0] 
-                        : $stage['CALC_SETTINGS'];
-                    
-                    if (!in_array($calcSettingsId, $linkedElements['calcSettings'])) {
-                        $linkedElements['calcSettings'][] = $calcSettingsId;
+                    $calcSettingsIds = is_array($stage['CALC_SETTINGS'])
+                        ? $stage['CALC_SETTINGS']
+                        : [$stage['CALC_SETTINGS']];
+
+                    foreach ($calcSettingsIds as $calcSettingsId) {
+                        if ($calcSettingsId <= 0) {
+                            continue;
+                        }
+
+                        if (!in_array($calcSettingsId, $linkedElements['calcSettings'])) {
+                            $linkedElements['calcSettings'][] = $calcSettingsId;
+                        }
+
+                        $customFieldIds = $this->getCalcSettingsCustomFields($calcSettingsId);
+                        foreach ($customFieldIds as $customFieldId) {
+                            if (!in_array($customFieldId, $linkedElements['customFields'])) {
+                                $linkedElements['customFields'][] = $customFieldId;
+                            }
+                        }
                     }
                 }
 
@@ -211,6 +227,7 @@ class PresetEnrichmentService
             'CALC_OPERATIONS_VARIANTS' => $linkedElements['operationsVariants'] ?: false,
             'CALC_EQUIPMENT' => $linkedElements['equipment'] ?: false,
             'CALC_DETAILS' => $linkedElements['details'] ?: false,
+            'CALC_CUSTOM_FIELDS' => $linkedElements['customFields'] ?: false,
         ];
 
         // Записываем свойства пресета
@@ -337,6 +354,42 @@ class PresetEnrichmentService
         }
 
         return $result;
+    }
+
+    /**
+     * Получить дополнительные поля калькулятора по ID
+     *
+     * @param int $calcSettingsId ID калькулятора
+     * @return array ID элементов CALC_CUSTOM_FIELDS
+     */
+    private function getCalcSettingsCustomFields(int $calcSettingsId): array
+    {
+        if ($calcSettingsId <= 0 || $this->settingsIblockId <= 0) {
+            return [];
+        }
+
+        $element = \CIBlockElement::GetList(
+            [],
+            ['ID' => $calcSettingsId, 'IBLOCK_ID' => $this->settingsIblockId],
+            false,
+            false,
+            ['ID', 'IBLOCK_ID']
+        )->GetNextElement();
+
+        if (!$element) {
+            return [];
+        }
+
+        $properties = $element->GetProperties();
+        if (empty($properties['CUSTOM_FIELDS']['VALUE'])) {
+            return [];
+        }
+
+        $values = is_array($properties['CUSTOM_FIELDS']['VALUE'])
+            ? $properties['CUSTOM_FIELDS']['VALUE']
+            : [$properties['CUSTOM_FIELDS']['VALUE']];
+
+        return array_values(array_unique(array_map('intval', $values)));
     }
 
     /**

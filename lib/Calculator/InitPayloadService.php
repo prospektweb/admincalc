@@ -675,15 +675,19 @@ class InitPayloadService
         foreach ($propertiesRaw as $code => $propertyData) {
             $values = $propertyData['values'] ?? [];
             $ids = array_filter(array_map('intval', $values), static fn($id) => $id > 0);
-            if (empty($ids)) {
-                continue;
-            }
 
             $linkIblockId = isset($propertyData['property']['LINK_IBLOCK_ID'])
                 ? (int)$propertyData['property']['LINK_IBLOCK_ID']
                 : 0;
 
             if ($linkIblockId <= 0) {
+                continue;
+            }
+
+            if (empty($ids)) {
+                if ($code === 'CALC_CUSTOM_FIELDS') {
+                    $store[$code] = [];
+                }
                 continue;
             }
 

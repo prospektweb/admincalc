@@ -844,6 +844,14 @@ switch ($currentStep) {
                 'MULTIPLE_CNT' => 1,
                 'SORT' => 900,
             ],
+            'CALC_CUSTOM_FIELDS' => [
+                'NAME' => 'Дополнительные поля',
+                'TYPE' => 'E',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 1,
+                'SORT' => 1000,
+                // LINK_IBLOCK_ID будет установлен позже в секции обновления свойств
+            ],
         ];
 
         $installData['iblock_ids']['CALC_PRESETS'] = createIblockWithLog('calculator', 'CALC_PRESETS', 'Пресеты', $presetsProps);
@@ -1026,6 +1034,7 @@ switch ($currentStep) {
                     'CALC_OPERATIONS_VARIANTS' => 'CALC_OPERATIONS_VARIANTS',
                     'CALC_EQUIPMENT' => 'CALC_EQUIPMENT',
                     'CALC_DETAILS' => 'CALC_DETAILS',
+                    'CALC_CUSTOM_FIELDS' => 'CALC_CUSTOM_FIELDS',
                 ];
                 
                 foreach ($presetsLinkProperties as $propCode => $linkIblockCode) {
