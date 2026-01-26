@@ -685,7 +685,7 @@ class InitPayloadService
             }
 
             if (empty($ids)) {
-                if ($code === 'CUSTOM_FIELDS') {
+                if ($code === 'CALC_CUSTOM_FIELDS') {
                     $store[$code] = [];
                 }
                 continue;

@@ -227,7 +227,7 @@ class PresetEnrichmentService
             'CALC_OPERATIONS_VARIANTS' => $linkedElements['operationsVariants'] ?: false,
             'CALC_EQUIPMENT' => $linkedElements['equipment'] ?: false,
             'CALC_DETAILS' => $linkedElements['details'] ?: false,
-            'CUSTOM_FIELDS' => $linkedElements['customFields'] ?: false,
+            'CALC_CUSTOM_FIELDS' => $linkedElements['customFields'] ?: false,
         ];
 
         // Записываем свойства пресета

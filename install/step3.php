@@ -844,7 +844,7 @@ switch ($currentStep) {
                 'MULTIPLE_CNT' => 1,
                 'SORT' => 900,
             ],
-            'CUSTOM_FIELDS' => [
+            'CALC_CUSTOM_FIELDS' => [
                 'NAME' => 'Дополнительные поля',
                 'TYPE' => 'E',
                 'MULTIPLE' => 'Y',
@@ -1034,7 +1034,7 @@ switch ($currentStep) {
                     'CALC_OPERATIONS_VARIANTS' => 'CALC_OPERATIONS_VARIANTS',
                     'CALC_EQUIPMENT' => 'CALC_EQUIPMENT',
                     'CALC_DETAILS' => 'CALC_DETAILS',
-                    'CUSTOM_FIELDS' => 'CALC_CUSTOM_FIELDS',
+                    'CALC_CUSTOM_FIELDS' => 'CALC_CUSTOM_FIELDS',
                 ];
                 
                 foreach ($presetsLinkProperties as $propCode => $linkIblockCode) {
