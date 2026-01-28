@@ -599,6 +599,12 @@ class ElementDataService
                         
                         $result[] = $pricesResult;
                         continue 2;
+
+                    case 'updateOffersFromCalculation':
+                        $offers = $request['results'] ?? [];
+                        $service = new \Prospektweb\Calc\Services\OfferUpdateService();
+                        $result[] = $service->updateOffersFromCalculation($offers);
+                        continue 2;
                         
                     case 'updateStageProperty':
                         // Handler for CHANGE_OPTIONS_OPERATION and CHANGE_OPTIONS_MATERIAL
