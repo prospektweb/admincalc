@@ -278,6 +278,9 @@
                 case 'SAVE_CALC_LOGIC_REQUEST':
                     await this.handleSaveCalcLogicRequest(message, origin);
                     break;
+                case 'SAVE_CALCULATION_REQUEST':
+                    await this.handleSaveCalculationRequest(message, origin);
+                    break;
                 case 'CLEAR_OPTIONS_OPERATION':
                     await this.handleClearOptionsOperation(message, origin);
                     break;
@@ -304,6 +307,7 @@
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL',
                         'SAVE_CALC_LOGIC_REQUEST',
+                        'SAVE_CALCULATION_REQUEST',
                         'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL',
                         'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
                     ]);
@@ -604,6 +608,15 @@
             }
 
             return null;
+        }
+
+        sendProcessMessage(level, message, extraPayload, requestId, origin) {
+            const payload = Object.assign({}, extraPayload || {}, {
+                status: level,
+                message: message,
+            });
+
+            this.sendPwrtMessage('PROCESS_MESSAGE', payload, requestId, origin);
         }
 
         async handleSelectRequest(message, origin) {
@@ -2664,6 +2677,82 @@
                 lang: lang,
                 items: items,
             }, requestId, origin);
+        }
+
+        async handleSaveCalculationRequest(message, origin) {
+            const payload = message.payload || {};
+            const results = Array.isArray(payload.results) ? payload.results : [];
+            const total = results.length;
+
+            this.sendProcessMessage(
+                'info',
+                'Обновление торговых предложений запущено',
+                { step: 'start', total: total },
+                message.requestId,
+                origin
+            );
+
+            if (total === 0) {
+                this.sendProcessMessage(
+                    'warning',
+                    'Нет данных для обновления торговых предложений',
+                    { step: 'skipped', total: 0 },
+                    message.requestId,
+                    origin
+                );
+                return;
+            }
+
+            try {
+                const response = await this.fetchRefreshData([
+                    {
+                        action: 'updateOffersFromCalculation',
+                        results: results,
+                    },
+                ]);
+
+                const updateResult = Array.isArray(response) ? (response[0] || {}) : {};
+                const updatedCount = updateResult.updated || 0;
+                const status = updateResult.status || 'ok';
+
+                this.sendProcessMessage(
+                    status === 'error' ? 'error' : 'success',
+                    'Обновление торговых предложений завершено',
+                    {
+                        step: 'complete',
+                        total: total,
+                        updated: updatedCount,
+                        errors: updateResult.errors || [],
+                        offers: updateResult.offers || [],
+                    },
+                    message.requestId,
+                    origin
+                );
+
+                this.sendPwrtMessage('SAVE_CALCULATION_RESPONSE', updateResult, message.requestId, origin);
+            } catch (error) {
+                this.sendProcessMessage(
+                    'error',
+                    'Ошибка обновления торговых предложений',
+                    {
+                        step: 'error',
+                        total: total,
+                        error: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+
+                this.sendPwrtMessage(
+                    'SAVE_CALCULATION_RESPONSE',
+                    {
+                        status: 'error',
+                        message: error && error.message ? error.message : 'Unknown error',
+                    },
+                    message.requestId,
+                    origin
+                );
+            }
         }
 
         async sendSelectDetailsResponse({ ids, iblockId, iblockType, lang, requestId, origin }) {
