@@ -342,6 +342,14 @@ function createMeasuresWithLog(): bool
             'SYMBOL_LETTER_INTL' => 'RUN',
             'IS_DEFAULT' => 'N',
         ],
+        [
+            'CODE' => 356,
+            'MEASURE_TITLE' => 'Рабочий час',
+            'SYMBOL_RUS' => 'р/ч',
+            'SYMBOL_INTL' => 'h',
+            'SYMBOL_LETTER_INTL' => 'HUR',
+            'IS_DEFAULT' => 'N',
+        ],
     ];
 
     $createdCount = 0;
@@ -639,12 +647,12 @@ switch ($currentStep) {
         ];
         
         $materialsProps = [
-            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1],
+            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y'],
         ];
 
         $materialsVariantsProps = [
             'DENSITY' => ['NAME' => 'Плотность', 'TYPE' => 'N'],
-            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1],
+            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y'],
         ];
 
         $operationsProps = [
@@ -662,11 +670,11 @@ switch ($currentStep) {
                 'MULTIPLE_CNT' => 1,
                 'SORT' => 200,
             ],
-            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'SORT' => 500],
+            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'SORT' => 500, 'WITH_DESCRIPTION' => 'Y'],
         ];
 
         $operationsVariantsProps = [
-            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'SORT' => 500],
+            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'SORT' => 500, 'WITH_DESCRIPTION' => 'Y'],
         ];
 
         $equipmentProps = [
@@ -676,7 +684,7 @@ switch ($currentStep) {
             'MAX_WIDTH' => ['NAME' => 'Макс. ширина, мм', 'TYPE' => 'N'],
             'MAX_LENGTH' => ['NAME' => 'Макс. длина, мм', 'TYPE' => 'N'],
             'START_COST' => ['NAME' => 'Стоимость старта', 'TYPE' => 'N'],
-            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1],
+            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y'],
         ];
 
         $customFieldsProps = [
@@ -779,7 +787,7 @@ switch ($currentStep) {
                 'SORT' => 200,
                 'COL_COUNT' => 1,
             ],
-            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'SORT' => 220],
+            'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'SORT' => 220, 'WITH_DESCRIPTION' => 'Y'],
         ];
 
 
@@ -1246,6 +1254,60 @@ switch ($currentStep) {
             }
             if ($presetsIblockId <= 0) {
                 installLog("  → Пропуск создания CALC_PRESET: CALC_PRESETS не создан", 'warning');
+            }
+        }
+
+        // Добавление свойства PARAMETR_VALUES в инфоблок товаров и торговых предложений
+        $parametrValuesProperty = [
+            'ACTIVE' => 'Y',
+            'CODE' => 'PARAMETR_VALUES',
+            'NAME' => 'Значения параметров',
+            'PROPERTY_TYPE' => 'S',
+            'MULTIPLE' => 'Y',
+            'MULTIPLE_CNT' => 1,
+            'IS_REQUIRED' => 'N',
+            'SORT' => 510,
+            'WITH_DESCRIPTION' => 'Y',
+        ];
+
+        $parametrValuesTargets = [
+            'товаров' => $productIblockId,
+            'торговых предложений' => $installData['sku_iblock_id'] ?? 0,
+        ];
+
+        foreach ($parametrValuesTargets as $targetName => $targetIblockId) {
+            if ($targetIblockId <= 0) {
+                installLog("  → Пропуск создания PARAMETR_VALUES: Iblock ID для {$targetName} не задан", 'warning');
+                continue;
+            }
+
+            installLog("");
+            installLog("Добавление свойства PARAMETR_VALUES в инфоблок {$targetName}...", 'header');
+
+            $rsProperty = \CIBlockProperty::GetList(
+                [],
+                ['IBLOCK_ID' => $targetIblockId, 'CODE' => $parametrValuesProperty['CODE']]
+            );
+
+            if ($arProperty = $rsProperty->Fetch()) {
+                installLog("  → Свойство {$parametrValuesProperty['CODE']} уже существует в инфоблоке {$targetName} (ID: {$arProperty['ID']})", 'warning');
+                continue;
+            }
+
+            $arNewProperty = array_merge(
+                $parametrValuesProperty,
+                ['IBLOCK_ID' => $targetIblockId]
+            );
+
+            $ibp = new \CIBlockProperty();
+            $propId = $ibp->Add($arNewProperty);
+
+            if ($propId) {
+                installLog("  → Создано свойство {$parametrValuesProperty['CODE']} в инфоблоке {$targetName} (ID: {$propId})", 'success');
+            } else {
+                $error = getBitrixError();
+                installLog("  → Ошибка создания свойства {$parametrValuesProperty['CODE']}: {$error}", 'error');
+                $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = "Свойство {$parametrValuesProperty['CODE']}: {$error}";
             }
         }
         
