@@ -2416,6 +2416,7 @@
             const stageId = parseInt(payload.stageId, 10);
             const calcSettings = payload.calcSettings || {};
             const stageWiring = payload.stageWiring || {};
+            const stageParametrValuesScheme = payload.stageParametrValuesScheme || {};
 
             if (!settingsId && !stageId) {
                 console.warn('[BitrixBridge] SAVE_CALC_LOGIC_REQUEST: settingsId/stageId не указан');
@@ -2426,6 +2427,9 @@
             const params = Array.isArray(calcSettings.params) ? calcSettings.params : [];
             const inputs = Array.isArray(stageWiring.inputs) ? stageWiring.inputs : [];
             const outputs = Array.isArray(stageWiring.outputs) ? stageWiring.outputs : [];
+            const schemeOffer = Array.isArray(stageParametrValuesScheme.offer)
+                ? stageParametrValuesScheme.offer
+                : [];
 
             const toValueDescriptionList = (items, valueKey, descriptionKey) => {
                 if (!Array.isArray(items) || items.length === 0) {
@@ -2468,6 +2472,12 @@
                     propertyCode: 'OUTPUTS',
                     value: toValueDescriptionList(outputs, 'key', 'var'),
                 });
+                refreshPayload.push({
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'SCHEME_PARAMETR_VALUES',
+                    value: toValueDescriptionList(schemeOffer, 'name', 'template'),
+                });
             }
 
             try {
@@ -2493,6 +2503,11 @@
                         stageId,
                         'OUTPUTS',
                         outputs.map((item) => ({ value: item?.key ?? '', description: item?.var ?? '' }))
+                    );
+                    this.updateStagePropertyInInitDataWithDescriptions(
+                        stageId,
+                        'SCHEME_PARAMETR_VALUES',
+                        schemeOffer.map((item) => ({ value: item?.name ?? '', description: item?.template ?? '' }))
                     );
                 }
 
