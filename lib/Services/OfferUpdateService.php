@@ -36,6 +36,22 @@ class OfferUpdateService
             }
 
             try {
+                $elementData = \CIBlockElement::GetByID($offerId)->Fetch();
+                $offerIblockId = (int)($elementData['IBLOCK_ID'] ?? 0);
+                $offerName = trim((string)($offer['offerName'] ?? ''));
+                $parametrValues = $this->buildValueDescriptionList($offer['parametrValues'] ?? [], 'name', 'value');
+
+                if ($offerIblockId > 0 && $parametrValues !== null) {
+                    \CIBlockElement::SetPropertyValuesEx($offerId, $offerIblockId, [
+                        'PARAMETR_VALUES' => $parametrValues ?: false,
+                    ]);
+                }
+
+                if ($offerName !== '') {
+                    $element = new \CIBlockElement();
+                    $element->Update($offerId, ['NAME' => $offerName]);
+                }
+
                 $purchasePrice = $this->normalizeNumber($offer['directPurchasePrice'] ?? null);
                 if ($purchasePrice === null) {
                     $purchasePrice = $this->normalizeNumber($offer['purchasePrice'] ?? null);
@@ -192,5 +208,24 @@ class OfferUpdateService
         }
 
         return null;
+    }
+
+    private function buildValueDescriptionList($items, string $valueKey, string $descriptionKey): ?array
+    {
+        if (!is_array($items)) {
+            return null;
+        }
+
+        if (count($items) === 0) {
+            return [];
+        }
+
+        return array_map(
+            static fn($item) => [
+                'VALUE' => $item[$valueKey] ?? '',
+                'DESCRIPTION' => $item[$descriptionKey] ?? '',
+            ],
+            $items
+        );
     }
 }
