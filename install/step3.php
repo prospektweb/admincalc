@@ -499,6 +499,14 @@ switch ($currentStep) {
                 'WITH_DESCRIPTION' => 'Y',
                 'SORT' => 160,
             ],
+            'SCHEME_PARAMETR_VALUES' => [
+                'NAME' => 'Шаблоны значений параметров ТП',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 1,
+                'WITH_DESCRIPTION' => 'Y',
+                'SORT' => 170,
+            ],
             'OPERATION_VARIANT' => [
                 'NAME' => 'Вариант операции',
                 'TYPE' => 'E',
