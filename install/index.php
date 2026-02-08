@@ -178,20 +178,6 @@ class prospektweb_calc extends CModule
         if (is_dir($sourceJs)) {
             if (is_dir($targetJs)) {
                 CopyDirFiles($sourceJs, $targetJs, true, true);
-
-                // Гарантируем копирование header-tabs-sync.js
-                $headerTabsSource = $sourceJs . '/header-tabs-sync.js';
-                $headerTabsTarget = $targetJs . '/header-tabs-sync.js';
-
-                if (file_exists($headerTabsSource)) {
-                    if (!copy($headerTabsSource, $headerTabsTarget)) {
-                        $errors[] = "Не удалось скопировать header-tabs-sync.js в {$headerTabsTarget}";
-                        $success = false;
-                    }
-                } else {
-                    $errors[] = "Файл header-tabs-sync.js не найден в {$headerTabsSource}";
-                    $success = false;
-                }
             } else {
                 $errors[] = "Целевая директория JS не существует: {$targetJs}";
                 $success = false;

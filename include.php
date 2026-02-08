@@ -18,7 +18,6 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\ResultWriter' => 'lib/Services/ResultWriter.php',
     'Prospektweb\\Calc\\Services\\ValidationService' => 'lib/Services/ValidationService.php',
     'Prospektweb\\Calc\\Services\\DependencyTracker' => 'lib/Services/DependencyTracker.php',
-    'Prospektweb\\Calc\\Services\\HeaderTabsService' => 'lib/Services/HeaderTabsService.php',
     'Prospektweb\\Calc\\Services\\SyncVariantsHandler' => 'lib/Services/SyncVariantsHandler.php',
     'Prospektweb\\Calc\\Services\\DetailHandler' => 'lib/Services/DetailHandler.php',
     'Prospektweb\\Calc\\Services\\CustomFieldsService' => 'lib/Services/CustomFieldsService.php',
