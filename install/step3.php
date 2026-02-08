@@ -982,7 +982,10 @@ switch ($currentStep) {
             if ($installData['iblock_ids']['CALC_SETTINGS'] > 0) {
                 $rsProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $stagesIblockId, 'CODE' => 'CALC_SETTINGS']);
                 if ($arProperty = $rsProperty->Fetch()) {
-                    $ibp->Update($arProperty['ID'], ['LINK_IBLOCK_ID' => $installData['iblock_ids']['CALC_SETTINGS']]);
+                    $ibp->Update($arProperty['ID'], [
+                        'LINK_IBLOCK_ID' => $installData['iblock_ids']['CALC_SETTINGS'],
+                        'IS_REQUIRED' => 'N',
+                    ]);
                     installLog("  → Обновлено свойство CALC_SETTINGS", 'success');
                 }
             }
@@ -991,7 +994,10 @@ switch ($currentStep) {
             if ($installData['iblock_ids']['CALC_OPERATIONS_VARIANTS'] > 0) {
                 $rsProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $stagesIblockId, 'CODE' => 'OPERATION_VARIANT']);
                 if ($arProperty = $rsProperty->Fetch()) {
-                    $ibp->Update($arProperty['ID'], ['LINK_IBLOCK_ID' => $installData['iblock_ids']['CALC_OPERATIONS_VARIANTS']]);
+                    $ibp->Update($arProperty['ID'], [
+                        'LINK_IBLOCK_ID' => $installData['iblock_ids']['CALC_OPERATIONS_VARIANTS'],
+                        'IS_REQUIRED' => 'N',
+                    ]);
                     installLog("  → Обновлено свойство OPERATION_VARIANT", 'success');
                 }
             }
@@ -1000,7 +1006,10 @@ switch ($currentStep) {
             if ($installData['iblock_ids']['CALC_EQUIPMENT'] > 0) {
                 $rsProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $stagesIblockId, 'CODE' => 'EQUIPMENT']);
                 if ($arProperty = $rsProperty->Fetch()) {
-                    $ibp->Update($arProperty['ID'], ['LINK_IBLOCK_ID' => $installData['iblock_ids']['CALC_EQUIPMENT']]);
+                    $ibp->Update($arProperty['ID'], [
+                        'LINK_IBLOCK_ID' => $installData['iblock_ids']['CALC_EQUIPMENT'],
+                        'IS_REQUIRED' => 'N',
+                    ]);
                     installLog("  → Обновлено свойство EQUIPMENT", 'success');
                 }
             }
@@ -1009,7 +1018,10 @@ switch ($currentStep) {
             if ($installData['iblock_ids']['CALC_MATERIALS_VARIANTS'] > 0) {
                 $rsProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $stagesIblockId, 'CODE' => 'MATERIAL_VARIANT']);
                 if ($arProperty = $rsProperty->Fetch()) {
-                    $ibp->Update($arProperty['ID'], ['LINK_IBLOCK_ID' => $installData['iblock_ids']['CALC_MATERIALS_VARIANTS']]);
+                    $ibp->Update($arProperty['ID'], [
+                        'LINK_IBLOCK_ID' => $installData['iblock_ids']['CALC_MATERIALS_VARIANTS'],
+                        'IS_REQUIRED' => 'N',
+                    ]);
                     installLog("  → Обновлено свойство MATERIAL_VARIANT", 'success');
                 }
             }
@@ -1074,35 +1086,6 @@ switch ($currentStep) {
         // Создание единиц измерения
         installLog("");
         createMeasuresWithLog();
-        
-        // Включение торгового каталога для CALC_STAGES
-        if ($installData['iblock_ids']['CALC_STAGES'] > 0) {
-            installLog("");
-            installLog("Включение торгового каталога для CALC_STAGES...", 'header');
-            
-            $stagesIblockId = $installData['iblock_ids']['CALC_STAGES'];
-            
-            // Проверяем, является ли уже каталогом
-            $catalogInfo = \CCatalog::GetByID($stagesIblockId);
-            if ($catalogInfo) {
-                installLog("  → CALC_STAGES уже является торговым каталогом", 'warning');
-            } else {
-                // Добавляем в каталоги
-                $result = \CCatalog::Add([
-                    'IBLOCK_ID' => $stagesIblockId,
-                    'YANDEX_EXPORT' => 'N',
-                    'SUBSCRIPTION' => 'N',
-                    'VAT_ID' => 0,
-                ]);
-                
-                if ($result) {
-                    installLog("  → CALC_STAGES успешно добавлен как торговый каталог", 'success');
-                } else {
-                    $error = getBitrixError();
-                    installLog("  → Ошибка добавления CALC_STAGES в каталоги: {$error}", 'error');
-                }
-            }
-        }
         
         // Включение торгового каталога для CALC_PRESETS (Пресеты)
         if ($installData['iblock_ids']['CALC_PRESETS'] > 0) {

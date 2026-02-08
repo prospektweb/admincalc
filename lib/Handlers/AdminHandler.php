@@ -6,7 +6,6 @@ use Bitrix\Main\Loader;
 use Bitrix\Main\Page\Asset;
 use Bitrix\Main\Page\AssetLocation;
 use Bitrix\Main\Application;
-use Prospektweb\Calc\Services\HeaderTabsService;
 
 /**
  * Обработчик для добавления кнопки/вкладки в админку.
@@ -69,17 +68,12 @@ class AdminHandler
         );
 
         if ($isEditPage || $isSidepanelEdit) {
-            if (self::isHeaderIblockPage()) {
-                self::addHeaderTabsAction();
-            }
-
             self::addCalculatorButton();
         }
 
         // Также добавляем на странице списка элементов (для кнопки в тулбаре)
         if ($isListPage || $isSidepanelList) {
             self::addCalculatorButton();
-            self::addHeaderTabsAction();
         }
     }
 
@@ -123,238 +117,7 @@ class AdminHandler
         </script>', false, AssetLocation::AFTER_JS);
     }
 
-    /**
-     * Добавляет JS для массового действия "Использовать в калькуляции".
-     */
-    protected static function addHeaderTabsAction(): void
-    {
-        $asset = Asset::getInstance();
-        
-        // Собираем отладочную информацию
-        $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
-        $iblockId = (int)($_REQUEST['IBLOCK_ID'] ?? $_REQUEST['iblock_id'] ?? $_REQUEST['PARENT'] ?? 0);
-        
-        $debugLog = [
-            'method' => 'addHeaderTabsAction',
-            'scriptName' => $scriptName,
-            'iblockId' => $iblockId,
-        ];
-
-        $service = new HeaderTabsService();
-        $entityMap = $service->getHeaderIblockMap();
-        
-        $debugLog['entityMap'] = $entityMap;
-        $debugLog['entityMapEmpty'] = empty($entityMap);
-
-        if (empty($entityMap)) {
-            $debugLog['exitReason'] = 'entityMap is empty';
-            $asset->addString(
-                '<script>console.group("ProspektwebCalc Debug - addHeaderTabsAction"); console.log(' . json_encode($debugLog, self::JSON_ENCODE_FLAGS) . '); console.groupEnd();</script>',
-                false,
-                AssetLocation::AFTER_JS
-            );
-            return;
-        }
-
-        // Определяем тип сущности для текущего инфоблока
-        $currentEntity = null;
-        foreach ($entityMap as $entityType => $entityIblockId) {
-            if ((int)$entityIblockId === $iblockId) {
-                $currentEntity = $entityType;
-                break;
-            }
-        }
-
-        $debugLog['currentEntity'] = $currentEntity;
-
-        if (!$currentEntity) {
-            $debugLog['exitReason'] = 'Current iblock not found in entityMap';
-            $asset->addString(
-                '<script>console.group("ProspektwebCalc Debug - addHeaderTabsAction"); console.log(' . json_encode($debugLog, self::JSON_ENCODE_FLAGS) . '); console.groupEnd();</script>',
-                false,
-                AssetLocation::AFTER_JS
-            );
-            return;
-        }
-
-        // Определяем текущую страницу
-        $isListPage = strpos($scriptName, 'iblock_list_admin.php') !== false;
-        $isEditPage = strpos($scriptName, 'iblock_element_edit.php') !== false;
-
-        $debugLog['isListPage'] = $isListPage;
-        $debugLog['isEditPage'] = $isEditPage;
-
-        $iblockCode = null;
-        $iblockType = null;
-
-        if (Loader::includeModule('iblock')) {
-            $iblockData = \CIBlock::GetByID($iblockId)->Fetch();
-            if ($iblockData) {
-                $iblockCode = $iblockData['CODE'] ?? null;
-                $iblockType = $iblockData['IBLOCK_TYPE_ID'] ?? null;
-            } else {
-                $debugLog['iblockLookupReason'] = 'CIBlock::GetByID returned no data';
-            }
-        } else {
-            $debugLog['iblockLookupReason'] = 'iblock module is not installed';
-        }
-
-        $debugLog['iblockCode'] = $iblockCode;
-        $debugLog['iblockType'] = $iblockType;
-
-        // Список типов сущностей, для которых показываем кнопку в списке
-        // Варианты и оборудование
-        $variantEntityTypes = [
-            'detailsVariants',
-            'materialsVariants',
-            'operationsVariants',
-            'equipment',
-        ];
-
-        // Список родительских типов сущностей (детали, материалы, операции)
-        // Для них кнопка показывается только на странице редактирования (в табе ТП)
-        $parentEntityTypes = [
-            'details',
-            'materials',
-            'operations',
-        ];
-
-        $allowedCodesForList = [
-            'CALC_MATERIALS_VARIANTS',
-            'CALC_OPERATIONS_VARIANTS',
-            'CALC_EQUIPMENT',
-        ];
-
-        $allowedCodesForEdit = [
-            'CALC_DETAILS',
-            'CALC_MATERIALS',
-            'CALC_OPERATIONS',
-        ];
-
-        $showButton = false;
-
-        if ($isListPage) {
-            // В списке показываем только для вариантов и оборудования
-            $isAllowedIblock = in_array($iblockCode, $allowedCodesForList, true)
-                || in_array($iblockType, $allowedCodesForList, true);
-
-            if (!$isAllowedIblock) {
-                $debugLog['exitReason'] = 'List page - iblock code/type is not allowed';
-                $asset->addString(
-                    '<script>console.group("ProspektwebCalc Debug - addHeaderTabsAction"); console.log(' . json_encode($debugLog, self::JSON_ENCODE_FLAGS) . '); console.groupEnd();</script>',
-                    false,
-                    AssetLocation::AFTER_JS
-                );
-                return;
-            }
-
-            $showButton = in_array($currentEntity, $variantEntityTypes, true);
-            if ($showButton) {
-                $debugLog['showButtonReason'] = 'List page - entity is variant or equipment';
-            } else {
-                $debugLog['showButtonReason'] = 'List page - entity is parent (not showing)';
-            }
-        } elseif ($isEditPage) {
-            // На странице редактирования показываем для родительских сущностей
-            // (кнопка будет во вкладке "Торговые предложения")
-            $isAllowedIblock = in_array($iblockCode, $allowedCodesForEdit, true)
-                || in_array($iblockType, $allowedCodesForEdit, true);
-
-            if (!$isAllowedIblock) {
-                $debugLog['exitReason'] = 'Edit page - iblock code/type is not allowed';
-                $asset->addString(
-                    '<script>console.group("ProspektwebCalc Debug - addHeaderTabsAction"); console.log(' . json_encode($debugLog, self::JSON_ENCODE_FLAGS) . '); console.groupEnd();</script>',
-                    false,
-                    AssetLocation::AFTER_JS
-                );
-                return;
-            }
-
-            $showButton = in_array($currentEntity, $parentEntityTypes, true);
-            if ($showButton) {
-                $debugLog['showButtonReason'] = 'Edit page - entity is parent (show for SKU tab)';
-            } else {
-                $debugLog['showButtonReason'] = 'Edit page - entity is not parent';
-            }
-        }
-
-        $debugLog['showButton'] = $showButton;
-
-        if (!$showButton) {
-            $debugLog['exitReason'] = 'Button should not be shown for this page/entity combination';
-            $asset->addString(
-                '<script>console.group("ProspektwebCalc Debug - addHeaderTabsAction"); console.log(' . json_encode($debugLog, self::JSON_ENCODE_FLAGS) . '); console.groupEnd();</script>',
-                false,
-                AssetLocation::AFTER_JS
-            );
-            return;
-        }
-
-        $jsPath = '/local/js/prospektweb.calc/header-tabs-sync.js';
-        $jsFullPath = Application::getDocumentRoot() . $jsPath;
-        $jsFileExists = file_exists($jsFullPath);
-        
-        $debugLog['jsPath'] = $jsPath;
-        $debugLog['jsFullPath'] = $jsFullPath;
-        $debugLog['jsFileExists'] = $jsFileExists;
-
-        // Проверяем установку модуля (для диагностики)
-        // Помогает убедиться, что модуль корректно зарегистрирован в системе
-        $moduleInstalled = Loader::includeModule('prospektweb.calc');
-        $debugLog['moduleInstalled'] = $moduleInstalled;
-
-        $config = [
-            'ajaxEndpoint' => '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
-            'entityMap' => $entityMap,
-            'actionValue' => 'calc_use_in_header',
-            'messages' => [
-                'actionTitle' => 'Использовать в калькуляции',
-            ],
-            'sessid' => bitrix_sessid(),
-        ];
-
-        // Добавляем skuIblockId для страниц редактирования родительских сущностей
-        if ($isEditPage && in_array($currentEntity, $parentEntityTypes, true)) {
-            // Определяем инфоблок вариантов по текущему родительскому
-            // Используем стандартный паттерн именования: {entityName}Variants
-            $skuEntityType = $currentEntity . 'Variants';
-            if (isset($entityMap[$skuEntityType]) && (int)$entityMap[$skuEntityType] > 0) {
-                $config['skuIblockId'] = (int)$entityMap[$skuEntityType];
-                $debugLog['skuIblockId'] = $config['skuIblockId'];
-                $debugLog['skuEntityType'] = $skuEntityType;
-            } else {
-                $debugLog['skuEntityType'] = $skuEntityType . ' (not found in entityMap)';
-            }
-        }
-
-        $debugLog['configAdded'] = true;
-        $debugLog['exitReason'] = 'success - config and JS added';
-
-        // СНАЧАЛА добавляем конфиг (должен быть в DOM раньше чем JS-файл)
-        // Используем AssetLocation::AFTER_JS_KERNEL - это гарантирует вывод сразу после ядра Bitrix,
-        // до обычных JS-файлов подключенных через addJs() (которые выводятся позже в зоне AFTER_JS)
-        $asset->addString(
-            '<script>window.ProspektwebCalcHeaderTabsConfig = ' .
-            json_encode($config, self::JSON_ENCODE_FLAGS) .
-            ';</script>',
-            false,
-            AssetLocation::AFTER_JS_KERNEL
-        );
-
-        // ПОТОМ подключаем JS-файл через addJs() без явного AssetLocation
-        // Он будет выведен в дефолтной зоне (после AFTER_JS_KERNEL), поэтому конфиг уже будет доступен
-        if ($jsFileExists) {
-            $asset->addJs($jsPath);
-        }
-
-        // Выводим полный лог в консоль
-        $asset->addString(
-            '<script>console.group("ProspektwebCalc Debug - addHeaderTabsAction"); console.log(' . json_encode($debugLog, self::JSON_ENCODE_FLAGS) . '); console.groupEnd();</script>',
-            false,
-            AssetLocation::AFTER_JS
-        );
-    }
-
+    
     /**
      * Получает параметры для инициализации калькулятора.
      *
@@ -392,49 +155,7 @@ class AdminHandler
         // Можно добавить кнопку массовой калькуляции в список элементов
     }
 
-    /**
-     * Проверяет, относится ли текущая страница к поддерживаемым инфоблокам шапки калькуляции.
-     */
-    protected static function isHeaderIblockPage(): bool
-    {
-        $asset = Asset::getInstance();
-        
-        $service = new HeaderTabsService();
-        $iblockMap = $service->getHeaderIblockMap();
-
-        $iblockId = (int)($_REQUEST['IBLOCK_ID'] ?? $_REQUEST['iblock_id'] ?? $_REQUEST['PARENT'] ?? 0);
-        
-        $debugLog = [
-            'method' => 'isHeaderIblockPage',
-            'iblockId' => $iblockId,
-            'iblockMap' => $iblockMap,
-            'iblockMapEmpty' => empty($iblockMap),
-        ];
-
-        if (empty($iblockMap)) {
-            $debugLog['result'] = false;
-            $debugLog['reason'] = 'iblockMap is empty';
-            $asset->addString(
-                '<script>console.group("ProspektwebCalc Debug - isHeaderIblockPage"); console.log(' . json_encode($debugLog, self::JSON_ENCODE_FLAGS) . '); console.groupEnd();</script>',
-                false,
-                AssetLocation::AFTER_JS
-            );
-            return false;
-        }
-
-        $result = in_array($iblockId, array_map('intval', $iblockMap), true);
-        $debugLog['result'] = $result;
-        $debugLog['reason'] = $result ? 'iblockId found in map' : 'iblockId NOT found in map';
-        
-        $asset->addString(
-            '<script>console.group("ProspektwebCalc Debug - isHeaderIblockPage"); console.log(' . json_encode($debugLog, self::JSON_ENCODE_FLAGS) . '); console.groupEnd();</script>',
-            false,
-            AssetLocation::AFTER_JS
-        );
-
-        return $result;
-    }
-
+    
     /**
      * Подключение JS для улучшения формы редактирования элементов
      * Добавляет ссылки на связанные элементы (свойства типа E)
