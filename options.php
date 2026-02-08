@@ -20,6 +20,7 @@ if (!Loader::includeModule($module_id)) {
 
 use Prospektweb\Calc\Config\SettingsManager;
 use Prospektweb\Calc\Config\ConfigManager;
+use Prospektweb\Calc\Install\SnapshotManager;
 
 global $USER, $APPLICATION;
 
@@ -30,6 +31,28 @@ if (!$USER->IsAdmin()) {
 
 $settingsManager = new SettingsManager();
 $configManager = new ConfigManager();
+
+// Экспорт snapshot текущих данных
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_POST['EXPORT_SNAPSHOT'])) {
+    try {
+        $snapshotManager = new SnapshotManager();
+        $snapshotFile = $snapshotManager->exportToFile();
+        $downloadName = 'prospektweb_snapshot_' . date('Ymd_His') . '.json';
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        header('Content-Type: application/json; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . $downloadName . '"');
+        header('Content-Length: ' . (string)filesize($snapshotFile));
+        readfile($snapshotFile);
+        @unlink($snapshotFile);
+        die();
+    } catch (\Throwable $e) {
+        ShowError('Ошибка экспорта snapshot: ' . $e->getMessage());
+    }
+}
 
 // Обработка сохранения
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
@@ -187,6 +210,14 @@ $tabControl->Begin();
         </td>
     </tr>
 
+
+    <tr>
+        <td>Snapshot данных модуля</td>
+        <td>
+            <button type="submit" name="EXPORT_SNAPSHOT" value="Y" class="adm-btn">Скачать snapshot текущего сайта</button>
+            <div style="color:#777;font-size:11px;margin-top:6px;">Файл нужен для импорта данных при установке на другом сайте.</div>
+        </td>
+    </tr>
     <tr>
         <td><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_CURRENCY') ?></td>
         <td>

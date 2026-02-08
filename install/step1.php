@@ -21,7 +21,6 @@ if (!Loader::includeModule('iblock') || !Loader::includeModule('catalog')) {
 
 // Восстанавливаем выбранные значения из сессии (если есть)
 $savedProductIblockId = (int)($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['PRODUCT_IBLOCK_ID'] ?? 0);
-$savedCreateDemoData = ($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['CREATE_DEMO_DATA'] ?? 'Y') === 'Y';
 
 // Получаем список каталогов
 $catalogs = [];
@@ -101,7 +100,7 @@ while ($arIBlock = $rsIBlocks->Fetch()) {
 }
 </style>
 
-<form action="<?= $APPLICATION->GetCurPage() ?>" method="post" id="installForm">
+<form action="<?= $APPLICATION->GetCurPage() ?>" method="post" id="installForm" enctype="multipart/form-data">
     <?= bitrix_sessid_post() ?>
     <input type="hidden" name="lang" value="<?= LANGUAGE_ID ?>">
     <input type="hidden" name="id" value="prospektweb.calc">
@@ -137,11 +136,11 @@ while ($arIBlock = $rsIBlocks->Fetch()) {
 
         <tr>
             <td>
-                <label for="CREATE_DEMO_DATA"><?= Loc::getMessage('PROSPEKTWEB_CALC_INSTALL_CREATE_DEMO') ?></label>
+                <label for="IMPORT_SNAPSHOT_FILE">Импорт данных (snapshot)</label>
             </td>
             <td>
-                <input type="checkbox" name="CREATE_DEMO_DATA" id="CREATE_DEMO_DATA" value="Y" <?= $savedCreateDemoData ? 'checked' : '' ?>>
-                <label for="CREATE_DEMO_DATA" class="adm-checkbox-label"></label>
+                <input type="file" name="IMPORT_SNAPSHOT_FILE" id="IMPORT_SNAPSHOT_FILE" accept=".json,.txt,application/json,text/plain">
+                <div style="color:#777;font-size:11px;margin-top:6px;">Необязательно. Если файл не выбран — установка будет выполнена начисто.</div>
             </td>
         </tr>
     </table>
@@ -178,7 +177,6 @@ while ($arIBlock = $rsIBlocks->Fetch()) {
     var btnConfirm = document.getElementById('btnConfirmInstall');
     var btnCancel = document.getElementById('btnCancelInstall');
     var form = document.getElementById('installForm');
-    var checkboxDemo = document.getElementById('CREATE_DEMO_DATA');
 
     // Language strings
     var LANG = {
@@ -192,7 +190,6 @@ while ($arIBlock = $rsIBlocks->Fetch()) {
         selectError: '<?= CUtil::JSEscape(Loc::getMessage('PROSPEKTWEB_CALC_CONSOLE_SELECT_ERROR')) ?>',
         productIblock: '<?= CUtil::JSEscape(Loc::getMessage('PROSPEKTWEB_CALC_CONFIRM_PRODUCT_IBLOCK')) ?>',
         skuIblock: '<?= CUtil::JSEscape(Loc::getMessage('PROSPEKTWEB_CALC_CONFIRM_SKU_IBLOCK')) ?>',
-        demoData: '<?= CUtil::JSEscape(Loc::getMessage('PROSPEKTWEB_CALC_CONFIRM_DEMO_DATA')) ?>',
         yes: '<?= CUtil::JSEscape(Loc::getMessage('PROSPEKTWEB_CALC_INSTALL_YES')) ?>',
         no: '<?= CUtil::JSEscape(Loc::getMessage('PROSPEKTWEB_CALC_INSTALL_NO')) ?>',
         willCreate: '<?= CUtil::JSEscape(Loc::getMessage('PROSPEKTWEB_CALC_CONFIRM_WILL_CREATE')) ?>',
@@ -267,7 +264,6 @@ while ($arIBlock = $rsIBlocks->Fetch()) {
         var iblockId = selectIblock.value;
         var skuId = option.getAttribute('data-sku-id');
         var iblockName = option.getAttribute('data-name');
-        var createDemo = checkboxDemo.checked;
 
         var html = '<p style="color: #4ec9b0;">✓ ' + LANG.productIblock + ': ' + iblockName + ' [' + iblockId + ']</p>';
 
@@ -275,7 +271,6 @@ while ($arIBlock = $rsIBlocks->Fetch()) {
             html += '<p style="color: #4ec9b0;">✓ ' + LANG.skuIblock + ': ID ' + skuId + '</p>';
         }
 
-        html += '<p style="color: #4ec9b0;">✓ ' + LANG.demoData + ': ' + (createDemo ? LANG.yes : LANG.no) + '</p>';
 
         html += '<p style="color: #d4d4d4; margin-top: 15px;">' + LANG.willCreate + '</p>';
         html += '<ul>';
