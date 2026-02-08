@@ -10,7 +10,7 @@
  * - Шаг 1: Создание типов инфоблоков (calculator, calculator_catalog)
  * - Шаг 2: Создание инфоблоков с свойствами
  * - Шаг 3: Настройка SKU-связей
- * - Шаг 4: Сохранение настроек + демо-данные
+ * - Шаг 4: Сохранение настроек + импорт snapshot (опционально)
  * - Шаг 5: Установка файлов и событий
  * 
  * @version 2.0.0
@@ -18,6 +18,7 @@
 
 use Bitrix\Main\Loader;
 use Bitrix\Main\Config\Option;
+use Prospektweb\Calc\Install\SnapshotManager;
 
 if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true) {
     die();
@@ -35,8 +36,8 @@ if (! isset($_SESSION['PROSPEKTWEB_CALC_INSTALL'])) {
     $_SESSION['PROSPEKTWEB_CALC_INSTALL'] = [
         'product_iblock_id' => (int)($_REQUEST['PRODUCT_IBLOCK_ID'] ?? 0),
         'sku_iblock_id' => (int)($_REQUEST['SKU_IBLOCK_ID'] ?? 0),
-        'create_demo_data' => ($_REQUEST['CREATE_DEMO_DATA'] ?? '') === 'Y',
         'current_step' => 1,
+        'import_snapshot_path' => (string)($_REQUEST['IMPORT_SNAPSHOT_PATH'] ?? ''),
         'iblock_ids' => [],
         'log' => [],
         'errors' => [],
@@ -45,6 +46,11 @@ if (! isset($_SESSION['PROSPEKTWEB_CALC_INSTALL'])) {
 
 $installData = &$_SESSION['PROSPEKTWEB_CALC_INSTALL'];
 $currentStep = (int)($_REQUEST['install_step'] ?? $installData['current_step']);
+
+
+if (!empty($_REQUEST['IMPORT_SNAPSHOT_PATH'])) {
+    $installData['import_snapshot_path'] = (string)$_REQUEST['IMPORT_SNAPSHOT_PATH'];
+}
 
 // Очищаем лог для нового шага
 $installData['log'] = [];
@@ -1319,46 +1325,47 @@ switch ($currentStep) {
             }
         }
         
-        // Создание демо-данных (если выбрано)
-        if ($installData['create_demo_data']) {
-            installLog("");
-            installLog("Создание демо-данных...", 'header');
-            
-            // Добавляем прямой require для DemoDataCreator перед использованием
-            $demoDataCreatorPath = __DIR__ . '/../lib/Install/DemoDataCreator.php';
-            if (file_exists($demoDataCreatorPath)) {
-                require_once $demoDataCreatorPath;
-                
-                if (class_exists('\\Prospektweb\\Calc\\Install\\DemoDataCreator')) {
-                    if (empty($installData['iblock_ids'])) {
-                        installLog("ОШИБКА: Инфоблоки не созданы", 'error');
-                        $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = "Инфоблоки не созданы";
-                    } else {
-                        $demoCreator = new \Prospektweb\Calc\Install\DemoDataCreator();
-                        $demoResult = $demoCreator->create($installData['iblock_ids']);
-                        
-                        foreach ($demoResult['created'] as $createdMessage) {
-                            installLog($createdMessage, 'success');
-                        }
-                        
-                        foreach ($demoResult['errors'] as $errorMessage) {
-                            installLog($errorMessage, 'error');
-                            $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $errorMessage;
-                        }
-                        
-                        $totalCreated = count($demoResult['created']);
-                        installLog("Всего создано элементов: {$totalCreated}", 'success');
-                    }
-                } else {
-                    installLog("Класс DemoDataCreator не найден после загрузки файла", 'error');
-                    $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = "Класс DemoDataCreator не найден после загрузки файла";
-                }
+        // Импорт данных из snapshot (если файл загружен)
+        $snapshotPath = (string)($installData['import_snapshot_path'] ?? '');
+        if ($snapshotPath !== '') {
+            installLog('');
+            installLog('Импорт данных из snapshot...', 'header');
+
+            if (!is_file($snapshotPath)) {
+                $message = 'Snapshot файл не найден: ' . $snapshotPath;
+                installLog($message, 'error');
+                $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $message;
             } else {
-                installLog("Файл DemoDataCreator.php не найден: " . $demoDataCreatorPath, 'error');
-                $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = "Файл DemoDataCreator.php не найден: " . $demoDataCreatorPath;
+                $snapshotManagerPath = __DIR__ . '/../lib/Install/SnapshotManager.php';
+                if (!class_exists('\Prospektweb\\Calc\\Install\\SnapshotManager') && file_exists($snapshotManagerPath)) {
+                    require_once $snapshotManagerPath;
+                }
+
+                if (!class_exists('\Prospektweb\\Calc\\Install\\SnapshotManager')) {
+                    $message = 'Класс SnapshotManager не найден: ' . $snapshotManagerPath;
+                    installLog($message, 'error');
+                    $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $message;
+                    break;
+                }
+
+                $snapshotManager = new SnapshotManager();
+                $importResult = $snapshotManager->importFromFile($snapshotPath, $installData['iblock_ids']);
+
+                foreach (($importResult['created'] ?? []) as $createdMessage) {
+                    installLog($createdMessage, 'success');
+                }
+
+                foreach (($importResult['errors'] ?? []) as $errorMessage) {
+                    installLog($errorMessage, 'error');
+                    $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $errorMessage;
+                }
+
+                installLog('Импорт завершён. Создано: ' . count($importResult['created'] ?? []), 'success');
             }
+        } else {
+            installLog('Snapshot не загружен: установка выполнена начисто.', 'info');
         }
-        
+
         installLog("--- Шаг 4 выполнен ---", 'header');
         break;
 

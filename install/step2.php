@@ -14,21 +14,57 @@ Loc::loadMessages(__FILE__);
 
 // Получаем данные из POST/REQUEST, если пусто — пробуем из сессии
 $productIblockId = (int)($_REQUEST['PRODUCT_IBLOCK_ID'] ?? 0);
-$createDemoData = ($_REQUEST['CREATE_DEMO_DATA'] ?? '') === 'Y';
 
 // Если данные из REQUEST пусты, пробуем восстановить из сессии
 if ($productIblockId <= 0 && !empty($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA'])) {
     $productIblockId = (int)($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['PRODUCT_IBLOCK_ID'] ?? 0);
-    $createDemoData = ($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['CREATE_DEMO_DATA'] ?? '') === 'Y';
 }
 
 // Сохраняем данные в сессию для надёжности (на случай перезагрузки)
 if ($productIblockId > 0) {
     $_SESSION['PROSPEKTWEB_CALC_STEP1_DATA'] = [
         'PRODUCT_IBLOCK_ID' => $productIblockId,
-        'CREATE_DEMO_DATA' => $createDemoData ? 'Y' : 'N',
     ];
 }
+
+
+$importSnapshotPath = '';
+if (!empty($_FILES['IMPORT_SNAPSHOT_FILE']) && (int)($_FILES['IMPORT_SNAPSHOT_FILE']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+    $uploadError = (int)($_FILES['IMPORT_SNAPSHOT_FILE']['error'] ?? UPLOAD_ERR_OK);
+    if ($uploadError === UPLOAD_ERR_OK) {
+        $tmpName = (string)($_FILES['IMPORT_SNAPSHOT_FILE']['tmp_name'] ?? '');
+        $originalName = (string)($_FILES['IMPORT_SNAPSHOT_FILE']['name'] ?? 'snapshot.json');
+        $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['json', 'txt'], true)) {
+            echo '<div class="adm-info-message adm-info-message-red">Допустимы только файлы .json или .txt для snapshot.</div>';
+            return;
+        }
+
+        $uploadDir = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? ''), '/') . '/upload/prospektweb.calc';
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0775, true);
+        }
+
+        $importSnapshotPath = $uploadDir . '/install_snapshot_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.json';
+        if (!move_uploaded_file($tmpName, $importSnapshotPath)) {
+            if (!copy($tmpName, $importSnapshotPath)) {
+                echo '<div class="adm-info-message adm-info-message-red">Не удалось сохранить загруженный snapshot файл.</div>';
+                return;
+            }
+        }
+
+        $_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['IMPORT_SNAPSHOT_PATH'] = $importSnapshotPath;
+        $_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['IMPORT_SNAPSHOT_NAME'] = $originalName;
+    } else {
+        echo '<div class="adm-info-message adm-info-message-red">Ошибка загрузки snapshot файла (код: ' . $uploadError . ').</div>';
+        return;
+    }
+}
+
+if ($importSnapshotPath === '') {
+    $importSnapshotPath = (string)($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['IMPORT_SNAPSHOT_PATH'] ?? '');
+}
+$importSnapshotName = (string)($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['IMPORT_SNAPSHOT_NAME'] ?? '');
 
 if ($productIblockId <= 0) {
     echo '<div class="adm-info-message adm-info-message-red">' .
@@ -57,7 +93,7 @@ $skuIblockId = $catalogInfo['IBLOCK_ID'] ?? null;
     <input type="hidden" name="step" value="3">
     <input type="hidden" name="PRODUCT_IBLOCK_ID" value="<?= $productIblockId ?>">
     <input type="hidden" name="SKU_IBLOCK_ID" value="<?= (int)$skuIblockId ?>">
-    <input type="hidden" name="CREATE_DEMO_DATA" value="<?= $createDemoData ? 'Y' : 'N' ?>">
+    <input type="hidden" name="IMPORT_SNAPSHOT_PATH" value="<?= htmlspecialcharsbx($importSnapshotPath) ?>">
 
     <table class="adm-detail-content-table edit-table">
         <tr class="heading">
@@ -79,8 +115,14 @@ $skuIblockId = $catalogInfo['IBLOCK_ID'] ?? null;
         <?php endif; ?>
 
         <tr>
-            <td><?= Loc::getMessage('PROSPEKTWEB_CALC_INSTALL_CREATE_DEMO') ?></td>
-            <td><?= $createDemoData ? Loc::getMessage('PROSPEKTWEB_CALC_INSTALL_YES') : Loc::getMessage('PROSPEKTWEB_CALC_INSTALL_NO') ?></td>
+            <td>Импорт данных</td>
+            <td>
+                <?php if ($importSnapshotPath !== ''): ?>
+                    Файл: <strong><?= htmlspecialcharsbx($importSnapshotName !== '' ? $importSnapshotName : basename($importSnapshotPath)) ?></strong>
+                <?php else: ?>
+                    Не выбран (установка начисто)
+                <?php endif; ?>
+            </td>
         </tr>
     </table>
 

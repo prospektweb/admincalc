@@ -27,9 +27,6 @@ class Installer
     /** @var PropertyCreator */
     protected PropertyCreator $propertyCreator;
 
-    /** @var DemoDataCreator */
-    protected DemoDataCreator $demoDataCreator;
-
     /** @var ConfigManager */
     protected ConfigManager $configManager;
 
@@ -43,7 +40,6 @@ class Installer
     {
         $this->iblockCreator = new IblockCreator();
         $this->propertyCreator = new PropertyCreator();
-        $this->demoDataCreator = new DemoDataCreator();
         $this->configManager = new ConfigManager();
     }
 
@@ -52,11 +48,10 @@ class Installer
      *
      * @param int  $productIblockId ID инфоблока товаров.
      * @param int  $skuIblockId     ID инфоблока ТП.
-     * @param bool $createDemoData  Создавать ли демо-данные.
-     *
+         *
      * @return array Результат установки.
      */
-    public function install(int $productIblockId, int $skuIblockId, bool $createDemoData = false): array
+    public function install(int $productIblockId, int $skuIblockId): array
     {
         $this->log = [];
         $this->errors = [];
@@ -93,12 +88,6 @@ class Installer
         // Шаг 5: Сохраняем настройки
         $this->log[] = 'Сохранение настроек модуля...';
         $this->saveSettings($productIblockId, $skuIblockId, $iblockIds);
-
-        // Шаг 6: Демо-данные
-        if ($createDemoData) {
-            $this->log[] = 'Создание демо-данных...';
-            $this->createDemoData($iblockIds);
-        }
 
         $this->log[] = 'Установка завершена успешно';
 
@@ -225,28 +214,6 @@ class Installer
 
         foreach ($iblockIds as $code => $id) {
             Option::set(self::MODULE_ID, 'IBLOCK_' . $code, $id);
-        }
-    }
-
-    /**
-     * Создаёт демо-данные.
-     *
-     * @param array $iblockIds Массив ID инфоблоков.
-     */
-    protected function createDemoData(array $iblockIds): void
-    {
-        $result = $this->demoDataCreator->create($iblockIds);
-
-        if (!empty($result['created'])) {
-            foreach ($result['created'] as $item) {
-                $this->log[] = "Создан элемент: {$item}";
-            }
-        }
-
-        if (!empty($result['errors'])) {
-            foreach ($result['errors'] as $error) {
-                $this->errors[] = "Ошибка создания демо-данных: {$error}";
-            }
         }
     }
 

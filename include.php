@@ -13,7 +13,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Config\\ConfigManager' => 'lib/Config/ConfigManager.php',
     'Prospektweb\\Calc\\Config\\SettingsManager' => 'lib/Config/SettingsManager.php',
     'Prospektweb\\Calc\\Install\\Installer' => 'lib/Install/Installer.php',
-    'Prospektweb\\Calc\\Install\\DemoDataCreator' => 'lib/Install/DemoDataCreator.php',
+    'Prospektweb\\Calc\\Install\\SnapshotManager' => 'lib/Install/SnapshotManager.php',
     'Prospektweb\\Calc\\Services\\EntityLoader' => 'lib/Services/EntityLoader.php',
     'Prospektweb\\Calc\\Services\\ResultWriter' => 'lib/Services/ResultWriter.php',
     'Prospektweb\\Calc\\Services\\ValidationService' => 'lib/Services/ValidationService.php',
