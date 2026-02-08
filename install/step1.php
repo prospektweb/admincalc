@@ -22,22 +22,35 @@ if (!Loader::includeModule('iblock') || !Loader::includeModule('catalog')) {
 // Восстанавливаем выбранные значения из сессии (если есть)
 $savedProductIblockId = (int)($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['PRODUCT_IBLOCK_ID'] ?? 0);
 
-// Получаем список каталогов
+// Получаем список инфоблоков, зарегистрированных как торговые каталоги.
+// Нельзя фильтровать только по TYPE=catalog: в готовых решениях (например Aspro)
+// каталоги могут быть в кастомном типе, из-за чего список на шаге установки пустеет.
 $catalogs = [];
-$rsIBlocks = \CIBlock::GetList(
-    ['NAME' => 'ASC'],
-    ['TYPE' => 'catalog', 'ACTIVE' => 'Y']
-);
+$catalogIblockIds = [];
+$rsCatalogs = \CCatalog::GetList(['IBLOCK_ID' => 'ASC']);
+while ($arCatalog = $rsCatalogs->Fetch()) {
+    $iblockId = (int)($arCatalog['IBLOCK_ID'] ?? 0);
+    if ($iblockId > 0) {
+        $catalogIblockIds[$iblockId] = $iblockId;
+    }
+}
 
-while ($arIBlock = $rsIBlocks->Fetch()) {
-    $catalogInfo = \CCatalogSKU::GetInfoByProductIBlock($arIBlock['ID']);
+if (!empty($catalogIblockIds)) {
+    $rsIBlocks = \CIBlock::GetList(
+        ['NAME' => 'ASC'],
+        ['ID' => array_values($catalogIblockIds), 'ACTIVE' => 'Y']
+    );
 
-    $catalogs[] = [
-        'ID' => $arIBlock['ID'],
-        'NAME' => $arIBlock['NAME'],
-        'CODE' => $arIBlock['CODE'],
-        'SKU_IBLOCK_ID' => $catalogInfo['IBLOCK_ID'] ?? null,
-    ];
+    while ($arIBlock = $rsIBlocks->Fetch()) {
+        $catalogInfo = \CCatalogSKU::GetInfoByProductIBlock($arIBlock['ID']);
+
+        $catalogs[] = [
+            'ID' => $arIBlock['ID'],
+            'NAME' => $arIBlock['NAME'],
+            'CODE' => $arIBlock['CODE'],
+            'SKU_IBLOCK_ID' => $catalogInfo['IBLOCK_ID'] ?? null,
+        ];
+    }
 }
 
 ?>
