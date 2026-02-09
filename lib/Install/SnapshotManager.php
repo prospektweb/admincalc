@@ -689,6 +689,37 @@ class SnapshotManager
                     }
                 }
 
+                if ($propertyType === 'E') {
+                    $rawValue = is_array($value) ? ($value['VALUE'] ?? null) : $value;
+                    $oldLinkedElementId = (int)$rawValue;
+                    if ($oldLinkedElementId > 0) {
+                        $linkedIblockId = (int)($property['LINK_IBLOCK_ID'] ?? 0);
+                        $linkedSourceCode = $linkedIblockId > 0
+                            ? (string)($targetIblockIdToCode[$linkedIblockId] ?? '')
+                            : $sourceIblockCode;
+
+                        $resolvedId = $this->resolveLinkedElementId(
+                            $oldLinkedElementId,
+                            $linkedIblockId,
+                            $linkedSourceCode,
+                            $sourceElementsIndex,
+                            $elementIdMapsByCode
+                        );
+
+                        if ($resolvedId > 0) {
+                            $value = $resolvedId;
+                        } else {
+                            $errors[] = sprintf(
+                                'Не удалось сопоставить элемент-связку для свойства %s (старый ID %d, инфоблок %s)',
+                                (string)$code,
+                                $oldLinkedElementId,
+                                $linkedSourceCode !== '' ? $linkedSourceCode : (string)$linkedIblockId
+                            );
+                            continue;
+                        }
+                    }
+                }
+
                 $description = (string)($entry['description'] ?? '');
                 $values[] = $description !== '' ? ['VALUE' => $value, 'DESCRIPTION' => $description] : $value;
             }
