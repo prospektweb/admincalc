@@ -1465,6 +1465,18 @@ switch ($currentStep) {
                 installLog($message, 'error');
                 $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $message;
             } else {
+                $snapshotManagerPath = __DIR__ . '/../lib/Install/SnapshotManager.php';
+                if (!class_exists('\Prospektweb\\Calc\\Install\\SnapshotManager') && file_exists($snapshotManagerPath)) {
+                    require_once $snapshotManagerPath;
+                }
+
+                if (!class_exists('\Prospektweb\\Calc\\Install\\SnapshotManager')) {
+                    $message = 'Класс SnapshotManager не найден: ' . $snapshotManagerPath;
+                    installLog($message, 'error');
+                    $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $message;
+                    break;
+                }
+
                 $snapshotManager = new SnapshotManager();
                 $importResult = $snapshotManager->importFromFile($snapshotPath, $installData['iblock_ids']);
 
