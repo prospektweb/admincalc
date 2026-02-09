@@ -266,6 +266,7 @@ class SnapshotManager
                 $catalogProduct = null;
                 $prices = [];
                 $measure = null;
+                $measureRatio = null;
                 $vat = null;
 
                 if ($catalogLoaded && class_exists('\CCatalogProduct')) {
@@ -282,6 +283,14 @@ class SnapshotManager
                         $measureRs = \CCatalogMeasure::getList([], ['ID' => (int)$catalogProduct['MEASURE']]);
                         if ($measureRow = $measureRs->Fetch()) {
                             $measure = $this->pruneEmpty($measureRow);
+                        }
+                    }
+
+
+                    if ($catalogProduct && class_exists('\CCatalogMeasureRatio')) {
+                        $ratioRs = \CCatalogMeasureRatio::getList([], ['PRODUCT_ID' => $elementId]);
+                        if ($ratioRow = $ratioRs->Fetch()) {
+                            $measureRatio = $this->pruneEmpty($ratioRow);
                         }
                     }
 
@@ -304,6 +313,7 @@ class SnapshotManager
                     'catalog_product' => $catalogProduct ? $this->pruneEmpty($catalogProduct) : null,
                     'prices' => $prices,
                     'measure' => $measure,
+                    'measure_ratio' => $measureRatio,
                     'vat' => $vat,
                 ]);
             }
@@ -922,10 +932,20 @@ class SnapshotManager
         $product = (array)($elementData['catalog_product'] ?? []);
         if (!empty($product)) {
             $productFields = [];
-            foreach (['QUANTITY','QUANTITY_TRACE','CAN_BUY_ZERO','NEGATIVE_AMOUNT_TRACE','SUBSCRIBE','VAT_ID','VAT_INCLUDED','MEASURE','WIDTH','LENGTH','HEIGHT','WEIGHT','PURCHASING_PRICE','PURCHASING_CURRENCY'] as $field) {
+            foreach (['QUANTITY','QUANTITY_TRACE','CAN_BUY_ZERO','NEGATIVE_AMOUNT_TRACE','SUBSCRIBE','VAT_INCLUDED','WIDTH','LENGTH','HEIGHT','WEIGHT','PURCHASING_PRICE','PURCHASING_CURRENCY'] as $field) {
                 if (array_key_exists($field, $product)) {
                     $productFields[$field] = $product[$field];
                 }
+            }
+
+            $measureId = $this->resolveMeasureId((array)($elementData['measure'] ?? []));
+            if ($measureId > 0) {
+                $productFields['MEASURE'] = $measureId;
+            }
+
+            $vatId = $this->resolveVatId((array)($elementData['vat'] ?? []));
+            if ($vatId > 0) {
+                $productFields['VAT_ID'] = $vatId;
             }
 
             if (!empty($productFields)) {
@@ -937,6 +957,8 @@ class SnapshotManager
                     \CCatalogProduct::Add($productFields);
                 }
             }
+
+            $this->importMeasureRatio($elementId, (array)($elementData['measure_ratio'] ?? []));
         }
 
         foreach ((array)($elementData['prices'] ?? []) as $price) {
@@ -965,6 +987,77 @@ class SnapshotManager
             } else {
                 \CPrice::Add($fields);
             }
+        }
+    }
+
+
+    private function resolveMeasureId(array $measure): int
+    {
+        if (empty($measure) || !class_exists('\CCatalogMeasure')) {
+            return 0;
+        }
+
+        $code = (int)($measure['CODE'] ?? 0);
+        if ($code > 0) {
+            $row = \CCatalogMeasure::getList([], ['CODE' => $code])->Fetch();
+            if ($row) {
+                return (int)$row['ID'];
+            }
+        }
+
+        $title = (string)($measure['MEASURE_TITLE'] ?? '');
+        if ($title !== '') {
+            $row = \CCatalogMeasure::getList([], ['MEASURE_TITLE' => $title])->Fetch();
+            if ($row) {
+                return (int)$row['ID'];
+            }
+        }
+
+        return 0;
+    }
+
+    private function resolveVatId(array $vat): int
+    {
+        if (empty($vat) || !class_exists('\CCatalogVat')) {
+            return 0;
+        }
+
+        $rate = isset($vat['RATE']) ? (float)$vat['RATE'] : 0.0;
+        if ($rate <= 0) {
+            return 0;
+        }
+
+        $existing = \CCatalogVat::GetList([], ['RATE' => $rate])->Fetch();
+        if ($existing) {
+            return (int)$existing['ID'];
+        }
+
+        $newId = \CCatalogVat::Add([
+            'NAME' => (string)($vat['NAME'] ?? ('VAT ' . rtrim(rtrim((string)$rate, '0'), '.'))),
+            'RATE' => $rate,
+            'ACTIVE' => (string)($vat['ACTIVE'] ?? 'Y'),
+            'SORT' => (int)($vat['SORT'] ?? 100),
+        ]);
+
+        return (int)$newId;
+    }
+
+    private function importMeasureRatio(int $elementId, array $measureRatio): void
+    {
+        if (empty($measureRatio) || !class_exists('\CCatalogMeasureRatio')) {
+            return;
+        }
+
+        $ratio = isset($measureRatio['RATIO']) ? (float)$measureRatio['RATIO'] : 0.0;
+        if ($ratio <= 0) {
+            return;
+        }
+
+        $existing = \CCatalogMeasureRatio::getList([], ['PRODUCT_ID' => $elementId])->Fetch();
+        if ($existing) {
+            \CCatalogMeasureRatio::update((int)$existing['ID'], ['RATIO' => $ratio]);
+        } else {
+            \CCatalogMeasureRatio::add(['PRODUCT_ID' => $elementId, 'RATIO' => $ratio]);
         }
     }
 
