@@ -56,6 +56,15 @@ class SnapshotManager
 
         $created = [];
         $errors = [];
+        $sourceElementsIndex = $this->buildSourceElementsIndex($data['iblocks']);
+        $targetIblockIdToCode = [];
+        foreach ($iblockIds as $code => $id) {
+            $targetId = (int)$id;
+            if ($targetId > 0) {
+                $targetIblockIdToCode[$targetId] = (string)$code;
+            }
+        }
+        $elementIdMapsByCode = [];
 
         foreach ($data['iblocks'] as $iblockData) {
             $srcCode = (string)($iblockData['iblock']['fields']['CODE'] ?? '');
@@ -70,7 +79,17 @@ class SnapshotManager
             }
 
             $sectionMap = $this->importSections($targetIblockId, $iblockData['sections'] ?? [], $created, $errors);
-            $this->importElements($targetIblockId, $iblockData['elements'] ?? [], $sectionMap, $created, $errors);
+            $this->importElements(
+                $targetIblockId,
+                $srcCode,
+                $iblockData['elements'] ?? [],
+                $sectionMap,
+                $created,
+                $errors,
+                $sourceElementsIndex,
+                $elementIdMapsByCode,
+                $targetIblockIdToCode
+            );
         }
 
         return ['created' => $created, 'errors' => $errors];
@@ -341,10 +360,22 @@ class SnapshotManager
         return $map;
     }
 
-    private function importElements(int $iblockId, array $elements, array $sectionMap, array &$created, array &$errors): void
+    private function importElements(
+        int $iblockId,
+        string $sourceIblockCode,
+        array $elements,
+        array $sectionMap,
+        array &$created,
+        array &$errors,
+        array $sourceElementsIndex,
+        array &$elementIdMapsByCode,
+        array $targetIblockIdToCode
+    ): void
     {
         $catalogLoaded = Loader::includeModule('catalog');
         $elementApi = new \CIBlockElement();
+        $currentIblockMap = $elementIdMapsByCode[$sourceIblockCode] ?? [];
+        $resolvedElements = [];
 
         foreach ($elements as $elementData) {
             $fields = (array)($elementData['fields'] ?? []);
@@ -352,6 +383,8 @@ class SnapshotManager
             if ($name === '') {
                 continue;
             }
+
+            $oldElementId = (int)($elementData['old_id'] ?? 0);
 
             $sectionIds = [];
             foreach ((array)($elementData['sections'] ?? []) as $section) {
@@ -405,7 +438,28 @@ class SnapshotManager
                 $created[] = "Элемент {$name} (ID: {$elementId})";
             }
 
-            $propertyValues = $this->preparePropertyValues($iblockId, (array)($elementData['properties'] ?? []));
+            if ($oldElementId > 0) {
+                $currentIblockMap[$oldElementId] = $elementId;
+            }
+
+            $resolvedElements[] = ['id' => $elementId, 'data' => $elementData];
+        }
+
+        $elementIdMapsByCode[$sourceIblockCode] = $currentIblockMap;
+
+        foreach ($resolvedElements as $resolvedElement) {
+            $elementId = (int)$resolvedElement['id'];
+            $elementData = (array)$resolvedElement['data'];
+
+            $propertyValues = $this->preparePropertyValues(
+                $iblockId,
+                $sourceIblockCode,
+                (array)($elementData['properties'] ?? []),
+                $sourceElementsIndex,
+                $elementIdMapsByCode,
+                $targetIblockIdToCode,
+                $errors
+            );
             if (!empty($propertyValues)) {
                 \CIBlockElement::SetPropertyValuesEx($elementId, $iblockId, $propertyValues);
             }
@@ -416,7 +470,15 @@ class SnapshotManager
         }
     }
 
-    private function preparePropertyValues(int $iblockId, array $properties): array
+    private function preparePropertyValues(
+        int $iblockId,
+        string $sourceIblockCode,
+        array $properties,
+        array $sourceElementsIndex,
+        array $elementIdMapsByCode,
+        array $targetIblockIdToCode,
+        array &$errors
+    ): array
     {
         $prepared = [];
 
@@ -472,6 +534,37 @@ class SnapshotManager
                     }
                 }
 
+                if ($propertyType === 'E') {
+                    $rawValue = is_array($value) ? ($value['VALUE'] ?? null) : $value;
+                    $oldLinkedElementId = (int)$rawValue;
+                    if ($oldLinkedElementId > 0) {
+                        $linkedIblockId = (int)($property['LINK_IBLOCK_ID'] ?? 0);
+                        $linkedSourceCode = $linkedIblockId > 0
+                            ? (string)($targetIblockIdToCode[$linkedIblockId] ?? '')
+                            : $sourceIblockCode;
+
+                        $resolvedId = $this->resolveLinkedElementId(
+                            $oldLinkedElementId,
+                            $linkedIblockId,
+                            $linkedSourceCode,
+                            $sourceElementsIndex,
+                            $elementIdMapsByCode
+                        );
+
+                        if ($resolvedId > 0) {
+                            $value = $resolvedId;
+                        } else {
+                            $errors[] = sprintf(
+                                'Не удалось сопоставить элемент-связку для свойства %s (старый ID %d, инфоблок %s)',
+                                (string)$code,
+                                $oldLinkedElementId,
+                                $linkedSourceCode !== '' ? $linkedSourceCode : (string)$linkedIblockId
+                            );
+                            continue;
+                        }
+                    }
+                }
+
                 $description = (string)($entry['description'] ?? '');
                 $values[] = $description !== '' ? ['VALUE' => $value, 'DESCRIPTION' => $description] : $value;
             }
@@ -484,6 +577,72 @@ class SnapshotManager
         }
 
         return $prepared;
+    }
+
+    private function buildSourceElementsIndex(array $iblocks): array
+    {
+        $index = [];
+
+        foreach ($iblocks as $iblockData) {
+            $sourceCode = (string)($iblockData['iblock']['fields']['CODE'] ?? '');
+            if ($sourceCode === '') {
+                continue;
+            }
+
+            foreach ((array)($iblockData['elements'] ?? []) as $elementData) {
+                $oldId = (int)($elementData['old_id'] ?? 0);
+                if ($oldId <= 0) {
+                    continue;
+                }
+
+                $fields = (array)($elementData['fields'] ?? []);
+                $index[$sourceCode][$oldId] = [
+                    'XML_ID' => (string)($fields['XML_ID'] ?? ''),
+                    'CODE' => (string)($fields['CODE'] ?? ''),
+                ];
+            }
+        }
+
+        return $index;
+    }
+
+    private function resolveLinkedElementId(
+        int $oldLinkedElementId,
+        int $linkedIblockId,
+        string $linkedSourceCode,
+        array $sourceElementsIndex,
+        array $elementIdMapsByCode
+    ): int
+    {
+        if ($linkedSourceCode !== '' && isset($elementIdMapsByCode[$linkedSourceCode][$oldLinkedElementId])) {
+            return (int)$elementIdMapsByCode[$linkedSourceCode][$oldLinkedElementId];
+        }
+
+        if ($linkedIblockId <= 0 || $linkedSourceCode === '') {
+            return 0;
+        }
+
+        $identity = (array)($sourceElementsIndex[$linkedSourceCode][$oldLinkedElementId] ?? []);
+        $xmlId = (string)($identity['XML_ID'] ?? '');
+        $code = (string)($identity['CODE'] ?? '');
+
+        if ($xmlId !== '') {
+            $exists = \CIBlockElement::GetList([], ['IBLOCK_ID' => $linkedIblockId, '=XML_ID' => $xmlId], false, ['nTopCount' => 1], ['ID'])->Fetch();
+            $resolvedId = (int)($exists['ID'] ?? 0);
+            if ($resolvedId > 0) {
+                return $resolvedId;
+            }
+        }
+
+        if ($code !== '') {
+            $exists = \CIBlockElement::GetList([], ['IBLOCK_ID' => $linkedIblockId, '=CODE' => $code], false, ['nTopCount' => 1], ['ID'])->Fetch();
+            $resolvedId = (int)($exists['ID'] ?? 0);
+            if ($resolvedId > 0) {
+                return $resolvedId;
+            }
+        }
+
+        return 0;
     }
 
     private function importCatalogData(int $elementId, array $elementData, array &$errors): void
