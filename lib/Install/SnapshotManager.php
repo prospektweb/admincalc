@@ -649,20 +649,42 @@ class SnapshotManager
                     }
                 }
 
-                if ($propertyType === 'L' && is_array($value)) {
-                    $enumXml = (string)($value['VALUE_XML_ID'] ?? '');
-                    $enumVal = (string)($value['VALUE'] ?? '');
-                    if ($enumXml !== '') {
-                        $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $property['ID'], '=XML_ID' => $enumXml])->Fetch();
-                        if ($enum) {
-                            $value = (int)$enum['ID'];
-                        }
-                    } elseif ($enumVal !== '') {
-                        $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $property['ID'], '=VALUE' => $enumVal])->Fetch();
-                        if ($enum) {
-                            $value = (int)$enum['ID'];
+                if ($propertyType === 'L') {
+                    $enumId = $this->resolveListEnumId((int)$property['ID'], $value);
+                    if ($enumId > 0) {
+                        $value = $enumId;
+                    } else {
+                        continue;
+                    }
+                }
+
+                if ($propertyType === 'E') {
+                    $rawValue = is_array($value) ? ($value['VALUE'] ?? null) : $value;
+                    $oldLinkedElementId = (int)$rawValue;
+                    if ($oldLinkedElementId > 0) {
+                        $linkedIblockId = (int)($property['LINK_IBLOCK_ID'] ?? 0);
+                        $linkedSourceCode = $linkedIblockId > 0
+                            ? (string)($targetIblockIdToCode[$linkedIblockId] ?? '')
+                            : $sourceIblockCode;
+
+                        $resolvedId = $this->resolveLinkedElementId(
+                            $oldLinkedElementId,
+                            $linkedIblockId,
+                            $linkedSourceCode,
+                            $sourceElementsIndex,
+                            $elementIdMapsByCode
+                        );
+
+                        if ($resolvedId > 0) {
+                            $value = $resolvedId;
                         } else {
-                            $value = $enumVal;
+                            $errors[] = sprintf(
+                                'Не удалось сопоставить элемент-связку для свойства %s (старый ID %d, инфоблок %s)',
+                                (string)$code,
+                                $oldLinkedElementId,
+                                $linkedSourceCode !== '' ? $linkedSourceCode : (string)$linkedIblockId
+                            );
+                            continue;
                         }
                     }
                 }
@@ -751,6 +773,14 @@ class SnapshotManager
             return (int)$elementIdMapsByCode[$linkedSourceCode][$oldLinkedElementId];
         }
 
+        // Fallback: иногда в старых системах ID попадал в свойство из соседнего инфоблока.
+        // Пробуем найти old ID в любой карте импортированных инфоблоков.
+        foreach ($elementIdMapsByCode as $map) {
+            if (isset($map[$oldLinkedElementId])) {
+                return (int)$map[$oldLinkedElementId];
+            }
+        }
+
         if ($linkedIblockId <= 0 || $linkedSourceCode === '') {
             return 0;
         }
@@ -772,6 +802,43 @@ class SnapshotManager
             $resolvedId = (int)($exists['ID'] ?? 0);
             if ($resolvedId > 0) {
                 return $resolvedId;
+            }
+        }
+
+        return 0;
+    }
+
+    private function resolveListEnumId(int $propertyId, $rawValue): int
+    {
+        // Уже ID перечисления
+        if (!is_array($rawValue) && is_scalar($rawValue) && ctype_digit((string)$rawValue)) {
+            $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $propertyId, 'ID' => (int)$rawValue])->Fetch();
+            if ($enum) {
+                return (int)$enum['ID'];
+            }
+        }
+
+        $candidates = [];
+        if (is_array($rawValue)) {
+            $candidates[] = (string)($rawValue['VALUE_XML_ID'] ?? '');
+            $candidates[] = (string)($rawValue['XML_ID'] ?? '');
+            $candidates[] = (string)($rawValue['VALUE_ENUM'] ?? '');
+            $candidates[] = (string)($rawValue['VALUE'] ?? '');
+        } else {
+            $candidates[] = (string)$rawValue;
+        }
+
+        $candidates = array_values(array_unique(array_filter(array_map('trim', $candidates), static fn($v) => $v !== '')));
+
+        foreach ($candidates as $candidate) {
+            $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $propertyId, '=XML_ID' => $candidate])->Fetch();
+            if ($enum) {
+                return (int)$enum['ID'];
+            }
+
+            $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $propertyId, '=VALUE' => $candidate])->Fetch();
+            if ($enum) {
+                return (int)$enum['ID'];
             }
         }
 
