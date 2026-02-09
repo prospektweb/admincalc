@@ -689,37 +689,6 @@ class SnapshotManager
                     }
                 }
 
-                if ($propertyType === 'E') {
-                    $rawValue = is_array($value) ? ($value['VALUE'] ?? null) : $value;
-                    $oldLinkedElementId = (int)$rawValue;
-                    if ($oldLinkedElementId > 0) {
-                        $linkedIblockId = (int)($property['LINK_IBLOCK_ID'] ?? 0);
-                        $linkedSourceCode = $linkedIblockId > 0
-                            ? (string)($targetIblockIdToCode[$linkedIblockId] ?? '')
-                            : $sourceIblockCode;
-
-                        $resolvedId = $this->resolveLinkedElementId(
-                            $oldLinkedElementId,
-                            $linkedIblockId,
-                            $linkedSourceCode,
-                            $sourceElementsIndex,
-                            $elementIdMapsByCode
-                        );
-
-                        if ($resolvedId > 0) {
-                            $value = $resolvedId;
-                        } else {
-                            $errors[] = sprintf(
-                                'Не удалось сопоставить элемент-связку для свойства %s (старый ID %d, инфоблок %s)',
-                                (string)$code,
-                                $oldLinkedElementId,
-                                $linkedSourceCode !== '' ? $linkedSourceCode : (string)$linkedIblockId
-                            );
-                            continue;
-                        }
-                    }
-                }
-
                 $description = (string)($entry['description'] ?? '');
                 $values[] = $description !== '' ? ['VALUE' => $value, 'DESCRIPTION' => $description] : $value;
             }
@@ -810,39 +779,117 @@ class SnapshotManager
 
     private function resolveListEnumId(int $propertyId, $rawValue): int
     {
-        // Уже ID перечисления
+        $enums = $this->getPropertyEnums($propertyId);
+        if (empty($enums)) {
+            return 0;
+        }
+
+        // Уже ID перечисления (валидный в целевом свойстве)
         if (!is_array($rawValue) && is_scalar($rawValue) && ctype_digit((string)$rawValue)) {
-            $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $propertyId, 'ID' => (int)$rawValue])->Fetch();
-            if ($enum) {
-                return (int)$enum['ID'];
+            $id = (int)$rawValue;
+            if (isset($enums['byId'][$id])) {
+                return $id;
             }
         }
 
-        $candidates = [];
+        $xmlCandidates = [];
+        $valueCandidates = [];
+
         if (is_array($rawValue)) {
-            $candidates[] = (string)($rawValue['VALUE_XML_ID'] ?? '');
-            $candidates[] = (string)($rawValue['XML_ID'] ?? '');
-            $candidates[] = (string)($rawValue['VALUE_ENUM'] ?? '');
-            $candidates[] = (string)($rawValue['VALUE'] ?? '');
+            $xmlCandidates[] = (string)($rawValue['VALUE_XML_ID'] ?? '');
+            $xmlCandidates[] = (string)($rawValue['XML_ID'] ?? '');
+            $valueCandidates[] = (string)($rawValue['VALUE_ENUM'] ?? '');
+            $valueCandidates[] = (string)($rawValue['VALUE'] ?? '');
+
+            // Частый кейс для FIELD_TYPE: "Число (number)" -> XML_ID=number
+            $valueEnum = (string)($rawValue['VALUE_ENUM'] ?? '');
+            if ($valueEnum !== '' && preg_match('/\(([^)]+)\)\s*$/u', $valueEnum, $m)) {
+                $xmlCandidates[] = trim((string)$m[1]);
+            }
         } else {
-            $candidates[] = (string)$rawValue;
+            $valueCandidates[] = (string)$rawValue;
         }
 
-        $candidates = array_values(array_unique(array_filter(array_map('trim', $candidates), static fn($v) => $v !== '')));
+        $xmlCandidates = array_values(array_unique(array_filter(array_map('trim', $xmlCandidates), static fn($v) => $v !== '')));
+        $valueCandidates = array_values(array_unique(array_filter(array_map('trim', $valueCandidates), static fn($v) => $v !== '')));
 
-        foreach ($candidates as $candidate) {
-            $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $propertyId, '=XML_ID' => $candidate])->Fetch();
-            if ($enum) {
-                return (int)$enum['ID'];
+        foreach ($xmlCandidates as $candidate) {
+            if (isset($enums['byXml'][$candidate])) {
+                return (int)$enums['byXml'][$candidate];
             }
 
-            $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $propertyId, '=VALUE' => $candidate])->Fetch();
-            if ($enum) {
-                return (int)$enum['ID'];
+            $lc = mb_strtolower($candidate);
+            if (isset($enums['byXmlLower'][$lc])) {
+                return (int)$enums['byXmlLower'][$lc];
+            }
+        }
+
+        foreach ($valueCandidates as $candidate) {
+            if (isset($enums['byValue'][$candidate])) {
+                return (int)$enums['byValue'][$candidate];
+            }
+
+            $norm = $this->normalizeEnumString($candidate);
+            if ($norm !== '' && isset($enums['byValueNorm'][$norm])) {
+                return (int)$enums['byValueNorm'][$norm];
             }
         }
 
         return 0;
+    }
+
+    private function getPropertyEnums(int $propertyId): array
+    {
+        static $cache = [];
+
+        if (isset($cache[$propertyId])) {
+            return $cache[$propertyId];
+        }
+
+        $result = [
+            'byId' => [],
+            'byXml' => [],
+            'byXmlLower' => [],
+            'byValue' => [],
+            'byValueNorm' => [],
+        ];
+
+        $rsEnum = \CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'ID' => 'ASC'], ['PROPERTY_ID' => $propertyId]);
+        while ($enum = $rsEnum->Fetch()) {
+            $id = (int)($enum['ID'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+
+            $xml = (string)($enum['XML_ID'] ?? '');
+            $value = (string)($enum['VALUE'] ?? '');
+
+            $result['byId'][$id] = $id;
+            if ($xml !== '') {
+                $result['byXml'][$xml] = $id;
+                $result['byXmlLower'][mb_strtolower($xml)] = $id;
+            }
+            if ($value !== '') {
+                $result['byValue'][$value] = $id;
+                $norm = $this->normalizeEnumString($value);
+                if ($norm !== '') {
+                    $result['byValueNorm'][$norm] = $id;
+                }
+            }
+        }
+
+        $cache[$propertyId] = $result;
+
+        return $result;
+    }
+
+    private function normalizeEnumString(string $value): string
+    {
+        $value = trim(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+        $value = mb_strtolower($value);
+
+        return trim($value);
     }
 
     private function importCatalogData(int $elementId, array $elementData, array &$errors): void
