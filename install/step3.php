@@ -69,6 +69,26 @@ function getBitrixError(): string
     return $ex ? $ex->GetString() : 'Неизвестная ошибка';
 }
 
+
+function getCodeFieldSettings(): array
+{
+    return [
+        'CODE' => [
+            'IS_REQUIRED' => 'Y',
+            'DEFAULT_VALUE' => [
+                'UNIQUE' => 'Y',
+                'TRANSLITERATION' => 'Y',
+                'TRANS_LEN' => '100',
+                'TRANS_CASE' => 'L',
+                'TRANS_SPACE' => '-',
+                'TRANS_OTHER' => '-',
+                'TRANS_EAT' => 'Y',
+                'USE_GOOGLE' => 'Y',
+            ],
+        ],
+    ];
+}
+
 // Создание типа инфоблоков
 function createIblockTypeWithLog(string $id, string $name): bool
 {
@@ -108,10 +128,20 @@ function createIblockWithLog(string $typeId, string $code, string $name, array $
 {
     installLog("Обработка инфоблока '{$code}'.. .");
     
+    $codeFieldSettings = getCodeFieldSettings();
+
     $rsIBlock = \CIBlock::GetList([], ['CODE' => $code, 'TYPE' => $typeId]);
     if ($arIBlock = $rsIBlock->Fetch()) {
         $id = (int)$arIBlock['ID'];
-        installLog("Инфоблок '{$code}' уже существует (ID: {$id})", 'warning');
+
+        $iblockApi = new \CIBlock();
+        $updated = $iblockApi->Update($id, ['FIELDS' => $codeFieldSettings]);
+        if ($updated) {
+            installLog("Инфоблок '{$code}' уже существует (ID: {$id}), настройки символьного кода обновлены", 'warning');
+        } else {
+            installLog("Инфоблок '{$code}' уже существует (ID: {$id}), не удалось обновить настройки символьного кода: " . getBitrixError(), 'warning');
+        }
+
         return $id;
     }
 
@@ -126,6 +156,7 @@ function createIblockWithLog(string $typeId, string $code, string $name, array $
         'SORT' => 500,
         'VERSION' => 2,
         'GROUP_ID' => ['1' => 'X', '2' => 'R'],
+        'FIELDS' => $codeFieldSettings,
     ];
     
     // Добавляем дополнительные опции (например, EDIT_FILE_AFTER)
@@ -156,12 +187,8 @@ function createIblockWithLog(string $typeId, string $code, string $name, array $
             'PROPERTY_TYPE' => $propData['TYPE'] ?? 'S',
             'MULTIPLE' => $propData['MULTIPLE'] ?? 'N',
             'SORT' => $propData['SORT'] ?? 500,
+            'IS_REQUIRED' => 'N',
         ];
-
-        // Add support for IS_REQUIRED
-        if (isset($propData['IS_REQUIRED'])) {
-            $arProperty['IS_REQUIRED'] = $propData['IS_REQUIRED'];
-        }
 
         if (isset($propData['USER_TYPE'])) {
             $arProperty['USER_TYPE'] = $propData['USER_TYPE'];
