@@ -376,6 +376,7 @@ class SnapshotManager
         $elementApi = new \CIBlockElement();
         $currentIblockMap = $elementIdMapsByCode[$sourceIblockCode] ?? [];
         $resolvedElements = [];
+        $generatedCodes = [];
 
         foreach ($elements as $elementData) {
             $fields = (array)($elementData['fields'] ?? []);
@@ -397,6 +398,10 @@ class SnapshotManager
 
             $xmlId = (string)($fields['XML_ID'] ?? '');
             $code = (string)($fields['CODE'] ?? '');
+
+            if ($code === '' && $name !== '') {
+                $code = $this->generateElementCodeFromName($iblockId, $name, $generatedCodes);
+            }
 
             $elementId = 0;
             if ($xmlId !== '') {
@@ -468,6 +473,96 @@ class SnapshotManager
                 $this->importCatalogData($elementId, $elementData, $errors);
             }
         }
+    }
+
+    private function generateElementCodeFromName(int $iblockId, string $name, array &$generatedCodes): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return '';
+        }
+
+        $translitOptions = $this->getIblockCodeTranslitSettings($iblockId);
+        $baseCode = (string)\CUtil::translit($name, 'ru', $translitOptions);
+        if ($baseCode === '') {
+            $baseCode = 'element';
+        }
+
+        $maxLen = (int)($translitOptions['max_len'] ?? 100);
+        if ($maxLen <= 0) {
+            $maxLen = 100;
+        }
+
+        $baseCode = mb_substr($baseCode, 0, $maxLen);
+        $candidate = $baseCode;
+        $suffix = 2;
+
+        while ($candidate !== '' && ($this->isElementCodeExists($iblockId, $candidate) || isset($generatedCodes[$candidate]))) {
+            $suffixText = '-' . $suffix;
+            $allowedBaseLen = max(1, $maxLen - strlen($suffixText));
+            $candidate = mb_substr($baseCode, 0, $allowedBaseLen) . $suffixText;
+            $suffix++;
+        }
+
+        if ($candidate !== '') {
+            $generatedCodes[$candidate] = true;
+        }
+
+        return $candidate;
+    }
+
+    private function getIblockCodeTranslitSettings(int $iblockId): array
+    {
+        $defaults = [
+            'max_len' => 100,
+            'change_case' => 'L',
+            'replace_space' => '-',
+            'replace_other' => '-',
+            'delete_repeat_replace' => true,
+            'use_google' => true,
+        ];
+
+        $iblock = \CIBlock::GetByID($iblockId)->Fetch();
+        $fieldsRaw = $iblock['FIELDS'] ?? null;
+        $fields = [];
+
+        if (is_array($fieldsRaw)) {
+            $fields = $fieldsRaw;
+        } elseif (is_string($fieldsRaw) && $fieldsRaw !== '') {
+            $unserialized = @unserialize($fieldsRaw, ['allowed_classes' => false]);
+            if (is_array($unserialized)) {
+                $fields = $unserialized;
+            }
+        }
+
+        $codeField = (array)($fields['CODE'] ?? []);
+        $defaultValue = (array)($codeField['DEFAULT_VALUE'] ?? []);
+
+        return [
+            'max_len' => (int)($defaultValue['TRANS_LEN'] ?? $defaults['max_len']),
+            'change_case' => (string)($defaultValue['TRANS_CASE'] ?? $defaults['change_case']),
+            'replace_space' => (string)($defaultValue['TRANS_SPACE'] ?? $defaults['replace_space']),
+            'replace_other' => (string)($defaultValue['TRANS_OTHER'] ?? $defaults['replace_other']),
+            'delete_repeat_replace' => (string)($defaultValue['TRANS_EAT'] ?? 'Y') === 'Y',
+            'use_google' => (string)($defaultValue['USE_GOOGLE'] ?? 'Y') === 'Y',
+        ];
+    }
+
+    private function isElementCodeExists(int $iblockId, string $code): bool
+    {
+        if ($code === '') {
+            return false;
+        }
+
+        $exists = \CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => $iblockId, '=CODE' => $code],
+            false,
+            ['nTopCount' => 1],
+            ['ID']
+        )->Fetch();
+
+        return (int)($exists['ID'] ?? 0) > 0;
     }
 
     private function preparePropertyValues(
