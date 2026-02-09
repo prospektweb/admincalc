@@ -56,7 +56,20 @@ class SnapshotManager
 
         $created = [];
         $errors = [];
+        $sourceElementsIndex = $this->buildSourceElementsIndex($data['iblocks']);
+        $targetIblockIdToCode = [];
+        foreach ($iblockIds as $code => $id) {
+            $targetId = (int)$id;
+            if ($targetId > 0) {
+                $targetIblockIdToCode[$targetId] = (string)$code;
+            }
+        }
 
+        $elementIdMapsByCode = [];
+        $resolvedElementsByCode = [];
+        $targetIblockIdsByCode = [];
+
+        // pass 1: sections + elements only (without properties)
         foreach ($data['iblocks'] as $iblockData) {
             $srcCode = (string)($iblockData['iblock']['fields']['CODE'] ?? '');
             if ($srcCode === '') {
@@ -70,7 +83,34 @@ class SnapshotManager
             }
 
             $sectionMap = $this->importSections($targetIblockId, $iblockData['sections'] ?? [], $created, $errors);
-            $this->importElements($targetIblockId, $iblockData['elements'] ?? [], $sectionMap, $created, $errors);
+            $resolvedElementsByCode[$srcCode] = $this->importElements(
+                $targetIblockId,
+                $srcCode,
+                $iblockData['elements'] ?? [],
+                $sectionMap,
+                $created,
+                $errors,
+                $elementIdMapsByCode
+            );
+            $targetIblockIdsByCode[$srcCode] = $targetIblockId;
+        }
+
+        // pass 2: properties + catalog data after all mappings are known
+        foreach ($resolvedElementsByCode as $srcCode => $resolvedElements) {
+            $targetIblockId = (int)($targetIblockIdsByCode[$srcCode] ?? 0);
+            if ($targetIblockId <= 0) {
+                continue;
+            }
+
+            $this->applyElementDataToResolvedElements(
+                $targetIblockId,
+                (string)$srcCode,
+                (array)$resolvedElements,
+                $sourceElementsIndex,
+                $elementIdMapsByCode,
+                $targetIblockIdToCode,
+                $errors
+            );
         }
 
         return ['created' => $created, 'errors' => $errors];
@@ -91,6 +131,7 @@ class SnapshotManager
             'CALC_EQUIPMENT',
             'CALC_DETAILS',
             'CALC_PRESETS',
+            'CALC_CUSTOM_FIELDS',
         ];
 
         $targetIblockIds = [];
@@ -225,6 +266,7 @@ class SnapshotManager
                 $catalogProduct = null;
                 $prices = [];
                 $measure = null;
+                $measureRatio = null;
                 $vat = null;
 
                 if ($catalogLoaded && class_exists('\CCatalogProduct')) {
@@ -241,6 +283,14 @@ class SnapshotManager
                         $measureRs = \CCatalogMeasure::getList([], ['ID' => (int)$catalogProduct['MEASURE']]);
                         if ($measureRow = $measureRs->Fetch()) {
                             $measure = $this->pruneEmpty($measureRow);
+                        }
+                    }
+
+
+                    if ($catalogProduct && class_exists('\CCatalogMeasureRatio')) {
+                        $ratioRs = \CCatalogMeasureRatio::getList([], ['PRODUCT_ID' => $elementId]);
+                        if ($ratioRow = $ratioRs->Fetch()) {
+                            $measureRatio = $this->pruneEmpty($ratioRow);
                         }
                     }
 
@@ -263,6 +313,7 @@ class SnapshotManager
                     'catalog_product' => $catalogProduct ? $this->pruneEmpty($catalogProduct) : null,
                     'prices' => $prices,
                     'measure' => $measure,
+                    'measure_ratio' => $measureRatio,
                     'vat' => $vat,
                 ]);
             }
@@ -341,10 +392,20 @@ class SnapshotManager
         return $map;
     }
 
-    private function importElements(int $iblockId, array $elements, array $sectionMap, array &$created, array &$errors): void
+    private function importElements(
+        int $iblockId,
+        string $sourceIblockCode,
+        array $elements,
+        array $sectionMap,
+        array &$created,
+        array &$errors,
+        array &$elementIdMapsByCode
+    ): array
     {
-        $catalogLoaded = Loader::includeModule('catalog');
         $elementApi = new \CIBlockElement();
+        $currentIblockMap = $elementIdMapsByCode[$sourceIblockCode] ?? [];
+        $resolvedElements = [];
+        $generatedCodes = [];
 
         foreach ($elements as $elementData) {
             $fields = (array)($elementData['fields'] ?? []);
@@ -352,6 +413,8 @@ class SnapshotManager
             if ($name === '') {
                 continue;
             }
+
+            $oldElementId = (int)($elementData['old_id'] ?? 0);
 
             $sectionIds = [];
             foreach ((array)($elementData['sections'] ?? []) as $section) {
@@ -364,6 +427,10 @@ class SnapshotManager
 
             $xmlId = (string)($fields['XML_ID'] ?? '');
             $code = (string)($fields['CODE'] ?? '');
+
+            if ($code === '' && $name !== '') {
+                $code = $this->generateElementCodeFromName($iblockId, $name, $generatedCodes);
+            }
 
             $elementId = 0;
             if ($xmlId !== '') {
@@ -379,14 +446,14 @@ class SnapshotManager
                 'IBLOCK_ID' => $iblockId,
                 'IBLOCK_SECTION_ID' => (int)($sectionIds[0] ?? 0),
                 'IBLOCK_SECTION' => $sectionIds,
-                'NAME' => $name,
+                'NAME' => html_entity_decode($name, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
                 'CODE' => $code,
                 'XML_ID' => $xmlId,
                 'ACTIVE' => (string)($fields['ACTIVE'] ?? 'Y'),
                 'SORT' => (int)($fields['SORT'] ?? 500),
-                'PREVIEW_TEXT' => (string)($fields['PREVIEW_TEXT'] ?? ''),
+                'PREVIEW_TEXT' => html_entity_decode((string)($fields['PREVIEW_TEXT'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'),
                 'PREVIEW_TEXT_TYPE' => (string)($fields['PREVIEW_TEXT_TYPE'] ?? 'text'),
-                'DETAIL_TEXT' => (string)($fields['DETAIL_TEXT'] ?? ''),
+                'DETAIL_TEXT' => html_entity_decode((string)($fields['DETAIL_TEXT'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'),
                 'DETAIL_TEXT_TYPE' => (string)($fields['DETAIL_TEXT_TYPE'] ?? 'text'),
             ];
 
@@ -405,7 +472,47 @@ class SnapshotManager
                 $created[] = "Элемент {$name} (ID: {$elementId})";
             }
 
-            $propertyValues = $this->preparePropertyValues($iblockId, (array)($elementData['properties'] ?? []));
+            if ($oldElementId > 0) {
+                $currentIblockMap[$oldElementId] = $elementId;
+            }
+
+            $resolvedElements[] = ['id' => $elementId, 'data' => $elementData];
+        }
+
+        $elementIdMapsByCode[$sourceIblockCode] = $currentIblockMap;
+
+        return $resolvedElements;
+    }
+
+    private function applyElementDataToResolvedElements(
+        int $iblockId,
+        string $sourceIblockCode,
+        array $resolvedElements,
+        array $sourceElementsIndex,
+        array $elementIdMapsByCode,
+        array $targetIblockIdToCode,
+        array &$errors
+    ): void
+    {
+        $catalogLoaded = Loader::includeModule('catalog');
+
+        foreach ($resolvedElements as $resolvedElement) {
+            $elementId = (int)($resolvedElement['id'] ?? 0);
+            if ($elementId <= 0) {
+                continue;
+            }
+
+            $elementData = (array)($resolvedElement['data'] ?? []);
+
+            $propertyValues = $this->preparePropertyValues(
+                $iblockId,
+                $sourceIblockCode,
+                (array)($elementData['properties'] ?? []),
+                $sourceElementsIndex,
+                $elementIdMapsByCode,
+                $targetIblockIdToCode,
+                $errors
+            );
             if (!empty($propertyValues)) {
                 \CIBlockElement::SetPropertyValuesEx($elementId, $iblockId, $propertyValues);
             }
@@ -416,7 +523,105 @@ class SnapshotManager
         }
     }
 
-    private function preparePropertyValues(int $iblockId, array $properties): array
+    private function generateElementCodeFromName(int $iblockId, string $name, array &$generatedCodes): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return '';
+        }
+
+        $translitOptions = $this->getIblockCodeTranslitSettings($iblockId);
+        $baseCode = (string)\CUtil::translit($name, 'ru', $translitOptions);
+        if ($baseCode === '') {
+            $baseCode = 'element';
+        }
+
+        $maxLen = (int)($translitOptions['max_len'] ?? 100);
+        if ($maxLen <= 0) {
+            $maxLen = 100;
+        }
+
+        $baseCode = mb_substr($baseCode, 0, $maxLen);
+        $candidate = $baseCode;
+        $suffix = 2;
+
+        while ($candidate !== '' && ($this->isElementCodeExists($iblockId, $candidate) || isset($generatedCodes[$candidate]))) {
+            $suffixText = '-' . $suffix;
+            $allowedBaseLen = max(1, $maxLen - strlen($suffixText));
+            $candidate = mb_substr($baseCode, 0, $allowedBaseLen) . $suffixText;
+            $suffix++;
+        }
+
+        if ($candidate !== '') {
+            $generatedCodes[$candidate] = true;
+        }
+
+        return $candidate;
+    }
+
+    private function getIblockCodeTranslitSettings(int $iblockId): array
+    {
+        $defaults = [
+            'max_len' => 100,
+            'change_case' => 'L',
+            'replace_space' => '-',
+            'replace_other' => '-',
+            'delete_repeat_replace' => true,
+            'use_google' => true,
+        ];
+
+        $iblock = \CIBlock::GetByID($iblockId)->Fetch();
+        $fieldsRaw = $iblock['FIELDS'] ?? null;
+        $fields = [];
+
+        if (is_array($fieldsRaw)) {
+            $fields = $fieldsRaw;
+        } elseif (is_string($fieldsRaw) && $fieldsRaw !== '') {
+            $unserialized = @unserialize($fieldsRaw, ['allowed_classes' => false]);
+            if (is_array($unserialized)) {
+                $fields = $unserialized;
+            }
+        }
+
+        $codeField = (array)($fields['CODE'] ?? []);
+        $defaultValue = (array)($codeField['DEFAULT_VALUE'] ?? []);
+
+        return [
+            'max_len' => (int)($defaultValue['TRANS_LEN'] ?? $defaults['max_len']),
+            'change_case' => (string)($defaultValue['TRANS_CASE'] ?? $defaults['change_case']),
+            'replace_space' => (string)($defaultValue['TRANS_SPACE'] ?? $defaults['replace_space']),
+            'replace_other' => (string)($defaultValue['TRANS_OTHER'] ?? $defaults['replace_other']),
+            'delete_repeat_replace' => (string)($defaultValue['TRANS_EAT'] ?? 'Y') === 'Y',
+            'use_google' => (string)($defaultValue['USE_GOOGLE'] ?? 'Y') === 'Y',
+        ];
+    }
+
+    private function isElementCodeExists(int $iblockId, string $code): bool
+    {
+        if ($code === '') {
+            return false;
+        }
+
+        $exists = \CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => $iblockId, '=CODE' => $code],
+            false,
+            ['nTopCount' => 1],
+            ['ID']
+        )->Fetch();
+
+        return (int)($exists['ID'] ?? 0) > 0;
+    }
+
+    private function preparePropertyValues(
+        int $iblockId,
+        string $sourceIblockCode,
+        array $properties,
+        array $sourceElementsIndex,
+        array $elementIdMapsByCode,
+        array $targetIblockIdToCode,
+        array &$errors
+    ): array
     {
         $prepared = [];
 
@@ -440,6 +645,17 @@ class SnapshotManager
                     continue;
                 }
 
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['INPUTS', 'OUTPUTS'], true)) {
+                    $value = $this->remapStageReferencesInString($value, $elementIdMapsByCode['CALC_STAGES'] ?? []);
+                }
+
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL'], true)) {
+                    $targetMap = (string)$code === 'OPTIONS_OPERATION'
+                        ? (array)($elementIdMapsByCode['CALC_OPERATIONS_VARIANTS'] ?? [])
+                        : (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? []);
+                    $value = $this->remapVariantIdsInOptionsJson($value, $targetMap);
+                }
+
                 if ($propertyType === 'F' && is_array($value)) {
                     $src = (string)($value['SRC'] ?? '');
                     if ($src !== '') {
@@ -454,25 +670,58 @@ class SnapshotManager
                     }
                 }
 
-                if ($propertyType === 'L' && is_array($value)) {
-                    $enumXml = (string)($value['VALUE_XML_ID'] ?? '');
-                    $enumVal = (string)($value['VALUE'] ?? '');
-                    if ($enumXml !== '') {
-                        $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $property['ID'], '=XML_ID' => $enumXml])->Fetch();
-                        if ($enum) {
-                            $value = (int)$enum['ID'];
-                        }
-                    } elseif ($enumVal !== '') {
-                        $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $property['ID'], '=VALUE' => $enumVal])->Fetch();
-                        if ($enum) {
-                            $value = (int)$enum['ID'];
+                if ($propertyType === 'L') {
+                    $enumId = $this->resolveListEnumId((int)$property['ID'], $value);
+                    if ($enumId > 0) {
+                        $value = $enumId;
+                    } else {
+                        continue;
+                    }
+                }
+
+                if ($propertyType === 'E') {
+                    $rawValue = is_array($value) ? ($value['VALUE'] ?? null) : $value;
+                    $oldLinkedElementId = (int)$rawValue;
+                    if ($oldLinkedElementId > 0) {
+                        $linkedIblockId = (int)($property['LINK_IBLOCK_ID'] ?? 0);
+                        $linkedSourceCode = $linkedIblockId > 0
+                            ? (string)($targetIblockIdToCode[$linkedIblockId] ?? '')
+                            : $sourceIblockCode;
+
+                        $resolvedId = $this->resolveLinkedElementId(
+                            $oldLinkedElementId,
+                            $linkedIblockId,
+                            $linkedSourceCode,
+                            $sourceElementsIndex,
+                            $elementIdMapsByCode
+                        );
+
+                        if ($resolvedId > 0) {
+                            $value = $resolvedId;
                         } else {
-                            $value = $enumVal;
+                            $errors[] = sprintf(
+                                'Не удалось сопоставить элемент-связку для свойства %s (старый ID %d, инфоблок %s)',
+                                (string)$code,
+                                $oldLinkedElementId,
+                                $linkedSourceCode !== '' ? $linkedSourceCode : (string)$linkedIblockId
+                            );
+                            continue;
                         }
                     }
                 }
 
                 $description = (string)($entry['description'] ?? '');
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['INPUTS', 'OUTPUTS'], true)) {
+                    $description = $this->remapStageReferencesInString($description, $elementIdMapsByCode['CALC_STAGES'] ?? []);
+                }
+
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL'], true)) {
+                    $targetMap = (string)$code === 'OPTIONS_OPERATION'
+                        ? (array)($elementIdMapsByCode['CALC_OPERATIONS_VARIANTS'] ?? [])
+                        : (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? []);
+                    $description = $this->remapVariantIdsInOptionsJson($description, $targetMap);
+                }
+
                 $values[] = $description !== '' ? ['VALUE' => $value, 'DESCRIPTION' => $description] : $value;
             }
 
@@ -486,15 +735,260 @@ class SnapshotManager
         return $prepared;
     }
 
+    private function buildSourceElementsIndex(array $iblocks): array
+    {
+        $index = [];
+
+        foreach ($iblocks as $iblockData) {
+            $sourceCode = (string)($iblockData['iblock']['fields']['CODE'] ?? '');
+            if ($sourceCode === '') {
+                continue;
+            }
+
+            foreach ((array)($iblockData['elements'] ?? []) as $elementData) {
+                $oldId = (int)($elementData['old_id'] ?? 0);
+                if ($oldId <= 0) {
+                    continue;
+                }
+
+                $fields = (array)($elementData['fields'] ?? []);
+                $index[$sourceCode][$oldId] = [
+                    'XML_ID' => (string)($fields['XML_ID'] ?? ''),
+                    'CODE' => (string)($fields['CODE'] ?? ''),
+                ];
+            }
+        }
+
+        return $index;
+    }
+
+    private function resolveLinkedElementId(
+        int $oldLinkedElementId,
+        int $linkedIblockId,
+        string $linkedSourceCode,
+        array $sourceElementsIndex,
+        array $elementIdMapsByCode
+    ): int
+    {
+        if ($linkedSourceCode !== '' && isset($elementIdMapsByCode[$linkedSourceCode][$oldLinkedElementId])) {
+            return (int)$elementIdMapsByCode[$linkedSourceCode][$oldLinkedElementId];
+        }
+
+        // Fallback: иногда в старых системах ID попадал в свойство из соседнего инфоблока.
+        // Пробуем найти old ID в любой карте импортированных инфоблоков.
+        foreach ($elementIdMapsByCode as $map) {
+            if (isset($map[$oldLinkedElementId])) {
+                return (int)$map[$oldLinkedElementId];
+            }
+        }
+
+        if ($linkedIblockId <= 0 || $linkedSourceCode === '') {
+            return 0;
+        }
+
+        $identity = (array)($sourceElementsIndex[$linkedSourceCode][$oldLinkedElementId] ?? []);
+        $xmlId = (string)($identity['XML_ID'] ?? '');
+        $code = (string)($identity['CODE'] ?? '');
+
+        if ($xmlId !== '') {
+            $exists = \CIBlockElement::GetList([], ['IBLOCK_ID' => $linkedIblockId, '=XML_ID' => $xmlId], false, ['nTopCount' => 1], ['ID'])->Fetch();
+            $resolvedId = (int)($exists['ID'] ?? 0);
+            if ($resolvedId > 0) {
+                return $resolvedId;
+            }
+        }
+
+        if ($code !== '') {
+            $exists = \CIBlockElement::GetList([], ['IBLOCK_ID' => $linkedIblockId, '=CODE' => $code], false, ['nTopCount' => 1], ['ID'])->Fetch();
+            $resolvedId = (int)($exists['ID'] ?? 0);
+            if ($resolvedId > 0) {
+                return $resolvedId;
+            }
+        }
+
+        return 0;
+    }
+
+    private function resolveListEnumId(int $propertyId, $rawValue): int
+    {
+        $enums = $this->getPropertyEnums($propertyId);
+        if (empty($enums)) {
+            return 0;
+        }
+
+        // Уже ID перечисления (валидный в целевом свойстве)
+        if (!is_array($rawValue) && is_scalar($rawValue) && ctype_digit((string)$rawValue)) {
+            $id = (int)$rawValue;
+            if (isset($enums['byId'][$id])) {
+                return $id;
+            }
+        }
+
+        $xmlCandidates = [];
+        $valueCandidates = [];
+
+        if (is_array($rawValue)) {
+            $xmlCandidates[] = (string)($rawValue['VALUE_XML_ID'] ?? '');
+            $xmlCandidates[] = (string)($rawValue['XML_ID'] ?? '');
+            $valueCandidates[] = (string)($rawValue['VALUE_ENUM'] ?? '');
+            $valueCandidates[] = (string)($rawValue['VALUE'] ?? '');
+
+            // Частый кейс для FIELD_TYPE: "Число (number)" -> XML_ID=number
+            $valueEnum = (string)($rawValue['VALUE_ENUM'] ?? '');
+            if ($valueEnum !== '' && preg_match('/\(([^)]+)\)\s*$/u', $valueEnum, $m)) {
+                $xmlCandidates[] = trim((string)$m[1]);
+            }
+        } else {
+            $valueCandidates[] = (string)$rawValue;
+        }
+
+        $xmlCandidates = array_values(array_unique(array_filter(array_map('trim', $xmlCandidates), static fn($v) => $v !== '')));
+        $valueCandidates = array_values(array_unique(array_filter(array_map('trim', $valueCandidates), static fn($v) => $v !== '')));
+
+        foreach ($xmlCandidates as $candidate) {
+            if (isset($enums['byXml'][$candidate])) {
+                return (int)$enums['byXml'][$candidate];
+            }
+
+            $lc = mb_strtolower($candidate);
+            if (isset($enums['byXmlLower'][$lc])) {
+                return (int)$enums['byXmlLower'][$lc];
+            }
+        }
+
+        foreach ($valueCandidates as $candidate) {
+            if (isset($enums['byValue'][$candidate])) {
+                return (int)$enums['byValue'][$candidate];
+            }
+
+            $norm = $this->normalizeEnumString($candidate);
+            if ($norm !== '' && isset($enums['byValueNorm'][$norm])) {
+                return (int)$enums['byValueNorm'][$norm];
+            }
+        }
+
+        return 0;
+    }
+
+    private function getPropertyEnums(int $propertyId): array
+    {
+        static $cache = [];
+
+        if (isset($cache[$propertyId])) {
+            return $cache[$propertyId];
+        }
+
+        $result = [
+            'byId' => [],
+            'byXml' => [],
+            'byXmlLower' => [],
+            'byValue' => [],
+            'byValueNorm' => [],
+        ];
+
+        $rsEnum = \CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'ID' => 'ASC'], ['PROPERTY_ID' => $propertyId]);
+        while ($enum = $rsEnum->Fetch()) {
+            $id = (int)($enum['ID'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+
+            $xml = (string)($enum['XML_ID'] ?? '');
+            $value = (string)($enum['VALUE'] ?? '');
+
+            $result['byId'][$id] = $id;
+            if ($xml !== '') {
+                $result['byXml'][$xml] = $id;
+                $result['byXmlLower'][mb_strtolower($xml)] = $id;
+            }
+            if ($value !== '') {
+                $result['byValue'][$value] = $id;
+                $norm = $this->normalizeEnumString($value);
+                if ($norm !== '') {
+                    $result['byValueNorm'][$norm] = $id;
+                }
+            }
+        }
+
+        $cache[$propertyId] = $result;
+
+        return $result;
+    }
+
+    private function normalizeEnumString(string $value): string
+    {
+        $value = trim(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+        $value = mb_strtolower($value);
+
+        return trim($value);
+    }
+
+
+    private function remapStageReferencesInString($raw, array $stageIdMap)
+    {
+        if (!is_string($raw) || $raw === '' || empty($stageIdMap)) {
+            return $raw;
+        }
+
+        return preg_replace_callback('/stage_(\d+)/u', static function (array $matches) use ($stageIdMap) {
+            $oldId = (int)($matches[1] ?? 0);
+            if ($oldId > 0 && isset($stageIdMap[$oldId])) {
+                return 'stage_' . (int)$stageIdMap[$oldId];
+            }
+
+            return $matches[0];
+        }, $raw) ?? $raw;
+    }
+
+    private function remapVariantIdsInOptionsJson($raw, array $variantIdMap)
+    {
+        if (!is_string($raw) || $raw === '' || empty($variantIdMap)) {
+            return $raw;
+        }
+
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            return $raw;
+        }
+
+        $updated = false;
+        foreach ((array)($data['mappings'] ?? []) as $idx => $mapping) {
+            $oldVariantId = (int)($mapping['variantId'] ?? 0);
+            if ($oldVariantId > 0 && isset($variantIdMap[$oldVariantId])) {
+                $data['mappings'][$idx]['variantId'] = (int)$variantIdMap[$oldVariantId];
+                $updated = true;
+            }
+        }
+
+        if (!$updated) {
+            return $raw;
+        }
+
+        $encoded = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return $encoded !== false ? $encoded : $raw;
+    }
+
     private function importCatalogData(int $elementId, array $elementData, array &$errors): void
     {
         $product = (array)($elementData['catalog_product'] ?? []);
         if (!empty($product)) {
             $productFields = [];
-            foreach (['QUANTITY','QUANTITY_TRACE','CAN_BUY_ZERO','NEGATIVE_AMOUNT_TRACE','SUBSCRIBE','VAT_ID','VAT_INCLUDED','MEASURE','WIDTH','LENGTH','HEIGHT','WEIGHT','PURCHASING_PRICE','PURCHASING_CURRENCY'] as $field) {
+            foreach (['QUANTITY','QUANTITY_TRACE','CAN_BUY_ZERO','NEGATIVE_AMOUNT_TRACE','SUBSCRIBE','VAT_INCLUDED','WIDTH','LENGTH','HEIGHT','WEIGHT','PURCHASING_PRICE','PURCHASING_CURRENCY'] as $field) {
                 if (array_key_exists($field, $product)) {
                     $productFields[$field] = $product[$field];
                 }
+            }
+
+            $measureId = $this->resolveMeasureId((array)($elementData['measure'] ?? []));
+            if ($measureId > 0) {
+                $productFields['MEASURE'] = $measureId;
+            }
+
+            $vatId = $this->resolveVatId((array)($elementData['vat'] ?? []));
+            if ($vatId > 0) {
+                $productFields['VAT_ID'] = $vatId;
             }
 
             if (!empty($productFields)) {
@@ -506,6 +1000,8 @@ class SnapshotManager
                     \CCatalogProduct::Add($productFields);
                 }
             }
+
+            $this->importMeasureRatio($elementId, (array)($elementData['measure_ratio'] ?? []));
         }
 
         foreach ((array)($elementData['prices'] ?? []) as $price) {
@@ -521,19 +1017,106 @@ class SnapshotManager
                 'CURRENCY' => (string)($price['CURRENCY'] ?? 'RUB'),
             ];
 
-            if (isset($price['QUANTITY_FROM'])) {
-                $fields['QUANTITY_FROM'] = $price['QUANTITY_FROM'];
+            $quantityFrom = $price['QUANTITY_FROM'] ?? null;
+            $quantityTo = $price['QUANTITY_TO'] ?? null;
+            if ($quantityFrom !== null && $quantityFrom !== '') {
+                $fields['QUANTITY_FROM'] = $quantityFrom;
             }
-            if (isset($price['QUANTITY_TO'])) {
-                $fields['QUANTITY_TO'] = $price['QUANTITY_TO'];
+            if ($quantityTo !== null && $quantityTo !== '') {
+                $fields['QUANTITY_TO'] = $quantityTo;
             }
 
-            $existing = \CPrice::GetList([], ['PRODUCT_ID' => $elementId, 'CATALOG_GROUP_ID' => $groupId], false, ['nTopCount' => 1])->Fetch();
-            if ($existing) {
-                \CPrice::Update((int)$existing['ID'], $fields);
+            $existingPriceId = 0;
+            $rsExisting = \CPrice::GetList([], ['PRODUCT_ID' => $elementId, 'CATALOG_GROUP_ID' => $groupId]);
+            while ($existing = $rsExisting->Fetch()) {
+                $existingFrom = $existing['QUANTITY_FROM'] ?? null;
+                $existingTo = $existing['QUANTITY_TO'] ?? null;
+
+                $matchFrom = ((string)($existingFrom ?? '') === (string)($quantityFrom ?? ''));
+                $matchTo = ((string)($existingTo ?? '') === (string)($quantityTo ?? ''));
+
+                if ($matchFrom && $matchTo) {
+                    $existingPriceId = (int)$existing['ID'];
+                    break;
+                }
+            }
+
+            if ($existingPriceId > 0) {
+                \CPrice::Update($existingPriceId, $fields);
             } else {
                 \CPrice::Add($fields);
             }
+        }
+    }
+
+
+    private function resolveMeasureId(array $measure): int
+    {
+        if (empty($measure) || !class_exists('\CCatalogMeasure')) {
+            return 0;
+        }
+
+        $code = (int)($measure['CODE'] ?? 0);
+        if ($code > 0) {
+            $row = \CCatalogMeasure::getList([], ['CODE' => $code])->Fetch();
+            if ($row) {
+                return (int)$row['ID'];
+            }
+        }
+
+        $title = (string)($measure['MEASURE_TITLE'] ?? '');
+        if ($title !== '') {
+            $row = \CCatalogMeasure::getList([], ['MEASURE_TITLE' => $title])->Fetch();
+            if ($row) {
+                return (int)$row['ID'];
+            }
+        }
+
+        return 0;
+    }
+
+    private function resolveVatId(array $vat): int
+    {
+        if (empty($vat) || !class_exists('\CCatalogVat')) {
+            return 0;
+        }
+
+        $rate = isset($vat['RATE']) ? (float)$vat['RATE'] : 0.0;
+        if ($rate <= 0) {
+            return 0;
+        }
+
+        $existing = \CCatalogVat::GetList([], ['RATE' => $rate])->Fetch();
+        if ($existing) {
+            return (int)$existing['ID'];
+        }
+
+        $newId = \CCatalogVat::Add([
+            'NAME' => (string)($vat['NAME'] ?? ('VAT ' . rtrim(rtrim((string)$rate, '0'), '.'))),
+            'RATE' => $rate,
+            'ACTIVE' => (string)($vat['ACTIVE'] ?? 'Y'),
+            'SORT' => (int)($vat['SORT'] ?? 100),
+        ]);
+
+        return (int)$newId;
+    }
+
+    private function importMeasureRatio(int $elementId, array $measureRatio): void
+    {
+        if (empty($measureRatio) || !class_exists('\CCatalogMeasureRatio')) {
+            return;
+        }
+
+        $ratio = isset($measureRatio['RATIO']) ? (float)$measureRatio['RATIO'] : 0.0;
+        if ($ratio <= 0) {
+            return;
+        }
+
+        $existing = \CCatalogMeasureRatio::getList([], ['PRODUCT_ID' => $elementId])->Fetch();
+        if ($existing) {
+            \CCatalogMeasureRatio::update((int)$existing['ID'], ['RATIO' => $ratio]);
+        } else {
+            \CCatalogMeasureRatio::add(['PRODUCT_ID' => $elementId, 'RATIO' => $ratio]);
         }
     }
 
