@@ -446,14 +446,14 @@ class SnapshotManager
                 'IBLOCK_ID' => $iblockId,
                 'IBLOCK_SECTION_ID' => (int)($sectionIds[0] ?? 0),
                 'IBLOCK_SECTION' => $sectionIds,
-                'NAME' => $name,
+                'NAME' => html_entity_decode($name, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
                 'CODE' => $code,
                 'XML_ID' => $xmlId,
                 'ACTIVE' => (string)($fields['ACTIVE'] ?? 'Y'),
                 'SORT' => (int)($fields['SORT'] ?? 500),
-                'PREVIEW_TEXT' => (string)($fields['PREVIEW_TEXT'] ?? ''),
+                'PREVIEW_TEXT' => html_entity_decode((string)($fields['PREVIEW_TEXT'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'),
                 'PREVIEW_TEXT_TYPE' => (string)($fields['PREVIEW_TEXT_TYPE'] ?? 'text'),
-                'DETAIL_TEXT' => (string)($fields['DETAIL_TEXT'] ?? ''),
+                'DETAIL_TEXT' => html_entity_decode((string)($fields['DETAIL_TEXT'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'),
                 'DETAIL_TEXT_TYPE' => (string)($fields['DETAIL_TEXT_TYPE'] ?? 'text'),
             ];
 
@@ -649,6 +649,13 @@ class SnapshotManager
                     $value = $this->remapStageReferencesInString($value, $elementIdMapsByCode['CALC_STAGES'] ?? []);
                 }
 
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL'], true)) {
+                    $targetMap = (string)$code === 'OPTIONS_OPERATION'
+                        ? (array)($elementIdMapsByCode['CALC_OPERATIONS_VARIANTS'] ?? [])
+                        : (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? []);
+                    $value = $this->remapVariantIdsInOptionsJson($value, $targetMap);
+                }
+
                 if ($propertyType === 'F' && is_array($value)) {
                     $src = (string)($value['SRC'] ?? '');
                     if ($src !== '') {
@@ -706,6 +713,13 @@ class SnapshotManager
                 $description = (string)($entry['description'] ?? '');
                 if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['INPUTS', 'OUTPUTS'], true)) {
                     $description = $this->remapStageReferencesInString($description, $elementIdMapsByCode['CALC_STAGES'] ?? []);
+                }
+
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL'], true)) {
+                    $targetMap = (string)$code === 'OPTIONS_OPERATION'
+                        ? (array)($elementIdMapsByCode['CALC_OPERATIONS_VARIANTS'] ?? [])
+                        : (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? []);
+                    $description = $this->remapVariantIdsInOptionsJson($description, $targetMap);
                 }
 
                 $values[] = $description !== '' ? ['VALUE' => $value, 'DESCRIPTION' => $description] : $value;
@@ -927,6 +941,35 @@ class SnapshotManager
         }, $raw) ?? $raw;
     }
 
+    private function remapVariantIdsInOptionsJson($raw, array $variantIdMap)
+    {
+        if (!is_string($raw) || $raw === '' || empty($variantIdMap)) {
+            return $raw;
+        }
+
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            return $raw;
+        }
+
+        $updated = false;
+        foreach ((array)($data['mappings'] ?? []) as $idx => $mapping) {
+            $oldVariantId = (int)($mapping['variantId'] ?? 0);
+            if ($oldVariantId > 0 && isset($variantIdMap[$oldVariantId])) {
+                $data['mappings'][$idx]['variantId'] = (int)$variantIdMap[$oldVariantId];
+                $updated = true;
+            }
+        }
+
+        if (!$updated) {
+            return $raw;
+        }
+
+        $encoded = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return $encoded !== false ? $encoded : $raw;
+    }
+
     private function importCatalogData(int $elementId, array $elementData, array &$errors): void
     {
         $product = (array)($elementData['catalog_product'] ?? []);
@@ -974,16 +1017,32 @@ class SnapshotManager
                 'CURRENCY' => (string)($price['CURRENCY'] ?? 'RUB'),
             ];
 
-            if (isset($price['QUANTITY_FROM'])) {
-                $fields['QUANTITY_FROM'] = $price['QUANTITY_FROM'];
+            $quantityFrom = $price['QUANTITY_FROM'] ?? null;
+            $quantityTo = $price['QUANTITY_TO'] ?? null;
+            if ($quantityFrom !== null && $quantityFrom !== '') {
+                $fields['QUANTITY_FROM'] = $quantityFrom;
             }
-            if (isset($price['QUANTITY_TO'])) {
-                $fields['QUANTITY_TO'] = $price['QUANTITY_TO'];
+            if ($quantityTo !== null && $quantityTo !== '') {
+                $fields['QUANTITY_TO'] = $quantityTo;
             }
 
-            $existing = \CPrice::GetList([], ['PRODUCT_ID' => $elementId, 'CATALOG_GROUP_ID' => $groupId], false, ['nTopCount' => 1])->Fetch();
-            if ($existing) {
-                \CPrice::Update((int)$existing['ID'], $fields);
+            $existingPriceId = 0;
+            $rsExisting = \CPrice::GetList([], ['PRODUCT_ID' => $elementId, 'CATALOG_GROUP_ID' => $groupId]);
+            while ($existing = $rsExisting->Fetch()) {
+                $existingFrom = $existing['QUANTITY_FROM'] ?? null;
+                $existingTo = $existing['QUANTITY_TO'] ?? null;
+
+                $matchFrom = ((string)($existingFrom ?? '') === (string)($quantityFrom ?? ''));
+                $matchTo = ((string)($existingTo ?? '') === (string)($quantityTo ?? ''));
+
+                if ($matchFrom && $matchTo) {
+                    $existingPriceId = (int)$existing['ID'];
+                    break;
+                }
+            }
+
+            if ($existingPriceId > 0) {
+                \CPrice::Update($existingPriceId, $fields);
             } else {
                 \CPrice::Add($fields);
             }

@@ -290,6 +290,123 @@ function createSkuRelationWithLog(int $productIblockId, int $offersIblockId, str
     }
 }
 
+
+function ensureListPropertyWithValues(int $iblockId, string $code, string $name, array $values): void
+{
+    if ($iblockId <= 0) {
+        installLog("  → Пропуск свойства {$code}: не задан IBLOCK_ID", 'warning');
+        return;
+    }
+
+    $rsProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, 'CODE' => $code]);
+    $property = $rsProperty->Fetch();
+
+    $propertyId = 0;
+    if ($property) {
+        $propertyId = (int)$property['ID'];
+        installLog("  → Свойство {$code} уже существует (ID: {$propertyId})", 'warning');
+    } else {
+        $ibp = new \CIBlockProperty();
+        $propertyId = (int)$ibp->Add([
+            'IBLOCK_ID' => $iblockId,
+            'ACTIVE' => 'Y',
+            'NAME' => $name,
+            'CODE' => $code,
+            'PROPERTY_TYPE' => 'L',
+            'MULTIPLE' => 'N',
+            'IS_REQUIRED' => 'N',
+            'SORT' => 550,
+        ]);
+
+        if ($propertyId <= 0) {
+            $error = getBitrixError();
+            installLog("  → Ошибка создания свойства {$code}: {$error}", 'error');
+            $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = "Свойство {$code}: {$error}";
+            return;
+        }
+
+        installLog("  → Создано свойство {$code} (ID: {$propertyId})", 'success');
+    }
+
+    $existingByXml = [];
+    $rsEnum = \CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'ID' => 'ASC'], ['PROPERTY_ID' => $propertyId]);
+    while ($enum = $rsEnum->Fetch()) {
+        $existingByXml[(string)($enum['XML_ID'] ?? '')] = (int)$enum['ID'];
+    }
+
+    $added = 0;
+    foreach ($values as $value) {
+        $xml = (string)($value['XML_ID'] ?? '');
+        $val = (string)($value['VALUE'] ?? '');
+        $sort = (int)($value['SORT'] ?? 500);
+
+        if ($xml === '' || isset($existingByXml[$xml])) {
+            continue;
+        }
+
+        $enumId = \CIBlockPropertyEnum::Add([
+            'PROPERTY_ID' => $propertyId,
+            'VALUE' => $val,
+            'XML_ID' => $xml,
+            'SORT' => $sort,
+            'DEF' => (string)($value['DEF'] ?? 'N'),
+        ]);
+
+        if ($enumId) {
+            $added++;
+            $existingByXml[$xml] = (int)$enumId;
+        }
+    }
+
+    installLog("  → Значения {$code}: добавлено {$added}, всего " . count($existingByXml), 'success');
+}
+
+function ensureSkuCalculatorProperties(int $skuIblockId): void
+{
+    if ($skuIblockId <= 0) {
+        installLog('  → Пропуск проверки свойств ТП: SKU IBLOCK ID не задан', 'warning');
+        return;
+    }
+
+    installLog('Проверка обязательных свойств калькулятора в инфоблоке ТП...', 'header');
+
+    $volumeValues = [1,2,3,4,5,10,15,20,30,40,50,75,100,150,200,250,300,400,500,600,750,1000,1500,2000,3000,4000,5000,6000,7000,8000,9000,10000,12000,15000,20000,25000,30000,35000,40000,45000,50000,60000,70000,80000,90000,100000,120000,150000,180000,200000,250000,300000,400000,500000];
+    $volumeEnum = [];
+    $sort = 10;
+    foreach ($volumeValues as $vol) {
+        $v = (string)$vol;
+        $volumeEnum[] = ['XML_ID' => $v, 'VALUE' => $v, 'SORT' => $sort];
+        $sort += 10;
+    }
+
+    $formatEnum = [
+        ['XML_ID' => '74x105', 'VALUE' => 'A7 74×105мм', 'SORT' => 10],
+        ['XML_ID' => '105x148', 'VALUE' => 'A6 105×148мм', 'SORT' => 20],
+        ['XML_ID' => '148x210', 'VALUE' => 'A5 148×210мм', 'SORT' => 30],
+        ['XML_ID' => '210x297', 'VALUE' => 'A4 210×297мм', 'SORT' => 40],
+        ['XML_ID' => '297x420', 'VALUE' => 'A3 297×420мм', 'SORT' => 50],
+        ['XML_ID' => '420x594', 'VALUE' => 'A2 420×594мм', 'SORT' => 60],
+        ['XML_ID' => '594x841', 'VALUE' => 'A1 594×841мм', 'SORT' => 70],
+        ['XML_ID' => '841x1188', 'VALUE' => 'A0 841×1188мм', 'SORT' => 80],
+        ['XML_ID' => '90x50', 'VALUE' => '90×50мм', 'SORT' => 90],
+        ['XML_ID' => '85x55', 'VALUE' => '85×55мм', 'SORT' => 100],
+        ['XML_ID' => '210x99', 'VALUE' => 'Евро 210×99мм', 'SORT' => 110],
+        ['XML_ID' => '210x210', 'VALUE' => '210×210мм', 'SORT' => 120],
+    ];
+
+    $colorSchemeEnum = [
+        ['XML_ID' => '4+0', 'VALUE' => '4+0', 'SORT' => 100],
+        ['XML_ID' => '4+4', 'VALUE' => '4+4', 'SORT' => 200],
+        ['XML_ID' => '4+1', 'VALUE' => '4+1', 'SORT' => 300],
+        ['XML_ID' => '1+0', 'VALUE' => '1+0', 'SORT' => 400],
+        ['XML_ID' => '1+1', 'VALUE' => '1+1', 'SORT' => 500],
+    ];
+
+    ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_VOLUME', 'Тираж', $volumeEnum);
+    ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_FORMAT', 'Формат', $formatEnum);
+    ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_COLOR_SCHEME', 'Красочность', $colorSchemeEnum);
+}
+
 // Создание единиц измерения
 function createMeasuresWithLog(): bool
 {
@@ -1334,6 +1451,8 @@ switch ($currentStep) {
                 $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = "Свойство {$parametrValuesProperty['CODE']}: {$error}";
             }
         }
+
+        ensureSkuCalculatorProperties((int)($installData['sku_iblock_id'] ?? 0));
         
         // Импорт данных из snapshot (если файл загружен)
         $snapshotPath = (string)($installData['import_snapshot_path'] ?? '');
