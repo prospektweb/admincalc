@@ -635,6 +635,10 @@ class SnapshotManager
                     continue;
                 }
 
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['INPUTS', 'OUTPUTS'], true)) {
+                    $value = $this->remapStageReferencesInString($value, $elementIdMapsByCode['CALC_STAGES'] ?? []);
+                }
+
                 if ($propertyType === 'F' && is_array($value)) {
                     $src = (string)($value['SRC'] ?? '');
                     if ($src !== '') {
@@ -690,6 +694,10 @@ class SnapshotManager
                 }
 
                 $description = (string)($entry['description'] ?? '');
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['INPUTS', 'OUTPUTS'], true)) {
+                    $description = $this->remapStageReferencesInString($description, $elementIdMapsByCode['CALC_STAGES'] ?? []);
+                }
+
                 $values[] = $description !== '' ? ['VALUE' => $value, 'DESCRIPTION' => $description] : $value;
             }
 
@@ -890,6 +898,23 @@ class SnapshotManager
         $value = mb_strtolower($value);
 
         return trim($value);
+    }
+
+
+    private function remapStageReferencesInString($raw, array $stageIdMap)
+    {
+        if (!is_string($raw) || $raw === '' || empty($stageIdMap)) {
+            return $raw;
+        }
+
+        return preg_replace_callback('/stage_(\d+)/u', static function (array $matches) use ($stageIdMap) {
+            $oldId = (int)($matches[1] ?? 0);
+            if ($oldId > 0 && isset($stageIdMap[$oldId])) {
+                return 'stage_' . (int)$stageIdMap[$oldId];
+            }
+
+            return $matches[0];
+        }, $raw) ?? $raw;
     }
 
     private function importCatalogData(int $elementId, array $elementData, array &$errors): void
