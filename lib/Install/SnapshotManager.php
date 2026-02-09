@@ -64,8 +64,12 @@ class SnapshotManager
                 $targetIblockIdToCode[$targetId] = (string)$code;
             }
         }
-        $elementIdMapsByCode = [];
 
+        $elementIdMapsByCode = [];
+        $resolvedElementsByCode = [];
+        $targetIblockIdsByCode = [];
+
+        // pass 1: sections + elements only (without properties)
         foreach ($data['iblocks'] as $iblockData) {
             $srcCode = (string)($iblockData['iblock']['fields']['CODE'] ?? '');
             if ($srcCode === '') {
@@ -79,16 +83,33 @@ class SnapshotManager
             }
 
             $sectionMap = $this->importSections($targetIblockId, $iblockData['sections'] ?? [], $created, $errors);
-            $this->importElements(
+            $resolvedElementsByCode[$srcCode] = $this->importElements(
                 $targetIblockId,
                 $srcCode,
                 $iblockData['elements'] ?? [],
                 $sectionMap,
                 $created,
                 $errors,
+                $elementIdMapsByCode
+            );
+            $targetIblockIdsByCode[$srcCode] = $targetIblockId;
+        }
+
+        // pass 2: properties + catalog data after all mappings are known
+        foreach ($resolvedElementsByCode as $srcCode => $resolvedElements) {
+            $targetIblockId = (int)($targetIblockIdsByCode[$srcCode] ?? 0);
+            if ($targetIblockId <= 0) {
+                continue;
+            }
+
+            $this->applyElementDataToResolvedElements(
+                $targetIblockId,
+                (string)$srcCode,
+                (array)$resolvedElements,
                 $sourceElementsIndex,
                 $elementIdMapsByCode,
-                $targetIblockIdToCode
+                $targetIblockIdToCode,
+                $errors
             );
         }
 
@@ -110,6 +131,7 @@ class SnapshotManager
             'CALC_EQUIPMENT',
             'CALC_DETAILS',
             'CALC_PRESETS',
+            'CALC_CUSTOM_FIELDS',
         ];
 
         $targetIblockIds = [];
@@ -367,12 +389,9 @@ class SnapshotManager
         array $sectionMap,
         array &$created,
         array &$errors,
-        array $sourceElementsIndex,
-        array &$elementIdMapsByCode,
-        array $targetIblockIdToCode
-    ): void
+        array &$elementIdMapsByCode
+    ): array
     {
-        $catalogLoaded = Loader::includeModule('catalog');
         $elementApi = new \CIBlockElement();
         $currentIblockMap = $elementIdMapsByCode[$sourceIblockCode] ?? [];
         $resolvedElements = [];
@@ -452,9 +471,28 @@ class SnapshotManager
 
         $elementIdMapsByCode[$sourceIblockCode] = $currentIblockMap;
 
+        return $resolvedElements;
+    }
+
+    private function applyElementDataToResolvedElements(
+        int $iblockId,
+        string $sourceIblockCode,
+        array $resolvedElements,
+        array $sourceElementsIndex,
+        array $elementIdMapsByCode,
+        array $targetIblockIdToCode,
+        array &$errors
+    ): void
+    {
+        $catalogLoaded = Loader::includeModule('catalog');
+
         foreach ($resolvedElements as $resolvedElement) {
-            $elementId = (int)$resolvedElement['id'];
-            $elementData = (array)$resolvedElement['data'];
+            $elementId = (int)($resolvedElement['id'] ?? 0);
+            if ($elementId <= 0) {
+                continue;
+            }
+
+            $elementData = (array)($resolvedElement['data'] ?? []);
 
             $propertyValues = $this->preparePropertyValues(
                 $iblockId,
