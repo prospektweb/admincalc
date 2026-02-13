@@ -1433,8 +1433,9 @@ switch ($currentStep) {
                     ];
                     
                     $fieldsCreated = 0;
+                    $userTypeEntity = new \CUserTypeEntity();
                     foreach ($fields as $fieldCode => $fieldData) {
-                        $ufId = \CUserTypeEntity::Add($fieldData);
+                        $ufId = $userTypeEntity->Add($fieldData);
                         if ($ufId) {
                             $fieldsCreated++;
                         }
