@@ -306,7 +306,6 @@ $tabControl->Begin();
     $iblockCodes = [
         'CALC_PRESETS' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_PRESETS'),
         'CALC_STAGES' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_CALC_STAGES'),
-        'CALC_STAGES_VARIANTS' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_CALC_STAGES_VARIANTS'),
         'CALC_SETTINGS' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_CALC_SETTINGS'),
         'CALC_MATERIALS' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_MATERIALS'),
         'CALC_MATERIALS_VARIANTS' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_MATERIALS_VARIANTS'),
@@ -314,7 +313,6 @@ $tabControl->Begin();
         'CALC_OPERATIONS_VARIANTS' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_OPERATIONS_VARIANTS'),
         'CALC_EQUIPMENT' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_EQUIPMENT'),
         'CALC_DETAILS' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_DETAILS'),
-        'CALC_DETAILS_VARIANTS' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_DETAILS_VARIANTS'),
     ];
 
     foreach ($iblockCodes as $code => $label):
