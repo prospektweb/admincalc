@@ -134,9 +134,7 @@ class CalculationHistoryHandler
             
             try {
                 // Проверяем количество существующих записей
-                $existingCount = $entityClass::getCount([
-                    'UF_OFFER_ID' => $offerId,
-                ]);
+                $existingCount = $entityClass::getCount(['UF_OFFER_ID' => $offerId]);
                 
                 // Если количество >= лимита, удаляем самую старую
                 if ($existingCount >= $historyLimit) {
@@ -153,7 +151,7 @@ class CalculationHistoryHandler
                 }
                 
                 // Добавляем новую запись
-                $historyXmlId = $this->supportsXmlId ? $this->buildHistoryXmlId($offerId) : null;
+                $historyXmlId = $this->supportsXmlId ? $this->buildHistoryXmlId($offerId, $offerData) : null;
                 $addData = [
                     'UF_DATETIME' => new \Bitrix\Main\Type\DateTime(),
                     'UF_USER_ID' => $userId,
@@ -247,9 +245,23 @@ class CalculationHistoryHandler
         return $offers;
     }
 
-    private function buildHistoryXmlId(int $offerId): string
+    private function buildHistoryXmlId(int $offerId, array $offerData): string
     {
-        return sprintf('calc_%d_%s', $offerId, bin2hex(random_bytes(6)));
+        $jsonData = $offerData['json'] ?? [];
+
+        if (is_string($jsonData)) {
+            $decoded = json_decode($jsonData, true);
+            $jsonData = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($jsonData)) {
+            $jsonData = [];
+        }
+
+        $presetId = (int)($jsonData['presetId'] ?? $offerData['presetId'] ?? 0);
+        $timestamp = (string)($jsonData['timestamp'] ?? $offerData['timestamp'] ?? time());
+
+        return sprintf('%d_%d_%s', $offerId, $presetId, preg_replace('/[^0-9]/', '', $timestamp) ?: (string)time());
     }
 
     /**
