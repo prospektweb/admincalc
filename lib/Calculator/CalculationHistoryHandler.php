@@ -116,9 +116,21 @@ class CalculationHistoryHandler
             }
 
             $json = $validation['json'];
+            $sanitizedJson = $this->sanitizeHistoryPayload($json);
+            if (empty($sanitizedJson)) {
+                $message = 'Не удалось подготовить расчётный snapshot для сохранения';
+                $this->logOfferRejection($offerId, $message, $offerData);
+                $results[] = [
+                    'offerId' => $offerId,
+                    'historyId' => null,
+                    'status' => 'error',
+                    'message' => $message,
+                ];
+                continue;
+            }
             
             // Конвертируем в JSON-строку, если передан массив
-            $jsonString = is_string($json) ? $json : json_encode($json, JSON_UNESCAPED_UNICODE);
+            $jsonString = json_encode($sanitizedJson, JSON_UNESCAPED_UNICODE);
 
             if (!is_string($jsonString) || $jsonString === '') {
                 $message = 'Не удалось подготовить расчётные данные для сохранения';
@@ -262,6 +274,152 @@ class CalculationHistoryHandler
         $timestamp = (string)($jsonData['timestamp'] ?? $offerData['timestamp'] ?? time());
 
         return sprintf('%d_%d_%s', $offerId, $presetId, preg_replace('/[^0-9]/', '', $timestamp) ?: (string)time());
+    }
+
+    private function sanitizeHistoryPayload($json)
+    {
+        if (is_string($json)) {
+            $decoded = json_decode($json, true);
+            $json = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($json)) {
+            return [];
+        }
+
+        $payload = [
+            'offerId' => (int)($json['offerId'] ?? 0),
+            'presetId' => (int)($json['presetId'] ?? 0),
+            'timestamp' => (int)($json['timestamp'] ?? time()),
+            'currency' => (string)($json['currency'] ?? ''),
+            'directPurchasePrice' => (float)($json['directPurchasePrice'] ?? 0),
+            'purchasePrice' => (float)($json['purchasePrice'] ?? 0),
+            'priceRangesWithMarkup' => $this->sanitizePriceRanges($json['priceRangesWithMarkup'] ?? []),
+            'details' => $this->sanitizeDetails($json['details'] ?? []),
+        ];
+
+        if (!empty($json['parametrValues']) && is_array($json['parametrValues'])) {
+            $payload['parametrValues'] = array_values(array_filter(array_map(static function ($item) {
+                if (!is_array($item)) {
+                    return null;
+                }
+
+                return [
+                    'name' => (string)($item['name'] ?? ''),
+                    'value' => (string)($item['value'] ?? ''),
+                ];
+            }, $json['parametrValues'])));
+        }
+
+        return $payload;
+    }
+
+    private function sanitizeDetails($details): array
+    {
+        if (!is_array($details)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($details as $detail) {
+            if (!is_array($detail)) {
+                continue;
+            }
+
+            $item = [
+                'detailId' => (string)($detail['detailId'] ?? ''),
+                'detailType' => (string)($detail['detailType'] ?? ''),
+                'purchasePrice' => (float)($detail['purchasePrice'] ?? 0),
+                'basePrice' => (float)($detail['basePrice'] ?? 0),
+                'currency' => (string)($detail['currency'] ?? ''),
+                'stages' => $this->sanitizeStages($detail['stages'] ?? []),
+            ];
+
+            foreach (['width', 'length', 'height', 'weight'] as $key) {
+                if (isset($detail[$key])) {
+                    $item[$key] = (float)$detail[$key];
+                }
+            }
+
+            if (!empty($detail['children']) && is_array($detail['children'])) {
+                $item['children'] = $this->sanitizeDetails($detail['children']);
+            }
+
+            $result[] = $item;
+        }
+
+        return $result;
+    }
+
+    private function sanitizeStages($stages): array
+    {
+        if (!is_array($stages)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($stages as $stage) {
+            if (!is_array($stage)) {
+                continue;
+            }
+
+            $item = [
+                'stageId' => (string)($stage['stageId'] ?? ''),
+                'operationCost' => (float)($stage['operationCost'] ?? 0),
+                'materialCost' => (float)($stage['materialCost'] ?? 0),
+                'totalCost' => (float)($stage['totalCost'] ?? 0),
+                'currency' => (string)($stage['currency'] ?? ''),
+            ];
+
+            if (!empty($stage['outputs']) && is_array($stage['outputs'])) {
+                $item['outputs'] = $stage['outputs'];
+            }
+
+            $result[] = $item;
+        }
+
+        return $result;
+    }
+
+    private function sanitizePriceRanges($ranges): array
+    {
+        if (!is_array($ranges)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($ranges as $range) {
+            if (!is_array($range)) {
+                continue;
+            }
+
+            $prices = [];
+            if (!empty($range['prices']) && is_array($range['prices'])) {
+                foreach ($range['prices'] as $price) {
+                    if (!is_array($price)) {
+                        continue;
+                    }
+
+                    $prices[] = [
+                        'typeId' => (int)($price['typeId'] ?? 0),
+                        'purchasePrice' => (float)($price['purchasePrice'] ?? 0),
+                        'basePrice' => (float)($price['basePrice'] ?? 0),
+                        'currency' => (string)($price['currency'] ?? ''),
+                    ];
+                }
+            }
+
+            $result[] = [
+                'quantityFrom' => $range['quantityFrom'] ?? null,
+                'quantityTo' => $range['quantityTo'] ?? null,
+                'prices' => $prices,
+            ];
+        }
+
+        return $result;
     }
 
     /**
