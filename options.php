@@ -8,6 +8,7 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_ad
 use Bitrix\Main\Loader;
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\Config\Option;
+use Bitrix\Highloadblock\HighloadBlockTable;
 
 Loc::loadMessages(__FILE__);
 
@@ -29,8 +30,104 @@ if (!$USER->IsAdmin()) {
     $APPLICATION->AuthForm(Loc::getMessage('ACCESS_DENIED'));
 }
 
+
 $settingsManager = new SettingsManager();
 $configManager = new ConfigManager();
+
+/**
+ * Возвращает DataClass для HL истории расчётов.
+ */
+function getHistoryEntityClass(string $moduleId)
+{
+    if (!Loader::includeModule('highloadblock')) {
+        return null;
+    }
+
+    $hlblockId = (int)Option::get($moduleId, 'HIGHLOAD_CALC_HISTORY_ID', 0);
+    if ($hlblockId <= 0) {
+        return null;
+    }
+
+    $hlblock = HighloadBlockTable::getById($hlblockId)->fetch();
+    if (!$hlblock) {
+        return null;
+    }
+
+    $entity = HighloadBlockTable::compileEntity($hlblock);
+    return $entity->getDataClass();
+}
+
+/**
+ * Очищает историю расчётов.
+ */
+function cleanupCalculationHistory(string $moduleId, string $mode, ConfigManager $configManager): array
+{
+    $entityClass = getHistoryEntityClass($moduleId);
+    if ($entityClass === null) {
+        return ['deleted' => 0, 'checked' => 0, 'message' => 'HighloadBlock истории не найден'];
+    }
+
+    if ($mode === 'all') {
+        $deleted = 0;
+        $rows = $entityClass::getList(['select' => ['ID']]);
+        while ($row = $rows->fetch()) {
+            $entityClass::delete((int)$row['ID']);
+            $deleted++;
+        }
+
+        $skuIblockId = $configManager->getSkuIblockId();
+        if ($skuIblockId > 0 && Loader::includeModule('iblock')) {
+            $offers = \CIBlockElement::GetList([], ['IBLOCK_ID' => $skuIblockId], false, false, ['ID']);
+            while ($offer = $offers->Fetch()) {
+                \CIBlockElement::SetPropertyValuesEx((int)$offer['ID'], $skuIblockId, ['COMPLETED_CALCS' => []]);
+            }
+        }
+
+        return ['deleted' => $deleted, 'checked' => $deleted, 'message' => 'История полностью очищена'];
+    }
+
+    $skuIblockId = $configManager->getSkuIblockId();
+    if ($skuIblockId <= 0 || !Loader::includeModule('iblock')) {
+        return ['deleted' => 0, 'checked' => 0, 'message' => 'Не найден инфоблок ТП для проверки сирот'];
+    }
+
+    $offerIds = [];
+    $rows = $entityClass::getList(['select' => ['ID', 'UF_OFFER_ID']]);
+    $historyRows = [];
+    while ($row = $rows->fetch()) {
+        $historyRows[] = ['ID' => (int)$row['ID'], 'UF_OFFER_ID' => (int)$row['UF_OFFER_ID']];
+        if ((int)$row['UF_OFFER_ID'] > 0) {
+            $offerIds[(int)$row['UF_OFFER_ID']] = true;
+        }
+    }
+
+    if (empty($historyRows)) {
+        return ['deleted' => 0, 'checked' => 0, 'message' => 'История уже пуста'];
+    }
+
+    $existingOffers = [];
+    if (!empty($offerIds)) {
+        $offerFilter = ['IBLOCK_ID' => $skuIblockId, 'ID' => array_keys($offerIds)];
+        $offerRs = \CIBlockElement::GetList([], $offerFilter, false, false, ['ID']);
+        while ($offer = $offerRs->Fetch()) {
+            $existingOffers[(int)$offer['ID']] = true;
+        }
+    }
+
+    $deleted = 0;
+    foreach ($historyRows as $row) {
+        if (!isset($existingOffers[$row['UF_OFFER_ID']])) {
+            $entityClass::delete($row['ID']);
+            $deleted++;
+        }
+    }
+
+    return [
+        'deleted' => $deleted,
+        'checked' => count($historyRows),
+        'message' => 'Удалены записи истории для удалённых ТП',
+    ];
+}
 
 // Экспорт snapshot текущих данных
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_POST['EXPORT_SNAPSHOT'])) {
@@ -51,6 +148,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_PO
         die();
     } catch (\Throwable $e) {
         ShowError('Ошибка экспорта snapshot: ' . $e->getMessage());
+    }
+}
+
+// Сервисная очистка истории
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_POST['CLEANUP_HISTORY_ACTION'])) {
+    $cleanupAction = (string)$_POST['CLEANUP_HISTORY_ACTION'];
+    $allowedActions = ['orphans', 'all'];
+
+    if (in_array($cleanupAction, $allowedActions, true)) {
+        $cleanupResult = cleanupCalculationHistory($module_id, $cleanupAction, $configManager);
+        $query = [
+            'mid' => $module_id,
+            'lang' => LANGUAGE_ID,
+            'cleanup' => 'Y',
+            'cleanupAction' => $cleanupAction,
+            'deleted' => (int)$cleanupResult['deleted'],
+            'checked' => (int)$cleanupResult['checked'],
+            'cleanupMessage' => urlencode((string)$cleanupResult['message']),
+        ];
+        LocalRedirect($APPLICATION->GetCurPage() . '?' . http_build_query($query));
     }
 }
 
@@ -132,10 +249,30 @@ if ($skuIblockId > 0 && Loader::includeModule('iblock')) {
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';
 
 // Вывод сообщения об успешном сохранении
-if ($_GET['saved'] === 'Y') {
+if (($_GET['saved'] ?? '') === 'Y') {
     CAdminMessage::ShowMessage([
         'MESSAGE' => Loc::getMessage('PROSPEKTWEB_CALC_SETTINGS_SAVED'),
         'TYPE' => 'OK',
+    ]);
+}
+
+if (($_GET['cleanup'] ?? '') === 'Y') {
+    $cleanupAction = (string)($_GET['cleanupAction'] ?? 'orphans');
+    $deleted = (int)($_GET['deleted'] ?? 0);
+    $checked = (int)($_GET['checked'] ?? 0);
+    $cleanupMessage = urldecode((string)($_GET['cleanupMessage'] ?? ''));
+
+    CAdminMessage::ShowMessage([
+        'MESSAGE' => Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_CLEANUP_DONE'),
+        'DETAILS' => sprintf(
+            Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_CLEANUP_DETAILS') ?: '',
+            $cleanupAction,
+            $checked,
+            $deleted,
+            htmlspecialcharsbx($cleanupMessage)
+        ),
+        'TYPE' => 'OK',
+        'HTML' => true,
     ]);
 }
 
@@ -241,6 +378,28 @@ $tabControl->Begin();
                 </option>
             </select>
             <br><span style="color: #777; font-size: 11px;">Валюта наценки по умолчанию</span>
+        </td>
+    </tr>
+
+    <tr class="heading">
+        <td colspan="2"><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_TITLE') ?></td>
+    </tr>
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_ORPHANS') ?></td>
+        <td>
+            <button type="submit" class="adm-btn" name="CLEANUP_HISTORY_ACTION" value="orphans" onclick="return confirm('<?= CUtil::JSEscape(Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_ORPHANS_CONFIRM')) ?>');">
+                <?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_ORPHANS_BTN') ?>
+            </button>
+            <div style="color:#777;font-size:11px;margin-top:6px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_ORPHANS_HINT') ?></div>
+        </td>
+    </tr>
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_ALL') ?></td>
+        <td>
+            <button type="submit" class="adm-btn adm-btn-red" name="CLEANUP_HISTORY_ACTION" value="all" onclick="return confirm('<?= CUtil::JSEscape(Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_ALL_CONFIRM')) ?>');">
+                <?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_ALL_BTN') ?>
+            </button>
+            <div style="color:#777;font-size:11px;margin-top:6px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_ALL_HINT') ?></div>
         </td>
     </tr>
 
