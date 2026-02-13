@@ -186,6 +186,137 @@ class AdminHandler
 		<script src="' . \CUtil::GetAdditionalFileURL($jsPath) . '"></script>';
 		
 		Asset::getInstance()->addString($inlineJs, false, AssetLocation::AFTER_JS);
+		
+		// Настройка вкладки "Анализ" для инфоблока ТП
+		self::configureAnalysisTab();
+	}
+
+	/**
+	 * Настройка вкладки "Анализ" в карточке ТП через inline JS
+	 */
+	private static function configureAnalysisTab(): void
+	{
+		if (!Loader::includeModule('prospektweb.calc')) {
+			return;
+		}
+		
+		global $USER;
+		$configManager = new \Prospektweb\Calc\Config\ConfigManager();
+		$skuIblockId = $configManager->getSkuIblockId();
+		
+		if ($skuIblockId <= 0) {
+			return;
+		}
+		
+		$userId = $USER ? (int)$USER->GetID() : 0;
+		if ($userId <= 0) {
+			return;
+		}
+		
+		// Проверяем, что мы на странице редактирования элемента нужного инфоблока
+		$iblockId = (int)($_REQUEST['IBLOCK_ID'] ?? $_REQUEST['iblock_id'] ?? 0);
+		
+		if ($iblockId !== $skuIblockId) {
+			return;
+		}
+		
+		// Добавляем inline JS для программной настройки вкладки "Анализ"
+		$inlineJs = '<script>
+		BX.ready(function() {
+			// Функция для настройки вкладки "Анализ"
+			function setupAnalysisTab() {
+				// Ищем форму редактирования элемента
+				var form = document.querySelector(\'form[name="form_element_' . $skuIblockId . '"]\');
+				if (!form) {
+					// Возможно, форма ещё не загружена, попробуем позже
+					setTimeout(setupAnalysisTab, 500);
+					return;
+				}
+				
+				// Проверяем, существует ли уже вкладка "Анализ"
+				var existingTab = null;
+				var tabControl = document.querySelector(\'.adm-detail-tab-list\');
+				if (tabControl) {
+					var tabs = tabControl.querySelectorAll(\'.adm-detail-tab\');
+					for (var i = 0; i < tabs.length; i++) {
+						if (tabs[i].textContent.indexOf(\'Анализ\') !== -1) {
+							existingTab = tabs[i];
+							break;
+						}
+					}
+				}
+				
+				// Если вкладка уже есть, ничего не делаем
+				if (existingTab) {
+					return;
+				}
+				
+				// Ищем свойство COMPLETED_CALCS
+				var completedCalcsRow = null;
+				var allRows = form.querySelectorAll(\'tr[id^="tr_PROPERTY_"]\');
+				for (var i = 0; i < allRows.length; i++) {
+					if (allRows[i].id.indexOf(\'COMPLETED_CALCS\') !== -1) {
+						completedCalcsRow = allRows[i];
+						break;
+					}
+				}
+				
+				if (!completedCalcsRow) {
+					// Свойство не найдено, возможно ещё не создано
+					return;
+				}
+				
+				// Создаём вкладку "Анализ" программно через добавление в DOM
+				if (tabControl) {
+					var newTab = document.createElement(\'span\');
+					newTab.className = \'adm-detail-tab\';
+					newTab.setAttribute(\'data-tab-id\', \'tab_analysis\');
+					newTab.innerHTML = \'Анализ\';
+					
+					// Добавляем вкладку в конец списка
+					tabControl.appendChild(newTab);
+					
+					// Создаём контейнер для содержимого вкладки
+					var tabContent = document.createElement(\'div\');
+					tabContent.id = \'tab_analysis_content\';
+					tabContent.className = \'adm-detail-content\';
+					tabContent.style.display = \'none\';
+					
+					// Переносим свойство COMPLETED_CALCS в новую вкладку
+					tabContent.appendChild(completedCalcsRow);
+					
+					// Находим место для вставки контента вкладки
+					var tabsContainer = form.querySelector(\'.adm-detail-tabs-block\');
+					if (tabsContainer) {
+						tabsContainer.appendChild(tabContent);
+					}
+					
+					// Добавляем обработчик клика для переключения вкладок
+					newTab.addEventListener(\'click\', function() {
+						// Скрываем все вкладки
+						var allTabs = tabControl.querySelectorAll(\'.adm-detail-tab\');
+						var allContents = form.querySelectorAll(\'.adm-detail-content\');
+						
+						for (var i = 0; i < allTabs.length; i++) {
+							allTabs[i].classList.remove(\'adm-detail-tab-active\');
+						}
+						for (var i = 0; i < allContents.length; i++) {
+							allContents[i].style.display = \'none\';
+						}
+						
+						// Показываем выбранную вкладку
+						newTab.classList.add(\'adm-detail-tab-active\');
+						tabContent.style.display = \'block\';
+					});
+				}
+			}
+			
+			// Запускаем настройку вкладки
+			setupAnalysisTab();
+		});
+		</script>';
+		
+		Asset::getInstance()->addString($inlineJs, false, AssetLocation::AFTER_JS);
 	}
 
     /**
