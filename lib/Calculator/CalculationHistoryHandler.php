@@ -17,6 +17,8 @@ class CalculationHistoryHandler
     private const LOG_FILE = '/local/logs/prospektweb.calc.calculation_history.log';
     
     private ConfigManager $configManager;
+    private bool $supportsXmlId = false;
+    private bool $supportsName = false;
     
     public function __construct()
     {
@@ -80,6 +82,9 @@ class CalculationHistoryHandler
         
         $entity = HighloadBlockTable::compileEntity($hlblock);
         $entityClass = $entity->getDataClass();
+        $fields = $entity->getFields();
+        $this->supportsXmlId = isset($fields['UF_XML_ID']);
+        $this->supportsName = isset($fields['UF_NAME']);
         
         // Получаем лимит истории
         $historyLimit = (int)Option::get(self::MODULE_ID, 'CALC_HISTORY_LIMIT', 10);
@@ -129,9 +134,7 @@ class CalculationHistoryHandler
             
             try {
                 // Проверяем количество существующих записей
-                $existingCount = $entityClass::getCount([
-                    'filter' => ['UF_OFFER_ID' => $offerId],
-                ]);
+                $existingCount = $entityClass::getCount(['UF_OFFER_ID' => $offerId]);
                 
                 // Если количество >= лимита, удаляем самую старую
                 if ($existingCount >= $historyLimit) {
@@ -148,22 +151,34 @@ class CalculationHistoryHandler
                 }
                 
                 // Добавляем новую запись
-                $addResult = $entityClass::add([
+                $historyXmlId = $this->supportsXmlId ? $this->buildHistoryXmlId($offerId, $offerData) : null;
+                $addData = [
                     'UF_DATETIME' => new \Bitrix\Main\Type\DateTime(),
                     'UF_USER_ID' => $userId,
                     'UF_OFFER_ID' => $offerId,
                     'UF_JSON' => $jsonString,
-                ]);
+                ];
+
+                if ($this->supportsXmlId && $historyXmlId !== null) {
+                    $addData['UF_XML_ID'] = $historyXmlId;
+                }
+
+                if ($this->supportsName) {
+                    $addData['UF_NAME'] = 'Расчёт ТП #' . $offerId;
+                }
+
+                $addResult = $entityClass::add($addData);
                 
                 if ($addResult->isSuccess()) {
                     $historyId = $addResult->getId();
                     
                     // Обновляем свойство COMPLETED_CALCS в инфоблоке ТП
-                    $this->updateCompletedCalcs($offerId, $historyId, $skuIblockId);
+                    $this->updateCompletedCalcs($offerId, $historyId, $historyXmlId, $skuIblockId);
                     
                     $results[] = [
                         'offerId' => $offerId,
                         'historyId' => $historyId,
+                        'historyXmlId' => $historyXmlId,
                         'status' => 'ok',
                     ];
                     $savedCount++;
@@ -210,9 +225,15 @@ class CalculationHistoryHandler
         }
 
         $offers = [];
+        $timestamp = $payload['timestamp'] ?? null;
+
         foreach ($payload['results'] as $item) {
             if (!is_array($item)) {
                 continue;
+            }
+
+            if ($timestamp !== null && !array_key_exists('timestamp', $item)) {
+                $item['timestamp'] = $timestamp;
             }
 
             $offers[] = [
@@ -222,6 +243,25 @@ class CalculationHistoryHandler
         }
 
         return $offers;
+    }
+
+    private function buildHistoryXmlId(int $offerId, array $offerData): string
+    {
+        $jsonData = $offerData['json'] ?? [];
+
+        if (is_string($jsonData)) {
+            $decoded = json_decode($jsonData, true);
+            $jsonData = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($jsonData)) {
+            $jsonData = [];
+        }
+
+        $presetId = (int)($jsonData['presetId'] ?? $offerData['presetId'] ?? 0);
+        $timestamp = (string)($jsonData['timestamp'] ?? $offerData['timestamp'] ?? time());
+
+        return sprintf('%d_%d_%s', $offerId, $presetId, preg_replace('/[^0-9]/', '', $timestamp) ?: (string)time());
     }
 
     /**
@@ -284,8 +324,10 @@ class CalculationHistoryHandler
      * @param int $historyId ID записи истории
      * @param int $skuIblockId ID инфоблока ТП
      */
-    private function updateCompletedCalcs(int $offerId, int $historyId, int $skuIblockId): void
+    private function updateCompletedCalcs(int $offerId, int $historyId, ?string $historyXmlId, int $skuIblockId): void
     {
+        $linkValue = $historyXmlId ?: (string)$historyId;
+
         // Получаем текущие значения свойства напрямую
         $existingValues = [];
         
@@ -301,9 +343,11 @@ class CalculationHistoryHandler
                 $existingValues[] = $property['VALUE'];
             }
         }
-        
-        // Добавляем новый ID
-        $existingValues[] = $historyId;
+
+        // Добавляем новую ссылку (UF_XML_ID для directory, fallback на ID)
+        if (!in_array($linkValue, $existingValues, true)) {
+            $existingValues[] = $linkValue;
+        }
         
         // Обновляем свойство
         \CIBlockElement::SetPropertyValuesEx($offerId, $skuIblockId, [
