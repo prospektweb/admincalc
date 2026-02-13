@@ -2696,77 +2696,161 @@
 
         async handleSaveCalculationRequest(message, origin) {
             const payload = message.payload || {};
-            const results = Array.isArray(payload.results) ? payload.results : [];
-            const total = results.length;
+            const offers = this.normalizeSaveCalculationOffers(payload);
+            const total = offers.length;
 
             this.sendProcessMessage(
                 'info',
-                'Обновление торговых предложений запущено',
+                'Сохранение расчётов запущено',
                 { step: 'start', total: total },
                 message.requestId,
                 origin
             );
 
+            this.sendPwrtMessage('SAVE_CALCULATION_PROGRESS', {
+                step: 'start',
+                total: total,
+                processed: 0,
+                success: 0,
+                failed: 0,
+                percent: 0,
+            }, message.requestId, origin);
+
             if (total === 0) {
                 this.sendProcessMessage(
                     'warning',
-                    'Нет данных для обновления торговых предложений',
+                    'Нет данных для сохранения расчётов',
                     { step: 'skipped', total: 0 },
                     message.requestId,
                     origin
                 );
+
+                this.sendPwrtMessage('SAVE_CALCULATION_RESPONSE', {
+                    status: 'error',
+                    message: 'Некорректный payload: offers должен быть непустым массивом',
+                    results: [],
+                    total: 0,
+                    saved: 0,
+                }, message.requestId, origin);
                 return;
             }
 
+            const aggregateResults = [];
+            let savedCount = 0;
+
+            for (let index = 0; index < offers.length; index++) {
+                const offer = offers[index];
+                const progressResult = await this.saveCalculationForOffer(offer, message.requestId);
+                const itemResult = progressResult.itemResult;
+
+                aggregateResults.push(itemResult);
+                if (itemResult.status === 'ok') {
+                    savedCount++;
+                }
+
+                const processed = index + 1;
+                const failed = processed - savedCount;
+                const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+
+                this.sendPwrtMessage('SAVE_CALCULATION_PROGRESS', {
+                    step: 'item',
+                    total: total,
+                    processed: processed,
+                    success: savedCount,
+                    failed: failed,
+                    percent: percent,
+                    item: itemResult,
+                }, message.requestId, origin);
+            }
+
+            const failedCount = total - savedCount;
+            const finalStatus = failedCount === 0 ? 'ok' : (savedCount > 0 ? 'partial' : 'error');
+            const finalPayload = {
+                status: finalStatus,
+                results: aggregateResults,
+                total: total,
+                saved: savedCount,
+                failed: failedCount,
+            };
+
+            this.sendProcessMessage(
+                finalStatus === 'error' ? 'error' : 'success',
+                'Сохранение расчётов завершено',
+                {
+                    step: 'complete',
+                    total: total,
+                    saved: savedCount,
+                    failed: failedCount,
+                },
+                message.requestId,
+                origin
+            );
+
+            this.sendPwrtMessage('SAVE_CALCULATION_PROGRESS', {
+                step: 'complete',
+                total: total,
+                processed: total,
+                success: savedCount,
+                failed: failedCount,
+                percent: 100,
+            }, message.requestId, origin);
+
+            this.sendPwrtMessage('SAVE_CALCULATION_RESPONSE', finalPayload, message.requestId, origin);
+        }
+
+        normalizeSaveCalculationOffers(payload) {
+            if (Array.isArray(payload.offers)) {
+                return payload.offers;
+            }
+
+            if (!Array.isArray(payload.results)) {
+                return [];
+            }
+
+            return payload.results
+                .map((item) => {
+                    if (!item || typeof item !== 'object') {
+                        return null;
+                    }
+
+                    const offerId = Number(item.offerId || item.offerID || item.id || 0);
+                    const json = Object.prototype.hasOwnProperty.call(item, 'json') ? item.json : item;
+
+                    return {
+                        offerId: offerId,
+                        json: json,
+                    };
+                })
+                .filter((item) => item && item.offerId > 0);
+        }
+
+        async saveCalculationForOffer(offer, requestId) {
             try {
-                const response = await this.fetchRefreshData([
-                    {
-                        action: 'updateOffersFromCalculation',
-                        results: results,
-                    },
-                ]);
+                const response = await this.sendPwrtRequest('SAVE_CALCULATION_REQUEST', {
+                    offers: [offer],
+                }, requestId);
+                const responsePayload = response && response.payload ? response.payload : {};
+                const itemResult = Array.isArray(responsePayload.results) && responsePayload.results[0]
+                    ? responsePayload.results[0]
+                    : {
+                        offerId: Number(offer.offerId || 0),
+                        historyId: null,
+                        status: responsePayload.status || 'error',
+                        message: responsePayload.message || 'Пустой ответ сохранения расчёта',
+                    };
 
-                const updateResult = Array.isArray(response) ? (response[0] || {}) : {};
-                const updatedCount = updateResult.updated || 0;
-                const status = updateResult.status || 'ok';
-
-                this.sendProcessMessage(
-                    status === 'error' ? 'error' : 'success',
-                    'Обновление торговых предложений завершено',
-                    {
-                        step: 'complete',
-                        total: total,
-                        updated: updatedCount,
-                        errors: updateResult.errors || [],
-                        offers: updateResult.offers || [],
-                    },
-                    message.requestId,
-                    origin
-                );
-
-                this.sendPwrtMessage('SAVE_CALCULATION_RESPONSE', updateResult, message.requestId, origin);
+                return {
+                    itemResult: itemResult,
+                };
             } catch (error) {
-                this.sendProcessMessage(
-                    'error',
-                    'Ошибка обновления торговых предложений',
-                    {
-                        step: 'error',
-                        total: total,
-                        error: error && error.message ? error.message : 'Unknown error',
-                    },
-                    message.requestId,
-                    origin
-                );
-
-                this.sendPwrtMessage(
-                    'SAVE_CALCULATION_RESPONSE',
-                    {
+                return {
+                    itemResult: {
+                        offerId: Number(offer.offerId || 0),
+                        historyId: null,
                         status: 'error',
                         message: error && error.message ? error.message : 'Unknown error',
                     },
-                    message.requestId,
-                    origin
-                );
+                };
             }
         }
 
@@ -3169,6 +3253,44 @@
                 });
                 throw error;
             }
+        }
+
+        async sendPwrtRequest(type, payload, requestId) {
+            const message = {
+                protocol: MODULE_PROTOCOL,
+                version: '1.0.0',
+                source: MODULE_SOURCE,
+                target: MODULE_TARGET,
+                type: type,
+                requestId: requestId || ('pwrt-' + Date.now()),
+                timestamp: Date.now(),
+                payload: payload || {},
+            };
+
+            const endpointUrl = this.config.ajaxEndpoint + (this.config.ajaxEndpoint.indexOf('?') >= 0 ? '&' : '?')
+                + 'sessid=' + encodeURIComponent(this.config.sessid || '');
+
+            const response = await fetch(endpointUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify(message),
+            });
+
+            if (!response.ok) {
+                throw new Error('HTTP error ' + response.status);
+            }
+
+            const data = await response.json();
+
+            if (data && data.type === 'ERROR') {
+                const errorPayload = data.payload || {};
+                throw new Error(errorPayload.message || errorPayload.error || 'Ошибка pwrt-запроса');
+            }
+
+            return data;
         }
 
         /**
