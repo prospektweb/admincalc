@@ -44,6 +44,21 @@ function getUninstallError(): string
     return $ex ? $ex->GetString() : 'Неизвестная ошибка';
 }
 
+/**
+ * Получение ID инфоблока по коду как fallback, если опция не заполнена.
+ */
+function resolveIblockIdByCode(string $code): int
+{
+    if (!Loader::includeModule('iblock')) {
+        return 0;
+    }
+
+    $rsIblock = \CIBlock::GetList([], ['=CODE' => $code]);
+    $arIblock = $rsIblock->Fetch();
+
+    return $arIblock ? (int)$arIblock['ID'] : 0;
+}
+
 // ============= НАЧАЛО ПРОЦЕССА УДАЛЕНИЯ =============
 
 uninstallLog(Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_START'), 'header');
@@ -78,6 +93,9 @@ if ($deleteData) {
         
         foreach ($iblockCodes as $code) {
             $iblockId = (int)Option::get($moduleId, 'IBLOCK_' . $code, 0);
+            if ($iblockId <= 0) {
+                $iblockId = resolveIblockIdByCode($code);
+            }
             if ($iblockId > 0) {
                 $iblockIds[$code] = $iblockId;
                 uninstallLog("  → {$code}: ID {$iblockId}", 'success');
@@ -180,6 +198,14 @@ if ($deleteData) {
         uninstallLog('Удаление HighloadBlock для истории расчётов...', 'header');
         
         $hlblockId = (int)Option::get($moduleId, 'HIGHLOAD_CALC_HISTORY_ID', 0);
+        if ($hlblockId <= 0) {
+            $existingHlblock = \Bitrix\Highloadblock\HighloadBlockTable::getList([
+                'filter' => ['=TABLE_NAME' => 'prospektcalc_offer_history'],
+                'select' => ['ID'],
+                'limit' => 1,
+            ])->fetch();
+            $hlblockId = (int)($existingHlblock['ID'] ?? 0);
+        }
         
         if ($hlblockId > 0) {
             try {

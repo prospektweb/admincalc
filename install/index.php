@@ -410,6 +410,7 @@ class prospektweb_calc extends CModule
         }
 
         $iblockCodes = [
+            'CALC_PRESETS',
             'CALC_STAGES',
             'CALC_SETTINGS',
             'CALC_MATERIALS',
@@ -418,6 +419,7 @@ class prospektweb_calc extends CModule
             'CALC_OPERATIONS_VARIANTS',
             'CALC_EQUIPMENT',
             'CALC_DETAILS',
+            'CALC_CUSTOM_FIELDS',
         ];
 
         foreach ($iblockCodes as $code) {
@@ -441,6 +443,30 @@ class prospektweb_calc extends CModule
     public function deleteOptions(): void
     {
         Option::delete($this->MODULE_ID);
+    }
+
+    /**
+     * Удаление HighloadBlock истории расчётов.
+     */
+    public function deleteHighloadBlocks(): void
+    {
+        if (!\Bitrix\Main\Loader::includeModule('highloadblock')) {
+            return;
+        }
+
+        $hlblockId = (int)Option::get($this->MODULE_ID, 'HIGHLOAD_CALC_HISTORY_ID', 0);
+        if ($hlblockId <= 0) {
+            $hlblock = \Bitrix\Highloadblock\HighloadBlockTable::getList([
+                'filter' => ['=TABLE_NAME' => 'prospektcalc_offer_history'],
+                'select' => ['ID'],
+                'limit' => 1,
+            ])->fetch();
+            $hlblockId = (int)($hlblock['ID'] ?? 0);
+        }
+
+        if ($hlblockId > 0) {
+            \Bitrix\Highloadblock\HighloadBlockTable::delete($hlblockId);
+        }
     }
 
     /**
