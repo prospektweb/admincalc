@@ -135,7 +135,7 @@ class CalculationHistoryHandler
             try {
                 // Проверяем количество существующих записей
                 $existingCount = $entityClass::getCount([
-                    'filter' => ['UF_OFFER_ID' => $offerId],
+                    'UF_OFFER_ID' => $offerId,
                 ]);
                 
                 // Если количество >= лимита, удаляем самую старую
