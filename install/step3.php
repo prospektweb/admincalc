@@ -89,6 +89,91 @@ function getCodeFieldSettings(): array
     ];
 }
 
+/**
+ * Гарантирует наличие обязательных пользовательских полей в HighloadBlock.
+ */
+function ensureHighloadUserFields(int $hlblockId): array
+{
+    $entityId = 'HLBLOCK_' . $hlblockId;
+    $userTypeEntity = new \CUserTypeEntity();
+
+    $fields = [
+        'UF_DATETIME' => [
+            'ENTITY_ID' => $entityId,
+            'FIELD_NAME' => 'UF_DATETIME',
+            'USER_TYPE_ID' => 'datetime',
+            'MANDATORY' => 'Y',
+            'EDIT_FORM_LABEL' => ['ru' => 'Дата и время расчёта'],
+            'LIST_COLUMN_LABEL' => ['ru' => 'Дата расчёта'],
+            'LIST_FILTER_LABEL' => ['ru' => 'Дата расчёта'],
+            'ERROR_MESSAGE' => ['ru' => ''],
+            'HELP_MESSAGE' => ['ru' => ''],
+        ],
+        'UF_USER_ID' => [
+            'ENTITY_ID' => $entityId,
+            'FIELD_NAME' => 'UF_USER_ID',
+            'USER_TYPE_ID' => 'integer',
+            'MANDATORY' => 'Y',
+            'EDIT_FORM_LABEL' => ['ru' => 'ID пользователя'],
+            'LIST_COLUMN_LABEL' => ['ru' => 'Пользователь'],
+            'LIST_FILTER_LABEL' => ['ru' => 'Пользователь'],
+            'ERROR_MESSAGE' => ['ru' => ''],
+            'HELP_MESSAGE' => ['ru' => ''],
+        ],
+        'UF_OFFER_ID' => [
+            'ENTITY_ID' => $entityId,
+            'FIELD_NAME' => 'UF_OFFER_ID',
+            'USER_TYPE_ID' => 'integer',
+            'MANDATORY' => 'Y',
+            'EDIT_FORM_LABEL' => ['ru' => 'ID торгового предложения'],
+            'LIST_COLUMN_LABEL' => ['ru' => 'ТП'],
+            'LIST_FILTER_LABEL' => ['ru' => 'ТП'],
+            'ERROR_MESSAGE' => ['ru' => ''],
+            'HELP_MESSAGE' => ['ru' => ''],
+        ],
+        'UF_JSON' => [
+            'ENTITY_ID' => $entityId,
+            'FIELD_NAME' => 'UF_JSON',
+            'USER_TYPE_ID' => 'string',
+            'MANDATORY' => 'Y',
+            'EDIT_FORM_LABEL' => ['ru' => 'JSON результата расчёта'],
+            'LIST_COLUMN_LABEL' => ['ru' => 'JSON'],
+            'LIST_FILTER_LABEL' => ['ru' => 'JSON'],
+            'ERROR_MESSAGE' => ['ru' => ''],
+            'HELP_MESSAGE' => ['ru' => ''],
+            'SETTINGS' => ['ROWS' => 5],
+        ],
+    ];
+
+    $result = ['created' => 0, 'updated' => 0, 'errors' => []];
+
+    foreach ($fields as $fieldCode => $fieldData) {
+        $existingField = \CUserTypeEntity::GetList([], [
+            'ENTITY_ID' => $entityId,
+            'FIELD_NAME' => $fieldCode,
+        ])->Fetch();
+
+        if ($existingField) {
+            $updateResult = $userTypeEntity->Update((int)$existingField['ID'], $fieldData);
+            if ($updateResult) {
+                $result['updated']++;
+            } else {
+                $result['errors'][] = "{$fieldCode}: " . getBitrixError();
+            }
+            continue;
+        }
+
+        $ufId = $userTypeEntity->Add($fieldData);
+        if ($ufId) {
+            $result['created']++;
+        } else {
+            $result['errors'][] = "{$fieldCode}: " . getBitrixError();
+        }
+    }
+
+    return $result;
+}
+
 // Создание типа инфоблоков
 function createIblockTypeWithLog(string $id, string $name): bool
 {
@@ -1381,68 +1466,6 @@ switch ($currentStep) {
                     
                     installLog("  → Создан HighloadBlock (ID: {$hlblockId}, TABLE: {$hlblockTableName})", 'success');
                     
-                    // Создаём пользовательские поля
-                    $entityId = 'HLBLOCK_' . $hlblockId;
-                    
-                    $fields = [
-                        'UF_DATETIME' => [
-                            'ENTITY_ID' => $entityId,
-                            'FIELD_NAME' => 'UF_DATETIME',
-                            'USER_TYPE_ID' => 'datetime',
-                            'MANDATORY' => 'Y',
-                            'EDIT_FORM_LABEL' => ['ru' => 'Дата и время расчёта'],
-                            'LIST_COLUMN_LABEL' => ['ru' => 'Дата расчёта'],
-                            'LIST_FILTER_LABEL' => ['ru' => 'Дата расчёта'],
-                            'ERROR_MESSAGE' => ['ru' => ''],
-                            'HELP_MESSAGE' => ['ru' => ''],
-                        ],
-                        'UF_USER_ID' => [
-                            'ENTITY_ID' => $entityId,
-                            'FIELD_NAME' => 'UF_USER_ID',
-                            'USER_TYPE_ID' => 'integer',
-                            'MANDATORY' => 'Y',
-                            'EDIT_FORM_LABEL' => ['ru' => 'ID пользователя'],
-                            'LIST_COLUMN_LABEL' => ['ru' => 'Пользователь'],
-                            'LIST_FILTER_LABEL' => ['ru' => 'Пользователь'],
-                            'ERROR_MESSAGE' => ['ru' => ''],
-                            'HELP_MESSAGE' => ['ru' => ''],
-                        ],
-                        'UF_OFFER_ID' => [
-                            'ENTITY_ID' => $entityId,
-                            'FIELD_NAME' => 'UF_OFFER_ID',
-                            'USER_TYPE_ID' => 'integer',
-                            'MANDATORY' => 'Y',
-                            'EDIT_FORM_LABEL' => ['ru' => 'ID торгового предложения'],
-                            'LIST_COLUMN_LABEL' => ['ru' => 'ТП'],
-                            'LIST_FILTER_LABEL' => ['ru' => 'ТП'],
-                            'ERROR_MESSAGE' => ['ru' => ''],
-                            'HELP_MESSAGE' => ['ru' => ''],
-                        ],
-                        'UF_JSON' => [
-                            'ENTITY_ID' => $entityId,
-                            'FIELD_NAME' => 'UF_JSON',
-                            'USER_TYPE_ID' => 'string',
-                            'MANDATORY' => 'Y',
-                            'EDIT_FORM_LABEL' => ['ru' => 'JSON результата расчёта'],
-                            'LIST_COLUMN_LABEL' => ['ru' => 'JSON'],
-                            'LIST_FILTER_LABEL' => ['ru' => 'JSON'],
-                            'ERROR_MESSAGE' => ['ru' => ''],
-                            'HELP_MESSAGE' => ['ru' => ''],
-                            'SETTINGS' => ['ROWS' => 5],
-                        ],
-                    ];
-                    
-                    $fieldsCreated = 0;
-                    $userTypeEntity = new \CUserTypeEntity();
-                    foreach ($fields as $fieldCode => $fieldData) {
-                        $ufId = $userTypeEntity->Add($fieldData);
-                        if ($ufId) {
-                            $fieldsCreated++;
-                        }
-                    }
-                    
-                    installLog("  → Создано полей: {$fieldsCreated}/" . count($fields), $fieldsCreated === count($fields) ? 'success' : 'warning');
-                    
                     // Сохраняем ID HighloadBlock в опции модуля
                     Option::set($moduleId, 'HIGHLOAD_CALC_HISTORY_ID', $hlblockId);
                     installLog("  → Сохранено: HIGHLOAD_CALC_HISTORY_ID = {$hlblockId}", 'success');
@@ -1454,6 +1477,25 @@ switch ($currentStep) {
                 }
             }
             
+            if (isset($hlblockId) && $hlblockId > 0) {
+                $fieldResult = ensureHighloadUserFields($hlblockId);
+                $totalFields = 4;
+                $processedFields = $fieldResult['created'] + $fieldResult['updated'];
+
+                if (empty($fieldResult['errors'])) {
+                    installLog("  → Проверка полей HL: создано {$fieldResult['created']}, обновлено {$fieldResult['updated']} из {$totalFields}", 'success');
+                } else {
+                    installLog("  → Проверка полей HL: создано {$fieldResult['created']}, обновлено {$fieldResult['updated']} из {$totalFields}", $processedFields === $totalFields ? 'warning' : 'error');
+                    foreach ($fieldResult['errors'] as $fieldError) {
+                        installLog("    • {$fieldError}", 'error');
+                    }
+                    $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = 'HighloadBlock fields: ' . implode('; ', $fieldResult['errors']);
+                }
+
+                Option::set($moduleId, 'HIGHLOAD_CALC_HISTORY_ID', $hlblockId);
+                installLog("  → Сохранено: HIGHLOAD_CALC_HISTORY_ID = {$hlblockId}", 'success');
+            }
+
             // Создание свойства COMPLETED_CALCS в инфоблоке ТП
             $skuIblockId = $installData['sku_iblock_id'];
             
