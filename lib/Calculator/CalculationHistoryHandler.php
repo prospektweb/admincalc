@@ -194,29 +194,19 @@ class CalculationHistoryHandler
      */
     private function updateCompletedCalcs(int $offerId, int $historyId, int $skuIblockId): void
     {
-        // Получаем текущие значения свойства
-        $rsElement = \CIBlockElement::GetList(
+        // Получаем текущие значения свойства напрямую
+        $existingValues = [];
+        
+        $rsProperty = \CIBlockElement::GetProperty(
+            $skuIblockId,
+            $offerId,
             [],
-            ['ID' => $offerId, 'IBLOCK_ID' => $skuIblockId],
-            false,
-            false,
-            ['ID', 'PROPERTY_COMPLETED_CALCS']
+            ['CODE' => 'COMPLETED_CALCS']
         );
         
-        $existingValues = [];
-        while ($element = $rsElement->Fetch()) {
-            // Получаем все значения множественного свойства
-            $rsProperty = \CIBlockElement::GetProperty(
-                $skuIblockId,
-                $offerId,
-                [],
-                ['CODE' => 'COMPLETED_CALCS']
-            );
-            
-            while ($property = $rsProperty->Fetch()) {
-                if (!empty($property['VALUE'])) {
-                    $existingValues[] = $property['VALUE'];
-                }
+        while ($property = $rsProperty->Fetch()) {
+            if (!empty($property['VALUE'])) {
+                $existingValues[] = $property['VALUE'];
             }
         }
         

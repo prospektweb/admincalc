@@ -220,16 +220,32 @@ class AdminHandler
 			return;
 		}
 		
+		// Константы для настройки повторных попыток
+		$retryDelay = 500; // миллисекунды
+		$maxRetries = 10; // максимум 5 секунд ожидания
+		
 		// Добавляем inline JS для программной настройки вкладки "Анализ"
 		$inlineJs = '<script>
 		BX.ready(function() {
 			// Функция для настройки вкладки "Анализ"
+			var retryCount = 0;
+			var MAX_RETRIES = ' . $maxRetries . ';
+			var RETRY_DELAY = ' . $retryDelay . ';
+			
 			function setupAnalysisTab() {
+				// Проверяем лимит попыток
+				if (retryCount >= MAX_RETRIES) {
+					console.warn(\'ProspektwebCalc: Не удалось настроить вкладку "Анализ" после \' + MAX_RETRIES + \' попыток\');
+					return;
+				}
+				
+				retryCount++;
+				
 				// Ищем форму редактирования элемента
 				var form = document.querySelector(\'form[name="form_element_' . $skuIblockId . '"]\');
 				if (!form) {
 					// Возможно, форма ещё не загружена, попробуем позже
-					setTimeout(setupAnalysisTab, 500);
+					setTimeout(setupAnalysisTab, RETRY_DELAY);
 					return;
 				}
 				
