@@ -178,15 +178,19 @@ class CalcCustomFieldEditComponent extends CBitrixComponent
         // Получаем значения свойств
         $propValues = $_POST['PROPERTY_VALUES'] ?? [];
 
-        // Валидация символьного кода
+        // Генерация/валидация символьного кода
         $fieldCode = trim($_POST['CODE'] ??  '');
-        if (empty($fieldCode)) {
-            $this->arResult['ERRORS'][] = 'Не указан символьный код поля';
-            return false;
+        if ($fieldCode === '') {
+            $fieldCode = $this->generateUniqueElementCode($arFields['NAME']);
         }
+
         if (!preg_match('/^[A-Z][A-Z0-9_]*$/', $fieldCode)) {
             $this->arResult['ERRORS'][] = 'Символьный код должен начинаться с буквы и содержать только заглавные латинские буквы, цифры и подчёркивание';
             return false;
+        }
+
+        if ($this->isElementCodeExists($fieldCode, $this->elementId)) {
+            $fieldCode = $this->generateUniqueElementCode($fieldCode);
         }
 
         // Добавляем CODE в основные поля
@@ -283,6 +287,60 @@ class CalcCustomFieldEditComponent extends CBitrixComponent
 
         return true;
     }
+
+    private function generateUniqueElementCode(string $name): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            $name = 'FIELD';
+        }
+
+        $baseCode = (string)\CUtil::translit($name, 'ru', [
+            'max_len' => 50,
+            'change_case' => 'U',
+            'replace_space' => '_',
+            'replace_other' => '_',
+            'delete_repeat_replace' => true,
+            'use_google' => true,
+        ]);
+
+        if ($baseCode === '' || !preg_match('/^[A-Z]/', $baseCode)) {
+            $baseCode = 'FIELD_' . $baseCode;
+        }
+
+        $baseCode = preg_replace('/[^A-Z0-9_]/', '_', $baseCode) ?: 'FIELD';
+        $baseCode = trim($baseCode, '_');
+        if ($baseCode === '') {
+            $baseCode = 'FIELD';
+        }
+
+        $candidate = $baseCode;
+        $suffix = 2;
+        while ($this->isElementCodeExists($candidate, $this->elementId)) {
+            $suffixText = '_' . $suffix;
+            $candidate = mb_substr($baseCode, 0, 50 - strlen($suffixText)) . $suffixText;
+            $suffix++;
+        }
+
+        return $candidate;
+    }
+
+    private function isElementCodeExists(string $code, int $excludeId = 0): bool
+    {
+        $filter = [
+            'IBLOCK_ID' => $this->iblockId,
+            '=CODE' => $code,
+        ];
+
+        if ($excludeId > 0) {
+            $filter['!ID'] = $excludeId;
+        }
+
+        $exists = \CIBlockElement::GetList([], $filter, false, ['nTopCount' => 1], ['ID'])->Fetch();
+
+        return (int)($exists['ID'] ?? 0) > 0;
+    }
+
 
     /**
      * Выполнение компонента
