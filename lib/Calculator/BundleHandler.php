@@ -49,9 +49,11 @@ class BundleHandler
         
         // 2. Создать элемент пресета
         $el = new \CIBlockElement();
+        $presetName = $name ?: 'Новый пресет ' . date('Y-m-d H:i:s');
         $presetId = $el->Add([
             'IBLOCK_ID' => $iblockId,
-            'NAME' => $name ?: 'Новый пресет ' . date('Y-m-d H:i:s'),
+            'NAME' => $presetName,
+            'CODE' => $this->generateUniqueElementCode($iblockId, $presetName),
             'ACTIVE' => 'Y',
             'PROPERTY_VALUES' => [
                 'JSON' => ['VALUE' => ['TEXT' => '{}', 'TYPE' => 'HTML']],
@@ -216,6 +218,50 @@ class BundleHandler
      * @param array $presetIds ID пресетов
      * @return array
      */
+    private function generateUniqueElementCode(int $iblockId, string $name): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            $name = 'element';
+        }
+
+        $baseCode = (string)\CUtil::translit($name, 'ru', [
+            'max_len' => 100,
+            'change_case' => 'L',
+            'replace_space' => '-',
+            'replace_other' => '-',
+            'delete_repeat_replace' => true,
+            'use_google' => true,
+        ]);
+
+        if ($baseCode === '') {
+            $baseCode = 'element';
+        }
+
+        $candidate = $baseCode;
+        $suffix = 2;
+        while ($this->isElementCodeExists($iblockId, $candidate)) {
+            $suffixText = '-' . $suffix;
+            $candidate = mb_substr($baseCode, 0, 100 - strlen($suffixText)) . $suffixText;
+            $suffix++;
+        }
+
+        return $candidate;
+    }
+
+    private function isElementCodeExists(int $iblockId, string $code): bool
+    {
+        $exists = \CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => $iblockId, '=CODE' => $code],
+            false,
+            ['nTopCount' => 1],
+            ['ID']
+        )->Fetch();
+
+        return (int)($exists['ID'] ?? 0) > 0;
+    }
+
     public function loadPresetsSummary(array $presetIds): array
     {
         if (empty($presetIds)) {

@@ -987,6 +987,7 @@ class DetailHandler
         $fields = [
             'IBLOCK_ID' => $this->detailsIblockId,
             'NAME' => $name,
+            'CODE' => $this->generateUniqueElementCode($this->detailsIblockId, $name),
             'ACTIVE' => 'Y',
             'PROPERTY_VALUES' => [
                 'TYPE' => $typeValueId ?: $type, // Если не нашли ID, используем строку (для совместимости)
@@ -1008,6 +1009,7 @@ class DetailHandler
         $fields = [
             'IBLOCK_ID' => $this->stagesIblockId,
             'NAME' => $name,
+            'CODE' => $this->generateUniqueElementCode($this->stagesIblockId, $name),
             'ACTIVE' => 'Y',
         ];
         
@@ -1183,9 +1185,11 @@ class DetailHandler
         
         $el = new \CIBlockElement();
         
+        $newName = $fields['NAME'] . ' (копия)';
         $newFields = [
             'IBLOCK_ID' => $this->stagesIblockId,
-            'NAME' => $fields['NAME'] . ' (копия)',
+            'NAME' => $newName,
+            'CODE' => $this->generateUniqueElementCode($this->stagesIblockId, $newName),
             'ACTIVE' => 'Y',
             'PROPERTY_VALUES' => [],
         ];
@@ -1220,6 +1224,50 @@ class DetailHandler
     /**
      * Генерировать космическое имя для скрепления
      */
+    private function generateUniqueElementCode(int $iblockId, string $name): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            $name = 'element';
+        }
+
+        $baseCode = (string)\CUtil::translit($name, 'ru', [
+            'max_len' => 100,
+            'change_case' => 'L',
+            'replace_space' => '-',
+            'replace_other' => '-',
+            'delete_repeat_replace' => true,
+            'use_google' => true,
+        ]);
+
+        if ($baseCode === '') {
+            $baseCode = 'element';
+        }
+
+        $candidate = $baseCode;
+        $suffix = 2;
+        while ($this->isElementCodeExists($iblockId, $candidate)) {
+            $suffixText = '-' . $suffix;
+            $candidate = mb_substr($baseCode, 0, 100 - strlen($suffixText)) . $suffixText;
+            $suffix++;
+        }
+
+        return $candidate;
+    }
+
+    private function isElementCodeExists(int $iblockId, string $code): bool
+    {
+        $exists = \CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => $iblockId, '=CODE' => $code],
+            false,
+            ['nTopCount' => 1],
+            ['ID']
+        )->Fetch();
+
+        return (int)($exists['ID'] ?? 0) > 0;
+    }
+
     private function generateCosmicName(): string
     {
         $cosmicNames = [

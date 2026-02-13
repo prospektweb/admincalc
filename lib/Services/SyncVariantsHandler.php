@@ -187,6 +187,7 @@ class SyncVariantsHandler
         $fields = [
             'IBLOCK_ID' => $iblockId,
             'NAME' => $item['name'] ?? 'Без названия',
+            'CODE' => $this->generateUniqueElementCode($iblockId, (string)($item['name'] ?? 'Без названия')),
             'ACTIVE' => 'Y',
             'PROPERTY_VALUES' => [
                 'TYPE' => $typeValueId ?: $typeXmlId,
@@ -303,6 +304,7 @@ class SyncVariantsHandler
             $fields = [
                 'IBLOCK_ID' => $iblockId,
                 'NAME' => $name,
+                'CODE' => $this->generateUniqueElementCode($iblockId, $name),
                 'ACTIVE' => 'Y',
                 'PROPERTY_VALUES' => $properties,
             ];
@@ -351,5 +353,49 @@ class SyncVariantsHandler
     private function getIblockId(string $code): int
     {
         return (int)Option::get(self::MODULE_ID, 'IBLOCK_' . $code, 0);
+    }
+
+    private function generateUniqueElementCode(int $iblockId, string $name): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            $name = 'element';
+        }
+
+        $baseCode = (string)\CUtil::translit($name, 'ru', [
+            'max_len' => 100,
+            'change_case' => 'L',
+            'replace_space' => '-',
+            'replace_other' => '-',
+            'delete_repeat_replace' => true,
+            'use_google' => true,
+        ]);
+
+        if ($baseCode === '') {
+            $baseCode = 'element';
+        }
+
+        $candidate = $baseCode;
+        $suffix = 2;
+        while ($this->isElementCodeExists($iblockId, $candidate)) {
+            $suffixText = '-' . $suffix;
+            $candidate = mb_substr($baseCode, 0, 100 - strlen($suffixText)) . $suffixText;
+            $suffix++;
+        }
+
+        return $candidate;
+    }
+
+    private function isElementCodeExists(int $iblockId, string $code): bool
+    {
+        $exists = \CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => $iblockId, '=CODE' => $code],
+            false,
+            ['nTopCount' => 1],
+            ['ID']
+        )->Fetch();
+
+        return (int)($exists['ID'] ?? 0) > 0;
     }
 }
