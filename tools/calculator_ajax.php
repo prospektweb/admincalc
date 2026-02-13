@@ -113,6 +113,23 @@ if ($pwrtMessage) {
                 sendJsonResponse($response);
                 break;
             
+            case 'SAVE_CALCULATION_REQUEST':
+                $handler = new \Prospektweb\Calc\Calculator\CalculationHistoryHandler();
+                $result = $handler->handle($payload);
+                
+                $response = [
+                    'protocol' => 'pwrt-v1',
+                    'source' => 'bitrix',
+                    'target' => 'prospektweb.calc',
+                    'type' => 'SAVE_CALCULATION_RESPONSE',
+                    'requestId' => $requestId,
+                    'payload' => $result,
+                    'timestamp' => time(),
+                ];
+                
+                sendJsonResponse($response);
+                break;
+            
             default:
                 sendJsonResponse([
                     'protocol' => 'pwrt-v1',
