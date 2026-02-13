@@ -3,6 +3,7 @@
 namespace Prospektweb\Calc\Calculator;
 
 use Bitrix\Main\Config\Option;
+use Bitrix\Main\Diag\Debug;
 use Bitrix\Main\Loader;
 use Bitrix\Highloadblock\HighloadBlockTable;
 use Prospektweb\Calc\Config\ConfigManager;
@@ -13,6 +14,7 @@ use Prospektweb\Calc\Config\ConfigManager;
 class CalculationHistoryHandler
 {
     private const MODULE_ID = 'prospektweb.calc';
+    private const LOG_FILE = '/local/logs/prospektweb.calc.calculation_history.log';
     
     private ConfigManager $configManager;
     
@@ -50,12 +52,12 @@ class CalculationHistoryHandler
             ];
         }
         
-        $offers = $payload['offers'] ?? [];
-        
-        if (!is_array($offers) || empty($offers)) {
+        $offers = $this->normalizeOffers($payload);
+
+        if (empty($offers)) {
             return [
                 'status' => 'error',
-                'message' => 'Некорректный payload: offers должен быть непустым массивом',
+                'message' => 'Пустой payload: ожидается непустой массив offers или results',
                 'results' => [],
                 'total' => 0,
                 'saved' => 0,
@@ -93,31 +95,37 @@ class CalculationHistoryHandler
         $savedCount = 0;
         
         foreach ($offers as $offerData) {
-            $offerId = (int)($offerData['offerId'] ?? 0);
-            $json = $offerData['json'] ?? null;
-            
-            if ($offerId <= 0) {
+            $validation = $this->validateOfferPayload($offerData);
+            $offerId = $validation['offerId'];
+
+            if (!$validation['isValid']) {
+                $reason = implode('; ', $validation['errors']);
+                $this->logOfferRejection($offerId, $reason, $offerData);
                 $results[] = [
                     'offerId' => $offerId,
                     'historyId' => null,
                     'status' => 'error',
-                    'message' => 'Некорректный offerId',
+                    'message' => $reason,
                 ];
                 continue;
             }
-            
-            if ($json === null) {
-                $results[] = [
-                    'offerId' => $offerId,
-                    'historyId' => null,
-                    'status' => 'error',
-                    'message' => 'Отсутствует json',
-                ];
-                continue;
-            }
+
+            $json = $validation['json'];
             
             // Конвертируем в JSON-строку, если передан массив
             $jsonString = is_string($json) ? $json : json_encode($json, JSON_UNESCAPED_UNICODE);
+
+            if (!is_string($jsonString) || $jsonString === '') {
+                $message = 'Не удалось подготовить расчётные данные для сохранения';
+                $this->logOfferRejection($offerId, $message, $offerData);
+                $results[] = [
+                    'offerId' => $offerId,
+                    'historyId' => null,
+                    'status' => 'error',
+                    'message' => $message,
+                ];
+                continue;
+            }
             
             try {
                 // Проверяем количество существующих записей
@@ -160,14 +168,17 @@ class CalculationHistoryHandler
                     ];
                     $savedCount++;
                 } else {
+                    $errorMessage = implode(', ', $addResult->getErrorMessages());
+                    $this->logOfferRejection($offerId, $errorMessage, $offerData);
                     $results[] = [
                         'offerId' => $offerId,
                         'historyId' => null,
                         'status' => 'error',
-                        'message' => implode(', ', $addResult->getErrorMessages()),
+                        'message' => $errorMessage,
                     ];
                 }
             } catch (\Exception $e) {
+                $this->logOfferRejection($offerId, $e->getMessage(), $offerData);
                 $results[] = [
                     'offerId' => $offerId,
                     'historyId' => null,
@@ -178,11 +189,92 @@ class CalculationHistoryHandler
         }
         
         return [
-            'status' => 'ok',
+            'status' => $savedCount > 0 ? 'ok' : 'error',
             'results' => $results,
             'total' => count($offers),
             'saved' => $savedCount,
         ];
+    }
+
+    /**
+     * Нормализует входной payload к единому формату offers.
+     */
+    private function normalizeOffers(array $payload): array
+    {
+        if (isset($payload['offers']) && is_array($payload['offers'])) {
+            return $payload['offers'];
+        }
+
+        if (!isset($payload['results']) || !is_array($payload['results'])) {
+            return [];
+        }
+
+        $offers = [];
+        foreach ($payload['results'] as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $offers[] = [
+                'offerId' => (int)($item['offerId'] ?? $item['offerID'] ?? $item['id'] ?? 0),
+                'json' => array_key_exists('json', $item) ? $item['json'] : $item,
+            ];
+        }
+
+        return $offers;
+    }
+
+    /**
+     * Валидирует расчётные данные по конкретному offer.
+     */
+    private function validateOfferPayload($offerData): array
+    {
+        $errors = [];
+
+        if (!is_array($offerData)) {
+            return [
+                'offerId' => 0,
+                'json' => null,
+                'isValid' => false,
+                'errors' => ['Некорректный формат offer: ожидается объект'],
+            ];
+        }
+
+        $offerId = (int)($offerData['offerId'] ?? 0);
+        $json = $offerData['json'] ?? null;
+
+        if ($offerId <= 0) {
+            $errors[] = 'Некорректный offerId';
+        }
+
+        if ($json === null) {
+            $errors[] = 'Отсутствует обязательное поле json';
+        } elseif (is_array($json) && empty($json)) {
+            $errors[] = 'Пустые расчётные данные: json не должен быть пустым объектом';
+        } elseif (is_string($json)) {
+            $decoded = json_decode($json, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $errors[] = 'Поле json должно содержать валидный JSON';
+            } elseif (is_array($decoded) && empty($decoded)) {
+                $errors[] = 'Пустые расчётные данные: json не должен быть пустым объектом';
+            }
+        }
+
+        return [
+            'offerId' => $offerId,
+            'json' => $json,
+            'isValid' => empty($errors),
+            'errors' => $errors,
+        ];
+    }
+
+    private function logOfferRejection(int $offerId, string $reason, array $offerData = []): void
+    {
+        Debug::writeToFile([
+            'offerId' => $offerId,
+            'reason' => $reason,
+            'offerData' => $offerData,
+        ], 'CalculationHistoryHandler rejection', self::LOG_FILE);
     }
     
     /**
