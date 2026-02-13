@@ -18,4 +18,6 @@ $prospektweb_calc_default_option = [
     // Связи ТП
     'FORMAT_FIELD_CODE' => 'FORMAT',
     'VOLUME_FIELD_CODE' => 'VOLUME',
+    // История расчётов
+    'CALC_HISTORY_LIMIT' => 10,
 ];

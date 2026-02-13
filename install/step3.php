@@ -1344,6 +1344,174 @@ switch ($currentStep) {
         installLog("Сохранено: PRODUCT_IBLOCK_ID = " . $installData['product_iblock_id'], 'success');
         installLog("Сохранено: SKU_IBLOCK_ID = " . $installData['sku_iblock_id'], 'success');
 
+        // Создание HighloadBlock для истории расчётов
+        installLog("");
+        installLog("Создание HighloadBlock для истории расчётов...", 'header');
+        
+        if (Loader::includeModule('highloadblock')) {
+            $hlblockTableName = 'prospektcalc_offer_history';
+            
+            // Проверяем, существует ли уже HighloadBlock
+            $rsHlblock = \Bitrix\Highloadblock\HighloadBlockTable::getList([
+                'filter' => ['=TABLE_NAME' => $hlblockTableName]
+            ]);
+            
+            if ($existingHlblock = $rsHlblock->fetch()) {
+                $hlblockId = (int)$existingHlblock['ID'];
+                installLog("  → HighloadBlock уже существует (ID: {$hlblockId})", 'warning');
+            } else {
+                // Создаём HighloadBlock
+                $addResult = \Bitrix\Highloadblock\HighloadBlockTable::add([
+                    'NAME' => 'ProspektCalcOfferHistory',
+                    'TABLE_NAME' => $hlblockTableName,
+                ]);
+                
+                if ($addResult->isSuccess()) {
+                    $hlblockId = $addResult->getId();
+                    
+                    // Добавляем языкозависимые названия
+                    $langs = ['ru' => 'История калькуляций'];
+                    foreach ($langs as $langId => $langName) {
+                        \Bitrix\Highloadblock\HighloadBlockLangTable::add([
+                            'ID' => $hlblockId,
+                            'LID' => $langId,
+                            'NAME' => $langName,
+                        ]);
+                    }
+                    
+                    installLog("  → Создан HighloadBlock (ID: {$hlblockId}, TABLE: {$hlblockTableName})", 'success');
+                    
+                    // Создаём пользовательские поля
+                    $entityId = 'HLBLOCK_' . $hlblockId;
+                    
+                    $fields = [
+                        'UF_DATETIME' => [
+                            'ENTITY_ID' => $entityId,
+                            'FIELD_NAME' => 'UF_DATETIME',
+                            'USER_TYPE_ID' => 'datetime',
+                            'MANDATORY' => 'Y',
+                            'EDIT_FORM_LABEL' => ['ru' => 'Дата и время расчёта'],
+                            'LIST_COLUMN_LABEL' => ['ru' => 'Дата расчёта'],
+                            'LIST_FILTER_LABEL' => ['ru' => 'Дата расчёта'],
+                            'ERROR_MESSAGE' => ['ru' => ''],
+                            'HELP_MESSAGE' => ['ru' => ''],
+                        ],
+                        'UF_USER_ID' => [
+                            'ENTITY_ID' => $entityId,
+                            'FIELD_NAME' => 'UF_USER_ID',
+                            'USER_TYPE_ID' => 'integer',
+                            'MANDATORY' => 'Y',
+                            'EDIT_FORM_LABEL' => ['ru' => 'ID пользователя'],
+                            'LIST_COLUMN_LABEL' => ['ru' => 'Пользователь'],
+                            'LIST_FILTER_LABEL' => ['ru' => 'Пользователь'],
+                            'ERROR_MESSAGE' => ['ru' => ''],
+                            'HELP_MESSAGE' => ['ru' => ''],
+                        ],
+                        'UF_OFFER_ID' => [
+                            'ENTITY_ID' => $entityId,
+                            'FIELD_NAME' => 'UF_OFFER_ID',
+                            'USER_TYPE_ID' => 'integer',
+                            'MANDATORY' => 'Y',
+                            'EDIT_FORM_LABEL' => ['ru' => 'ID торгового предложения'],
+                            'LIST_COLUMN_LABEL' => ['ru' => 'ТП'],
+                            'LIST_FILTER_LABEL' => ['ru' => 'ТП'],
+                            'ERROR_MESSAGE' => ['ru' => ''],
+                            'HELP_MESSAGE' => ['ru' => ''],
+                        ],
+                        'UF_JSON' => [
+                            'ENTITY_ID' => $entityId,
+                            'FIELD_NAME' => 'UF_JSON',
+                            'USER_TYPE_ID' => 'string',
+                            'MANDATORY' => 'Y',
+                            'EDIT_FORM_LABEL' => ['ru' => 'JSON результата расчёта'],
+                            'LIST_COLUMN_LABEL' => ['ru' => 'JSON'],
+                            'LIST_FILTER_LABEL' => ['ru' => 'JSON'],
+                            'ERROR_MESSAGE' => ['ru' => ''],
+                            'HELP_MESSAGE' => ['ru' => ''],
+                            'SETTINGS' => ['ROWS' => 5],
+                        ],
+                    ];
+                    
+                    $fieldsCreated = 0;
+                    foreach ($fields as $fieldCode => $fieldData) {
+                        $ufId = \CUserTypeEntity::Add($fieldData);
+                        if ($ufId) {
+                            $fieldsCreated++;
+                        }
+                    }
+                    
+                    installLog("  → Создано полей: {$fieldsCreated}/" . count($fields), $fieldsCreated === count($fields) ? 'success' : 'warning');
+                    
+                    // Сохраняем ID HighloadBlock в опции модуля
+                    Option::set($moduleId, 'HIGHLOAD_CALC_HISTORY_ID', $hlblockId);
+                    installLog("  → Сохранено: HIGHLOAD_CALC_HISTORY_ID = {$hlblockId}", 'success');
+                } else {
+                    $errors = $addResult->getErrorMessages();
+                    $errorText = implode(', ', $errors);
+                    installLog("  → Ошибка создания HighloadBlock: {$errorText}", 'error');
+                    $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = "HighloadBlock: {$errorText}";
+                }
+            }
+            
+            // Создание свойства COMPLETED_CALCS в инфоблоке ТП
+            $skuIblockId = $installData['sku_iblock_id'];
+            
+            if ($skuIblockId > 0 && isset($hlblockId) && $hlblockId > 0) {
+                installLog("");
+                installLog("Создание свойства COMPLETED_CALCS в инфоблоке ТП...", 'header');
+                
+                $propertyCode = 'COMPLETED_CALCS';
+                
+                // Проверяем, существует ли свойство
+                $rsProperty = \CIBlockProperty::GetList(
+                    [],
+                    ['IBLOCK_ID' => $skuIblockId, 'CODE' => $propertyCode]
+                );
+                
+                if ($arProperty = $rsProperty->Fetch()) {
+                    installLog("  → Свойство {$propertyCode} уже существует в инфоблоке ТП (ID: {$arProperty['ID']})", 'warning');
+                } else {
+                    // Создаём свойство
+                    $arNewProperty = [
+                        'IBLOCK_ID' => $skuIblockId,
+                        'ACTIVE' => 'Y',
+                        'CODE' => $propertyCode,
+                        'NAME' => 'Завершённые расчёты',
+                        'PROPERTY_TYPE' => 'S',
+                        'USER_TYPE' => 'directory',
+                        'USER_TYPE_SETTINGS' => [
+                            'TABLE_NAME' => $hlblockTableName,
+                        ],
+                        'MULTIPLE' => 'Y',
+                        'MULTIPLE_CNT' => 1,
+                        'IS_REQUIRED' => 'N',
+                        'SORT' => 600,
+                    ];
+                    
+                    $ibp = new \CIBlockProperty();
+                    $propId = $ibp->Add($arNewProperty);
+                    
+                    if ($propId) {
+                        installLog("  → Создано свойство {$propertyCode} в инфоблоке ТП (ID: {$propId})", 'success');
+                    } else {
+                        $error = getBitrixError();
+                        installLog("  → Ошибка создания свойства {$propertyCode}: {$error}", 'error');
+                        $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = "Свойство {$propertyCode}: {$error}";
+                    }
+                }
+            } else {
+                if ($skuIblockId <= 0) {
+                    installLog("  → Пропуск создания COMPLETED_CALCS: SKU Iblock ID не задан", 'warning');
+                }
+                if (!isset($hlblockId) || $hlblockId <= 0) {
+                    installLog("  → Пропуск создания COMPLETED_CALCS: HighloadBlock не создан", 'warning');
+                }
+            }
+        } else {
+            installLog("  → Модуль highloadblock не загружен, HighloadBlock не создан", 'error');
+            $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = "HighloadBlock: модуль highloadblock не загружен";
+        }
+
         // Добавление свойства CALC_PRESET в инфоблок товаров (Product)
         $productIblockId = $installData['product_iblock_id'];
         $presetsIblockId = $installData['iblock_ids']['CALC_PRESETS'] ?? 0;

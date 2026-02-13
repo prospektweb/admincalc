@@ -79,6 +79,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     // Сохраняем настройки округления цен
     Option::set($module_id, 'PRICE_ROUNDING', (float)($_POST['PRICE_ROUNDING'] ?? 1));
 
+    // Сохраняем лимит истории расчётов
+    Option::set($module_id, 'CALC_HISTORY_LIMIT', (int)($_POST['CALC_HISTORY_LIMIT'] ?? 10));
+
     // Сохраняем настройки наценки
     if (isset($_POST['DEFAULT_EXTRA_VALUE'])) {
         $settingsManager->setDefaultExtraValue((int)$_POST['DEFAULT_EXTRA_VALUE']);
@@ -210,6 +213,14 @@ $tabControl->Begin();
         </td>
     </tr>
 
+
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_LIMIT') ?></td>
+        <td>
+            <input type="number" name="CALC_HISTORY_LIMIT" value="<?= (int)Option::get($module_id, 'CALC_HISTORY_LIMIT', 10) ?>" min="1" max="100" size="5" style="width: 80px;">
+            <br><span style="color: #777; font-size: 11px;">Максимальное количество записей истории расчётов, хранящихся для одного ТП</span>
+        </td>
+    </tr>
 
     <tr>
         <td>Snapshot данных модуля</td>

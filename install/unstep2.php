@@ -175,6 +175,35 @@ if ($deleteData) {
         $errors[] = Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_MODULES_NOT_LOADED');
     }
 
+    // Удаление HighloadBlock для истории расчётов
+    if (Loader::includeModule('highloadblock')) {
+        uninstallLog('Удаление HighloadBlock для истории расчётов...', 'header');
+        
+        $hlblockId = (int)Option::get($moduleId, 'HIGHLOAD_CALC_HISTORY_ID', 0);
+        
+        if ($hlblockId > 0) {
+            try {
+                $result = \Bitrix\Highloadblock\HighloadBlockTable::delete($hlblockId);
+                
+                if ($result->isSuccess()) {
+                    uninstallLog("  → HighloadBlock удалён (ID: {$hlblockId})", 'success');
+                } else {
+                    $errorMessages = $result->getErrorMessages();
+                    $errorText = implode(', ', $errorMessages);
+                    uninstallLog("  → Ошибка удаления HighloadBlock: {$errorText}", 'error');
+                    $errors[] = "HighloadBlock: {$errorText}";
+                }
+            } catch (\Exception $e) {
+                uninstallLog("  → Ошибка удаления HighloadBlock: " . $e->getMessage(), 'error');
+                $errors[] = "HighloadBlock: " . $e->getMessage();
+            }
+        } else {
+            uninstallLog("  → HighloadBlock не найден или не был создан", 'warning');
+        }
+        
+        uninstallLog('');
+    }
+
     // Удаление свойства CALC_PRESET из инфоблока товаров (Product)
     $productIblockId = (int)Option::get($moduleId, 'PRODUCT_IBLOCK_ID', 0);
     if ($productIblockId > 0) {
