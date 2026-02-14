@@ -18,7 +18,7 @@ Loc::loadMessages(__FILE__);
 
 global $APPLICATION;
 
-$deleteData = ($_REQUEST['DELETE_DATA'] ?? '') === 'Y';
+$deleteData = true;
 $moduleId = 'prospektweb.calc';
 
 // Инициализация логов
@@ -66,9 +66,9 @@ uninstallLog(Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_MODULE_ID') . ': ' . $m
 uninstallLog(Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_DELETE_DATA_OPTION') . ': ' . ($deleteData ? Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_YES') : Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_NO')));
 uninstallLog('');
 
-// ============= ШАГ 1: УДАЛЕНИЕ ДАННЫХ (ЕСЛИ ВЫБРАНО) =============
+// ============= ШАГ 1: УДАЛЕНИЕ ДАННЫХ =============
 
-if ($deleteData) {
+{
     uninstallLog(Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_STEP1'), 'header');
     
     if (Loader::includeModule('iblock') && Loader::includeModule('catalog')) {

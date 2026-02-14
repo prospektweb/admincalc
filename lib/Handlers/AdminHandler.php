@@ -156,7 +156,7 @@ class AdminHandler
 
         $configManager = new \Prospektweb\Calc\Config\ConfigManager();
         $skuIblockId = $configManager->getSkuIblockId();
-        $iblockId = (int)($_REQUEST['IBLOCK_ID'] ?? $_REQUEST['iblock_id'] ?? 0);
+        $iblockId = self::resolveCurrentIblockId();
 
         if ($skuIblockId <= 0 || $iblockId !== $skuIblockId) {
             return;
@@ -224,18 +224,196 @@ class AdminHandler
 			return;
 		}
 
+        if (!Loader::includeModule('prospektweb.calc') || !Loader::includeModule('iblock')) {
+            return;
+        }
+
+        $configManager = new \Prospektweb\Calc\Config\ConfigManager();
+        $skuIblockId = $configManager->getSkuIblockId();
+        $iblockId = self::resolveCurrentIblockId();
+        $elementId = (int)($_REQUEST['ID'] ?? $_REQUEST['id'] ?? 0);
+
+        if ($skuIblockId <= 0 || $iblockId !== $skuIblockId || $elementId <= 0) {
+            return;
+        }
+
 		$iblockTypes = self::getModuleIblockTypes();
+
+        $dashboardUrl = '/local/apps/prospektweb.calc/dashboard.html';
+        $dashboardDataEndpoint = '/bitrix/tools/prospektweb.calc/history_dashboard_data.php';
+        $sessid = bitrix_sessid();
 
 		$jsPath = '/local/js/prospektweb.calc/admin_element_links.js';
 		
 		$inlineJs = '<script>
 			window. PROSPEKTWEB_CALC_IBLOCK_TYPES = ' . json_encode($iblockTypes, self::JSON_ENCODE_FLAGS) . ';
+			window.PROSPEKTWEB_CALC_DASHBOARD_URL = ' . json_encode($dashboardUrl, self::JSON_ENCODE_FLAGS) . ';
+			window.PROSPEKTWEB_CALC_DASHBOARD_ENDPOINT = ' . json_encode($dashboardDataEndpoint, self::JSON_ENCODE_FLAGS) . ';
+			window.PROSPEKTWEB_CALC_ELEMENT_ID = ' . json_encode($elementId, self::JSON_ENCODE_FLAGS) . ';
+			window.PROSPEKTWEB_CALC_SESSID = ' . json_encode($sessid, self::JSON_ENCODE_FLAGS) . ';
+
+			(function initCalcAnalysisTab(){
+				if (window.__prospektwebAnalysisTabInitialized) {
+					return;
+				}
+				window.__prospektwebAnalysisTabInitialized = true;
+
+				var isLoading = false;
+				var lastPayloadHash = "";
+
+				function getAnalysisBlock() {
+					var root = document.getElementById("analysis") || document.getElementById("tab_cont_analysis");
+					if (!root) {
+						return false;
+					}
+					var block = root.querySelector(".adm-detail-content-item-block") || root;
+					return block;
+				}
+
+				function isAnalysisTabOpen() {
+					var analysis = document.getElementById("analysis") || document.getElementById("tab_cont_analysis");
+					if (!analysis) {
+						return false;
+					}
+
+					var style = window.getComputedStyle(analysis);
+					return style.display !== "none" && style.visibility !== "hidden";
+				}
+
+				function ensureTabContent() {
+					var block = getAnalysisBlock();
+					if (!block) {
+						return false;
+					}
+
+					if (document.getElementById("prospektweb-calc-analysis-dashboard")) {
+						return true;
+					}
+
+					var wrapper = document.createElement("div");
+					wrapper.id = "prospektweb-calc-analysis-dashboard";
+					wrapper.style.marginBottom = "12px";
+
+					var iframe = document.createElement("iframe");
+					iframe.id = "prospektweb-calc-analysis-iframe";
+					iframe.style.width = "100%";
+					iframe.style.minHeight = "760px";
+					iframe.style.border = "1px solid #dce0e5";
+					iframe.style.background = "#fff";
+					iframe.loading = "lazy";
+					wrapper.appendChild(iframe);
+					block.insertBefore(wrapper, block.firstChild);
+
+					return true;
+				}
+
+				function loadDashboardDataAndRender() {
+					if (!isAnalysisTabOpen()) {
+						return;
+					}
+
+					if (!ensureTabContent()) {
+						return;
+					}
+
+					if (isLoading) {
+						return;
+					}
+
+					var iframe = document.getElementById("prospektweb-calc-analysis-iframe");
+					if (!iframe) {
+						return;
+					}
+
+					isLoading = true;
+					var endpoint = window.PROSPEKTWEB_CALC_DASHBOARD_ENDPOINT || "";
+					var elementId = window.PROSPEKTWEB_CALC_ELEMENT_ID || 0;
+					var sessid = window.PROSPEKTWEB_CALC_SESSID || "";
+					var url = endpoint + "?offerId=" + encodeURIComponent(elementId) + "&sessid=" + encodeURIComponent(sessid);
+
+					fetch(url, { credentials: "same-origin" })
+						.then(function(response){ return response.json(); })
+						.then(function(payload){
+							var payloadHash = JSON.stringify(payload || {});
+							if (iframe.getAttribute("src") !== (window.PROSPEKTWEB_CALC_DASHBOARD_URL || "")) {
+								iframe.setAttribute("src", window.PROSPEKTWEB_CALC_DASHBOARD_URL || "");
+							}
+
+							iframe.onload = function() {
+								console.log("[PROSPEKTWEB][ANALYSIS_IFRAME_PAYLOAD]", payload);
+								iframe.contentWindow.postMessage({
+									type: "PROSPEKTWEB_CALC_DASHBOARD_INIT",
+									offerId: payload.offerId || 0,
+									history: payload.history || []
+								}, "*");
+							};
+
+							if (lastPayloadHash === payloadHash && iframe.contentWindow) {
+								console.log("[PROSPEKTWEB][ANALYSIS_IFRAME_PAYLOAD]", payload);
+								iframe.contentWindow.postMessage({
+									type: "PROSPEKTWEB_CALC_DASHBOARD_INIT",
+									offerId: payload.offerId || 0,
+									history: payload.history || []
+								}, "*");
+							}
+
+							lastPayloadHash = payloadHash;
+						})
+						.catch(function(error){
+							console.error("[PROSPEKTWEB][ANALYSIS_IFRAME_ERROR]", error);
+						})
+						.finally(function(){
+							isLoading = false;
+						});
+				}
+
+				document.addEventListener("click", function() {
+					setTimeout(loadDashboardDataAndRender, 120);
+				});
+
+				var observer = new MutationObserver(function() {
+					loadDashboardDataAndRender();
+				});
+				var analysisNode = document.getElementById("analysis") || document.getElementById("tab_cont_analysis");
+				if (analysisNode) {
+					observer.observe(analysisNode, { attributes: true, attributeFilter: ["style", "class"] });
+				}
+
+				setTimeout(loadDashboardDataAndRender, 200);
+			})();
 		</script>
 		<script src="' . \CUtil::GetAdditionalFileURL($jsPath) . '"></script>';
 		
 		Asset::getInstance()->addString($inlineJs, false, AssetLocation::AFTER_JS);
 		
 	}
+
+    private static function resolveCurrentIblockId(): int
+    {
+        $iblockId = (int)($_REQUEST['IBLOCK_ID'] ?? $_REQUEST['iblock_id'] ?? 0);
+        if ($iblockId > 0) {
+            return $iblockId;
+        }
+
+        $query = (string)($_SERVER['QUERY_STRING'] ?? '');
+        if ($query !== '') {
+            parse_str($query, $queryParams);
+            $iblockId = (int)($queryParams['IBLOCK_ID'] ?? $queryParams['iblock_id'] ?? 0);
+            if ($iblockId > 0) {
+                return $iblockId;
+            }
+        }
+
+        $elementId = (int)($_REQUEST['ID'] ?? $_REQUEST['id'] ?? 0);
+        if ($elementId > 0 && Loader::includeModule('iblock')) {
+            $element = \CIBlockElement::GetList([], ['ID' => $elementId], false, false, ['ID', 'IBLOCK_ID'])->Fetch();
+            if (!empty($element['IBLOCK_ID'])) {
+                return (int)$element['IBLOCK_ID'];
+            }
+        }
+
+        return 0;
+    }
 
     /**
      * Получить типы инфоблоков модуля
