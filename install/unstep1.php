@@ -73,18 +73,6 @@ if (Loader::includeModule('iblock')) {
         <tr class="heading">
             <td colspan="2"><?= Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_TITLE') ?></td>
         </tr>
-        <tr>
-            <td colspan="2">
-                <label style="display: flex; align-items: flex-start; gap: 10px;">
-                    <input type="checkbox" name="DELETE_DATA" value="Y" style="margin-top: 3px;">
-                    <span>
-                        <strong><?= Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_DELETE_DATA') ?></strong>
-                        <br>
-                        <small style="color:#666;"><?= Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_DELETE_DATA_NOTE') ?></small>
-                    </span>
-                </label>
-            </td>
-        </tr>
     </table>
 
     <?php if ($hasData): ?>

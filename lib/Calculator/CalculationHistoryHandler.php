@@ -17,6 +17,8 @@ class CalculationHistoryHandler
     private const LOG_FILE = '/local/logs/prospektweb.calc.calculation_history.log';
     
     private ConfigManager $configManager;
+    private bool $supportsXmlId = false;
+    private bool $supportsName = false;
     
     public function __construct()
     {
@@ -80,6 +82,9 @@ class CalculationHistoryHandler
         
         $entity = HighloadBlockTable::compileEntity($hlblock);
         $entityClass = $entity->getDataClass();
+        $fields = $entity->getFields();
+        $this->supportsXmlId = isset($fields['UF_XML_ID']);
+        $this->supportsName = isset($fields['UF_NAME']);
         
         // Получаем лимит истории
         $historyLimit = (int)Option::get(self::MODULE_ID, 'CALC_HISTORY_LIMIT', 10);
@@ -111,9 +116,21 @@ class CalculationHistoryHandler
             }
 
             $json = $validation['json'];
+            $sanitizedJson = $this->sanitizeHistoryPayload($json);
+            if (empty($sanitizedJson)) {
+                $message = 'Не удалось подготовить расчётный snapshot для сохранения';
+                $this->logOfferRejection($offerId, $message, $offerData);
+                $results[] = [
+                    'offerId' => $offerId,
+                    'historyId' => null,
+                    'status' => 'error',
+                    'message' => $message,
+                ];
+                continue;
+            }
             
             // Конвертируем в JSON-строку, если передан массив
-            $jsonString = is_string($json) ? $json : json_encode($json, JSON_UNESCAPED_UNICODE);
+            $jsonString = json_encode($sanitizedJson, JSON_UNESCAPED_UNICODE);
 
             if (!is_string($jsonString) || $jsonString === '') {
                 $message = 'Не удалось подготовить расчётные данные для сохранения';
@@ -129,9 +146,7 @@ class CalculationHistoryHandler
             
             try {
                 // Проверяем количество существующих записей
-                $existingCount = $entityClass::getCount([
-                    'filter' => ['UF_OFFER_ID' => $offerId],
-                ]);
+                $existingCount = $entityClass::getCount(['UF_OFFER_ID' => $offerId]);
                 
                 // Если количество >= лимита, удаляем самую старую
                 if ($existingCount >= $historyLimit) {
@@ -148,22 +163,34 @@ class CalculationHistoryHandler
                 }
                 
                 // Добавляем новую запись
-                $addResult = $entityClass::add([
+                $historyXmlId = $this->supportsXmlId ? $this->buildHistoryXmlId($offerId, $offerData) : null;
+                $addData = [
                     'UF_DATETIME' => new \Bitrix\Main\Type\DateTime(),
                     'UF_USER_ID' => $userId,
                     'UF_OFFER_ID' => $offerId,
                     'UF_JSON' => $jsonString,
-                ]);
+                ];
+
+                if ($this->supportsXmlId && $historyXmlId !== null) {
+                    $addData['UF_XML_ID'] = $historyXmlId;
+                }
+
+                if ($this->supportsName) {
+                    $addData['UF_NAME'] = 'Расчёт ТП #' . $offerId;
+                }
+
+                $addResult = $entityClass::add($addData);
                 
                 if ($addResult->isSuccess()) {
                     $historyId = $addResult->getId();
                     
                     // Обновляем свойство COMPLETED_CALCS в инфоблоке ТП
-                    $this->updateCompletedCalcs($offerId, $historyId, $skuIblockId);
+                    $this->updateCompletedCalcs($offerId, $skuIblockId, $entityClass);
                     
                     $results[] = [
                         'offerId' => $offerId,
                         'historyId' => $historyId,
+                        'historyXmlId' => $historyXmlId,
                         'status' => 'ok',
                     ];
                     $savedCount++;
@@ -210,9 +237,15 @@ class CalculationHistoryHandler
         }
 
         $offers = [];
+        $timestamp = $payload['timestamp'] ?? null;
+
         foreach ($payload['results'] as $item) {
             if (!is_array($item)) {
                 continue;
+            }
+
+            if ($timestamp !== null && !array_key_exists('timestamp', $item)) {
+                $item['timestamp'] = $timestamp;
             }
 
             $offers[] = [
@@ -222,6 +255,58 @@ class CalculationHistoryHandler
         }
 
         return $offers;
+    }
+
+    private function buildHistoryXmlId(int $offerId, array $offerData): string
+    {
+        $jsonData = $offerData['json'] ?? [];
+
+        if (is_string($jsonData)) {
+            $decoded = json_decode($jsonData, true);
+            $jsonData = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($jsonData)) {
+            $jsonData = [];
+        }
+
+        $presetId = (int)($jsonData['presetId'] ?? $offerData['presetId'] ?? 0);
+        $timestamp = (string)($jsonData['timestamp'] ?? $offerData['timestamp'] ?? time());
+
+        return sprintf('%d_%d_%s', $offerId, $presetId, preg_replace('/[^0-9]/', '', $timestamp) ?: (string)time());
+    }
+
+    private function sanitizeHistoryPayload($json)
+    {
+        if (is_string($json)) {
+            $decoded = json_decode($json, true);
+            $json = is_array($decoded) ? $decoded : [];
+        }
+
+        if (!is_array($json)) {
+            return [];
+        }
+
+        if (!empty($json['details']) && is_array($json['details'])) {
+            foreach ($json['details'] as $detailIndex => $detail) {
+                if (!is_array($detail) || empty($detail['stages']) || !is_array($detail['stages'])) {
+                    continue;
+                }
+
+                foreach ($detail['stages'] as $stageIndex => $stage) {
+                    if (!is_array($stage)) {
+                        continue;
+                    }
+
+                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['inputs']);
+                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['logicApplied']);
+                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['logs']);
+                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['variables']);
+                }
+            }
+        }
+
+        return $json;
     }
 
     /**
@@ -281,33 +366,40 @@ class CalculationHistoryHandler
      * Обновить свойство COMPLETED_CALCS в элементе инфоблока ТП
      * 
      * @param int $offerId ID торгового предложения
-     * @param int $historyId ID записи истории
-     * @param int $skuIblockId ID инфоблока ТП
+     * Синхронизирует значение с фактическими записями HL, чтобы исключить фантомные значения.
      */
-    private function updateCompletedCalcs(int $offerId, int $historyId, int $skuIblockId): void
+    private function updateCompletedCalcs(int $offerId, int $skuIblockId, string $entityClass): void
     {
-        // Получаем текущие значения свойства напрямую
-        $existingValues = [];
-        
-        $rsProperty = \CIBlockElement::GetProperty(
-            $skuIblockId,
-            $offerId,
-            [],
-            ['CODE' => 'COMPLETED_CALCS']
-        );
-        
-        while ($property = $rsProperty->Fetch()) {
-            if (!empty($property['VALUE'])) {
-                $existingValues[] = $property['VALUE'];
+        $historyLinks = [];
+
+        $historyRows = $entityClass::getList([
+            'filter' => ['UF_OFFER_ID' => $offerId],
+            'order' => ['UF_DATETIME' => 'DESC', 'ID' => 'DESC'],
+            'select' => ['ID', 'UF_XML_ID'],
+        ]);
+
+        while ($row = $historyRows->fetch()) {
+            $link = '';
+            if (isset($row['UF_XML_ID']) && (string)$row['UF_XML_ID'] !== '') {
+                $link = (string)$row['UF_XML_ID'];
+            } else {
+                $link = (string)($row['ID'] ?? '');
+            }
+
+            if ($link !== '') {
+                $historyLinks[] = $link;
             }
         }
-        
-        // Добавляем новый ID
-        $existingValues[] = $historyId;
-        
-        // Обновляем свойство
+
+        $historyLinks = array_values(array_unique($historyLinks));
+
+        // Жёстко очищаем и перезаписываем, чтобы не оставалось фантомных позиций после переустановок.
         \CIBlockElement::SetPropertyValuesEx($offerId, $skuIblockId, [
-            'COMPLETED_CALCS' => $existingValues,
+            'COMPLETED_CALCS' => false,
+        ]);
+
+        \CIBlockElement::SetPropertyValuesEx($offerId, $skuIblockId, [
+            'COMPLETED_CALCS' => $historyLinks,
         ]);
     }
 }

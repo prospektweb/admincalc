@@ -116,7 +116,7 @@ class InitPayloadService
                 ['ID' => $offerId],
                 false,
                 false,
-                ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'PROPERTY_*']
+                ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_*']
             )->GetNextElement();
 
             if (!$elementObject) {
@@ -146,6 +146,10 @@ class InitPayloadService
                 'iblockId' => (int)$element['IBLOCK_ID'],
                 'name' => $element['NAME'] ?? '',
                 'code' => $element['CODE'] ?? null,
+                'timestampX' => $element['TIMESTAMP_X'] ?? null,
+                'modifiedBy' => isset($element['MODIFIED_BY']) ? (int)$element['MODIFIED_BY'] : null,
+                'timestamp_x' => $element['TIMESTAMP_X'] ?? null,
+                'modified_by' => isset($element['MODIFIED_BY']) ? (int)$element['MODIFIED_BY'] : null,
                 'attributes' => [
                     'width' => isset($productData['WIDTH']) ? (float)$productData['WIDTH'] : null,
                     'height' => isset($productData['HEIGHT']) ? (float)$productData['HEIGHT'] :  null,
@@ -922,7 +926,7 @@ class InitPayloadService
             ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'],
             false,
             false,
-            ['ID', 'NAME', 'CODE', 'IBLOCK_SECTION_ID', 'IBLOCK_ID']
+            ['ID', 'NAME', 'CODE', 'IBLOCK_SECTION_ID', 'IBLOCK_ID', 'TIMESTAMP_X', 'MODIFIED_BY']
         );
 
         while ($fields = $res->Fetch()) {
@@ -933,6 +937,10 @@ class InitPayloadService
                 'code' => $fields['CODE'] ?? '',
                 'iblockId' => (int)$fields['IBLOCK_ID'],
                 'sectionId' => !empty($fields['IBLOCK_SECTION_ID']) ? (int)$fields['IBLOCK_SECTION_ID'] : 0,
+                'timestampX' => $fields['TIMESTAMP_X'] ?? null,
+                'modifiedBy' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
+                'timestamp_x' => $fields['TIMESTAMP_X'] ?? null,
+                'modified_by' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
             ];
         }
 
@@ -962,7 +970,7 @@ class InitPayloadService
             ],
             false,
             false,
-            ['ID', 'NAME', 'CODE', 'IBLOCK_ID', 'PROPERTY_CML2_LINK']
+            ['ID', 'NAME', 'CODE', 'IBLOCK_ID', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_CML2_LINK']
         );
 
         while ($fields = $res->Fetch()) {
@@ -977,6 +985,10 @@ class InitPayloadService
                 'code' => $fields['CODE'] ?? '',
                 'iblockId' => $variantsIblockId,
                 'parentId' => $parentId,
+                'timestampX' => $fields['TIMESTAMP_X'] ?? null,
+                'modifiedBy' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
+                'timestamp_x' => $fields['TIMESTAMP_X'] ?? null,
+                'modified_by' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
             ];
         }
 

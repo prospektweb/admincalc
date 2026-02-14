@@ -690,7 +690,7 @@ class ElementDataService
                 ['ID' => $elementId],
                 false,
                 false,
-                ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'PROPERTY_CML2_LINK']
+                ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_CML2_LINK']
             )->GetNextElement();
 
             if (! $elementObject) {
@@ -724,6 +724,10 @@ class ElementDataService
                 'code' => $fields['CODE'] ?? null,
                 'productId' => $productId > 0 ? $productId : null,
                 'name' => $fields['NAME'] ?? '',
+                'timestampX' => $fields['TIMESTAMP_X'] ?? null,
+                'modifiedBy' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
+                'timestamp_x' => $fields['TIMESTAMP_X'] ?? null,
+                'modified_by' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
                 'attributes' => [
                     'width' => isset($productData['WIDTH']) ? (float)$productData['WIDTH'] : null,
                     'height' => isset($productData['HEIGHT']) ? (float)$productData['HEIGHT'] :  null,
@@ -788,7 +792,7 @@ class ElementDataService
             ['ID' => $parentId],
             false,
             false,
-            ['ID', 'IBLOCK_ID', 'NAME', 'CODE']
+            ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'TIMESTAMP_X', 'MODIFIED_BY']
         )->GetNextElement();
 
         if (!$elementObject) {
@@ -803,6 +807,10 @@ class ElementDataService
             'iblockId' => (int)$fields['IBLOCK_ID'],
             'code' => $fields['CODE'] ?? null,
             'name' => $fields['NAME'] ?? '',
+            'timestampX' => $fields['TIMESTAMP_X'] ?? null,
+            'modifiedBy' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
+            'timestamp_x' => $fields['TIMESTAMP_X'] ?? null,
+            'modified_by' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
             'properties' => $properties,
         ];
     }
