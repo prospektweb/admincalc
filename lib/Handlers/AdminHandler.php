@@ -6,6 +6,8 @@ use Bitrix\Main\Loader;
 use Bitrix\Main\Page\Asset;
 use Bitrix\Main\Page\AssetLocation;
 use Bitrix\Main\Application;
+use Bitrix\Main\Config\Option;
+use Bitrix\Highloadblock\HighloadBlockTable;
 
 /**
  * Обработчик для добавления кнопки/вкладки в админку.
