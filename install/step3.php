@@ -92,7 +92,7 @@ function getCodeFieldSettings(): array
 /**
  * Гарантирует наличие обязательных пользовательских полей в HighloadBlock.
  */
-function ensureHighloadUserFields(int $hlblockId): array
+function ensureHighloadUserFields(int $hlblockId, int $skuIblockId = 0): array
 {
     $entityId = 'HLBLOCK_' . $hlblockId;
     $userTypeEntity = new \CUserTypeEntity();
@@ -123,13 +123,29 @@ function ensureHighloadUserFields(int $hlblockId): array
         'UF_OFFER_ID' => [
             'ENTITY_ID' => $entityId,
             'FIELD_NAME' => 'UF_OFFER_ID',
-            'USER_TYPE_ID' => 'integer',
+            'USER_TYPE_ID' => 'iblock_element',
             'MANDATORY' => 'Y',
-            'EDIT_FORM_LABEL' => ['ru' => 'ID торгового предложения'],
+            'EDIT_FORM_LABEL' => ['ru' => 'Торговое предложение'],
             'LIST_COLUMN_LABEL' => ['ru' => 'ТП'],
             'LIST_FILTER_LABEL' => ['ru' => 'ТП'],
             'ERROR_MESSAGE' => ['ru' => ''],
             'HELP_MESSAGE' => ['ru' => ''],
+            'SETTINGS' => [
+                'IBLOCK_ID' => $skuIblockId,
+                'DEFAULT_VALUE' => '',
+            ],
+        ],
+        'UF_XML_ID' => [
+            'ENTITY_ID' => $entityId,
+            'FIELD_NAME' => 'UF_XML_ID',
+            'USER_TYPE_ID' => 'string',
+            'MANDATORY' => 'Y',
+            'EDIT_FORM_LABEL' => ['ru' => 'Внешний код'],
+            'LIST_COLUMN_LABEL' => ['ru' => 'XML_ID'],
+            'LIST_FILTER_LABEL' => ['ru' => 'XML_ID'],
+            'ERROR_MESSAGE' => ['ru' => ''],
+            'HELP_MESSAGE' => ['ru' => ''],
+            'SETTINGS' => ['SIZE' => 255, 'ROWS' => 1],
         ],
         'UF_JSON' => [
             'ENTITY_ID' => $entityId,
@@ -1478,8 +1494,9 @@ switch ($currentStep) {
             }
             
             if (isset($hlblockId) && $hlblockId > 0) {
-                $fieldResult = ensureHighloadUserFields($hlblockId);
-                $totalFields = 4;
+                $skuIblockId = (int)($installData['sku_iblock_id'] ?? 0);
+                $fieldResult = ensureHighloadUserFields($hlblockId, $skuIblockId);
+                $totalFields = 5;
                 $processedFields = $fieldResult['created'] + $fieldResult['updated'];
 
                 if (empty($fieldResult['errors'])) {

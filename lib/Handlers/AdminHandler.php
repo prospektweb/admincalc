@@ -6,6 +6,8 @@ use Bitrix\Main\Loader;
 use Bitrix\Main\Page\Asset;
 use Bitrix\Main\Page\AssetLocation;
 use Bitrix\Main\Application;
+use Bitrix\Main\Config\Option;
+use Bitrix\Highloadblock\HighloadBlockTable;
 
 /**
  * Обработчик для добавления кнопки/вкладки в админку.
@@ -224,18 +226,180 @@ class AdminHandler
 			return;
 		}
 
+        if (!Loader::includeModule('prospektweb.calc') || !Loader::includeModule('iblock')) {
+            return;
+        }
+
+        $configManager = new \Prospektweb\Calc\Config\ConfigManager();
+        $skuIblockId = $configManager->getSkuIblockId();
+        $iblockId = (int)($_REQUEST['IBLOCK_ID'] ?? $_REQUEST['iblock_id'] ?? 0);
+        $elementId = (int)($_REQUEST['ID'] ?? $_REQUEST['id'] ?? 0);
+
+        if ($skuIblockId <= 0 || $iblockId !== $skuIblockId || $elementId <= 0) {
+            return;
+        }
+
 		$iblockTypes = self::getModuleIblockTypes();
+
+        $dashboardData = self::loadHistoryDataForOffer($elementId, $skuIblockId);
+
+        $dashboardUrl = '/local/apps/prospektweb.calc/dashboard/index.html';
+        if (!file_exists(Application::getDocumentRoot() . $dashboardUrl)) {
+            $dashboardUrl = '/local/apps/prospektweb.calc/index.html';
+        }
 
 		$jsPath = '/local/js/prospektweb.calc/admin_element_links.js';
 		
 		$inlineJs = '<script>
 			window. PROSPEKTWEB_CALC_IBLOCK_TYPES = ' . json_encode($iblockTypes, self::JSON_ENCODE_FLAGS) . ';
+			window.PROSPEKTWEB_CALC_DASHBOARD_DATA = ' . json_encode($dashboardData, self::JSON_ENCODE_FLAGS) . ';
+			window.PROSPEKTWEB_CALC_DASHBOARD_URL = ' . json_encode($dashboardUrl, self::JSON_ENCODE_FLAGS) . ';
+
+			(function initCalcAnalysisTab(){
+				if (window.__prospektwebAnalysisTabInitialized) {
+					return;
+				}
+				window.__prospektwebAnalysisTabInitialized = true;
+
+				function ensureTabContent() {
+					var tab = document.getElementById("tab_cont_analysis");
+					if (!tab) {
+						return false;
+					}
+
+					if (document.getElementById("prospektweb-calc-analysis-dashboard")) {
+						return true;
+					}
+
+					var wrapper = document.createElement("div");
+					wrapper.id = "prospektweb-calc-analysis-dashboard";
+					wrapper.style.marginTop = "12px";
+
+					var title = document.createElement("div");
+					title.style.marginBottom = "8px";
+					title.style.fontWeight = "600";
+					title.textContent = "Дашборд себестоимости";
+
+					var iframe = document.createElement("iframe");
+					iframe.id = "prospektweb-calc-analysis-iframe";
+					iframe.src = window.PROSPEKTWEB_CALC_DASHBOARD_URL || "";
+					iframe.style.width = "100%";
+					iframe.style.minHeight = "760px";
+					iframe.style.border = "1px solid #dce0e5";
+					iframe.style.background = "#fff";
+
+					iframe.addEventListener("load", function() {
+						iframe.contentWindow.postMessage({
+							type: "PROSPEKTWEB_CALC_DASHBOARD_INIT",
+							offerId: window.PROSPEKTWEB_CALC_DASHBOARD_DATA.offerId || 0,
+							history: window.PROSPEKTWEB_CALC_DASHBOARD_DATA.history || []
+						}, "*");
+					});
+
+					wrapper.appendChild(title);
+					wrapper.appendChild(iframe);
+					tab.appendChild(wrapper);
+
+					return true;
+				}
+
+				if (!ensureTabContent()) {
+					var attempts = 0;
+					var timer = setInterval(function() {
+						attempts++;
+						if (ensureTabContent() || attempts > 20) {
+							clearInterval(timer);
+						}
+					}, 300);
+				}
+			})();
 		</script>
 		<script src="' . \CUtil::GetAdditionalFileURL($jsPath) . '"></script>';
 		
 		Asset::getInstance()->addString($inlineJs, false, AssetLocation::AFTER_JS);
 		
 	}
+
+    /**
+     * Получает историю расчётов из HL по ссылкам из свойства COMPLETED_CALCS.
+     */
+    private static function loadHistoryDataForOffer(int $offerId, int $skuIblockId): array
+    {
+        $result = [
+            'offerId' => $offerId,
+            'history' => [],
+        ];
+
+        if (!Loader::includeModule('highloadblock')) {
+            return $result;
+        }
+
+        $hlblockId = (int)Option::get('prospektweb.calc', 'HIGHLOAD_CALC_HISTORY_ID', 0);
+        if ($hlblockId <= 0) {
+            return $result;
+        }
+
+        $propertyLinks = [];
+        $rsProperty = \CIBlockElement::GetProperty(
+            $skuIblockId,
+            $offerId,
+            ['SORT' => 'ASC'],
+            ['CODE' => 'COMPLETED_CALCS']
+        );
+
+        while ($property = $rsProperty->Fetch()) {
+            if (!empty($property['VALUE'])) {
+                $propertyLinks[] = (string)$property['VALUE'];
+            }
+        }
+
+        $propertyLinks = array_values(array_unique($propertyLinks));
+        if (empty($propertyLinks)) {
+            return $result;
+        }
+
+        $hlblock = HighloadBlockTable::getById($hlblockId)->fetch();
+        if (!$hlblock) {
+            return $result;
+        }
+
+        $entity = HighloadBlockTable::compileEntity($hlblock);
+        $entityClass = $entity->getDataClass();
+
+        $rows = $entityClass::getList([
+            'filter' => [
+                'UF_OFFER_ID' => $offerId,
+            ],
+            'order' => ['UF_DATETIME' => 'ASC', 'ID' => 'ASC'],
+            'select' => ['ID', 'UF_XML_ID', 'UF_DATETIME', 'UF_USER_ID', 'UF_JSON'],
+        ]);
+
+        while ($row = $rows->fetch()) {
+            $idLink = (string)($row['ID'] ?? '');
+            $xmlLink = (string)($row['UF_XML_ID'] ?? '');
+            if (!in_array($xmlLink, $propertyLinks, true) && !in_array($idLink, $propertyLinks, true)) {
+                continue;
+            }
+
+            $json = [];
+            if (!empty($row['UF_JSON']) && is_string($row['UF_JSON'])) {
+                $decoded = json_decode($row['UF_JSON'], true);
+                if (is_array($decoded)) {
+                    $json = $decoded;
+                }
+            }
+
+            $result['history'][] = [
+                'id' => (int)$row['ID'],
+                'xmlId' => (string)($row['UF_XML_ID'] ?? ''),
+                'dateTime' => isset($row['UF_DATETIME']) ? (string)$row['UF_DATETIME'] : null,
+                'userId' => isset($row['UF_USER_ID']) ? (int)$row['UF_USER_ID'] : null,
+                'json' => $json,
+            ];
+        }
+
+        return $result;
+    }
 
     /**
      * Получить типы инфоблоков модуля
