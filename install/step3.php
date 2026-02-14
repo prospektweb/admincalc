@@ -109,6 +109,18 @@ function ensureHighloadUserFields(int $hlblockId, int $skuIblockId = 0): array
             'ERROR_MESSAGE' => ['ru' => ''],
             'HELP_MESSAGE' => ['ru' => ''],
         ],
+        'UF_NAME' => [
+            'ENTITY_ID' => $entityId,
+            'FIELD_NAME' => 'UF_NAME',
+            'USER_TYPE_ID' => 'string',
+            'MANDATORY' => 'N',
+            'EDIT_FORM_LABEL' => ['ru' => 'Название'],
+            'LIST_COLUMN_LABEL' => ['ru' => 'Название'],
+            'LIST_FILTER_LABEL' => ['ru' => 'Название'],
+            'ERROR_MESSAGE' => ['ru' => ''],
+            'HELP_MESSAGE' => ['ru' => ''],
+            'SETTINGS' => ['SIZE' => 255, 'ROWS' => 1],
+        ],
         'UF_USER_ID' => [
             'ENTITY_ID' => $entityId,
             'FIELD_NAME' => 'UF_USER_ID',
@@ -1496,7 +1508,7 @@ switch ($currentStep) {
             if (isset($hlblockId) && $hlblockId > 0) {
                 $skuIblockId = (int)($installData['sku_iblock_id'] ?? 0);
                 $fieldResult = ensureHighloadUserFields($hlblockId, $skuIblockId);
-                $totalFields = 5;
+                $totalFields = 6;
                 $processedFields = $fieldResult['created'] + $fieldResult['updated'];
 
                 if (empty($fieldResult['errors'])) {
