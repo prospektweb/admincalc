@@ -185,7 +185,7 @@ class CalculationHistoryHandler
                     $historyId = $addResult->getId();
                     
                     // Обновляем свойство COMPLETED_CALCS в инфоблоке ТП
-                    $this->updateCompletedCalcs($offerId, $historyId, $historyXmlId, $skuIblockId);
+                    $this->updateCompletedCalcs($offerId, $skuIblockId, $entityClass);
                     
                     $results[] = [
                         'offerId' => $offerId,
@@ -287,139 +287,26 @@ class CalculationHistoryHandler
             return [];
         }
 
-        $payload = [
-            'offerId' => (int)($json['offerId'] ?? 0),
-            'presetId' => (int)($json['presetId'] ?? 0),
-            'timestamp' => (int)($json['timestamp'] ?? time()),
-            'currency' => (string)($json['currency'] ?? ''),
-            'directPurchasePrice' => (float)($json['directPurchasePrice'] ?? 0),
-            'purchasePrice' => (float)($json['purchasePrice'] ?? 0),
-            'priceRangesWithMarkup' => $this->sanitizePriceRanges($json['priceRangesWithMarkup'] ?? []),
-            'details' => $this->sanitizeDetails($json['details'] ?? []),
-        ];
-
-        if (!empty($json['parametrValues']) && is_array($json['parametrValues'])) {
-            $payload['parametrValues'] = array_values(array_filter(array_map(static function ($item) {
-                if (!is_array($item)) {
-                    return null;
+        if (!empty($json['details']) && is_array($json['details'])) {
+            foreach ($json['details'] as $detailIndex => $detail) {
+                if (!is_array($detail) || empty($detail['stages']) || !is_array($detail['stages'])) {
+                    continue;
                 }
 
-                return [
-                    'name' => (string)($item['name'] ?? ''),
-                    'value' => (string)($item['value'] ?? ''),
-                ];
-            }, $json['parametrValues'])));
-        }
-
-        return $payload;
-    }
-
-    private function sanitizeDetails($details): array
-    {
-        if (!is_array($details)) {
-            return [];
-        }
-
-        $result = [];
-
-        foreach ($details as $detail) {
-            if (!is_array($detail)) {
-                continue;
-            }
-
-            $item = [
-                'detailId' => (string)($detail['detailId'] ?? ''),
-                'detailType' => (string)($detail['detailType'] ?? ''),
-                'purchasePrice' => (float)($detail['purchasePrice'] ?? 0),
-                'basePrice' => (float)($detail['basePrice'] ?? 0),
-                'currency' => (string)($detail['currency'] ?? ''),
-                'stages' => $this->sanitizeStages($detail['stages'] ?? []),
-            ];
-
-            foreach (['width', 'length', 'height', 'weight'] as $key) {
-                if (isset($detail[$key])) {
-                    $item[$key] = (float)$detail[$key];
-                }
-            }
-
-            if (!empty($detail['children']) && is_array($detail['children'])) {
-                $item['children'] = $this->sanitizeDetails($detail['children']);
-            }
-
-            $result[] = $item;
-        }
-
-        return $result;
-    }
-
-    private function sanitizeStages($stages): array
-    {
-        if (!is_array($stages)) {
-            return [];
-        }
-
-        $result = [];
-
-        foreach ($stages as $stage) {
-            if (!is_array($stage)) {
-                continue;
-            }
-
-            $item = [
-                'stageId' => (string)($stage['stageId'] ?? ''),
-                'operationCost' => (float)($stage['operationCost'] ?? 0),
-                'materialCost' => (float)($stage['materialCost'] ?? 0),
-                'totalCost' => (float)($stage['totalCost'] ?? 0),
-                'currency' => (string)($stage['currency'] ?? ''),
-            ];
-
-            if (!empty($stage['outputs']) && is_array($stage['outputs'])) {
-                $item['outputs'] = $stage['outputs'];
-            }
-
-            $result[] = $item;
-        }
-
-        return $result;
-    }
-
-    private function sanitizePriceRanges($ranges): array
-    {
-        if (!is_array($ranges)) {
-            return [];
-        }
-
-        $result = [];
-
-        foreach ($ranges as $range) {
-            if (!is_array($range)) {
-                continue;
-            }
-
-            $prices = [];
-            if (!empty($range['prices']) && is_array($range['prices'])) {
-                foreach ($range['prices'] as $price) {
-                    if (!is_array($price)) {
+                foreach ($detail['stages'] as $stageIndex => $stage) {
+                    if (!is_array($stage)) {
                         continue;
                     }
 
-                    $prices[] = [
-                        'typeId' => (int)($price['typeId'] ?? 0),
-                        'purchasePrice' => (float)($price['purchasePrice'] ?? 0),
-                        'basePrice' => (float)($price['basePrice'] ?? 0),
-                        'currency' => (string)($price['currency'] ?? ''),
-                    ];
+                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['inputs']);
+                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['logicApplied']);
+                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['logs']);
+                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['variables']);
                 }
             }
-
-            $result[] = [
-                'quantityFrom' => $range['quantityFrom'] ?? null,
-                'quantityTo' => $range['quantityTo'] ?? null,
-                'prices' => $prices,
-            ];
         }
 
-        return $result;
+        return $json;
     }
 
     /**
@@ -479,37 +366,40 @@ class CalculationHistoryHandler
      * Обновить свойство COMPLETED_CALCS в элементе инфоблока ТП
      * 
      * @param int $offerId ID торгового предложения
-     * @param int $historyId ID записи истории
-     * @param int $skuIblockId ID инфоблока ТП
+     * Синхронизирует значение с фактическими записями HL, чтобы исключить фантомные значения.
      */
-    private function updateCompletedCalcs(int $offerId, int $historyId, ?string $historyXmlId, int $skuIblockId): void
+    private function updateCompletedCalcs(int $offerId, int $skuIblockId, string $entityClass): void
     {
-        $linkValue = $historyXmlId ?: (string)$historyId;
+        $historyLinks = [];
 
-        // Получаем текущие значения свойства напрямую
-        $existingValues = [];
-        
-        $rsProperty = \CIBlockElement::GetProperty(
-            $skuIblockId,
-            $offerId,
-            [],
-            ['CODE' => 'COMPLETED_CALCS']
-        );
-        
-        while ($property = $rsProperty->Fetch()) {
-            if (!empty($property['VALUE'])) {
-                $existingValues[] = $property['VALUE'];
+        $historyRows = $entityClass::getList([
+            'filter' => ['UF_OFFER_ID' => $offerId],
+            'order' => ['UF_DATETIME' => 'DESC', 'ID' => 'DESC'],
+            'select' => ['ID', 'UF_XML_ID'],
+        ]);
+
+        while ($row = $historyRows->fetch()) {
+            $link = '';
+            if (isset($row['UF_XML_ID']) && (string)$row['UF_XML_ID'] !== '') {
+                $link = (string)$row['UF_XML_ID'];
+            } else {
+                $link = (string)($row['ID'] ?? '');
+            }
+
+            if ($link !== '') {
+                $historyLinks[] = $link;
             }
         }
 
-        // Добавляем новую ссылку (UF_XML_ID для directory, fallback на ID)
-        if (!in_array($linkValue, $existingValues, true)) {
-            $existingValues[] = $linkValue;
-        }
-        
-        // Обновляем свойство
+        $historyLinks = array_values(array_unique($historyLinks));
+
+        // Жёстко очищаем и перезаписываем, чтобы не оставалось фантомных позиций после переустановок.
         \CIBlockElement::SetPropertyValuesEx($offerId, $skuIblockId, [
-            'COMPLETED_CALCS' => $existingValues,
+            'COMPLETED_CALCS' => false,
+        ]);
+
+        \CIBlockElement::SetPropertyValuesEx($offerId, $skuIblockId, [
+            'COMPLETED_CALCS' => $historyLinks,
         ]);
     }
 }

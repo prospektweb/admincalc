@@ -65,7 +65,7 @@ class EntityLoader
             $filter,
             false,
             false,
-            ['*']
+            ['*', 'TIMESTAMP_X', 'MODIFIED_BY']
         );
 
         while ($element = $res->GetNextElement()) {
@@ -80,6 +80,12 @@ class EntityLoader
             $id = (int)$fields['ID'];
             $result[$id] = [
                 'FIELDS' => $fields,
+                'META' => [
+                    'timestampX' => $fields['TIMESTAMP_X'] ?? null,
+                    'modifiedBy' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
+                    'timestamp_x' => $fields['TIMESTAMP_X'] ?? null,
+                    'modified_by' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
+                ],
                 'PROPERTIES' => $props,
                 'PRICES' => [],
             ];
@@ -233,6 +239,12 @@ class EntityLoader
         foreach ($ids as $id) {
             $result[$id] = [
                 'FIELDS' => $elements[$id]['FIELDS'] ?? [],
+                'META' => $elements[$id]['META'] ?? [
+                    'timestampX' => null,
+                    'modifiedBy' => null,
+                    'timestamp_x' => null,
+                    'modified_by' => null,
+                ],
                 'PROPERTIES' => $elements[$id]['PROPERTIES'] ?? [],
                 'PRICES' => $priceIndex[$id] ?? [],
                 'CATALOG' => $this->loadCatalogData((int)$id),
@@ -279,6 +291,12 @@ class EntityLoader
             if (!array_key_exists($offerId, $variantsData)) {
                 $variantsData[$offerId] = [
                     'FIELDS' => [],
+                    'META' => [
+                        'timestampX' => null,
+                        'modifiedBy' => null,
+                        'timestamp_x' => null,
+                        'modified_by' => null,
+                    ],
                     'PROPERTIES' => [],
                     'PRICES' => [],
                 ];
