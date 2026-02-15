@@ -114,7 +114,7 @@ if ($pwrtMessage) {
                 break;
             
             case 'SAVE_CALCULATION_REQUEST':
-                $handler = new \Prospektweb\Calc\Calculator\CalculationHistoryHandler();
+                $handler = new \Prospektweb\Calc\Services\SaveAllService();
                 $result = $handler->handle($payload);
                 
                 $response = [
