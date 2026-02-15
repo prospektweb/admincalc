@@ -23,6 +23,9 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\DetailHandler' => 'lib/Services/DetailHandler.php',
     'Prospektweb\\Calc\\Services\\CustomFieldsService' => 'lib/Services/CustomFieldsService.php',
     'Prospektweb\\Calc\\Services\\PresetEnrichmentService' => 'lib/Services/PresetEnrichmentService.php',
+    'Prospektweb\\Calc\\Services\\CatalogPriceService' => 'lib/Services/CatalogPriceService.php',
+    'Prospektweb\\Calc\\Services\\OfferUpdateService' => 'lib/Services/OfferUpdateService.php',
+    'Prospektweb\\Calc\\Services\\SaveAllService' => 'lib/Services/SaveAllService.php',
     'Prospektweb\\Calc\\Handlers\\AdminHandler' => 'lib/Handlers/AdminHandler.php',
     'Prospektweb\\Calc\\Handlers\\DependencyHandler' => 'lib/Handlers/DependencyHandler.php',
 ]);
