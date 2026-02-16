@@ -31,6 +31,9 @@ if (!Loader::includeModule($module_id)) {
 
 $APPLICATION->SetTitle(Loc::getMessage('PROSPEKTWEB_CALC_RECALC_TITLE'));
 
+// Получаем базовый путь для AJAX запросов
+$ajaxEndpoint = '/bitrix/tools/prospektweb.calc/batch_recalculate.php';
+
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';
 
 // Получаем настройки по умолчанию
@@ -270,6 +273,7 @@ $presets = $service->getPresetsWithOfferCount();
 
 <script>
 (function() {
+    const ajaxEndpoint = <?= json_encode($ajaxEndpoint, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     const scopeAll = document.getElementById('scope-all');
     const scopeSpecific = document.getElementById('scope-specific');
     const presetSelector = document.getElementById('preset-selector');
@@ -331,7 +335,7 @@ $presets = $service->getPresetsWithOfferCount();
         startBtn.disabled = true;
 
         // Отправляем запрос
-        fetch('/bitrix/tools/prospektweb.calc/batch_recalculate.php', {
+        fetch(ajaxEndpoint, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

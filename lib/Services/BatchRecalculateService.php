@@ -181,7 +181,8 @@ class BatchRecalculateService
             foreach ($offerIds as $offerId) {
                 try {
                     // Собираем initPayload для этого ТП
-                    $siteId = defined('SITE_ID') ? SITE_ID : 's1';
+                    // Используем текущий ID сайта, если не определён - берём из настроек модуля
+                    $siteId = defined('SITE_ID') ? SITE_ID : Option::get(self::MODULE_ID, 'DEFAULT_SITE_ID', 's1');
                     $initPayload = $this->initPayloadService->prepareInitPayload([$offerId], $siteId);
                     
                     // Вычисляем хеш текущего состояния
@@ -290,6 +291,10 @@ class BatchRecalculateService
 
     /**
      * Вычислить хеш состояния для набора offer IDs
+     * 
+     * MD5 используется для быстрой проверки изменений данных.
+     * Это НЕ криптографическая операция, а простая детекция изменений,
+     * поэтому MD5 подходит (быстрый и достаточный для этой цели).
      * 
      * @param array $initPayload Полные данные для расчёта
      * @return string MD5 хеш состояния

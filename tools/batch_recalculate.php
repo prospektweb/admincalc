@@ -65,7 +65,28 @@ $onlyChanged = (bool)($requestData['onlyChanged'] ?? true);
 $calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'http://localhost:3100'));
 $timeout = (int)($requestData['timeout'] ?? 30);
 
-// Валидация
+// Валидация URL для предотвращения SSRF атак
+if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
+    http_response_code(400);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Invalid calc server URL',
+    ]);
+    exit;
+}
+
+// Проверка, что URL использует допустимые схемы
+$urlParts = parse_url($calcServerUrl);
+if (!in_array($urlParts['scheme'] ?? '', ['http', 'https'], true)) {
+    http_response_code(400);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Invalid URL scheme. Only http and https are allowed.',
+    ]);
+    exit;
+}
+
+// Валидация остальных параметров
 if (!is_array($presetIds)) {
     http_response_code(400);
     echo json_encode([
