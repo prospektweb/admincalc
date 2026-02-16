@@ -358,8 +358,12 @@ $jsMessages = [
         startBtn.disabled = true;
 
         // Отправляем запрос
-        fetch(ajaxEndpoint, {
+        const sessid = BX.bitrix_sessid();
+        const endpointWithSessid = `${ajaxEndpoint}${ajaxEndpoint.includes('?') ? '&' : '?'}sessid=${encodeURIComponent(sessid)}`;
+
+        fetch(endpointWithSessid, {
             method: 'POST',
+            credentials: 'same-origin',
             headers: {
                 'Content-Type': 'application/json',
             },
@@ -368,7 +372,7 @@ $jsMessages = [
                 onlyChanged: onlyChanged,
                 calcServerUrl: calcServerUrl,
                 timeout: timeout,
-                sessid: BX.bitrix_sessid()
+                sessid: sessid
             })
         })
         .then(response => response.json())
@@ -382,6 +386,16 @@ $jsMessages = [
                 // Показываем результаты
                 displayResults(data);
             } else {
+                if (data.errorCode === 'INVALID_SESSION') {
+                    alert('Сессия истекла. Обновите страницу и повторите запуск пересчёта.');
+                    return;
+                }
+
+                if (data.errorCode === 'ADMIN_REQUIRED') {
+                    alert('Недостаточно прав: требуется доступ администратора.');
+                    return;
+                }
+
                 alert(messages.ERROR + ': ' + (data.error || 'Unknown error'));
             }
         })
