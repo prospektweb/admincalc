@@ -200,8 +200,19 @@ class BatchRecalculateService
                     // Отправляем запрос на calc-server
                     $calcResult = $this->callCalcServer($initPayload);
                     
-                    // Записываем результаты (здесь нужна логика записи через SaveHandler или ResultWriter)
-                    // TODO: Реализовать запись результатов
+                    // TODO: Реализовать запись результатов через SaveHandler или ResultWriter
+                    // Результат от calc-server содержит массив CalculationOfferResult[]
+                    // Необходимо сохранить цены и другие рассчитанные данные в базу
+                    // Пример структуры calcResult:
+                    // [
+                    //   'offers' => [
+                    //     ['offerId' => 123, 'price' => 1000, 'priceRanges' => [...], ...]
+                    //   ]
+                    // ]
+                    // Для полной интеграции требуется:
+                    // 1. Разобрать структуру ответа от calc-server
+                    // 2. Извлечь цены для каждого offer
+                    // 3. Записать через ResultWriter или CatalogPriceService
                     
                     // Сохраняем новый хеш
                     $this->saveHash($offerId, $currentHash);
@@ -408,7 +419,7 @@ class BatchRecalculateService
                 'MULTIPLE' => 'N',
                 'IS_REQUIRED' => 'N',
                 'SEARCHABLE' => 'N',
-                'FILTRABLE' => 'N',
+                'FILTERABLE' => 'N',
                 'WITH_DESCRIPTION' => 'N',
             ]);
         }

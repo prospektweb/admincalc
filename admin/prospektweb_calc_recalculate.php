@@ -432,8 +432,8 @@ $presets = $service->getPresetsWithOfferCount();
             errorsHtml += '<div class="error-list">';
             errors.forEach(error => {
                 errorsHtml += `<div class="error-item">`;
-                errorsHtml += `Пресет ID: ${error.presetId}, ТП ID: ${error.offerId}<br>`;
-                errorsHtml += `Ошибка: ${error.error}`;
+                errorsHtml += `Пресет ID: ${escapeHtml(String(error.presetId))}, ТП ID: ${escapeHtml(String(error.offerId))}<br>`;
+                errorsHtml += `Ошибка: ${escapeHtml(String(error.error))}`;
                 errorsHtml += `</div>`;
             });
             errorsHtml += '</div>';
@@ -441,6 +441,13 @@ $presets = $service->getPresetsWithOfferCount();
         }
 
         resultsContainer.style.display = 'block';
+    }
+
+    // Helper function to escape HTML
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 })();
 </script>

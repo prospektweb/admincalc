@@ -94,6 +94,5 @@ try {
     echo json_encode([
         'success' => false,
         'error' => $e->getMessage(),
-        'trace' => $e->getTraceAsString(),
     ], JSON_UNESCAPED_UNICODE);
 }
