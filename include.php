@@ -31,9 +31,6 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Handlers\\DependencyHandler' => 'lib/Handlers/DependencyHandler.php',
 ]);
 
-// Регистрация обработчика глобального меню
-\Bitrix\Main\EventManager::getInstance()->addEventHandler(
-    'main',
-    'OnBuildGlobalMenu',
-    ['Prospektweb\\Calc\\Handlers\\AdminHandler', 'onBuildGlobalMenu']
-);
+// Примечание: Обработчик OnBuildGlobalMenu регистрируется только через persistent handler
+// в install/index.php->installEvents(). Runtime регистрация через addEventHandler убрана,
+// чтобы избежать дублирования пунктов меню.

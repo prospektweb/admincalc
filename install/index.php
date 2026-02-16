@@ -416,12 +416,11 @@ class prospektweb_calc extends CModule
             'onBeforeEndBufferContent'
         );
         
-        $eventManager->unRegisterEventHandler(
-            'main',
-            'OnBuildGlobalMenu',
-            $this->MODULE_ID,
-            '\\Prospektweb\\Calc\\Handlers\\AdminHandler',
-            'onBuildGlobalMenu'
+        // Удаляем ВСЕ обработчики OnBuildGlobalMenu для модуля, чтобы избежать дублирования
+        // при переустановке. Используем прямой SQL запрос для удаления всех записей.
+        $connection = Application::getConnection();
+        $connection->queryExecute(
+            "DELETE FROM b_module_to_module WHERE TO_MODULE_ID = 'prospektweb.calc' AND MESSAGE_ID = 'OnBuildGlobalMenu'"
         );
     }
 

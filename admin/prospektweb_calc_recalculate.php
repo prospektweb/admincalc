@@ -10,7 +10,19 @@ use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\Config\Option;
 use Prospektweb\Calc\Services\BatchRecalculateService;
 
-Loc::loadMessages(__FILE__);
+// Загружаем языковой файл из модуля, т.к. admin-страница копируется в /bitrix/admin/
+$modulePath = getLocalPath('modules/prospektweb.calc');
+if ($modulePath) {
+    $langFile = $_SERVER['DOCUMENT_ROOT'] . $modulePath . '/admin/prospektweb_calc_recalculate.php';
+    if (file_exists($langFile)) {
+        Loc::loadMessages($langFile);
+    } else {
+        // Fallback: попробуем стандартный путь
+        Loc::loadMessages(__FILE__);
+    }
+} else {
+    Loc::loadMessages(__FILE__);
+}
 
 $module_id = 'prospektweb.calc';
 
@@ -37,7 +49,7 @@ $ajaxEndpoint = '/bitrix/tools/prospektweb.calc/batch_recalculate.php';
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';
 
 // Получаем настройки по умолчанию
-$calcServerUrl = Option::get($module_id, 'CALC_SERVER_URL', 'http://localhost:3100');
+$calcServerUrl = Option::get($module_id, 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api');
 $defaultTimeout = 30;
 
 // Получаем список пресетов
