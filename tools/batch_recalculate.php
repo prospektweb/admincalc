@@ -3,10 +3,15 @@
  * AJAX-эндпоинт для пакетного пересчёта калькуляций
  */
 
+define('STOP_STATISTICS', true);
 define('NO_KEEP_STATISTIC', true);
-define('NOT_CHECK_PERMISSIONS', false);
+define('NO_AGENT_STATISTIC', true);
+define('PUBLIC_AJAX_MODE', true);
 
-require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_before.php';
+require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php';
+
+global $APPLICATION;
+$APPLICATION->RestartBuffer();
 
 header('Content-Type: application/json; charset=UTF-8');
 
@@ -16,35 +21,23 @@ use Prospektweb\Calc\Services\BatchRecalculateService;
 
 global $USER;
 
-// Проверка авторизации и прав доступа
-if (!$USER || !$USER->IsAuthorized() || !$USER->IsAdmin()) {
-    http_response_code(403);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Access denied',
-    ]);
-    exit;
-}
-
-// Читаем JSON-тело запроса ОДИН РАЗ (php://input — одноразовый поток)
+// Читаем JSON-тело запроса О��ИН РАЗ
 $requestBody = file_get_contents('php://input');
 $requestData = json_decode($requestBody, true);
 
-// Подставляем sessid из JSON в $_REQUEST,
-// т.к. PHP не парсит application/json в $_POST,
-// и check_bitrix_sessid() не найдёт его без этого
+// Подставляем sessid из JSON в $_REQUEST
 if (is_array($requestData) && isset($requestData['sessid'])) {
     $_REQUEST['sessid'] = $requestData['sessid'];
 }
 
-// Проверка сессии
-if (!check_bitrix_sessid()) {
+// Проверка сессии + права администратора
+if (!check_bitrix_sessid() || !$USER->IsAdmin()) {
     http_response_code(403);
     echo json_encode([
         'success' => false,
-        'error' => 'Invalid session',
+        'error' => 'Access denied or invalid session',
     ]);
-    exit;
+    die();
 }
 
 // Загрузка модуля
@@ -54,17 +47,16 @@ if (!Loader::includeModule('prospektweb.calc')) {
         'success' => false,
         'error' => 'Module not installed',
     ]);
-    exit;
+    die();
 }
 
-// requestData уже распарсен выше, проверяем
 if ($requestData === null) {
     http_response_code(400);
     echo json_encode([
         'success' => false,
         'error' => 'Invalid JSON',
     ]);
-    exit;
+    die();
 }
 
 // Параметры запроса
@@ -73,17 +65,16 @@ $onlyChanged = (bool)($requestData['onlyChanged'] ?? true);
 $calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api'));
 $timeout = (int)($requestData['timeout'] ?? 30);
 
-// Валидация URL для предотвращения SSRF атак
+// Валидация URL
 if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
     http_response_code(400);
     echo json_encode([
         'success' => false,
         'error' => 'Invalid calc server URL',
     ]);
-    exit;
+    die();
 }
 
-// Проверка, что URL использует допустимые схемы
 $urlParts = parse_url($calcServerUrl);
 if (!in_array($urlParts['scheme'] ?? '', ['http', 'https'], true)) {
     http_response_code(400);
@@ -91,17 +82,16 @@ if (!in_array($urlParts['scheme'] ?? '', ['http', 'https'], true)) {
         'success' => false,
         'error' => 'Invalid URL scheme. Only http and https are allowed.',
     ]);
-    exit;
+    die();
 }
 
-// Валидация остальных параметров
 if (!is_array($presetIds)) {
     http_response_code(400);
     echo json_encode([
         'success' => false,
         'error' => 'presetIds must be an array',
     ]);
-    exit;
+    die();
 }
 
 if ($timeout < 1 || $timeout > 300) {
@@ -109,10 +99,7 @@ if ($timeout < 1 || $timeout > 300) {
 }
 
 try {
-    // Создаём сервис пересчёта
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
-    
-    // Выполняем пересчёт
     $result = $service->recalculate($presetIds, $onlyChanged);
     
     echo json_encode([
