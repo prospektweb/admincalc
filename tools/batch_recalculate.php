@@ -25,17 +25,50 @@ global $USER;
 $requestBody = file_get_contents('php://input');
 $requestData = json_decode($requestBody, true);
 
-// Подставляем sessid из JSON в $_REQUEST
-if (is_array($requestData) && isset($requestData['sessid'])) {
+// Подставляем sessid из JSON в $_REQUEST только если его нет в обычных параметрах
+if (
+    empty($_REQUEST['sessid'])
+    && is_array($requestData)
+    && isset($requestData['sessid'])
+) {
     $_REQUEST['sessid'] = $requestData['sessid'];
 }
 
-// Проверка сессии + права администратора
-if (!check_bitrix_sessid() || !$USER->IsAdmin()) {
+// Проверка сессии
+if (!check_bitrix_sessid()) {
+    if (function_exists('AddMessage2Log')) {
+        AddMessage2Log(
+            'Batch recalculate denied: invalid sessid. User ID: '
+            . (int)$USER->GetID()
+            . '; Request sessid exists: '
+            . (!empty($_REQUEST['sessid']) ? 'Y' : 'N'),
+            'prospektweb.calc'
+        );
+    }
+
     http_response_code(403);
     echo json_encode([
         'success' => false,
-        'error' => 'Access denied or invalid session',
+        'errorCode' => 'INVALID_SESSION',
+        'error' => 'Invalid session',
+    ]);
+    die();
+}
+
+// Проверка прав администратора
+if (!$USER->IsAdmin()) {
+    if (function_exists('AddMessage2Log')) {
+        AddMessage2Log(
+            'Batch recalculate denied: non-admin user. User ID: ' . (int)$USER->GetID(),
+            'prospektweb.calc'
+        );
+    }
+
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'errorCode' => 'ADMIN_REQUIRED',
+        'error' => 'Admin access required',
     ]);
     die();
 }
