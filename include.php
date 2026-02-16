@@ -26,6 +26,14 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\CatalogPriceService' => 'lib/Services/CatalogPriceService.php',
     'Prospektweb\\Calc\\Services\\OfferUpdateService' => 'lib/Services/OfferUpdateService.php',
     'Prospektweb\\Calc\\Services\\SaveAllService' => 'lib/Services/SaveAllService.php',
+    'Prospektweb\\Calc\\Services\\BatchRecalculateService' => 'lib/Services/BatchRecalculateService.php',
     'Prospektweb\\Calc\\Handlers\\AdminHandler' => 'lib/Handlers/AdminHandler.php',
     'Prospektweb\\Calc\\Handlers\\DependencyHandler' => 'lib/Handlers/DependencyHandler.php',
 ]);
+
+// Регистрация обработчика глобального меню
+\Bitrix\Main\EventManager::getInstance()->addEventHandler(
+    'main',
+    'OnBuildGlobalMenu',
+    ['Prospektweb\\Calc\\Handlers\\AdminHandler', 'onBuildGlobalMenu']
+);

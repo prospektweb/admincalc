@@ -456,4 +456,33 @@ class AdminHandler
         
         return $types;
     }
+
+    /**
+     * Обработчик события OnBuildGlobalMenu для добавления пункта меню
+     * 
+     * @param array $aGlobalMenu Глобальное меню
+     * @param array $aModuleMenu Меню модулей
+     */
+    public static function onBuildGlobalMenu(&$aGlobalMenu, &$aModuleMenu): void
+    {
+        if (!Loader::includeModule('prospektweb.calc')) {
+            return;
+        }
+
+        global $USER;
+        if (!$USER || !$USER->IsAdmin()) {
+            return;
+        }
+
+        $aModuleMenu[] = [
+            'parent_menu' => 'global_menu_services',
+            'sort' => 500,
+            'text' => 'Пересчёт калькуляций',
+            'title' => 'Массовый пересчёт калькуляций торговых предложений',
+            'url' => 'prospektweb_calc_recalculate.php',
+            'icon' => 'util_menu_icon',
+            'more_url' => [],
+            'items_id' => 'menu_prospektweb_calc_recalculate',
+        ];
+    }
 }

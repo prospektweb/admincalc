@@ -20,4 +20,6 @@ $prospektweb_calc_default_option = [
     'VOLUME_FIELD_CODE' => 'VOLUME',
     // История расчётов
     'CALC_HISTORY_LIMIT' => 10,
+    // Сервер расчётов
+    'CALC_SERVER_URL' => 'http://localhost:3100',
 ];
