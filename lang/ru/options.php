@@ -39,6 +39,12 @@ $MESS['PROSPEKTWEB_CALC_IBLOCK_DETAILS_INTEGRATION'] = 'ID инфоблока д
 $MESS['PROSPEKTWEB_CALC_IBLOCK_CALCULATORS_INTEGRATION'] = 'ID инфоблока калькуляторов (для интеграции)';
 $MESS['PROSPEKTWEB_CALC_IBLOCK_CONFIGURATIONS_INTEGRATION'] = 'ID инфоблока конфигураций (для интеграции)';
 
+// Настройки сервера расчётов
+$MESS['PROSPEKTWEB_CALC_CALC_SERVER_HEADING'] = 'Сервер расчётов (calc-server)';
+$MESS['PROSPEKTWEB_CALC_CALC_SERVER_URL'] = 'URL сервера расчётов';
+$MESS['PROSPEKTWEB_CALC_CALC_SERVER_URL_HINT'] = 'URL для обращения к calc-server (Node.js движок для серверных расчётов). Например: http://localhost:3100';
+
+
 // Настройки связей торговых предложений
 $MESS['PROSPEKTWEB_CALC_TAB_OFFERS'] = 'Связи ТП';
 $MESS['PROSPEKTWEB_CALC_TAB_OFFERS_TITLE'] = 'Настройки связей торговых предложений с калькуляцией';

@@ -188,6 +188,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     Option::set($module_id, 'IBLOCK_DETAILS', (int)($_POST['IBLOCK_DETAILS'] ?? 0));
     Option::set($module_id, 'IBLOCK_CALCULATORS', (int)($_POST['IBLOCK_CALCULATORS'] ?? 0));
     Option::set($module_id, 'IBLOCK_CONFIGURATIONS', (int)($_POST['IBLOCK_CONFIGURATIONS'] ?? 0));
+    
+    // Сохраняем URL calc-server
+    Option::set($module_id, 'CALC_SERVER_URL', (string)($_POST['CALC_SERVER_URL'] ?? 'http://localhost:3100'));
 
     // Сохраняем настройки связей ТП
     Option::set($module_id, 'FORMAT_FIELD_CODE', (string)($_POST['FORMAT_FIELD_CODE'] ?? 'FORMAT'));
@@ -532,6 +535,18 @@ $tabControl->Begin();
         <td><?= Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_CONFIGURATIONS_INTEGRATION') ?></td>
         <td>
             <input type="number" name="IBLOCK_CONFIGURATIONS" value="<?= (int)Option::get($module_id, 'IBLOCK_CONFIGURATIONS', 0) ?>" min="0" style="width: 100px;">
+        </td>
+    </tr>
+
+    <tr class="heading">
+        <td colspan="2"><?= Loc::getMessage('PROSPEKTWEB_CALC_CALC_SERVER_HEADING') ?></td>
+    </tr>
+
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_CALC_SERVER_URL') ?></td>
+        <td>
+            <input type="text" name="CALC_SERVER_URL" value="<?= htmlspecialcharsbx(Option::get($module_id, 'CALC_SERVER_URL', 'http://localhost:3100')) ?>" size="50" style="width: 400px;">
+            <br><span style="color: #777; font-size: 11px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_CALC_SERVER_URL_HINT') ?></span>
         </td>
     </tr>
 
