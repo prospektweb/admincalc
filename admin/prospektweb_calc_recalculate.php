@@ -41,6 +41,8 @@ if (!Loader::includeModule($module_id)) {
     exit;
 }
 
+CJSCore::Init(['core']);
+
 $APPLICATION->SetTitle(Loc::getMessage('PROSPEKTWEB_CALC_RECALC_TITLE'));
 
 // Получаем базовый путь для AJAX запросов
@@ -51,6 +53,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 // Получаем настройки по умолчанию
 $calcServerUrl = Option::get($module_id, 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api');
 $defaultTimeout = 30;
+$pageSessid = bitrix_sessid();
 
 // Получаем список пресетов
 $service = new BatchRecalculateService($calcServerUrl, $defaultTimeout);
@@ -295,8 +298,12 @@ $jsMessages = [
 
 <script>
 (function() {
-    const ajaxEndpoint = <?= json_encode($ajaxEndpoint, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
-    const messages = <?= json_encode($jsMessages, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+    const config = {
+        ajaxEndpoint: <?= json_encode($ajaxEndpoint, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>,
+        messages: <?= json_encode($jsMessages, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>,
+        sessid: <?= json_encode($pageSessid, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>,
+    };
+
     const scopeAll = document.getElementById('scope-all');
     const scopeSpecific = document.getElementById('scope-specific');
     const presetSelector = document.getElementById('preset-selector');
@@ -307,7 +314,6 @@ $jsMessages = [
     const progressMessage = document.getElementById('progress-message');
     const resultsContainer = document.getElementById('results-container');
 
-    // Переключение области пересчёта
     scopeAll.addEventListener('change', function() {
         if (this.checked) {
             presetSelector.style.display = 'none';
@@ -320,85 +326,121 @@ $jsMessages = [
         }
     });
 
-    // Запуск пересчёта
     startBtn.addEventListener('click', function() {
-        // Получаем параметры
+        runRecalculation().catch(function(error) {
+            console.error('Batch recalculate start failed:', error);
+            alert((config.messages.ERROR || 'Ошибка') + ': ' + (error.message || 'Unknown error'));
+        }).finally(function() {
+            startBtn.disabled = false;
+        });
+    });
+
+    async function runRecalculation() {
         const scope = document.querySelector('input[name="scope"]:checked').value;
         let presetIds = [];
-        
+
         if (scope === 'specific') {
             const checkboxes = document.querySelectorAll('input[name="preset_ids[]"]:checked');
-            presetIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
-            
+            presetIds = Array.from(checkboxes).map(function(cb) {
+                return parseInt(cb.value, 10);
+            }).filter(function(id) {
+                return !isNaN(id);
+            });
+
             if (presetIds.length === 0) {
-                alert(messages.SELECT_PRESET);
+                alert(config.messages.SELECT_PRESET);
                 return;
             }
         }
 
         const onlyChanged = document.getElementById('only-changed').checked;
         const calcServerUrl = document.getElementById('calc-server-url').value.trim();
-        const timeout = parseInt(document.getElementById('timeout').value);
+        const timeout = parseInt(document.getElementById('timeout').value, 10);
 
         if (!calcServerUrl) {
-            alert(messages.ENTER_URL);
+            alert(config.messages.ENTER_URL);
             return;
         }
 
-        // Скрываем результаты предыдущего запуска
+        const runtimeSessid = window.BX && typeof window.BX.bitrix_sessid === 'function'
+            ? window.BX.bitrix_sessid()
+            : config.sessid;
+
+        if (!runtimeSessid) {
+            throw new Error('Не удалось получить sessid. Обновите страницу и повторите попытку.');
+        }
+
         resultsContainer.style.display = 'none';
-        
-        // Показываем прогресс
+        document.getElementById('details-table').innerHTML = '';
+        document.getElementById('errors-list').innerHTML = '';
+
+        setProgress(0, config.messages.STARTING);
         progressContainer.style.display = 'block';
-        progressBarFill.style.width = '0%';
-        progressText.textContent = '0%';
-        progressMessage.textContent = messages.STARTING;
-        
-        // Отключаем кнопку
         startBtn.disabled = true;
 
-        // Отправляем запрос
-        fetch(ajaxEndpoint, {
+        const endpointWithSessid = `${config.ajaxEndpoint}${config.ajaxEndpoint.includes('?') ? '&' : '?'}sessid=${encodeURIComponent(runtimeSessid)}`;
+
+        const response = await fetch(endpointWithSessid, {
             method: 'POST',
+            credentials: 'same-origin',
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
             body: JSON.stringify({
                 presetIds: presetIds,
                 onlyChanged: onlyChanged,
                 calcServerUrl: calcServerUrl,
                 timeout: timeout,
-                sessid: BX.bitrix_sessid()
+                sessid: runtimeSessid
             })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Прогресс завершён
-                progressBarFill.style.width = '100%';
-                progressText.textContent = '100%';
-                progressMessage.textContent = messages.COMPLETE;
-                
-                // Показываем результаты
-                displayResults(data);
-            } else {
-                alert(messages.ERROR + ': ' + (data.error || 'Unknown error'));
-            }
-        })
-        .catch(error => {
-            alert(messages.REQUEST_ERROR + ': ' + error.message);
-        })
-        .finally(() => {
-            startBtn.disabled = false;
         });
-    });
+
+        const rawResponse = await response.text();
+        let data = null;
+
+        try {
+            data = rawResponse ? JSON.parse(rawResponse) : null;
+        } catch (parseError) {
+            throw new Error(`Сервер вернул некорректный JSON (HTTP ${response.status}).`);
+        }
+
+        if (!response.ok || !data || !data.success) {
+            handleApiError(data, response.status);
+            return;
+        }
+
+        setProgress(100, config.messages.COMPLETE);
+        displayResults(data);
+    }
+
+    function handleApiError(data, statusCode) {
+        if (data && data.errorCode === 'INVALID_SESSION') {
+            alert('Сессия истекла. Обновите страницу и повторите запуск пересчёта.');
+            return;
+        }
+
+        if (data && data.errorCode === 'ADMIN_REQUIRED') {
+            alert('Недостаточно прав: требуется доступ администратора.');
+            return;
+        }
+
+        const reason = data && data.error ? data.error : `HTTP ${statusCode}`;
+        alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + reason);
+    }
+
+    function setProgress(percent, text) {
+        const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+        progressBarFill.style.width = safePercent + '%';
+        progressText.textContent = safePercent + '%';
+        progressMessage.textContent = text || '';
+    }
 
     function displayResults(data) {
         const summary = data.summary || {};
-        const details = data.details || [];
-        const errors = data.errors || [];
+        const details = Array.isArray(data.details) ? data.details : [];
+        const errors = Array.isArray(data.errors) ? data.errors : [];
 
-        // Сводка
         const summaryHtml = `
             <div class="stat-item">
                 <div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_TOTAL_PRESETS') ?>:</div>
@@ -427,7 +469,6 @@ $jsMessages = [
         `;
         document.getElementById('summary-stats').innerHTML = summaryHtml;
 
-        // Детализация
         if (details.length > 0) {
             let detailsHtml = '<h4><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_DETAILS') ?></h4>';
             detailsHtml += '<table class="results-table">';
@@ -438,8 +479,8 @@ $jsMessages = [
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SKIPPED') ?></th>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_ERRORS') ?></th>';
             detailsHtml += '</tr></thead><tbody>';
-            
-            details.forEach(detail => {
+
+            details.forEach(function(detail) {
                 detailsHtml += '<tr>';
                 detailsHtml += `<td>${escapeHtml(String(detail.presetName))} (ID: ${escapeHtml(String(detail.presetId))})</td>`;
                 detailsHtml += `<td>${escapeHtml(String(detail.offerCount))}</td>`;
@@ -448,29 +489,31 @@ $jsMessages = [
                 detailsHtml += `<td style="color: #f44336;">${escapeHtml(String(detail.errors ? detail.errors.length : 0))}</td>`;
                 detailsHtml += '</tr>';
             });
-            
+
             detailsHtml += '</tbody></table>';
             document.getElementById('details-table').innerHTML = detailsHtml;
+        } else {
+            document.getElementById('details-table').innerHTML = '';
         }
 
-        // Ошибки
         if (errors.length > 0) {
             let errorsHtml = '<h4 style="color: #f44336;"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_ERRORS') ?></h4>';
             errorsHtml += '<div class="error-list">';
-            errors.forEach(error => {
-                errorsHtml += `<div class="error-item">`;
+            errors.forEach(function(error) {
+                errorsHtml += '<div class="error-item">';
                 errorsHtml += `Пресет ID: ${escapeHtml(String(error.presetId))}, ТП ID: ${escapeHtml(String(error.offerId))}<br>`;
                 errorsHtml += `Ошибка: ${escapeHtml(String(error.error))}`;
-                errorsHtml += `</div>`;
+                errorsHtml += '</div>';
             });
             errorsHtml += '</div>';
             document.getElementById('errors-list').innerHTML = errorsHtml;
+        } else {
+            document.getElementById('errors-list').innerHTML = '';
         }
 
         resultsContainer.style.display = 'block';
     }
 
-    // Helper function to escape HTML
     function escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
