@@ -10,121 +10,117 @@ define('PUBLIC_AJAX_MODE', true);
 
 require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php';
 
-global $APPLICATION;
-$APPLICATION->RestartBuffer();
-
-header('Content-Type: application/json; charset=UTF-8');
-
-use Bitrix\Main\Loader;
 use Bitrix\Main\Config\Option;
+use Bitrix\Main\Loader;
 use Prospektweb\Calc\Services\BatchRecalculateService;
 
+global $APPLICATION;
 global $USER;
 
-// Читаем JSON-тело запроса О��ИН РАЗ
-$requestBody = file_get_contents('php://input');
-$requestData = json_decode($requestBody, true);
+$APPLICATION->RestartBuffer();
+header('Content-Type: application/json; charset=UTF-8');
 
-// Подставляем sessid из JSON в $_REQUEST только если его нет в обычных параметрах
-if (
-    empty($_REQUEST['sessid'])
-    && is_array($requestData)
-    && isset($requestData['sessid'])
-) {
-    $_REQUEST['sessid'] = $requestData['sessid'];
+/**
+ * @param int   $statusCode
+ * @param array $payload
+ */
+function respondJson(int $statusCode, array $payload): void
+{
+    http_response_code($statusCode);
+    echo json_encode($payload);
+    die();
 }
 
-// Проверка сессии
-if (!check_bitrix_sessid()) {
+/**
+ * @param string $message
+ */
+function logAccessIssue(string $message): void
+{
     if (function_exists('AddMessage2Log')) {
-        AddMessage2Log(
-            'Batch recalculate denied: invalid sessid. User ID: '
-            . (int)$USER->GetID()
-            . '; Request sessid exists: '
-            . (!empty($_REQUEST['sessid']) ? 'Y' : 'N'),
-            'prospektweb.calc'
-        );
+        AddMessage2Log($message, 'prospektweb.calc');
     }
+}
 
-    http_response_code(403);
-    echo json_encode([
+$requestBody = file_get_contents('php://input');
+$requestData = json_decode((string)$requestBody, true);
+
+if ($requestData === null && !empty($requestBody)) {
+    respondJson(400, [
+        'success' => false,
+        'errorCode' => 'INVALID_JSON',
+        'error' => 'Invalid JSON',
+    ]);
+}
+
+if ($requestData === null) {
+    $requestData = [];
+}
+
+if (empty($_REQUEST['sessid']) && isset($requestData['sessid'])) {
+    $_REQUEST['sessid'] = (string)$requestData['sessid'];
+}
+
+if (!check_bitrix_sessid()) {
+    logAccessIssue(
+        'Batch recalculate denied: invalid sessid. User ID: '
+        . (int)$USER->GetID()
+        . '; sessid present: '
+        . (!empty($_REQUEST['sessid']) ? 'Y' : 'N')
+    );
+
+    respondJson(403, [
         'success' => false,
         'errorCode' => 'INVALID_SESSION',
         'error' => 'Invalid session',
     ]);
-    die();
 }
 
-// Проверка прав администратора
 if (!$USER->IsAdmin()) {
-    if (function_exists('AddMessage2Log')) {
-        AddMessage2Log(
-            'Batch recalculate denied: non-admin user. User ID: ' . (int)$USER->GetID(),
-            'prospektweb.calc'
-        );
-    }
+    logAccessIssue('Batch recalculate denied: non-admin user. User ID: ' . (int)$USER->GetID());
 
-    http_response_code(403);
-    echo json_encode([
+    respondJson(403, [
         'success' => false,
         'errorCode' => 'ADMIN_REQUIRED',
         'error' => 'Admin access required',
     ]);
-    die();
 }
 
-// Загрузка модуля
 if (!Loader::includeModule('prospektweb.calc')) {
-    http_response_code(500);
-    echo json_encode([
+    respondJson(500, [
         'success' => false,
+        'errorCode' => 'MODULE_NOT_INSTALLED',
         'error' => 'Module not installed',
     ]);
-    die();
 }
 
-if ($requestData === null) {
-    http_response_code(400);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Invalid JSON',
-    ]);
-    die();
-}
-
-// Параметры запроса
 $presetIds = $requestData['presetIds'] ?? [];
 $onlyChanged = (bool)($requestData['onlyChanged'] ?? true);
 $calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api'));
 $timeout = (int)($requestData['timeout'] ?? 30);
 
-// Валидация URL
-if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
-    http_response_code(400);
-    echo json_encode([
+if (!is_array($presetIds)) {
+    respondJson(400, [
         'success' => false,
+        'errorCode' => 'INVALID_PRESET_IDS',
+        'error' => 'presetIds must be an array',
+    ]);
+}
+
+if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
+    respondJson(400, [
+        'success' => false,
+        'errorCode' => 'INVALID_CALC_SERVER_URL',
         'error' => 'Invalid calc server URL',
     ]);
-    die();
 }
 
 $urlParts = parse_url($calcServerUrl);
 if (!in_array($urlParts['scheme'] ?? '', ['http', 'https'], true)) {
-    http_response_code(400);
-    echo json_encode([
+    respondJson(400, [
         'success' => false,
+        'errorCode' => 'INVALID_URL_SCHEME',
         'error' => 'Invalid URL scheme. Only http and https are allowed.',
     ]);
-    die();
-}
-
-if (!is_array($presetIds)) {
-    http_response_code(400);
-    echo json_encode([
-        'success' => false,
-        'error' => 'presetIds must be an array',
-    ]);
-    die();
 }
 
 if ($timeout < 1 || $timeout > 300) {
@@ -134,17 +130,17 @@ if ($timeout < 1 || $timeout > 300) {
 try {
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
     $result = $service->recalculate($presetIds, $onlyChanged);
-    
-    echo json_encode([
+
+    respondJson(200, [
         'success' => true,
         'summary' => $result['summary'] ?? [],
         'details' => $result['details'] ?? [],
         'errors' => $result['errors'] ?? [],
     ]);
 } catch (\Throwable $e) {
-    http_response_code(500);
-    echo json_encode([
+    respondJson(500, [
         'success' => false,
+        'errorCode' => 'RECALCULATION_FAILED',
         'error' => 'Recalculation failed: ' . $e->getMessage(),
     ]);
 }
