@@ -112,8 +112,13 @@ try {
     
 } catch (\Exception $e) {
     http_response_code(500);
+    
+    // Log the full error for debugging
+    error_log('Batch recalculate error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+    
+    // Return generic error to client
     echo json_encode([
         'success' => false,
-        'error' => $e->getMessage(),
+        'error' => 'Произошла ошибка при выполнении пересчёта. Проверьте логи сервера.',
     ], JSON_UNESCAPED_UNICODE);
 }

@@ -201,19 +201,28 @@ class BatchRecalculateService
                     // Отправляем запрос на calc-server
                     $calcResult = $this->callCalcServer($initPayload);
                     
-                    // TODO: Реализовать запись результатов через SaveHandler или ResultWriter
-                    // Результат от calc-server содержит массив CalculationOfferResult[]
-                    // Необходимо сохранить цены и другие рассчитанные данные в базу
-                    // Пример структуры calcResult:
-                    // [
-                    //   'offers' => [
-                    //     ['offerId' => 123, 'price' => 1000, 'priceRanges' => [...], ...]
-                    //   ]
-                    // ]
-                    // Для полной интеграции требуется:
-                    // 1. Разобрать структуру ответа от calc-server
-                    // 2. Извлечь цены для каждого offer
-                    // 3. Записать через ResultWriter или CatalogPriceService
+                    // ПРИМЕЧАНИЕ: Запись результатов намеренно не реализована
+                    // Причина: требуется понимание структуры ответа от calc-server
+                    // Это позволяет использовать функцию для тестирования механизма
+                    // хеширования и пропуска неизменившихся элементов.
+                    //
+                    // Для полной интеграции необходимо:
+                    // 1. Изучить формат ответа calc-server (структуру CalculationOfferResult[])
+                    // 2. Извлечь рассчитанные цены и параметры для каждого offer
+                    // 3. Использовать ResultWriter->writePrice() или CatalogPriceService
+                    // 4. Обработать ошибки записи и обновить статистику
+                    //
+                    // Пример кода после получения структуры:
+                    // if (isset($calcResult['offers']) && is_array($calcResult['offers'])) {
+                    //     foreach ($calcResult['offers'] as $offerResult) {
+                    //         $this->resultWriter->writePrice(
+                    //             $offerResult['offerId'],
+                    //             $offerResult['priceTypeId'],
+                    //             $offerResult['price'],
+                    //             $offerResult['currency']
+                    //         );
+                    //     }
+                    // }
                     
                     // Сохраняем новый хеш
                     $this->saveHash($offerId, $currentHash);
@@ -274,7 +283,10 @@ class BatchRecalculateService
         curl_close($ch);
         
         if ($error) {
-            throw new \Exception("calc-server connection error: {$error}");
+            // Log detailed error for debugging
+            error_log("calc-server connection error: {$error}");
+            // Return generic error to caller
+            throw new \Exception("Ошибка соединения с сервером расчётов");
         }
         
         if ($httpCode !== 200) {
