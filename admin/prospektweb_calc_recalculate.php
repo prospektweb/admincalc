@@ -44,6 +44,16 @@ $defaultTimeout = 30;
 $service = new BatchRecalculateService($calcServerUrl, $defaultTimeout);
 $presets = $service->getPresetsWithOfferCount();
 
+// Подготовка языковых констант для JavaScript
+$jsMessages = [
+    'SELECT_PRESET' => Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SELECT_PRESETS'),
+    'ENTER_URL' => 'Укажите URL calc-server',
+    'STARTING' => 'Запуск пересчёта...',
+    'COMPLETE' => Loc::getMessage('PROSPEKTWEB_CALC_RECALC_COMPLETE'),
+    'ERROR' => 'Ошибка',
+    'REQUEST_ERROR' => 'Ошибка запроса',
+];
+
 ?>
 
 <style>
@@ -274,6 +284,7 @@ $presets = $service->getPresetsWithOfferCount();
 <script>
 (function() {
     const ajaxEndpoint = <?= json_encode($ajaxEndpoint, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+    const messages = <?= json_encode($jsMessages, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     const scopeAll = document.getElementById('scope-all');
     const scopeSpecific = document.getElementById('scope-specific');
     const presetSelector = document.getElementById('preset-selector');
@@ -308,7 +319,7 @@ $presets = $service->getPresetsWithOfferCount();
             presetIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
             
             if (presetIds.length === 0) {
-                alert('Выберите хотя бы один пресет');
+                alert(messages.SELECT_PRESET);
                 return;
             }
         }
@@ -318,7 +329,7 @@ $presets = $service->getPresetsWithOfferCount();
         const timeout = parseInt(document.getElementById('timeout').value);
 
         if (!calcServerUrl) {
-            alert('Укажите URL calc-server');
+            alert(messages.ENTER_URL);
             return;
         }
 
@@ -329,7 +340,7 @@ $presets = $service->getPresetsWithOfferCount();
         progressContainer.style.display = 'block';
         progressBarFill.style.width = '0%';
         progressText.textContent = '0%';
-        progressMessage.textContent = 'Запуск пересчёта...';
+        progressMessage.textContent = messages.STARTING;
         
         // Отключаем кнопку
         startBtn.disabled = true;
@@ -354,16 +365,16 @@ $presets = $service->getPresetsWithOfferCount();
                 // Прогресс завершён
                 progressBarFill.style.width = '100%';
                 progressText.textContent = '100%';
-                progressMessage.textContent = '<?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_COMPLETE') ?>';
+                progressMessage.textContent = messages.COMPLETE;
                 
                 // Показываем результаты
                 displayResults(data);
             } else {
-                alert('Ошибка: ' + (data.error || 'Unknown error'));
+                alert(messages.ERROR + ': ' + (data.error || 'Unknown error'));
             }
         })
         .catch(error => {
-            alert('Ошибка запроса: ' + error.message);
+            alert(messages.REQUEST_ERROR + ': ' + error.message);
         })
         .finally(() => {
             startBtn.disabled = false;

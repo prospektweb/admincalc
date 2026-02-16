@@ -181,8 +181,8 @@ class BatchRecalculateService
             foreach ($offerIds as $offerId) {
                 try {
                     // Собираем initPayload для этого ТП
-                    // Используем текущий ID сайта, если не определён - берём из настроек модуля
-                    $siteId = defined('SITE_ID') ? SITE_ID : Option::get(self::MODULE_ID, 'DEFAULT_SITE_ID', 's1');
+                    // Используем текущий ID сайта, если не определён - берём первый доступный сайт
+                    $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
                     $initPayload = $this->initPayloadService->prepareInitPayload([$offerId], $siteId);
                     
                     // Вычисляем хеш текущего состояния
@@ -430,5 +430,24 @@ class BatchRecalculateService
         }
 
         $checked[$iblockId] = true;
+    }
+
+    /**
+     * Получить первый доступный ID сайта
+     * 
+     * @return string ID сайта
+     */
+    private function getFirstAvailableSiteId(): string
+    {
+        if (!Loader::includeModule('main')) {
+            return 's1'; // fallback если модуль main не загружен (что маловероятно)
+        }
+
+        $rsSites = \CSite::GetList('sort', 'asc', ['ACTIVE' => 'Y']);
+        if ($site = $rsSites->Fetch()) {
+            return $site['LID'];
+        }
+
+        return 's1'; // fallback если нет активных сайтов
     }
 }
