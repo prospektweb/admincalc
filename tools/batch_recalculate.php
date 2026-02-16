@@ -26,6 +26,17 @@ if (!$USER || !$USER->IsAuthorized() || !$USER->IsAdmin()) {
     exit;
 }
 
+// Читаем JSON-тело запроса ОДИН РАЗ (php://input — одноразовый поток)
+$requestBody = file_get_contents('php://input');
+$requestData = json_decode($requestBody, true);
+
+// Подставляем sessid из JSON в $_REQUEST,
+// т.к. PHP не парсит application/json в $_POST,
+// и check_bitrix_sessid() не найдёт его без этого
+if (is_array($requestData) && isset($requestData['sessid'])) {
+    $_REQUEST['sessid'] = $requestData['sessid'];
+}
+
 // Проверка сессии
 if (!check_bitrix_sessid()) {
     http_response_code(403);
@@ -46,10 +57,7 @@ if (!Loader::includeModule('prospektweb.calc')) {
     exit;
 }
 
-// Получение данных запроса
-$requestBody = file_get_contents('php://input');
-$requestData = json_decode($requestBody, true);
-
+// requestData уже распарсен выше, проверяем
 if ($requestData === null) {
     http_response_code(400);
     echo json_encode([
@@ -62,7 +70,7 @@ if ($requestData === null) {
 // Параметры запроса
 $presetIds = $requestData['presetIds'] ?? [];
 $onlyChanged = (bool)($requestData['onlyChanged'] ?? true);
-$calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'http://localhost:3100'));
+$calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api'));
 $timeout = (int)($requestData['timeout'] ?? 30);
 
 // Валидация URL для предотвращения SSRF атак
@@ -107,18 +115,16 @@ try {
     // Выполняем пересчёт
     $result = $service->recalculate($presetIds, $onlyChanged);
     
-    // Возвращаем результат
-    echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    
-} catch (\Exception $e) {
+    echo json_encode([
+        'success' => true,
+        'summary' => $result['summary'] ?? [],
+        'details' => $result['details'] ?? [],
+        'errors' => $result['errors'] ?? [],
+    ]);
+} catch (\Throwable $e) {
     http_response_code(500);
-    
-    // Log the full error for debugging
-    error_log('Batch recalculate error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
-    
-    // Return generic error to client
     echo json_encode([
         'success' => false,
-        'error' => 'Произошла ошибка при выполнении пересчёта. Проверьте логи сервера.',
-    ], JSON_UNESCAPED_UNICODE);
+        'error' => 'Recalculation failed: ' . $e->getMessage(),
+    ]);
 }
