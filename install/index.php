@@ -231,6 +231,15 @@ class prospektweb_calc extends CModule
                     $success = false;
                 }
             }
+            
+            // Копируем админский файл пересчёта
+            $adminRecalculateFile = $sourceAdmin . '/prospektweb_calc_recalculate.php';
+            if (file_exists($adminRecalculateFile)) {
+                if (!copy($adminRecalculateFile, $targetAdmin . '/prospektweb_calc_recalculate.php')) {
+                    $errors[] = "Не удалось скопировать админский файл пересчёта";
+                    $success = false;
+                }
+            }
         }
         
         // НОВОЕ: Копируем компоненты
@@ -287,6 +296,8 @@ class prospektweb_calc extends CModule
         $toolsDir = Application::getDocumentRoot() . '/bitrix/tools/prospektweb.calc';
         $appsDir = Application::getDocumentRoot() . '/local/apps/prospektweb.calc';
         $adminFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_calculator.php';
+        $adminCustomFieldFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_custom_field.php';
+        $adminRecalculateFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_recalculate.php';
 
         if (is_dir($jsDir)) {
             DeleteDirFilesEx('/local/js/prospektweb.calc');
@@ -302,9 +313,15 @@ class prospektweb_calc extends CModule
         if (is_dir($appsDir)) {
             DeleteDirFilesEx('/local/apps/prospektweb.calc');
         }
-        // НОВОЕ: Удаляем админский файл
+        // НОВОЕ: Удаляем админские файлы
         if (file_exists($adminFile)) {
             unlink($adminFile);
+        }
+        if (file_exists($adminCustomFieldFile)) {
+            unlink($adminCustomFieldFile);
+        }
+        if (file_exists($adminRecalculateFile)) {
+            unlink($adminRecalculateFile);
         }
     }
 
@@ -348,10 +365,10 @@ class prospektweb_calc extends CModule
         );
         $em->registerEventHandler(
             'main',
-            'OnBeforeEndBufferContent',
+            'OnBuildGlobalMenu',
             $this->MODULE_ID,
             '\\Prospektweb\\Calc\\Handlers\\AdminHandler',
-            'onBeforeEndBufferContent'
+            'onBuildGlobalMenu'
         );
     }
 
@@ -397,6 +414,14 @@ class prospektweb_calc extends CModule
             $this->MODULE_ID,
             '\\Prospektweb\\Calc\\Handlers\\AdminHandler',
             'onBeforeEndBufferContent'
+        );
+        
+        $eventManager->unRegisterEventHandler(
+            'main',
+            'OnBuildGlobalMenu',
+            $this->MODULE_ID,
+            '\\Prospektweb\\Calc\\Handlers\\AdminHandler',
+            'onBuildGlobalMenu'
         );
     }
 
