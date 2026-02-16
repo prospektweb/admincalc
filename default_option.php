@@ -21,5 +21,5 @@ $prospektweb_calc_default_option = [
     // История расчётов
     'CALC_HISTORY_LIMIT' => 10,
     // Сервер расчётов
-    'CALC_SERVER_URL' => 'http://localhost:3100',
+    'CALC_SERVER_URL' => 'https://pwrt.ru/calc-api',
 ];

@@ -6,7 +6,8 @@ use Bitrix\Main\Loader;
 use Bitrix\Main\Config\Option;
 use Prospektweb\Calc\Config\ConfigManager;
 use Prospektweb\Calc\Calculator\InitPayloadService;
-use Prospektweb\Calc\Services\ResultWriter;
+use Prospektweb\Calc\Services\OfferUpdateService;
+use Prospektweb\Calc\Calculator\CalculationHistoryHandler;
 
 /**
  * Сервис пакетного пересчёта калькуляций
@@ -19,7 +20,6 @@ class BatchRecalculateService
     private int $timeout;
     private ConfigManager $configManager;
     private InitPayloadService $initPayloadService;
-    private ResultWriter $resultWriter;
 
     /**
      * @param string $calcServerUrl URL сервера расчётов
@@ -31,7 +31,6 @@ class BatchRecalculateService
         $this->timeout = $timeout;
         $this->configManager = new ConfigManager();
         $this->initPayloadService = new InitPayloadService();
-        $this->resultWriter = new ResultWriter();
     }
 
     /**
@@ -201,30 +200,46 @@ class BatchRecalculateService
                     // Отправляем запрос на calc-server
                     $calcResult = $this->callCalcServer($initPayload);
                     
-                    // ПРИМЕЧАНИЕ: Запись результатов намеренно не реализована
-                    // Причина: требуется понимание структуры ответа от calc-server
-                    // Это позволяет использовать функцию для тестирования механизма
-                    // хеширования и пропуска неизменившихся элементов.
-                    //
-                    // Для полной интеграции необходимо:
-                    // 1. Изучить формат ответа calc-server (структуру CalculationOfferResult[])
-                    // 2. Извлечь рассчитанные цены и параметры для каждого offer
-                    // 3. Использовать ResultWriter->writePrice() или CatalogPriceService
-                    // 4. Обработать ошибки записи и обновить статистику
-                    //
-                    // Пример кода после получения структуры:
-                    // if (isset($calcResult['offers']) && is_array($calcResult['offers'])) {
-                    //     foreach ($calcResult['offers'] as $offerResult) {
-                    //         $this->resultWriter->writePrice(
-                    //             $offerResult['offerId'],
-                    //             $offerResult['priceTypeId'],
-                    //             $offerResult['price'],
-                    //             $offerResult['currency']
-                    //         );
-                    //     }
-                    // }
+                    // Проверяем успешность вызова
+                    if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
+                        throw new \Exception($calcResult['error'] ?? 'Ошибка расчёта на сервере');
+                    }
                     
-                    // Сохраняем новый хеш
+                    // Извлекаем результаты расчётов
+                    $offerResults = $calcResult['data'] ?? [];
+                    
+                    if (empty($offerResults) || !is_array($offerResults)) {
+                        throw new \Exception('Пустой ответ от calc-server');
+                    }
+                    
+                    // Записываем результаты через OfferUpdateService
+                    $offerUpdateService = new OfferUpdateService();
+                    $writeResult = $offerUpdateService->updateOffersFromCalculation($offerResults);
+                    
+                    // Проверяем результат записи
+                    if ($writeResult['status'] === 'error') {
+                        throw new \Exception('Ошибка записи результатов: ' . ($writeResult['errors'][0]['message'] ?? 'Неизвестная ошибка'));
+                    }
+                    
+                    // Сохраняем историю расчётов
+                    try {
+                        $historyHandler = new CalculationHistoryHandler();
+                        foreach ($offerResults as $offerResult) {
+                            $historyHandler->handle([
+                                'offers' => [
+                                    [
+                                        'offerId' => $offerResult['offerId'],
+                                        'json' => $offerResult,
+                                    ]
+                                ]
+                            ]);
+                        }
+                    } catch (\Exception $e) {
+                        // Логируем ошибку истории, но не прерываем процесс
+                        error_log("Ошибка сохранения истории расчёта для ТП #{$offerId}: " . $e->getMessage());
+                    }
+                    
+                    // Сохраняем новый хеш только ПОСЛЕ успешной записи
                     $this->saveHash($offerId, $currentHash);
                     
                     $presetStats['recalculated']++;
