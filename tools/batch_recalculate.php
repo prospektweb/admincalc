@@ -17,7 +17,7 @@ use Prospektweb\Calc\Services\BatchRecalculateService;
 global $USER;
 
 // Проверка авторизации и прав доступа
-if (!$USER || !$USER->IsAdmin()) {
+if (!$USER || !$USER->IsAuthorized() || !$USER->IsAdmin()) {
     http_response_code(403);
     echo json_encode([
         'success' => false,

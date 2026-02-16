@@ -181,7 +181,7 @@ class BatchRecalculateService
             foreach ($offerIds as $offerId) {
                 try {
                     // Собираем initPayload для этого ТП
-                    $siteId = \SITE_ID ?? 's1';
+                    $siteId = defined('SITE_ID') ? SITE_ID : 's1';
                     $initPayload = $this->initPayloadService->prepareInitPayload([$offerId], $siteId);
                     
                     // Вычисляем хеш текущего состояния

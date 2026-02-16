@@ -414,11 +414,11 @@ $presets = $service->getPresetsWithOfferCount();
             
             details.forEach(detail => {
                 detailsHtml += '<tr>';
-                detailsHtml += `<td>${detail.presetName} (ID: ${detail.presetId})</td>`;
-                detailsHtml += `<td>${detail.offerCount}</td>`;
-                detailsHtml += `<td style="color: #4CAF50;">${detail.recalculated || 0}</td>`;
-                detailsHtml += `<td style="color: #FFC107;">${detail.skipped || 0}</td>`;
-                detailsHtml += `<td style="color: #f44336;">${detail.errors ? detail.errors.length : 0}</td>`;
+                detailsHtml += `<td>${escapeHtml(String(detail.presetName))} (ID: ${escapeHtml(String(detail.presetId))})</td>`;
+                detailsHtml += `<td>${escapeHtml(String(detail.offerCount))}</td>`;
+                detailsHtml += `<td style="color: #4CAF50;">${escapeHtml(String(detail.recalculated || 0))}</td>`;
+                detailsHtml += `<td style="color: #FFC107;">${escapeHtml(String(detail.skipped || 0))}</td>`;
+                detailsHtml += `<td style="color: #f44336;">${escapeHtml(String(detail.errors ? detail.errors.length : 0))}</td>`;
                 detailsHtml += '</tr>';
             });
             
