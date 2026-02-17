@@ -41,6 +41,8 @@ if (!Loader::includeModule($module_id)) {
     exit;
 }
 
+CJSCore::Init(['core']);
+
 $APPLICATION->SetTitle(Loc::getMessage('PROSPEKTWEB_CALC_RECALC_TITLE'));
 
 // Получаем базовый путь для AJAX запросов
@@ -51,6 +53,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 // Получаем настройки по умолчанию
 $calcServerUrl = Option::get($module_id, 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api');
 $defaultTimeout = 30;
+$pageSessid = bitrix_sessid();
 
 // Получаем список пресетов
 $service = new BatchRecalculateService($calcServerUrl, $defaultTimeout);
@@ -269,6 +272,7 @@ $jsMessages = [
         <button type="button" id="start-recalc" class="adm-btn adm-btn-save">
             <?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_START') ?>
         </button>
+        <button type="button" id="cancel-recalc" class="adm-btn" style="margin-left: 8px;">Остановить</button>
 
         <div class="progress-container" id="progress-container">
             <div class="progress-bar">
@@ -289,25 +293,43 @@ $jsMessages = [
             <div id="details-table"></div>
 
             <div id="errors-list"></div>
+
+            <h4 style="margin-top: 20px;">Лог выполнения</h4>
+            <div id="frontend-log" class="error-list" style="background: #f7fbff; border-color: #b6d4fe;"></div>
         </div>
     </div>
 </div>
 
 <script>
 (function() {
-    const ajaxEndpoint = <?= json_encode($ajaxEndpoint, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
-    const messages = <?= json_encode($jsMessages, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
-    const scopeAll = document.getElementById('scope-all');
-    const scopeSpecific = document.getElementById('scope-specific');
-    const presetSelector = document.getElementById('preset-selector');
-    const startBtn = document.getElementById('start-recalc');
-    const progressContainer = document.getElementById('progress-container');
-    const progressBarFill = document.getElementById('progress-bar-fill');
-    const progressText = document.getElementById('progress-text');
-    const progressMessage = document.getElementById('progress-message');
-    const resultsContainer = document.getElementById('results-container');
+    var config = {
+        ajaxEndpoint: <?= json_encode($ajaxEndpoint, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>,
+        messages: <?= json_encode($jsMessages, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>,
+        sessid: <?= json_encode($pageSessid, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>
+    };
 
-    // Переключение области пересчёта
+    var scopeAll = document.getElementById('scope-all');
+    var scopeSpecific = document.getElementById('scope-specific');
+    var presetSelector = document.getElementById('preset-selector');
+    var startBtn = document.getElementById('start-recalc');
+    var cancelBtn = document.getElementById('cancel-recalc');
+    var progressContainer = document.getElementById('progress-container');
+    var progressBarFill = document.getElementById('progress-bar-fill');
+    var progressText = document.getElementById('progress-text');
+    var progressMessage = document.getElementById('progress-message');
+    var resultsContainer = document.getElementById('results-container');
+    var frontendLog = document.getElementById('frontend-log');
+
+    var requestInFlight = false;
+    var pollingTimer = null;
+    var lastRenderedLogCount = 0;
+
+    cancelBtn.disabled = true;
+
+    if (!startBtn || !cancelBtn || !scopeAll || !scopeSpecific) {
+        return;
+    }
+
     scopeAll.addEventListener('change', function() {
         if (this.checked) {
             presetSelector.style.display = 'none';
@@ -320,159 +342,369 @@ $jsMessages = [
         }
     });
 
-    // Запуск пересчёта
     startBtn.addEventListener('click', function() {
-        // Получаем параметры
-        const scope = document.querySelector('input[name="scope"]:checked').value;
-        let presetIds = [];
-        
+        if (requestInFlight) {
+            return;
+        }
+
+        try {
+            startRecalculation();
+        } catch (error) {
+            appendFrontendLog('Критическая ошибка запуска: ' + (error.message || String(error)));
+            alert((config.messages.ERROR || 'Ошибка') + ': ' + (error.message || 'Unknown error'));
+            startBtn.disabled = false;
+            cancelBtn.disabled = true;
+            requestInFlight = false;
+        }
+    });
+
+    cancelBtn.addEventListener('click', function() {
+        if (!requestInFlight) {
+            return;
+        }
+
+        var runtimeSessid = config.sessid;
+        if (window.BX && typeof window.BX.bitrix_sessid === 'function') {
+            runtimeSessid = window.BX.bitrix_sessid();
+        }
+
+        clearPolling();
+        sendApiRequest(runtimeSessid, { action: 'cancel', sessid: runtimeSessid }, function() {
+            requestInFlight = false;
+            startBtn.disabled = false;
+            cancelBtn.disabled = true;
+            appendFrontendLog('Задача отменена пользователем.');
+            setProgress(0, 'Остановлено');
+        });
+    });
+
+    function startRecalculation() {
+        var scopeNode = document.querySelector('input[name="scope"]:checked');
+        if (!scopeNode) {
+            alert(config.messages.ERROR + ': Не выбрана область пересчёта');
+            return;
+        }
+
+        var scope = scopeNode.value;
+        var presetIds = [];
+
         if (scope === 'specific') {
-            const checkboxes = document.querySelectorAll('input[name="preset_ids[]"]:checked');
-            presetIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
-            
+            var checkboxes = document.querySelectorAll('input[name="preset_ids[]"]:checked');
+            for (var i = 0; i < checkboxes.length; i++) {
+                var parsedId = parseInt(checkboxes[i].value, 10);
+                if (!isNaN(parsedId)) {
+                    presetIds.push(parsedId);
+                }
+            }
+
             if (presetIds.length === 0) {
-                alert(messages.SELECT_PRESET);
+                alert(config.messages.SELECT_PRESET);
                 return;
             }
         }
 
-        const onlyChanged = document.getElementById('only-changed').checked;
-        const calcServerUrl = document.getElementById('calc-server-url').value.trim();
-        const timeout = parseInt(document.getElementById('timeout').value);
+        var onlyChanged = document.getElementById('only-changed').checked;
+        var calcServerUrl = document.getElementById('calc-server-url').value.replace(/^\s+|\s+$/g, '');
+        var timeout = parseInt(document.getElementById('timeout').value, 10);
 
         if (!calcServerUrl) {
-            alert(messages.ENTER_URL);
+            alert(config.messages.ENTER_URL);
             return;
         }
 
-        // Скрываем результаты предыдущего запуска
-        resultsContainer.style.display = 'none';
-        
-        // Показываем прогресс
-        progressContainer.style.display = 'block';
-        progressBarFill.style.width = '0%';
-        progressText.textContent = '0%';
-        progressMessage.textContent = messages.STARTING;
-        
-        // Отключаем кнопку
-        startBtn.disabled = true;
+        var runtimeSessid = config.sessid;
+        if (window.BX && typeof window.BX.bitrix_sessid === 'function') {
+            runtimeSessid = window.BX.bitrix_sessid();
+        }
 
-        // Отправляем запрос
-        fetch(ajaxEndpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                presetIds: presetIds,
-                onlyChanged: onlyChanged,
-                calcServerUrl: calcServerUrl,
-                timeout: timeout,
-                sessid: BX.bitrix_sessid()
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Прогресс завершён
-                progressBarFill.style.width = '100%';
-                progressText.textContent = '100%';
-                progressMessage.textContent = messages.COMPLETE;
-                
-                // Показываем результаты
-                displayResults(data);
-            } else {
-                alert(messages.ERROR + ': ' + (data.error || 'Unknown error'));
+        if (!runtimeSessid) {
+            alert('Не удалось получить sessid. Обновите страницу и повторите попытку.');
+            return;
+        }
+
+        requestInFlight = true;
+        startBtn.disabled = true;
+        cancelBtn.disabled = false;
+        resultsContainer.style.display = 'none';
+        document.getElementById('details-table').innerHTML = '';
+        document.getElementById('errors-list').innerHTML = '';
+        frontendLog.innerHTML = '';
+        lastRenderedLogCount = 0;
+
+        setProgress(0, config.messages.STARTING);
+        progressContainer.style.display = 'block';
+        appendFrontendLog('Инициализация пакетного пересчёта...');
+
+        sendApiRequest(runtimeSessid, {
+            action: 'start',
+            presetIds: presetIds,
+            onlyChanged: onlyChanged,
+            calcServerUrl: calcServerUrl,
+            timeout: timeout,
+            sessid: runtimeSessid
+        }, function(err, response, data) {
+            if (err) {
+                requestInFlight = false;
+                startBtn.disabled = false;
+                cancelBtn.disabled = true;
+                appendFrontendLog('Ошибка запуска: ' + err);
+                alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
+                return;
             }
-        })
-        .catch(error => {
-            alert(messages.REQUEST_ERROR + ': ' + error.message);
-        })
-        .finally(() => {
-            startBtn.disabled = false;
+
+            if (!response || response.status < 200 || response.status >= 300 || !data || !data.success) {
+                requestInFlight = false;
+                startBtn.disabled = false;
+                handleApiError(data, response ? response.status : 0);
+                return;
+            }
+
+            appendFrontendLog('Задача создана. Начинаем обработку...');
+            renderServerLogs(data.logs || []);
+            updateUiWithData(data);
+            pollStep(runtimeSessid);
         });
-    });
+    }
+
+    function pollStep(sessid) {
+        clearPolling();
+        pollingTimer = setTimeout(function() {
+            sendApiRequest(sessid, {
+                action: 'step',
+                sessid: sessid
+            }, function(err, response, data) {
+                if (err) {
+                    requestInFlight = false;
+                    startBtn.disabled = false;
+                    cancelBtn.disabled = true;
+                    appendFrontendLog('Ошибка шага пересчёта: ' + err);
+                    alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
+                    return;
+                }
+
+                if (!response || response.status < 200 || response.status >= 300 || !data || !data.success) {
+                    requestInFlight = false;
+                    startBtn.disabled = false;
+                    cancelBtn.disabled = true;
+                    handleApiError(data, response ? response.status : 0);
+                    return;
+                }
+
+                renderServerLogs(data.logs || []);
+                updateUiWithData(data);
+
+                if (data.finished) {
+                    requestInFlight = false;
+                    startBtn.disabled = false;
+                    cancelBtn.disabled = true;
+                    appendFrontendLog('Пересчёт завершён.');
+                    return;
+                }
+
+                pollStep(sessid);
+            });
+        }, 250);
+    }
+
+    function clearPolling() {
+        if (pollingTimer) {
+            clearTimeout(pollingTimer);
+            pollingTimer = null;
+        }
+    }
+
+    function updateUiWithData(data) {
+        var summary = data.summary || {};
+        var total = Number(summary.totalOffers || 0);
+        var processed = Number(summary.processedOffers || 0);
+        var percent = total > 0 ? Math.round((processed / total) * 100) : 100;
+        setProgress(percent, 'Обработано ' + processed + ' из ' + total + ' ТП');
+        displayResults(data);
+    }
+
+    function sendApiRequest(sessid, payload, callback) {
+        var endpointWithSessid = config.ajaxEndpoint
+            + (config.ajaxEndpoint.indexOf('?') >= 0 ? '&' : '?')
+            + 'sessid=' + encodeURIComponent(sessid);
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', endpointWithSessid, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.withCredentials = true;
+
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 4) {
+                return;
+            }
+
+            var data = null;
+            if (xhr.responseText) {
+                try {
+                    data = JSON.parse(xhr.responseText);
+                } catch (parseError) {
+                    callback('Сервер вернул некорректный JSON (HTTP ' + xhr.status + ').', xhr, null);
+                    return;
+                }
+            }
+
+            callback(null, xhr, data);
+        };
+
+        xhr.onerror = function() {
+            callback('Сетевая ошибка при обращении к endpoint пересчёта.', xhr, null);
+        };
+
+        xhr.send(JSON.stringify(payload));
+    }
+
+    function renderServerLogs(logs) {
+        if (!logs || !logs.length) {
+            return;
+        }
+
+        for (var i = lastRenderedLogCount; i < logs.length; i++) {
+            var row = logs[i] || {};
+            appendFrontendLog('[' + (row.ts || '--:--:--') + '] ' + (row.message || '...'));
+        }
+
+        lastRenderedLogCount = logs.length;
+    }
+
+    function appendFrontendLog(message) {
+        if (!frontendLog) {
+            return;
+        }
+
+        var item = document.createElement('div');
+        item.className = 'error-item';
+        item.style.borderLeftColor = '#0d6efd';
+        item.textContent = message;
+        frontendLog.appendChild(item);
+
+        while (frontendLog.childNodes.length > 500) {
+            frontendLog.removeChild(frontendLog.firstChild);
+        }
+
+        frontendLog.scrollTop = frontendLog.scrollHeight;
+    }
+
+    function handleApiError(data, statusCode) {
+        if (data && data.errorCode === 'INVALID_SESSION') {
+            alert('Сессия истекла. Обновите страницу и повторите запуск пересчёта.');
+            return;
+        }
+
+        if (data && data.errorCode === 'ADMIN_REQUIRED') {
+            alert('Недостаточно прав: требуется доступ администратора.');
+            return;
+        }
+
+        if (data && data.errorCode === 'TOO_MANY_OFFERS') {
+            var maxOffers = data.meta && data.meta.maxOffersPerJob ? data.meta.maxOffersPerJob : '';
+            alert('Слишком много ТП для одного запуска' + (maxOffers ? ' (лимит: ' + maxOffers + ')' : '') + '. Ограничьте пресеты или запускайте частями.');
+            return;
+        }
+
+        if (data && data.errorCode === 'JOB_EXPIRED') {
+            alert('Задача пересчёта истекла по времени. Запустите пересчёт заново.');
+            return;
+        }
+
+        if (data && data.errorCode === 'JOB_NOT_FOUND') {
+            alert('Активная задача не найдена. Запустите пересчёт заново.');
+            return;
+        }
+
+        var reason = (data && data.error) ? data.error : ('HTTP ' + statusCode);
+        appendFrontendLog('Ошибка API: ' + reason);
+        alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + reason);
+    }
+
+    function setProgress(percent, text) {
+        var safePercent = Number(percent);
+        if (isNaN(safePercent)) {
+            safePercent = 0;
+        }
+
+        if (safePercent < 0) {
+            safePercent = 0;
+        }
+
+        if (safePercent > 100) {
+            safePercent = 100;
+        }
+
+        progressBarFill.style.width = safePercent + '%';
+        progressText.textContent = safePercent + '%';
+        progressMessage.textContent = text || '';
+    }
 
     function displayResults(data) {
-        const summary = data.summary || {};
-        const details = data.details || [];
-        const errors = data.errors || [];
+        var summary = data.summary || {};
+        var details = Object.prototype.toString.call(data.details) === '[object Array]' ? data.details : [];
+        var errors = Object.prototype.toString.call(data.errors) === '[object Array]' ? data.errors : [];
 
-        // Сводка
-        const summaryHtml = `
-            <div class="stat-item">
-                <div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_TOTAL_PRESETS') ?>:</div>
-                <div class="stat-value">${summary.totalPresets || 0}</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_TOTAL_OFFERS') ?>:</div>
-                <div class="stat-value">${summary.totalOffers || 0}</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SUCCESS') ?>:</div>
-                <div class="stat-value" style="color: #4CAF50;">${summary.recalculated || 0}</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SKIPPED') ?>:</div>
-                <div class="stat-value" style="color: #FFC107;">${summary.skipped || 0}</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_ERRORS') ?>:</div>
-                <div class="stat-value" style="color: #f44336;">${summary.errors || 0}</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_DURATION') ?>:</div>
-                <div class="stat-value">${summary.duration || 0}</div>
-            </div>
-        `;
+        var summaryHtml = '';
+        summaryHtml += '<div class="stat-item"><div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_TOTAL_PRESETS') ?>:</div><div class="stat-value">' + (summary.totalPresets || 0) + '</div></div>';
+        summaryHtml += '<div class="stat-item"><div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_TOTAL_OFFERS') ?>:</div><div class="stat-value">' + (summary.totalOffers || 0) + '</div></div>';
+        summaryHtml += '<div class="stat-item"><div class="stat-label">Обработано ТП:</div><div class="stat-value">' + (summary.processedOffers || 0) + '</div></div>';
+        summaryHtml += '<div class="stat-item"><div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SUCCESS') ?>:</div><div class="stat-value" style="color: #4CAF50;">' + (summary.recalculated || 0) + '</div></div>';
+        summaryHtml += '<div class="stat-item"><div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SKIPPED') ?>:</div><div class="stat-value" style="color: #FFC107;">' + (summary.skipped || 0) + '</div></div>';
+        summaryHtml += '<div class="stat-item"><div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_ERRORS') ?>:</div><div class="stat-value" style="color: #f44336;">' + (summary.errors || 0) + '</div></div>';
+        summaryHtml += '<div class="stat-item"><div class="stat-label"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_DURATION') ?>:</div><div class="stat-value">' + (summary.duration || 0) + '</div></div>';
         document.getElementById('summary-stats').innerHTML = summaryHtml;
 
-        // Детализация
         if (details.length > 0) {
-            let detailsHtml = '<h4><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_DETAILS') ?></h4>';
-            detailsHtml += '<table class="results-table">';
-            detailsHtml += '<thead><tr>';
+            var detailsHtml = '<h4><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_DETAILS') ?></h4>';
+            detailsHtml += '<table class="results-table"><thead><tr>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_PRESET') ?></th>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_OFFER_COUNT') ?></th>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SUCCESS') ?></th>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SKIPPED') ?></th>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_ERRORS') ?></th>';
             detailsHtml += '</tr></thead><tbody>';
-            
-            details.forEach(detail => {
+
+            for (var i = 0; i < details.length; i++) {
+                var detail = details[i] || {};
                 detailsHtml += '<tr>';
-                detailsHtml += `<td>${escapeHtml(String(detail.presetName))} (ID: ${escapeHtml(String(detail.presetId))})</td>`;
-                detailsHtml += `<td>${escapeHtml(String(detail.offerCount))}</td>`;
-                detailsHtml += `<td style="color: #4CAF50;">${escapeHtml(String(detail.recalculated || 0))}</td>`;
-                detailsHtml += `<td style="color: #FFC107;">${escapeHtml(String(detail.skipped || 0))}</td>`;
-                detailsHtml += `<td style="color: #f44336;">${escapeHtml(String(detail.errors ? detail.errors.length : 0))}</td>`;
+                detailsHtml += '<td>' + escapeHtml(String(detail.presetName)) + ' (ID: ' + escapeHtml(String(detail.presetId)) + ')</td>';
+                detailsHtml += '<td>' + escapeHtml(String(detail.offerCount)) + '</td>';
+                detailsHtml += '<td style="color: #4CAF50;">' + escapeHtml(String(detail.recalculated || 0)) + '</td>';
+                detailsHtml += '<td style="color: #FFC107;">' + escapeHtml(String(detail.skipped || 0)) + '</td>';
+                detailsHtml += '<td style="color: #f44336;">' + escapeHtml(String(detail.errors ? detail.errors.length : 0)) + '</td>';
                 detailsHtml += '</tr>';
-            });
-            
+            }
+
             detailsHtml += '</tbody></table>';
             document.getElementById('details-table').innerHTML = detailsHtml;
+        } else {
+            document.getElementById('details-table').innerHTML = '';
         }
 
-        // Ошибки
         if (errors.length > 0) {
-            let errorsHtml = '<h4 style="color: #f44336;"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_ERRORS') ?></h4>';
+            var errorsHtml = '<h4 style="color: #f44336;"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_ERRORS') ?></h4>';
             errorsHtml += '<div class="error-list">';
-            errors.forEach(error => {
-                errorsHtml += `<div class="error-item">`;
-                errorsHtml += `Пресет ID: ${escapeHtml(String(error.presetId))}, ТП ID: ${escapeHtml(String(error.offerId))}<br>`;
-                errorsHtml += `Ошибка: ${escapeHtml(String(error.error))}`;
-                errorsHtml += `</div>`;
-            });
+
+            for (var j = 0; j < errors.length; j++) {
+                var item = errors[j] || {};
+                errorsHtml += '<div class="error-item">';
+                errorsHtml += 'Пресет ID: ' + escapeHtml(String(item.presetId)) + ', ТП ID: ' + escapeHtml(String(item.offerId)) + '<br>';
+                errorsHtml += 'Ошибка: ' + escapeHtml(String(item.error));
+                errorsHtml += '</div>';
+            }
+
             errorsHtml += '</div>';
             document.getElementById('errors-list').innerHTML = errorsHtml;
+        } else {
+            document.getElementById('errors-list').innerHTML = '';
         }
 
         resultsContainer.style.display = 'block';
     }
 
-    // Helper function to escape HTML
     function escapeHtml(text) {
-        const div = document.createElement('div');
+        var div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
     }
