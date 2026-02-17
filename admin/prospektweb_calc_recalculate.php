@@ -353,6 +353,7 @@ $jsMessages = [
             appendFrontendLog('Критическая ошибка запуска: ' + (error.message || String(error)));
             alert((config.messages.ERROR || 'Ошибка') + ': ' + (error.message || 'Unknown error'));
             startBtn.disabled = false;
+            cancelBtn.disabled = true;
             requestInFlight = false;
         }
     });
@@ -580,6 +581,11 @@ $jsMessages = [
         item.style.borderLeftColor = '#0d6efd';
         item.textContent = message;
         frontendLog.appendChild(item);
+
+        while (frontendLog.childNodes.length > 500) {
+            frontendLog.removeChild(frontendLog.firstChild);
+        }
+
         frontendLog.scrollTop = frontendLog.scrollHeight;
     }
 
@@ -602,6 +608,11 @@ $jsMessages = [
 
         if (data && data.errorCode === 'JOB_EXPIRED') {
             alert('Задача пересчёта истекла по времени. Запустите пересчёт заново.');
+            return;
+        }
+
+        if (data && data.errorCode === 'JOB_NOT_FOUND') {
+            alert('Активная задача не найдена. Запустите пересчёт заново.');
             return;
         }
 

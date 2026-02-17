@@ -34,6 +34,93 @@ function logAccessIssue(string $message): void
     }
 }
 
+
+function loadJobLimits(): array
+{
+    $moduleId = 'prospektweb.calc';
+
+    $maxOffersPerJob = (int)Option::get($moduleId, 'BATCH_RECALC_MAX_OFFERS', '400');
+    if ($maxOffersPerJob < 50) {
+        $maxOffersPerJob = 50;
+    }
+
+    $maxStepDurationSec = (int)Option::get($moduleId, 'BATCH_RECALC_MAX_STEP_DURATION', '6');
+    if ($maxStepDurationSec < 2) {
+        $maxStepDurationSec = 2;
+    }
+
+    $maxBatchSize = (int)Option::get($moduleId, 'BATCH_RECALC_MAX_BATCH_SIZE', '3');
+    if ($maxBatchSize < 1) {
+        $maxBatchSize = 1;
+    }
+
+    $jobTtlSec = (int)Option::get($moduleId, 'BATCH_RECALC_JOB_TTL', '1800');
+    if ($jobTtlSec < 60) {
+        $jobTtlSec = 60;
+    }
+
+    return [
+        'maxOffersPerJob' => $maxOffersPerJob,
+        'maxStepDurationSec' => $maxStepDurationSec,
+        'maxBatchSize' => $maxBatchSize,
+        'jobTtlSec' => $jobTtlSec,
+    ];
+}
+
+function isJobExpired(array $job, int $jobTtlSec): bool
+{
+    return (microtime(true) - (float)($job['startedAt'] ?? 0)) > $jobTtlSec;
+}
+
+function expireJobAndRespond(string $jobKey): void
+{
+    unset($_SESSION[$jobKey]);
+    respondJson(410, [
+        'success' => false,
+        'errorCode' => 'JOB_EXPIRED',
+        'error' => 'Recalculate job expired',
+    ]);
+}
+
+function validateCommonParams(array $requestData): array
+{
+    $presetIds = $requestData['presetIds'] ?? [];
+    $onlyChanged = (bool)($requestData['onlyChanged'] ?? true);
+    $calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api'));
+    $timeout = (int)($requestData['timeout'] ?? 30);
+
+    if (!is_array($presetIds)) {
+        respondJson(400, [
+            'success' => false,
+            'errorCode' => 'INVALID_PRESET_IDS',
+            'error' => 'presetIds must be an array',
+        ]);
+    }
+
+    if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
+        respondJson(400, [
+            'success' => false,
+            'errorCode' => 'INVALID_CALC_SERVER_URL',
+            'error' => 'Invalid calc server URL',
+        ]);
+    }
+
+    $urlParts = parse_url($calcServerUrl);
+    if (!in_array($urlParts['scheme'] ?? '', ['http', 'https'], true)) {
+        respondJson(400, [
+            'success' => false,
+            'errorCode' => 'INVALID_URL_SCHEME',
+            'error' => 'Invalid URL scheme. Only http and https are allowed.',
+        ]);
+    }
+
+    if ($timeout < 1 || $timeout > 300) {
+        $timeout = 30;
+    }
+
+    return [$presetIds, $onlyChanged, $calcServerUrl, $timeout];
+}
+
 $requestBody = file_get_contents('php://input');
 $requestData = json_decode((string)$requestBody, true);
 
@@ -87,10 +174,11 @@ if (!Loader::includeModule('prospektweb.calc')) {
 }
 
 $jobKey = 'PROSPEKTWEB_CALC_BATCH_RECALC_JOB';
-$maxOffersPerJob = 400;
-$maxStepDurationSec = 6;
-$maxBatchSize = 3;
-$jobTtlSec = 1800;
+$limits = loadJobLimits();
+$maxOffersPerJob = (int)$limits['maxOffersPerJob'];
+$maxStepDurationSec = (int)$limits['maxStepDurationSec'];
+$maxBatchSize = (int)$limits['maxBatchSize'];
+$jobTtlSec = (int)$limits['jobTtlSec'];
 $action = (string)($requestData['action'] ?? 'run');
 
 if ($action === 'cancel') {
@@ -108,6 +196,10 @@ if ($action === 'status') {
         ]);
     }
 
+    if (isJobExpired($job, $jobTtlSec)) {
+        expireJobAndRespond($jobKey);
+    }
+
     $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
     $job['finished'] = empty($job['queue']);
     $_SESSION[$jobKey] = $job;
@@ -123,39 +215,7 @@ if ($action === 'status') {
 }
 
 if ($action === 'start') {
-    $presetIds = $requestData['presetIds'] ?? [];
-    $onlyChanged = (bool)($requestData['onlyChanged'] ?? true);
-    $calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api'));
-    $timeout = (int)($requestData['timeout'] ?? 30);
-
-    if (!is_array($presetIds)) {
-        respondJson(400, [
-            'success' => false,
-            'errorCode' => 'INVALID_PRESET_IDS',
-            'error' => 'presetIds must be an array',
-        ]);
-    }
-
-    if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
-        respondJson(400, [
-            'success' => false,
-            'errorCode' => 'INVALID_CALC_SERVER_URL',
-            'error' => 'Invalid calc server URL',
-        ]);
-    }
-
-    $urlParts = parse_url($calcServerUrl);
-    if (!in_array($urlParts['scheme'] ?? '', ['http', 'https'], true)) {
-        respondJson(400, [
-            'success' => false,
-            'errorCode' => 'INVALID_URL_SCHEME',
-            'error' => 'Invalid URL scheme. Only http and https are allowed.',
-        ]);
-    }
-
-    if ($timeout < 1 || $timeout > 300) {
-        $timeout = 30;
-    }
+    [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
 
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
     $presets = $service->getPresetsWithOfferCount();
@@ -248,13 +308,8 @@ if ($action === 'step') {
         ]);
     }
 
-    if ((microtime(true) - (float)$job['startedAt']) > $jobTtlSec) {
-        unset($_SESSION[$jobKey]);
-        respondJson(410, [
-            'success' => false,
-            'errorCode' => 'JOB_EXPIRED',
-            'error' => 'Recalculate job expired',
-        ]);
+    if (isJobExpired($job, $jobTtlSec)) {
+        expireJobAndRespond($jobKey);
     }
 
     if (empty($job['queue'])) {
@@ -346,39 +401,7 @@ if ($action === 'step') {
 }
 
 // legacy fallback (single-shot mode)
-$presetIds = $requestData['presetIds'] ?? [];
-$onlyChanged = (bool)($requestData['onlyChanged'] ?? true);
-$calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api'));
-$timeout = (int)($requestData['timeout'] ?? 30);
-
-if (!is_array($presetIds)) {
-    respondJson(400, [
-        'success' => false,
-        'errorCode' => 'INVALID_PRESET_IDS',
-        'error' => 'presetIds must be an array',
-    ]);
-}
-
-if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
-    respondJson(400, [
-        'success' => false,
-        'errorCode' => 'INVALID_CALC_SERVER_URL',
-        'error' => 'Invalid calc server URL',
-    ]);
-}
-
-$urlParts = parse_url($calcServerUrl);
-if (!in_array($urlParts['scheme'] ?? '', ['http', 'https'], true)) {
-    respondJson(400, [
-        'success' => false,
-        'errorCode' => 'INVALID_URL_SCHEME',
-        'error' => 'Invalid URL scheme. Only http and https are allowed.',
-    ]);
-}
-
-if ($timeout < 1 || $timeout > 300) {
-    $timeout = 30;
-}
+[$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
 
 try {
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
