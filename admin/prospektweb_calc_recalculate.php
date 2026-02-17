@@ -272,6 +272,7 @@ $jsMessages = [
         <button type="button" id="start-recalc" class="adm-btn adm-btn-save">
             <?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_START') ?>
         </button>
+        <button type="button" id="cancel-recalc" class="adm-btn" style="margin-left: 8px;">Остановить</button>
 
         <div class="progress-container" id="progress-container">
             <div class="progress-bar">
@@ -311,6 +312,7 @@ $jsMessages = [
     var scopeSpecific = document.getElementById('scope-specific');
     var presetSelector = document.getElementById('preset-selector');
     var startBtn = document.getElementById('start-recalc');
+    var cancelBtn = document.getElementById('cancel-recalc');
     var progressContainer = document.getElementById('progress-container');
     var progressBarFill = document.getElementById('progress-bar-fill');
     var progressText = document.getElementById('progress-text');
@@ -322,7 +324,9 @@ $jsMessages = [
     var pollingTimer = null;
     var lastRenderedLogCount = 0;
 
-    if (!startBtn || !scopeAll || !scopeSpecific) {
+    cancelBtn.disabled = true;
+
+    if (!startBtn || !cancelBtn || !scopeAll || !scopeSpecific) {
         return;
     }
 
@@ -351,6 +355,26 @@ $jsMessages = [
             startBtn.disabled = false;
             requestInFlight = false;
         }
+    });
+
+    cancelBtn.addEventListener('click', function() {
+        if (!requestInFlight) {
+            return;
+        }
+
+        var runtimeSessid = config.sessid;
+        if (window.BX && typeof window.BX.bitrix_sessid === 'function') {
+            runtimeSessid = window.BX.bitrix_sessid();
+        }
+
+        clearPolling();
+        sendApiRequest(runtimeSessid, { action: 'cancel', sessid: runtimeSessid }, function() {
+            requestInFlight = false;
+            startBtn.disabled = false;
+            cancelBtn.disabled = true;
+            appendFrontendLog('Задача отменена пользователем.');
+            setProgress(0, 'Остановлено');
+        });
     });
 
     function startRecalculation() {
@@ -399,6 +423,7 @@ $jsMessages = [
 
         requestInFlight = true;
         startBtn.disabled = true;
+        cancelBtn.disabled = false;
         resultsContainer.style.display = 'none';
         document.getElementById('details-table').innerHTML = '';
         document.getElementById('errors-list').innerHTML = '';
@@ -420,6 +445,7 @@ $jsMessages = [
             if (err) {
                 requestInFlight = false;
                 startBtn.disabled = false;
+                cancelBtn.disabled = true;
                 appendFrontendLog('Ошибка запуска: ' + err);
                 alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
                 return;
@@ -449,6 +475,7 @@ $jsMessages = [
                 if (err) {
                     requestInFlight = false;
                     startBtn.disabled = false;
+                    cancelBtn.disabled = true;
                     appendFrontendLog('Ошибка шага пересчёта: ' + err);
                     alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
                     return;
@@ -457,6 +484,7 @@ $jsMessages = [
                 if (!response || response.status < 200 || response.status >= 300 || !data || !data.success) {
                     requestInFlight = false;
                     startBtn.disabled = false;
+                    cancelBtn.disabled = true;
                     handleApiError(data, response ? response.status : 0);
                     return;
                 }
@@ -467,6 +495,7 @@ $jsMessages = [
                 if (data.finished) {
                     requestInFlight = false;
                     startBtn.disabled = false;
+                    cancelBtn.disabled = true;
                     appendFrontendLog('Пересчёт завершён.');
                     return;
                 }
@@ -562,6 +591,17 @@ $jsMessages = [
 
         if (data && data.errorCode === 'ADMIN_REQUIRED') {
             alert('Недостаточно прав: требуется доступ администратора.');
+            return;
+        }
+
+        if (data && data.errorCode === 'TOO_MANY_OFFERS') {
+            var maxOffers = data.meta && data.meta.maxOffersPerJob ? data.meta.maxOffersPerJob : '';
+            alert('Слишком много ТП для одного запуска' + (maxOffers ? ' (лимит: ' + maxOffers + ')' : '') + '. Ограничьте пресеты или запускайте частями.');
+            return;
+        }
+
+        if (data && data.errorCode === 'JOB_EXPIRED') {
+            alert('Задача пересчёта истекла по времени. Запустите пересчёт заново.');
             return;
         }
 

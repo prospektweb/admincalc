@@ -87,6 +87,10 @@ if (!Loader::includeModule('prospektweb.calc')) {
 }
 
 $jobKey = 'PROSPEKTWEB_CALC_BATCH_RECALC_JOB';
+$maxOffersPerJob = 400;
+$maxStepDurationSec = 6;
+$maxBatchSize = 3;
+$jobTtlSec = 1800;
 $action = (string)($requestData['action'] ?? 'run');
 
 if ($action === 'cancel') {
@@ -186,6 +190,18 @@ if ($action === 'start') {
         }
     }
 
+    if (count($queue) > $maxOffersPerJob) {
+        respondJson(429, [
+            'success' => false,
+            'errorCode' => 'TOO_MANY_OFFERS',
+            'error' => 'Too many offers for one run. Narrow scope and retry.',
+            'meta' => [
+                'maxOffersPerJob' => $maxOffersPerJob,
+                'requestedOffers' => count($queue),
+            ],
+        ]);
+    }
+
     $_SESSION[$jobKey] = [
         'params' => [
             'onlyChanged' => $onlyChanged,
@@ -232,6 +248,15 @@ if ($action === 'step') {
         ]);
     }
 
+    if ((microtime(true) - (float)$job['startedAt']) > $jobTtlSec) {
+        unset($_SESSION[$jobKey]);
+        respondJson(410, [
+            'success' => false,
+            'errorCode' => 'JOB_EXPIRED',
+            'error' => 'Recalculate job expired',
+        ]);
+    }
+
     if (empty($job['queue'])) {
         $job['finished'] = true;
         $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
@@ -248,10 +273,16 @@ if ($action === 'step') {
     }
 
     $params = $job['params'];
-    $batchSize = 5;
+    $batchSize = $maxBatchSize;
     $service = new BatchRecalculateService((string)$params['calcServerUrl'], (int)$params['timeout']);
 
+    $stepStartedAt = microtime(true);
+
     for ($i = 0; $i < $batchSize && !empty($job['queue']); $i++) {
+        if ((microtime(true) - $stepStartedAt) >= $maxStepDurationSec) {
+            $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'Шаг остановлен по лимиту времени'];
+            break;
+        }
         $item = array_shift($job['queue']);
         $presetId = (int)$item['presetId'];
         $offerId = (int)$item['offerId'];
