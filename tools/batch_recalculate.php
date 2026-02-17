@@ -10,88 +10,370 @@ define('PUBLIC_AJAX_MODE', true);
 
 require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php';
 
-global $APPLICATION;
-$APPLICATION->RestartBuffer();
-
-header('Content-Type: application/json; charset=UTF-8');
-
-use Bitrix\Main\Loader;
 use Bitrix\Main\Config\Option;
+use Bitrix\Main\Loader;
 use Prospektweb\Calc\Services\BatchRecalculateService;
 
+global $APPLICATION;
 global $USER;
 
-// Читаем JSON-тело запроса О��ИН РАЗ
+$APPLICATION->RestartBuffer();
+header('Content-Type: application/json; charset=UTF-8');
+
+function respondJson(int $statusCode, array $payload): void
+{
+    http_response_code($statusCode);
+    echo json_encode($payload);
+    die();
+}
+
+function logAccessIssue(string $message): void
+{
+    if (function_exists('AddMessage2Log')) {
+        AddMessage2Log($message, 'prospektweb.calc');
+    }
+}
+
 $requestBody = file_get_contents('php://input');
-$requestData = json_decode($requestBody, true);
+$requestData = json_decode((string)$requestBody, true);
 
-// Подставляем sessid из JSON в $_REQUEST
-if (is_array($requestData) && isset($requestData['sessid'])) {
-    $_REQUEST['sessid'] = $requestData['sessid'];
-}
-
-// Проверка сессии + права администратора
-if (!check_bitrix_sessid() || !$USER->IsAdmin()) {
-    http_response_code(403);
-    echo json_encode([
+if ($requestData === null && !empty($requestBody)) {
+    respondJson(400, [
         'success' => false,
-        'error' => 'Access denied or invalid session',
+        'errorCode' => 'INVALID_JSON',
+        'error' => 'Invalid JSON',
     ]);
-    die();
-}
-
-// Загрузка модуля
-if (!Loader::includeModule('prospektweb.calc')) {
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Module not installed',
-    ]);
-    die();
 }
 
 if ($requestData === null) {
-    http_response_code(400);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Invalid JSON',
-    ]);
-    die();
+    $requestData = [];
 }
 
-// Параметры запроса
+if (empty($_REQUEST['sessid']) && isset($requestData['sessid'])) {
+    $_REQUEST['sessid'] = (string)$requestData['sessid'];
+}
+
+if (!check_bitrix_sessid()) {
+    logAccessIssue(
+        'Batch recalculate denied: invalid sessid. User ID: '
+        . (int)$USER->GetID()
+        . '; sessid present: '
+        . (!empty($_REQUEST['sessid']) ? 'Y' : 'N')
+    );
+
+    respondJson(403, [
+        'success' => false,
+        'errorCode' => 'INVALID_SESSION',
+        'error' => 'Invalid session',
+    ]);
+}
+
+if (!$USER->IsAdmin()) {
+    logAccessIssue('Batch recalculate denied: non-admin user. User ID: ' . (int)$USER->GetID());
+
+    respondJson(403, [
+        'success' => false,
+        'errorCode' => 'ADMIN_REQUIRED',
+        'error' => 'Admin access required',
+    ]);
+}
+
+if (!Loader::includeModule('prospektweb.calc')) {
+    respondJson(500, [
+        'success' => false,
+        'errorCode' => 'MODULE_NOT_INSTALLED',
+        'error' => 'Module not installed',
+    ]);
+}
+
+$jobKey = 'PROSPEKTWEB_CALC_BATCH_RECALC_JOB';
+$maxOffersPerJob = 400;
+$maxStepDurationSec = 6;
+$maxBatchSize = 3;
+$jobTtlSec = 1800;
+$action = (string)($requestData['action'] ?? 'run');
+
+if ($action === 'cancel') {
+    unset($_SESSION[$jobKey]);
+    respondJson(200, ['success' => true, 'message' => 'Cancelled']);
+}
+
+if ($action === 'status') {
+    $job = $_SESSION[$jobKey] ?? null;
+    if (!is_array($job)) {
+        respondJson(404, [
+            'success' => false,
+            'errorCode' => 'JOB_NOT_FOUND',
+            'error' => 'No active recalculate job',
+        ]);
+    }
+
+    $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
+    $job['finished'] = empty($job['queue']);
+    $_SESSION[$jobKey] = $job;
+
+    respondJson(200, [
+        'success' => true,
+        'summary' => $job['summary'],
+        'details' => array_values($job['details']),
+        'errors' => $job['errors'],
+        'finished' => $job['finished'],
+        'logs' => $job['logs'],
+    ]);
+}
+
+if ($action === 'start') {
+    $presetIds = $requestData['presetIds'] ?? [];
+    $onlyChanged = (bool)($requestData['onlyChanged'] ?? true);
+    $calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api'));
+    $timeout = (int)($requestData['timeout'] ?? 30);
+
+    if (!is_array($presetIds)) {
+        respondJson(400, [
+            'success' => false,
+            'errorCode' => 'INVALID_PRESET_IDS',
+            'error' => 'presetIds must be an array',
+        ]);
+    }
+
+    if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
+        respondJson(400, [
+            'success' => false,
+            'errorCode' => 'INVALID_CALC_SERVER_URL',
+            'error' => 'Invalid calc server URL',
+        ]);
+    }
+
+    $urlParts = parse_url($calcServerUrl);
+    if (!in_array($urlParts['scheme'] ?? '', ['http', 'https'], true)) {
+        respondJson(400, [
+            'success' => false,
+            'errorCode' => 'INVALID_URL_SCHEME',
+            'error' => 'Invalid URL scheme. Only http and https are allowed.',
+        ]);
+    }
+
+    if ($timeout < 1 || $timeout > 300) {
+        $timeout = 30;
+    }
+
+    $service = new BatchRecalculateService($calcServerUrl, $timeout);
+    $presets = $service->getPresetsWithOfferCount();
+    if (!empty($presetIds)) {
+        $presets = array_values(array_filter($presets, static function (array $preset) use ($presetIds): bool {
+            return in_array((int)$preset['id'], $presetIds, true);
+        }));
+    }
+
+    $queue = [];
+    $details = [];
+    foreach ($presets as $preset) {
+        $presetId = (int)$preset['id'];
+        $presetName = (string)$preset['name'];
+        $offerIds = $service->getOfferIdsForPreset($presetId);
+
+        $details[$presetId] = [
+            'presetId' => $presetId,
+            'presetName' => $presetName,
+            'offerCount' => count($offerIds),
+            'recalculated' => 0,
+            'skipped' => 0,
+            'errors' => [],
+        ];
+
+        foreach ($offerIds as $offerId) {
+            $queue[] = [
+                'presetId' => $presetId,
+                'presetName' => $presetName,
+                'offerId' => (int)$offerId,
+            ];
+        }
+    }
+
+    if (count($queue) > $maxOffersPerJob) {
+        respondJson(429, [
+            'success' => false,
+            'errorCode' => 'TOO_MANY_OFFERS',
+            'error' => 'Too many offers for one run. Narrow scope and retry.',
+            'meta' => [
+                'maxOffersPerJob' => $maxOffersPerJob,
+                'requestedOffers' => count($queue),
+            ],
+        ]);
+    }
+
+    $_SESSION[$jobKey] = [
+        'params' => [
+            'onlyChanged' => $onlyChanged,
+            'calcServerUrl' => $calcServerUrl,
+            'timeout' => $timeout,
+        ],
+        'startedAt' => microtime(true),
+        'summary' => [
+            'totalPresets' => count($presets),
+            'processedPresets' => 0,
+            'totalOffers' => count($queue),
+            'processedOffers' => 0,
+            'recalculated' => 0,
+            'skipped' => 0,
+            'errors' => 0,
+            'duration' => 0,
+        ],
+        'details' => $details,
+        'errors' => [],
+        'logs' => [
+            ['ts' => date('H:i:s'), 'message' => 'Запущена задача пакетного пересчёта'],
+        ],
+        'queue' => $queue,
+        'finished' => empty($queue),
+    ];
+
+    respondJson(200, [
+        'success' => true,
+        'summary' => $_SESSION[$jobKey]['summary'],
+        'details' => array_values($_SESSION[$jobKey]['details']),
+        'errors' => $_SESSION[$jobKey]['errors'],
+        'finished' => $_SESSION[$jobKey]['finished'],
+        'logs' => $_SESSION[$jobKey]['logs'],
+    ]);
+}
+
+if ($action === 'step') {
+    $job = $_SESSION[$jobKey] ?? null;
+    if (!is_array($job)) {
+        respondJson(404, [
+            'success' => false,
+            'errorCode' => 'JOB_NOT_FOUND',
+            'error' => 'No active recalculate job',
+        ]);
+    }
+
+    if ((microtime(true) - (float)$job['startedAt']) > $jobTtlSec) {
+        unset($_SESSION[$jobKey]);
+        respondJson(410, [
+            'success' => false,
+            'errorCode' => 'JOB_EXPIRED',
+            'error' => 'Recalculate job expired',
+        ]);
+    }
+
+    if (empty($job['queue'])) {
+        $job['finished'] = true;
+        $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
+        $_SESSION[$jobKey] = $job;
+
+        respondJson(200, [
+            'success' => true,
+            'summary' => $job['summary'],
+            'details' => array_values($job['details']),
+            'errors' => $job['errors'],
+            'finished' => true,
+            'logs' => $job['logs'],
+        ]);
+    }
+
+    $params = $job['params'];
+    $batchSize = $maxBatchSize;
+    $service = new BatchRecalculateService((string)$params['calcServerUrl'], (int)$params['timeout']);
+
+    $stepStartedAt = microtime(true);
+
+    for ($i = 0; $i < $batchSize && !empty($job['queue']); $i++) {
+        if ((microtime(true) - $stepStartedAt) >= $maxStepDurationSec) {
+            $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'Шаг остановлен по лимиту времени'];
+            break;
+        }
+        $item = array_shift($job['queue']);
+        $presetId = (int)$item['presetId'];
+        $offerId = (int)$item['offerId'];
+        $presetName = (string)$item['presetName'];
+
+        $result = $service->recalculateOffer($offerId, (bool)$params['onlyChanged']);
+        $status = (string)($result['status'] ?? 'error');
+        $job['summary']['processedOffers']++;
+
+        if ($status === 'recalculated') {
+            $job['summary']['recalculated']++;
+            $job['details'][$presetId]['recalculated']++;
+            $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'ТП #' . $offerId . ' пересчитан (' . $presetName . ')'];
+        } elseif ($status === 'skipped') {
+            $job['summary']['skipped']++;
+            $job['details'][$presetId]['skipped']++;
+            $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'ТП #' . $offerId . ' пропущен (без изменений)'];
+        } else {
+            $errorMessage = (string)($result['error'] ?? 'Неизвестная ошибка');
+            $job['summary']['errors']++;
+            $job['details'][$presetId]['errors'][] = $errorMessage;
+            $job['errors'][] = [
+                'presetId' => $presetId,
+                'offerId' => $offerId,
+                'error' => $errorMessage,
+            ];
+            $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'ТП #' . $offerId . ' ошибка: ' . $errorMessage];
+        }
+    }
+
+    $processedPresetCount = 0;
+    foreach ($job['details'] as $detail) {
+        $processed = (int)$detail['recalculated'] + (int)$detail['skipped'] + count($detail['errors']);
+        if ($processed >= (int)$detail['offerCount']) {
+            $processedPresetCount++;
+        }
+    }
+
+    $job['summary']['processedPresets'] = $processedPresetCount;
+    $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
+    $job['finished'] = empty($job['queue']);
+
+    if ($job['finished']) {
+        $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'Пересчёт завершён'];
+    }
+
+    if (count($job['logs']) > 300) {
+        $job['logs'] = array_slice($job['logs'], -300);
+    }
+
+    $_SESSION[$jobKey] = $job;
+
+    respondJson(200, [
+        'success' => true,
+        'summary' => $job['summary'],
+        'details' => array_values($job['details']),
+        'errors' => $job['errors'],
+        'finished' => $job['finished'],
+        'logs' => $job['logs'],
+    ]);
+}
+
+// legacy fallback (single-shot mode)
 $presetIds = $requestData['presetIds'] ?? [];
 $onlyChanged = (bool)($requestData['onlyChanged'] ?? true);
 $calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api'));
 $timeout = (int)($requestData['timeout'] ?? 30);
 
-// Валидация URL
-if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
-    http_response_code(400);
-    echo json_encode([
+if (!is_array($presetIds)) {
+    respondJson(400, [
         'success' => false,
+        'errorCode' => 'INVALID_PRESET_IDS',
+        'error' => 'presetIds must be an array',
+    ]);
+}
+
+if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
+    respondJson(400, [
+        'success' => false,
+        'errorCode' => 'INVALID_CALC_SERVER_URL',
         'error' => 'Invalid calc server URL',
     ]);
-    die();
 }
 
 $urlParts = parse_url($calcServerUrl);
 if (!in_array($urlParts['scheme'] ?? '', ['http', 'https'], true)) {
-    http_response_code(400);
-    echo json_encode([
+    respondJson(400, [
         'success' => false,
+        'errorCode' => 'INVALID_URL_SCHEME',
         'error' => 'Invalid URL scheme. Only http and https are allowed.',
     ]);
-    die();
-}
-
-if (!is_array($presetIds)) {
-    http_response_code(400);
-    echo json_encode([
-        'success' => false,
-        'error' => 'presetIds must be an array',
-    ]);
-    die();
 }
 
 if ($timeout < 1 || $timeout > 300) {
@@ -101,17 +383,21 @@ if ($timeout < 1 || $timeout > 300) {
 try {
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
     $result = $service->recalculate($presetIds, $onlyChanged);
-    
-    echo json_encode([
+
+    respondJson(200, [
         'success' => true,
         'summary' => $result['summary'] ?? [],
         'details' => $result['details'] ?? [],
         'errors' => $result['errors'] ?? [],
+        'finished' => true,
+        'logs' => [
+            ['ts' => date('H:i:s'), 'message' => 'Пересчёт завершён в режиме совместимости'],
+        ],
     ]);
 } catch (\Throwable $e) {
-    http_response_code(500);
-    echo json_encode([
+    respondJson(500, [
         'success' => false,
+        'errorCode' => 'RECALCULATION_FAILED',
         'error' => 'Recalculation failed: ' . $e->getMessage(),
     ]);
 }

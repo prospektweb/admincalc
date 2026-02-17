@@ -120,6 +120,74 @@ class BatchRecalculateService
         return $offerIds;
     }
 
+
+    /**
+     * Выполнить пересчёт одного торгового предложения
+     *
+     * @param int $offerId ID торгового предложения
+     * @param bool $onlyChanged Пропускать неизменившиеся
+     * @return array{status: string, error?: string, resultCount?: int}
+     */
+    public function recalculateOffer(int $offerId, bool $onlyChanged = true): array
+    {
+        try {
+            $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
+            $initPayload = $this->initPayloadService->prepareInitPayload([$offerId], $siteId);
+            $currentHash = $this->computeStateHash($initPayload);
+
+            if ($onlyChanged) {
+                $savedHash = $this->getSavedHash($offerId);
+                if ($savedHash !== null && $savedHash === $currentHash) {
+                    return ['status' => 'skipped'];
+                }
+            }
+
+            $calcResult = $this->callCalcServer($initPayload);
+            if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
+                throw new \Exception($calcResult['error'] ?? 'Ошибка расчёта на сервере');
+            }
+
+            $offerResults = $calcResult['data'] ?? [];
+            if (empty($offerResults) || !is_array($offerResults)) {
+                throw new \Exception('Пустой ответ от calc-server');
+            }
+
+            $offerUpdateService = new OfferUpdateService();
+            $writeResult = $offerUpdateService->updateOffersFromCalculation($offerResults);
+            if (($writeResult['status'] ?? 'error') === 'error') {
+                throw new \Exception('Ошибка записи результатов: ' . ($writeResult['errors'][0]['message'] ?? 'Неизвестная ошибка'));
+            }
+
+            try {
+                $historyHandler = new CalculationHistoryHandler();
+                foreach ($offerResults as $offerResult) {
+                    $historyHandler->handle([
+                        'offers' => [
+                            [
+                                'offerId' => $offerResult['offerId'],
+                                'json' => $offerResult,
+                            ]
+                        ]
+                    ]);
+                }
+            } catch (\Exception $e) {
+                error_log("Ошибка сохранения истории расчёта для ТП #{$offerId}: " . $e->getMessage());
+            }
+
+            $this->saveHash($offerId, $currentHash);
+
+            return [
+                'status' => 'recalculated',
+                'resultCount' => count($offerResults),
+            ];
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
     /**
      * Выполнить пересчёт для набора пресетов
      * 
@@ -178,82 +246,28 @@ class BatchRecalculateService
             ];
 
             foreach ($offerIds as $offerId) {
-                try {
-                    // Собираем initPayload для этого ТП
-                    // Используем текущий ID сайта, если не определён - берём первый доступный сайт
-                    $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
-                    $initPayload = $this->initPayloadService->prepareInitPayload([$offerId], $siteId);
-                    
-                    // Вычисляем хеш текущего состояния
-                    $currentHash = $this->computeStateHash($initPayload);
-                    
-                    // Проверяем, изменились ли данные
-                    if ($onlyChanged) {
-                        $savedHash = $this->getSavedHash($offerId);
-                        if ($savedHash !== null && $savedHash === $currentHash) {
-                            $presetStats['skipped']++;
-                            $summary['skipped']++;
-                            continue;
-                        }
-                    }
-                    
-                    // Отправляем запрос на calc-server
-                    $calcResult = $this->callCalcServer($initPayload);
-                    
-                    // Проверяем успешность вызова
-                    if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
-                        throw new \Exception($calcResult['error'] ?? 'Ошибка расчёта на сервере');
-                    }
-                    
-                    // Извлекаем результаты расчётов
-                    $offerResults = $calcResult['data'] ?? [];
-                    
-                    if (empty($offerResults) || !is_array($offerResults)) {
-                        throw new \Exception('Пустой ответ от calc-server');
-                    }
-                    
-                    // Записываем результаты через OfferUpdateService
-                    $offerUpdateService = new OfferUpdateService();
-                    $writeResult = $offerUpdateService->updateOffersFromCalculation($offerResults);
-                    
-                    // Проверяем результат записи
-                    if ($writeResult['status'] === 'error') {
-                        throw new \Exception('Ошибка записи результатов: ' . ($writeResult['errors'][0]['message'] ?? 'Неизвестная ошибка'));
-                    }
-                    
-                    // Сохраняем историю расчётов
-                    try {
-                        $historyHandler = new CalculationHistoryHandler();
-                        foreach ($offerResults as $offerResult) {
-                            $historyHandler->handle([
-                                'offers' => [
-                                    [
-                                        'offerId' => $offerResult['offerId'],
-                                        'json' => $offerResult,
-                                    ]
-                                ]
-                            ]);
-                        }
-                    } catch (\Exception $e) {
-                        // Логируем ошибку истории, но не прерываем процесс
-                        error_log("Ошибка сохранения истории расчёта для ТП #{$offerId}: " . $e->getMessage());
-                    }
-                    
-                    // Сохраняем новый хеш только ПОСЛЕ успешной записи
-                    $this->saveHash($offerId, $currentHash);
-                    
+                $offerResult = $this->recalculateOffer((int)$offerId, $onlyChanged);
+
+                if (($offerResult['status'] ?? '') === 'recalculated') {
                     $presetStats['recalculated']++;
                     $summary['recalculated']++;
-                    
-                } catch (\Exception $e) {
-                    $presetStats['errors'][] = $e->getMessage();
-                    $errors[] = [
-                        'presetId' => $presetId,
-                        'offerId' => $offerId,
-                        'error' => $e->getMessage(),
-                    ];
-                    $summary['errors']++;
+                    continue;
                 }
+
+                if (($offerResult['status'] ?? '') === 'skipped') {
+                    $presetStats['skipped']++;
+                    $summary['skipped']++;
+                    continue;
+                }
+
+                $errorMessage = (string)($offerResult['error'] ?? 'Неизвестная ошибка');
+                $presetStats['errors'][] = $errorMessage;
+                $errors[] = [
+                    'presetId' => $presetId,
+                    'offerId' => $offerId,
+                    'error' => $errorMessage,
+                ];
+                $summary['errors']++;
             }
 
             $details[] = $presetStats;
