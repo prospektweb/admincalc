@@ -438,40 +438,58 @@ class BatchRecalculateService
      */
     private function callCalcServer(array $initPayload): array
     {
-        $url = $this->calcServerUrl . '/calculate';
-        
+        $url = $this->calcServerUrl;
+        $requestBody = json_encode(['initPayload' => $initPayload], JSON_UNESCAPED_UNICODE);
+
+        if ($requestBody === false) {
+            throw new \Exception('Не удалось сериализовать payload для calc-server');
+        }
+
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($initPayload));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Content-Type: application/json',
             'Accept: application/json',
         ]);
         curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-        
+
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
         curl_close($ch);
-        
+
         if ($error) {
-            // Log detailed error for debugging
             error_log("calc-server connection error: {$error}");
-            // Return generic error to caller
-            throw new \Exception("Ошибка соединения с сервером расчётов");
+            throw new \Exception('Ошибка соединения с сервером расчётов');
         }
-        
+
+        $responseBody = is_string($response) ? trim($response) : '';
+        $decodedErrorResponse = $responseBody !== '' ? json_decode($responseBody, true) : null;
+
         if ($httpCode !== 200) {
-            throw new \Exception("calc-server returned HTTP {$httpCode}");
+            $serverMessage = '';
+            if (is_array($decodedErrorResponse)) {
+                $serverMessage = (string)($decodedErrorResponse['error'] ?? $decodedErrorResponse['message'] ?? '');
+            }
+            if ($serverMessage === '' && $responseBody !== '') {
+                $serverMessage = substr($responseBody, 0, 400);
+            }
+
+            throw new \Exception(
+                $serverMessage !== ''
+                    ? "calc-server returned HTTP {$httpCode}: {$serverMessage}"
+                    : "calc-server returned HTTP {$httpCode}"
+            );
         }
-        
-        $result = json_decode($response, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \Exception("calc-server returned invalid JSON");
+
+        $result = is_array($decodedErrorResponse) ? $decodedErrorResponse : json_decode((string)$response, true);
+        if (!is_array($result)) {
+            throw new \Exception('calc-server returned invalid JSON');
         }
-        
+
         return $result;
     }
 
