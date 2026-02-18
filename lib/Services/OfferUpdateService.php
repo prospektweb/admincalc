@@ -52,10 +52,7 @@ class OfferUpdateService
                     $element->Update($offerId, ['NAME' => $offerName]);
                 }
 
-                $purchasePrice = $this->normalizeNumber($offer['directPurchasePrice'] ?? null);
-                if ($purchasePrice === null) {
-                    $purchasePrice = $this->normalizeNumber($offer['purchasePrice'] ?? null);
-                }
+                $purchasePrice = $this->normalizeNumber($offer['purchasePrice'] ?? null);
                 $currency = (string)($offer['currency'] ?? 'RUB');
 
                 $purchasingUpdated = false;
