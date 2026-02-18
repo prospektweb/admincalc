@@ -98,15 +98,18 @@ class BatchRecalculateService
             return [];
         }
 
+        $productIds = array_column($this->getProductsForPreset($presetId), 'id');
+        if (empty($productIds)) {
+            return [];
+        }
+
         $offerIds = [];
-        
-        // Ищем ТП, которые ссылаются на этот пресет через свойство CALC_PRESET
         $rsOffers = \CIBlockElement::GetList(
             ['ID' => 'ASC'],
             [
                 'IBLOCK_ID' => $skuIblockId,
                 'ACTIVE' => 'Y',
-                'PROPERTY_CALC_PRESET' => $presetId,
+                'PROPERTY_CML2_LINK' => $productIds,
             ],
             false,
             false,
@@ -118,6 +121,146 @@ class BatchRecalculateService
         }
 
         return $offerIds;
+    }
+
+    /**
+     * Получить товары, связанные с пресетом через свойство товара CALC_PRESET.
+     *
+     * @param int $presetId
+     * @return array<int, array{id:int,name:string}>
+     */
+    public function getProductsForPreset(int $presetId): array
+    {
+        if (!Loader::includeModule('iblock')) {
+            return [];
+        }
+
+        $productIblockId = $this->configManager->getProductIblockId();
+        if ($productIblockId <= 0) {
+            return [];
+        }
+
+        $products = [];
+        $res = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            [
+                'IBLOCK_ID' => $productIblockId,
+                'ACTIVE' => 'Y',
+                'PROPERTY_CALC_PRESET' => $presetId,
+            ],
+            false,
+            false,
+            ['ID', 'NAME']
+        );
+
+        while ($row = $res->Fetch()) {
+            $products[] = [
+                'id' => (int)$row['ID'],
+                'name' => (string)$row['NAME'],
+            ];
+        }
+
+        return $products;
+    }
+
+    /**
+     * Подготовить расширенный анализ для пресетов.
+     *
+     * @param int[] $presetIds
+     * @return array<int, array{presetId:int,presetName:string,products:array<int,array{id:int,name:string}>,offerCount:int}>
+     */
+    public function getPresetAnalysis(array $presetIds = []): array
+    {
+        $presets = $this->getPresetsWithOfferCount();
+
+        if (!empty($presetIds)) {
+            $presets = array_values(array_filter($presets, static function (array $preset) use ($presetIds): bool {
+                return in_array((int)$preset['id'], $presetIds, true);
+            }));
+        }
+
+        $result = [];
+        foreach ($presets as $preset) {
+            $presetId = (int)$preset['id'];
+            $products = $this->getProductsForPreset($presetId);
+            $offerIds = $this->getOfferIdsForPreset($presetId);
+
+            $result[] = [
+                'presetId' => $presetId,
+                'presetName' => (string)$preset['name'],
+                'products' => $products,
+                'offerCount' => count($offerIds),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Выполнить пересчёт одного торгового предложения
+     *
+     * @param int $offerId ID торгового предложения
+     * @param bool $onlyChanged Пропускать неизменившиеся
+     * @return array{status: string, error?: string, resultCount?: int}
+     */
+    public function recalculateOffer(int $offerId, bool $onlyChanged = true): array
+    {
+        try {
+            $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
+            $initPayload = $this->initPayloadService->prepareInitPayload([$offerId], $siteId);
+            $currentHash = $this->computeStateHash($initPayload);
+
+            if ($onlyChanged) {
+                $savedHash = $this->getSavedHash($offerId);
+                if ($savedHash !== null && $savedHash === $currentHash) {
+                    return ['status' => 'skipped'];
+                }
+            }
+
+            $calcResult = $this->callCalcServer($initPayload);
+            if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
+                throw new \Exception($calcResult['error'] ?? 'Ошибка расчёта на сервере');
+            }
+
+            $offerResults = $calcResult['data'] ?? [];
+            if (empty($offerResults) || !is_array($offerResults)) {
+                throw new \Exception('Пустой ответ от calc-server');
+            }
+
+            $offerUpdateService = new OfferUpdateService();
+            $writeResult = $offerUpdateService->updateOffersFromCalculation($offerResults);
+            if (($writeResult['status'] ?? 'error') === 'error') {
+                throw new \Exception('Ошибка записи результатов: ' . ($writeResult['errors'][0]['message'] ?? 'Неизвестная ошибка'));
+            }
+
+            try {
+                $historyHandler = new CalculationHistoryHandler();
+                foreach ($offerResults as $offerResult) {
+                    $historyHandler->handle([
+                        'offers' => [
+                            [
+                                'offerId' => $offerResult['offerId'],
+                                'json' => $offerResult,
+                            ]
+                        ]
+                    ]);
+                }
+            } catch (\Exception $e) {
+                error_log("Ошибка сохранения истории расчёта для ТП #{$offerId}: " . $e->getMessage());
+            }
+
+            $this->saveHash($offerId, $currentHash);
+
+            return [
+                'status' => 'recalculated',
+                'resultCount' => count($offerResults),
+            ];
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'error' => $e->getMessage(),
+            ];
+        }
     }
 
     /**
@@ -178,82 +321,28 @@ class BatchRecalculateService
             ];
 
             foreach ($offerIds as $offerId) {
-                try {
-                    // Собираем initPayload для этого ТП
-                    // Используем текущий ID сайта, если не определён - берём первый доступный сайт
-                    $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
-                    $initPayload = $this->initPayloadService->prepareInitPayload([$offerId], $siteId);
-                    
-                    // Вычисляем хеш текущего состояния
-                    $currentHash = $this->computeStateHash($initPayload);
-                    
-                    // Проверяем, изменились ли данные
-                    if ($onlyChanged) {
-                        $savedHash = $this->getSavedHash($offerId);
-                        if ($savedHash !== null && $savedHash === $currentHash) {
-                            $presetStats['skipped']++;
-                            $summary['skipped']++;
-                            continue;
-                        }
-                    }
-                    
-                    // Отправляем запрос на calc-server
-                    $calcResult = $this->callCalcServer($initPayload);
-                    
-                    // Проверяем успешность вызова
-                    if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
-                        throw new \Exception($calcResult['error'] ?? 'Ошибка расчёта на сервере');
-                    }
-                    
-                    // Извлекаем результаты расчётов
-                    $offerResults = $calcResult['data'] ?? [];
-                    
-                    if (empty($offerResults) || !is_array($offerResults)) {
-                        throw new \Exception('Пустой ответ от calc-server');
-                    }
-                    
-                    // Записываем результаты через OfferUpdateService
-                    $offerUpdateService = new OfferUpdateService();
-                    $writeResult = $offerUpdateService->updateOffersFromCalculation($offerResults);
-                    
-                    // Проверяем результат записи
-                    if ($writeResult['status'] === 'error') {
-                        throw new \Exception('Ошибка записи результатов: ' . ($writeResult['errors'][0]['message'] ?? 'Неизвестная ошибка'));
-                    }
-                    
-                    // Сохраняем историю расчётов
-                    try {
-                        $historyHandler = new CalculationHistoryHandler();
-                        foreach ($offerResults as $offerResult) {
-                            $historyHandler->handle([
-                                'offers' => [
-                                    [
-                                        'offerId' => $offerResult['offerId'],
-                                        'json' => $offerResult,
-                                    ]
-                                ]
-                            ]);
-                        }
-                    } catch (\Exception $e) {
-                        // Логируем ошибку истории, но не прерываем процесс
-                        error_log("Ошибка сохранения истории расчёта для ТП #{$offerId}: " . $e->getMessage());
-                    }
-                    
-                    // Сохраняем новый хеш только ПОСЛЕ успешной записи
-                    $this->saveHash($offerId, $currentHash);
-                    
+                $offerResult = $this->recalculateOffer((int)$offerId, $onlyChanged);
+
+                if (($offerResult['status'] ?? '') === 'recalculated') {
                     $presetStats['recalculated']++;
                     $summary['recalculated']++;
-                    
-                } catch (\Exception $e) {
-                    $presetStats['errors'][] = $e->getMessage();
-                    $errors[] = [
-                        'presetId' => $presetId,
-                        'offerId' => $offerId,
-                        'error' => $e->getMessage(),
-                    ];
-                    $summary['errors']++;
+                    continue;
                 }
+
+                if (($offerResult['status'] ?? '') === 'skipped') {
+                    $presetStats['skipped']++;
+                    $summary['skipped']++;
+                    continue;
+                }
+
+                $errorMessage = (string)($offerResult['error'] ?? 'Неизвестная ошибка');
+                $presetStats['errors'][] = $errorMessage;
+                $errors[] = [
+                    'presetId' => $presetId,
+                    'offerId' => $offerId,
+                    'error' => $errorMessage,
+                ];
+                $summary['errors']++;
             }
 
             $details[] = $presetStats;
@@ -408,17 +497,8 @@ class BatchRecalculateService
      */
     private function countOffersForPreset(int $presetId, int $skuIblockId): int
     {
-        $count = \CIBlockElement::GetList(
-            [],
-            [
-                'IBLOCK_ID' => $skuIblockId,
-                'ACTIVE' => 'Y',
-                'PROPERTY_CALC_PRESET' => $presetId,
-            ],
-            []
-        );
-
-        return (int)$count;
+        unset($skuIblockId);
+        return count($this->getOfferIdsForPreset($presetId));
     }
 
     /**
