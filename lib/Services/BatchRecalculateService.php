@@ -438,7 +438,8 @@ class BatchRecalculateService
      */
     private function callCalcServer(array $initPayload): array
     {
-        $url = $this->calcServerUrl;
+        $baseUrl = rtrim($this->calcServerUrl, '/');
+        $url = preg_match('#/calculate$#', $baseUrl) ? $baseUrl : $baseUrl . '/calculate';
         $requestBody = json_encode(['initPayload' => $initPayload], JSON_UNESCAPED_UNICODE);
 
         if ($requestBody === false) {
