@@ -125,73 +125,6 @@ class BatchRecalculateService
 
 
     /**
-     * Выполнить пересчёт одного торгового предложения
-     *
-     * @param int $offerId ID торгового предложения
-     * @param bool $onlyChanged Пропускать неизменившиеся
-     * @return array{status: string, error?: string, resultCount?: int}
-     */
-    public function recalculateOffer(int $offerId, bool $onlyChanged = true): array
-    {
-        try {
-            $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
-            $initPayload = $this->initPayloadService->prepareInitPayload([$offerId], $siteId);
-            $currentHash = $this->computeStateHash($initPayload);
-
-            if ($onlyChanged) {
-                $savedHash = $this->getSavedHash($offerId);
-                if ($savedHash !== null && $savedHash === $currentHash) {
-                    return ['status' => 'skipped'];
-                }
-            }
-
-            $calcResult = $this->callCalcServer($initPayload);
-            if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
-                throw new \Exception($calcResult['error'] ?? 'Ошибка расчёта на сервере');
-            }
-
-            $offerResults = $calcResult['data'] ?? [];
-            if (empty($offerResults) || !is_array($offerResults)) {
-                throw new \Exception('Пустой ответ от calc-server');
-            }
-
-            $offerUpdateService = new OfferUpdateService();
-            $writeResult = $offerUpdateService->updateOffersFromCalculation($offerResults);
-            if (($writeResult['status'] ?? 'error') === 'error') {
-                throw new \Exception('Ошибка записи результатов: ' . ($writeResult['errors'][0]['message'] ?? 'Неизвестная ошибка'));
-            }
-
-            try {
-                $historyHandler = new CalculationHistoryHandler();
-                foreach ($offerResults as $offerResult) {
-                    $historyHandler->handle([
-                        'offers' => [
-                            [
-                                'offerId' => $offerResult['offerId'],
-                                'json' => $offerResult,
-                            ]
-                        ]
-                    ]);
-                }
-            } catch (\Exception $e) {
-                error_log("Ошибка сохранения истории расчёта для ТП #{$offerId}: " . $e->getMessage());
-            }
-
-            $this->saveHash($offerId, $currentHash);
-
-            return [
-                'status' => 'recalculated',
-                'resultCount' => count($offerResults),
-            ];
-        } catch (\Exception $e) {
-            return [
-                'status' => 'error',
-                'error' => $e->getMessage(),
-            ];
-        }
-    }
-
-    /**
      * Получить товары, связанные с пресетом через свойство товара CALC_PRESET.
      *
      * @param int $presetId
@@ -265,27 +198,52 @@ class BatchRecalculateService
     }
 
     /**
-     * Выполнить пересчёт одного торгового предложения
+     * Выполнить пересчёт группы торговых предложений одним запросом к calc-server
      *
-     * @param int $offerId ID торгового предложения
+     * @param int[] $offerIds ID торговых предложений
      * @param bool $onlyChanged Пропускать неизменившиеся
-     * @return array{status: string, error?: string, resultCount?: int}
+     * @return array<int, array{status: string, error?: string, resultCount?: int}>
      */
-    public function recalculateOffer(int $offerId, bool $onlyChanged = true): array
+    public function recalculateOffers(array $offerIds, bool $onlyChanged = true): array
     {
+        $offerIds = array_values(array_unique(array_map('intval', $offerIds)));
+        $offerIds = array_values(array_filter($offerIds, static function (int $offerId): bool {
+            return $offerId > 0;
+        }));
+
+        if (empty($offerIds)) {
+            return [];
+        }
+
+        $resultsByOfferId = [];
+
         try {
             $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
-            $initPayload = $this->initPayloadService->prepareInitPayload([$offerId], $siteId);
-            $currentHash = $this->computeStateHash($initPayload);
+            $initPayload = $this->initPayloadService->prepareInitPayload($offerIds, $siteId);
 
-            if ($onlyChanged) {
-                $savedHash = $this->getSavedHash($offerId);
-                if ($savedHash !== null && $savedHash === $currentHash) {
-                    return ['status' => 'skipped'];
+            $hashesByOfferId = [];
+            $offersToProcess = [];
+            foreach ($offerIds as $offerId) {
+                $currentHash = $this->computeStateHashForOffer($initPayload, $offerId);
+                $hashesByOfferId[$offerId] = $currentHash;
+
+                if ($onlyChanged) {
+                    $savedHash = $this->getSavedHash($offerId);
+                    if ($savedHash !== null && $savedHash === $currentHash) {
+                        $resultsByOfferId[$offerId] = ['status' => 'skipped'];
+                        continue;
+                    }
                 }
+
+                $offersToProcess[] = $offerId;
             }
 
-            $calcResult = $this->callCalcServer($initPayload);
+            if (empty($offersToProcess)) {
+                return $resultsByOfferId;
+            }
+
+            $requestPayload = $this->buildPayloadForOffers($initPayload, $offersToProcess);
+            $calcResult = $this->callCalcServer($requestPayload);
             if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
                 throw new \Exception($calcResult['error'] ?? 'Ошибка расчёта на сервере');
             }
@@ -301,6 +259,33 @@ class BatchRecalculateService
                 throw new \Exception('Ошибка записи результатов: ' . ($writeResult['errors'][0]['message'] ?? 'Неизвестная ошибка'));
             }
 
+            $returnedOfferIds = [];
+            foreach ($offerResults as $offerResult) {
+                $returnedOfferId = (int)($offerResult['offerId'] ?? 0);
+                if ($returnedOfferId <= 0) {
+                    continue;
+                }
+
+                $returnedOfferIds[$returnedOfferId] = true;
+                if (isset($hashesByOfferId[$returnedOfferId])) {
+                    $this->saveHash($returnedOfferId, $hashesByOfferId[$returnedOfferId]);
+                }
+
+                $resultsByOfferId[$returnedOfferId] = [
+                    'status' => 'recalculated',
+                    'resultCount' => 1,
+                ];
+            }
+
+            foreach ($offersToProcess as $offerId) {
+                if (!isset($returnedOfferIds[$offerId]) && !isset($resultsByOfferId[$offerId])) {
+                    $resultsByOfferId[$offerId] = [
+                        'status' => 'error',
+                        'error' => 'В ответе calc-server отсутствуют данные по ТП',
+                    ];
+                }
+            }
+
             try {
                 $historyHandler = new CalculationHistoryHandler();
                 foreach ($offerResults as $offerResult) {
@@ -309,26 +294,43 @@ class BatchRecalculateService
                             [
                                 'offerId' => $offerResult['offerId'],
                                 'json' => $offerResult,
-                            ]
-                        ]
+                            ],
+                        ],
                     ]);
                 }
             } catch (\Exception $e) {
-                error_log("Ошибка сохранения истории расчёта для ТП #{$offerId}: " . $e->getMessage());
+                error_log('Ошибка сохранения истории пакетного расчёта: ' . $e->getMessage());
             }
-
-            $this->saveHash($offerId, $currentHash);
-
-            return [
-                'status' => 'recalculated',
-                'resultCount' => count($offerResults),
-            ];
         } catch (\Exception $e) {
-            return [
-                'status' => 'error',
-                'error' => $e->getMessage(),
-            ];
+            $message = $e->getMessage();
+            foreach ($offerIds as $offerId) {
+                if (!isset($resultsByOfferId[$offerId])) {
+                    $resultsByOfferId[$offerId] = [
+                        'status' => 'error',
+                        'error' => $message,
+                    ];
+                }
+            }
         }
+
+        return $resultsByOfferId;
+    }
+
+    /**
+     * Выполнить пересчёт одного торгового предложения
+     *
+     * @param int $offerId ID торгового предложения
+     * @param bool $onlyChanged Пропускать неизменившиеся
+     * @return array{status: string, error?: string, resultCount?: int}
+     */
+    public function recalculateOffer(int $offerId, bool $onlyChanged = true): array
+    {
+        $results = $this->recalculateOffers([$offerId], $onlyChanged);
+
+        return $results[$offerId] ?? [
+            'status' => 'error',
+            'error' => 'Не удалось получить результат пересчёта',
+        ];
     }
 
     /**
@@ -436,40 +438,58 @@ class BatchRecalculateService
      */
     private function callCalcServer(array $initPayload): array
     {
-        $url = $this->calcServerUrl . '/calculate';
-        
+        $url = $this->calcServerUrl;
+        $requestBody = json_encode(['initPayload' => $initPayload], JSON_UNESCAPED_UNICODE);
+
+        if ($requestBody === false) {
+            throw new \Exception('Не удалось сериализовать payload для calc-server');
+        }
+
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($initPayload));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Content-Type: application/json',
             'Accept: application/json',
         ]);
         curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-        
+
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
         curl_close($ch);
-        
+
         if ($error) {
-            // Log detailed error for debugging
             error_log("calc-server connection error: {$error}");
-            // Return generic error to caller
-            throw new \Exception("Ошибка соединения с сервером расчётов");
+            throw new \Exception('Ошибка соединения с сервером расчётов');
         }
-        
+
+        $responseBody = is_string($response) ? trim($response) : '';
+        $decodedErrorResponse = $responseBody !== '' ? json_decode($responseBody, true) : null;
+
         if ($httpCode !== 200) {
-            throw new \Exception("calc-server returned HTTP {$httpCode}");
+            $serverMessage = '';
+            if (is_array($decodedErrorResponse)) {
+                $serverMessage = (string)($decodedErrorResponse['error'] ?? $decodedErrorResponse['message'] ?? '');
+            }
+            if ($serverMessage === '' && $responseBody !== '') {
+                $serverMessage = substr($responseBody, 0, 400);
+            }
+
+            throw new \Exception(
+                $serverMessage !== ''
+                    ? "calc-server returned HTTP {$httpCode}: {$serverMessage}"
+                    : "calc-server returned HTTP {$httpCode}"
+            );
         }
-        
-        $result = json_decode($response, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \Exception("calc-server returned invalid JSON");
+
+        $result = is_array($decodedErrorResponse) ? $decodedErrorResponse : json_decode((string)$response, true);
+        if (!is_array($result)) {
+            throw new \Exception('calc-server returned invalid JSON');
         }
-        
+
         return $result;
     }
 
@@ -494,6 +514,45 @@ class BatchRecalculateService
         ];
         
         return md5(json_encode($stateData, JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * Вычислить хеш состояния для одного оффера на основании общего payload
+     */
+    private function computeStateHashForOffer(array $initPayload, int $offerId): string
+    {
+        $singlePayload = $this->buildPayloadForOffers($initPayload, [$offerId]);
+
+        return $this->computeStateHash($singlePayload);
+    }
+
+    /**
+     * Собрать payload только с указанными офферами
+     *
+     * @param int[] $offerIds
+     */
+    private function buildPayloadForOffers(array $initPayload, array $offerIds): array
+    {
+        $offerMap = [];
+        foreach ($initPayload['selectedOffers'] ?? [] as $offer) {
+            $id = (int)($offer['id'] ?? 0);
+            if ($id > 0) {
+                $offerMap[$id] = $offer;
+            }
+        }
+
+        $selectedOffers = [];
+        foreach ($offerIds as $offerId) {
+            $offerId = (int)$offerId;
+            if (isset($offerMap[$offerId])) {
+                $selectedOffers[] = $offerMap[$offerId];
+            }
+        }
+
+        $payload = $initPayload;
+        $payload['selectedOffers'] = $selectedOffers;
+
+        return $payload;
     }
 
     /**
