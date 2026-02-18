@@ -34,30 +34,14 @@ function logAccessIssue(string $message): void
     }
 }
 
-
 function loadJobLimits(): array
 {
     $moduleId = 'prospektweb.calc';
 
-    $maxOffersPerJob = (int)Option::get($moduleId, 'BATCH_RECALC_MAX_OFFERS', '400');
-    if ($maxOffersPerJob < 50) {
-        $maxOffersPerJob = 50;
-    }
-
-    $maxStepDurationSec = (int)Option::get($moduleId, 'BATCH_RECALC_MAX_STEP_DURATION', '6');
-    if ($maxStepDurationSec < 2) {
-        $maxStepDurationSec = 2;
-    }
-
-    $maxBatchSize = (int)Option::get($moduleId, 'BATCH_RECALC_MAX_BATCH_SIZE', '3');
-    if ($maxBatchSize < 1) {
-        $maxBatchSize = 1;
-    }
-
-    $jobTtlSec = (int)Option::get($moduleId, 'BATCH_RECALC_JOB_TTL', '1800');
-    if ($jobTtlSec < 60) {
-        $jobTtlSec = 60;
-    }
+    $maxOffersPerJob = max(50, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_OFFERS', '400'));
+    $maxStepDurationSec = max(2, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_STEP_DURATION', '6'));
+    $maxBatchSize = max(1, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_BATCH_SIZE', '3'));
+    $jobTtlSec = max(60, (int)Option::get($moduleId, 'BATCH_RECALC_JOB_TTL', '1800'));
 
     return [
         'maxOffersPerJob' => $maxOffersPerJob,
@@ -65,21 +49,6 @@ function loadJobLimits(): array
         'maxBatchSize' => $maxBatchSize,
         'jobTtlSec' => $jobTtlSec,
     ];
-}
-
-function isJobExpired(array $job, int $jobTtlSec): bool
-{
-    return (microtime(true) - (float)($job['startedAt'] ?? 0)) > $jobTtlSec;
-}
-
-function expireJobAndRespond(string $jobKey): void
-{
-    unset($_SESSION[$jobKey]);
-    respondJson(410, [
-        'success' => false,
-        'errorCode' => 'JOB_EXPIRED',
-        'error' => 'Recalculate job expired',
-    ]);
 }
 
 function validateCommonParams(array $requestData): array
@@ -119,6 +88,60 @@ function validateCommonParams(array $requestData): array
     }
 
     return [$presetIds, $onlyChanged, $calcServerUrl, $timeout];
+}
+
+function getJobFilePath(int $userId): string
+{
+    $base = $_SERVER['DOCUMENT_ROOT'] . '/upload/prospektweb.calc';
+    if (!is_dir($base)) {
+        @mkdir($base, 0775, true);
+    }
+
+    return $base . '/batch_recalc_job_user_' . $userId . '.json';
+}
+
+function loadJobState(int $userId): ?array
+{
+    $path = getJobFilePath($userId);
+    if (!is_file($path)) {
+        return null;
+    }
+
+    $content = file_get_contents($path);
+    if ($content === false || $content === '') {
+        return null;
+    }
+
+    $decoded = json_decode($content, true);
+    return is_array($decoded) ? $decoded : null;
+}
+
+function saveJobState(int $userId, array $state): void
+{
+    file_put_contents(getJobFilePath($userId), json_encode($state, JSON_UNESCAPED_UNICODE));
+}
+
+function deleteJobState(int $userId): void
+{
+    $path = getJobFilePath($userId);
+    if (is_file($path)) {
+        @unlink($path);
+    }
+}
+
+function isJobExpired(array $job, int $jobTtlSec): bool
+{
+    return (microtime(true) - (float)($job['startedAt'] ?? 0)) > $jobTtlSec;
+}
+
+function expireJobAndRespond(int $userId): void
+{
+    deleteJobState($userId);
+    respondJson(410, [
+        'success' => false,
+        'errorCode' => 'JOB_EXPIRED',
+        'error' => 'Recalculate job expired',
+    ]);
 }
 
 $requestBody = file_get_contents('php://input');
@@ -173,7 +196,7 @@ if (!Loader::includeModule('prospektweb.calc')) {
     ]);
 }
 
-$jobKey = 'PROSPEKTWEB_CALC_BATCH_RECALC_JOB';
+$userId = (int)$USER->GetID();
 $limits = loadJobLimits();
 $maxOffersPerJob = (int)$limits['maxOffersPerJob'];
 $maxStepDurationSec = (int)$limits['maxStepDurationSec'];
@@ -181,13 +204,13 @@ $maxBatchSize = (int)$limits['maxBatchSize'];
 $jobTtlSec = (int)$limits['jobTtlSec'];
 $action = (string)($requestData['action'] ?? 'run');
 
-if ($action === 'cancel') {
-    unset($_SESSION[$jobKey]);
+if ($action === 'cancel' || $action === 'finish') {
+    deleteJobState($userId);
     respondJson(200, ['success' => true, 'message' => 'Cancelled']);
 }
 
 if ($action === 'status') {
-    $job = $_SESSION[$jobKey] ?? null;
+    $job = loadJobState($userId);
     if (!is_array($job)) {
         respondJson(404, [
             'success' => false,
@@ -197,12 +220,12 @@ if ($action === 'status') {
     }
 
     if (isJobExpired($job, $jobTtlSec)) {
-        expireJobAndRespond($jobKey);
+        expireJobAndRespond($userId);
     }
 
     $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
     $job['finished'] = empty($job['queue']);
-    $_SESSION[$jobKey] = $job;
+    saveJobState($userId, $job);
 
     respondJson(200, [
         'success' => true,
@@ -214,22 +237,40 @@ if ($action === 'status') {
     ]);
 }
 
+if ($action === 'analyze') {
+    [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
+    $service = new BatchRecalculateService($calcServerUrl, $timeout);
+    $analysis = $service->getPresetAnalysis($presetIds);
+
+    $totalOffers = 0;
+    foreach ($analysis as $row) {
+        $totalOffers += (int)$row['offerCount'];
+    }
+
+    respondJson(200, [
+        'success' => true,
+        'analysis' => $analysis,
+        'meta' => [
+            'totalPresets' => count($analysis),
+            'totalOffers' => $totalOffers,
+            'onlyChanged' => $onlyChanged,
+            'calcServerUrl' => $calcServerUrl,
+            'timeout' => $timeout,
+        ],
+    ]);
+}
+
 if ($action === 'start') {
     [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
 
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
-    $presets = $service->getPresetsWithOfferCount();
-    if (!empty($presetIds)) {
-        $presets = array_values(array_filter($presets, static function (array $preset) use ($presetIds): bool {
-            return in_array((int)$preset['id'], $presetIds, true);
-        }));
-    }
+    $analysis = $service->getPresetAnalysis($presetIds);
 
     $queue = [];
     $details = [];
-    foreach ($presets as $preset) {
-        $presetId = (int)$preset['id'];
-        $presetName = (string)$preset['name'];
+    foreach ($analysis as $row) {
+        $presetId = (int)$row['presetId'];
+        $presetName = (string)$row['presetName'];
         $offerIds = $service->getOfferIdsForPreset($presetId);
 
         $details[$presetId] = [
@@ -239,6 +280,7 @@ if ($action === 'start') {
             'recalculated' => 0,
             'skipped' => 0,
             'errors' => [],
+            'processed' => 0,
         ];
 
         foreach ($offerIds as $offerId) {
@@ -262,7 +304,7 @@ if ($action === 'start') {
         ]);
     }
 
-    $_SESSION[$jobKey] = [
+    $jobState = [
         'params' => [
             'onlyChanged' => $onlyChanged,
             'calcServerUrl' => $calcServerUrl,
@@ -270,7 +312,7 @@ if ($action === 'start') {
         ],
         'startedAt' => microtime(true),
         'summary' => [
-            'totalPresets' => count($presets),
+            'totalPresets' => count($analysis),
             'processedPresets' => 0,
             'totalOffers' => count($queue),
             'processedOffers' => 0,
@@ -288,18 +330,20 @@ if ($action === 'start') {
         'finished' => empty($queue),
     ];
 
+    saveJobState($userId, $jobState);
+
     respondJson(200, [
         'success' => true,
-        'summary' => $_SESSION[$jobKey]['summary'],
-        'details' => array_values($_SESSION[$jobKey]['details']),
-        'errors' => $_SESSION[$jobKey]['errors'],
-        'finished' => $_SESSION[$jobKey]['finished'],
-        'logs' => $_SESSION[$jobKey]['logs'],
+        'summary' => $jobState['summary'],
+        'details' => array_values($jobState['details']),
+        'errors' => $jobState['errors'],
+        'finished' => $jobState['finished'],
+        'logs' => $jobState['logs'],
     ]);
 }
 
 if ($action === 'step') {
-    $job = $_SESSION[$jobKey] ?? null;
+    $job = loadJobState($userId);
     if (!is_array($job)) {
         respondJson(404, [
             'success' => false,
@@ -309,13 +353,13 @@ if ($action === 'step') {
     }
 
     if (isJobExpired($job, $jobTtlSec)) {
-        expireJobAndRespond($jobKey);
+        expireJobAndRespond($userId);
     }
 
     if (empty($job['queue'])) {
         $job['finished'] = true;
         $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
-        $_SESSION[$jobKey] = $job;
+        saveJobState($userId, $job);
 
         respondJson(200, [
             'success' => true,
@@ -328,16 +372,15 @@ if ($action === 'step') {
     }
 
     $params = $job['params'];
-    $batchSize = $maxBatchSize;
     $service = new BatchRecalculateService((string)$params['calcServerUrl'], (int)$params['timeout']);
-
     $stepStartedAt = microtime(true);
 
-    for ($i = 0; $i < $batchSize && !empty($job['queue']); $i++) {
+    for ($i = 0; $i < $maxBatchSize && !empty($job['queue']); $i++) {
         if ((microtime(true) - $stepStartedAt) >= $maxStepDurationSec) {
             $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'Шаг остановлен по лимиту времени'];
             break;
         }
+
         $item = array_shift($job['queue']);
         $presetId = (int)$item['presetId'];
         $offerId = (int)$item['offerId'];
@@ -346,6 +389,7 @@ if ($action === 'step') {
         $result = $service->recalculateOffer($offerId, (bool)$params['onlyChanged']);
         $status = (string)($result['status'] ?? 'error');
         $job['summary']['processedOffers']++;
+        $job['details'][$presetId]['processed']++;
 
         if ($status === 'recalculated') {
             $job['summary']['recalculated']++;
@@ -370,7 +414,7 @@ if ($action === 'step') {
 
     $processedPresetCount = 0;
     foreach ($job['details'] as $detail) {
-        $processed = (int)$detail['recalculated'] + (int)$detail['skipped'] + count($detail['errors']);
+        $processed = (int)$detail['processed'];
         if ($processed >= (int)$detail['offerCount']) {
             $processedPresetCount++;
         }
@@ -384,11 +428,11 @@ if ($action === 'step') {
         $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'Пересчёт завершён'];
     }
 
-    if (count($job['logs']) > 300) {
-        $job['logs'] = array_slice($job['logs'], -300);
+    if (count($job['logs']) > 400) {
+        $job['logs'] = array_slice($job['logs'], -400);
     }
 
-    $_SESSION[$jobKey] = $job;
+    saveJobState($userId, $job);
 
     respondJson(200, [
         'success' => true,
@@ -400,27 +444,8 @@ if ($action === 'step') {
     ]);
 }
 
-// legacy fallback (single-shot mode)
-[$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
-
-try {
-    $service = new BatchRecalculateService($calcServerUrl, $timeout);
-    $result = $service->recalculate($presetIds, $onlyChanged);
-
-    respondJson(200, [
-        'success' => true,
-        'summary' => $result['summary'] ?? [],
-        'details' => $result['details'] ?? [],
-        'errors' => $result['errors'] ?? [],
-        'finished' => true,
-        'logs' => [
-            ['ts' => date('H:i:s'), 'message' => 'Пересчёт завершён в режиме совместимости'],
-        ],
-    ]);
-} catch (\Throwable $e) {
-    respondJson(500, [
-        'success' => false,
-        'errorCode' => 'RECALCULATION_FAILED',
-        'error' => 'Recalculation failed: ' . $e->getMessage(),
-    ]);
-}
+respondJson(400, [
+    'success' => false,
+    'errorCode' => 'UNSUPPORTED_ACTION',
+    'error' => 'Unsupported action',
+]);

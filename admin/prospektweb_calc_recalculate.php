@@ -274,6 +274,12 @@ $jsMessages = [
         </button>
         <button type="button" id="cancel-recalc" class="adm-btn" style="margin-left: 8px;">Остановить</button>
 
+        <div id="analysis-container" style="display: none; margin-top: 15px;">
+            <h4 style="margin: 0 0 10px 0;">Предварительный анализ</h4>
+            <div id="analysis-table"></div>
+            <button type="button" id="confirm-recalc" class="adm-btn adm-btn-save" style="margin-top: 10px;">Подтвердить и запустить</button>
+        </div>
+
         <div class="progress-container" id="progress-container">
             <div class="progress-bar">
                 <div class="progress-bar-fill" id="progress-bar-fill"></div>
@@ -313,6 +319,9 @@ $jsMessages = [
     var presetSelector = document.getElementById('preset-selector');
     var startBtn = document.getElementById('start-recalc');
     var cancelBtn = document.getElementById('cancel-recalc');
+    var confirmBtn = document.getElementById('confirm-recalc');
+    var analysisContainer = document.getElementById('analysis-container');
+    var analysisTable = document.getElementById('analysis-table');
     var progressContainer = document.getElementById('progress-container');
     var progressBarFill = document.getElementById('progress-bar-fill');
     var progressText = document.getElementById('progress-text');
@@ -323,12 +332,17 @@ $jsMessages = [
     var requestInFlight = false;
     var pollingTimer = null;
     var lastRenderedLogCount = 0;
+    var preparedPayload = null;
+    var currentPresetProgress = {};
 
     cancelBtn.disabled = true;
+    confirmBtn.disabled = true;
 
-    if (!startBtn || !cancelBtn || !scopeAll || !scopeSpecific) {
+    if (!startBtn || !cancelBtn || !confirmBtn || !scopeAll || !scopeSpecific) {
         return;
     }
+
+    resumeExistingJob();
 
     scopeAll.addEventListener('change', function() {
         if (this.checked) {
@@ -348,14 +362,23 @@ $jsMessages = [
         }
 
         try {
-            startRecalculation();
+            analyzeRecalculation();
         } catch (error) {
-            appendFrontendLog('Критическая ошибка запуска: ' + (error.message || String(error)));
+            appendFrontendLog('Критическая ошибка запуска анализа: ' + (error.message || String(error)));
             alert((config.messages.ERROR || 'Ошибка') + ': ' + (error.message || 'Unknown error'));
             startBtn.disabled = false;
             cancelBtn.disabled = true;
+            confirmBtn.disabled = true;
             requestInFlight = false;
         }
+    });
+
+    confirmBtn.addEventListener('click', function() {
+        if (requestInFlight || !preparedPayload) {
+            return;
+        }
+
+        runConfirmedRecalculation();
     });
 
     cancelBtn.addEventListener('click', function() {
@@ -363,26 +386,141 @@ $jsMessages = [
             return;
         }
 
-        var runtimeSessid = config.sessid;
-        if (window.BX && typeof window.BX.bitrix_sessid === 'function') {
-            runtimeSessid = window.BX.bitrix_sessid();
-        }
-
+        var runtimeSessid = getRuntimeSessid();
         clearPolling();
         sendApiRequest(runtimeSessid, { action: 'cancel', sessid: runtimeSessid }, function() {
             requestInFlight = false;
             startBtn.disabled = false;
             cancelBtn.disabled = true;
+            confirmBtn.disabled = preparedPayload ? false : true;
             appendFrontendLog('Задача отменена пользователем.');
             setProgress(0, 'Остановлено');
         });
     });
 
-    function startRecalculation() {
+    function resumeExistingJob() {
+        var runtimeSessid = getRuntimeSessid();
+        sendApiRequest(runtimeSessid, { action: 'status', sessid: runtimeSessid }, function(err, response, data) {
+            if (err || !response || response.status !== 200 || !data || !data.success) {
+                return;
+            }
+
+            requestInFlight = !data.finished;
+            startBtn.disabled = requestInFlight;
+            cancelBtn.disabled = !requestInFlight;
+            confirmBtn.disabled = true;
+            analysisContainer.style.display = 'none';
+            renderServerLogs(data.logs || []);
+            updateUiWithData(data);
+
+            if (!data.finished) {
+                appendFrontendLog('Восстановлена активная задача пересчёта.');
+                pollStep(runtimeSessid);
+            }
+        });
+    }
+
+    function analyzeRecalculation() {
+        var payload = collectInputPayload();
+        if (!payload) {
+            return;
+        }
+
+        requestInFlight = true;
+        startBtn.disabled = true;
+        cancelBtn.disabled = true;
+        confirmBtn.disabled = true;
+        appendFrontendLog('Запуск предварительного анализа...');
+
+        sendApiRequest(payload.sessid, {
+            action: 'analyze',
+            presetIds: payload.presetIds,
+            onlyChanged: payload.onlyChanged,
+            calcServerUrl: payload.calcServerUrl,
+            timeout: payload.timeout,
+            sessid: payload.sessid
+        }, function(err, response, data) {
+            requestInFlight = false;
+            startBtn.disabled = false;
+
+            if (err) {
+                appendFrontendLog('Ошибка анализа: ' + err);
+                alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
+                return;
+            }
+
+            if (!response || response.status < 200 || response.status >= 300 || !data || !data.success) {
+                handleApiError(data, response ? response.status : 0);
+                return;
+            }
+
+            preparedPayload = payload;
+            renderAnalysis(data.analysis || []);
+            analysisContainer.style.display = 'block';
+            confirmBtn.disabled = false;
+            appendFrontendLog('Анализ завершён. Подтвердите запуск пересчёта.');
+        });
+    }
+
+    function runConfirmedRecalculation() {
+        if (!preparedPayload) {
+            return;
+        }
+
+        requestInFlight = true;
+        startBtn.disabled = true;
+        cancelBtn.disabled = false;
+        confirmBtn.disabled = true;
+        resultsContainer.style.display = 'none';
+        document.getElementById('details-table').innerHTML = '';
+        document.getElementById('errors-list').innerHTML = '';
+        frontendLog.innerHTML = '';
+        lastRenderedLogCount = 0;
+        currentPresetProgress = {};
+
+        setProgress(0, config.messages.STARTING);
+        progressContainer.style.display = 'block';
+        appendFrontendLog('Инициализация пакетного пересчёта...');
+
+        sendApiRequest(preparedPayload.sessid, {
+            action: 'start',
+            presetIds: preparedPayload.presetIds,
+            onlyChanged: preparedPayload.onlyChanged,
+            calcServerUrl: preparedPayload.calcServerUrl,
+            timeout: preparedPayload.timeout,
+            sessid: preparedPayload.sessid
+        }, function(err, response, data) {
+            if (err) {
+                requestInFlight = false;
+                startBtn.disabled = false;
+                cancelBtn.disabled = true;
+                confirmBtn.disabled = false;
+                appendFrontendLog('Ошибка запуска: ' + err);
+                alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
+                return;
+            }
+
+            if (!response || response.status < 200 || response.status >= 300 || !data || !data.success) {
+                requestInFlight = false;
+                startBtn.disabled = false;
+                cancelBtn.disabled = true;
+                confirmBtn.disabled = false;
+                handleApiError(data, response ? response.status : 0);
+                return;
+            }
+
+            appendFrontendLog('Задача создана. Начинаем обработку...');
+            renderServerLogs(data.logs || []);
+            updateUiWithData(data);
+            pollStep(preparedPayload.sessid);
+        });
+    }
+
+    function collectInputPayload() {
         var scopeNode = document.querySelector('input[name="scope"]:checked');
         if (!scopeNode) {
             alert(config.messages.ERROR + ': Не выбрана область пересчёта');
-            return;
+            return null;
         }
 
         var scope = scopeNode.value;
@@ -399,71 +537,107 @@ $jsMessages = [
 
             if (presetIds.length === 0) {
                 alert(config.messages.SELECT_PRESET);
-                return;
+                return null;
             }
         }
 
         var onlyChanged = document.getElementById('only-changed').checked;
         var calcServerUrl = document.getElementById('calc-server-url').value.replace(/^\s+|\s+$/g, '');
         var timeout = parseInt(document.getElementById('timeout').value, 10);
-
         if (!calcServerUrl) {
             alert(config.messages.ENTER_URL);
-            return;
+            return null;
         }
 
-        var runtimeSessid = config.sessid;
-        if (window.BX && typeof window.BX.bitrix_sessid === 'function') {
-            runtimeSessid = window.BX.bitrix_sessid();
-        }
-
+        var runtimeSessid = getRuntimeSessid();
         if (!runtimeSessid) {
             alert('Не удалось получить sessid. Обновите страницу и повторите попытку.');
-            return;
+            return null;
         }
 
-        requestInFlight = true;
-        startBtn.disabled = true;
-        cancelBtn.disabled = false;
-        resultsContainer.style.display = 'none';
-        document.getElementById('details-table').innerHTML = '';
-        document.getElementById('errors-list').innerHTML = '';
-        frontendLog.innerHTML = '';
-        lastRenderedLogCount = 0;
-
-        setProgress(0, config.messages.STARTING);
-        progressContainer.style.display = 'block';
-        appendFrontendLog('Инициализация пакетного пересчёта...');
-
-        sendApiRequest(runtimeSessid, {
-            action: 'start',
+        return {
             presetIds: presetIds,
             onlyChanged: onlyChanged,
             calcServerUrl: calcServerUrl,
             timeout: timeout,
             sessid: runtimeSessid
-        }, function(err, response, data) {
-            if (err) {
-                requestInFlight = false;
-                startBtn.disabled = false;
-                cancelBtn.disabled = true;
-                appendFrontendLog('Ошибка запуска: ' + err);
-                alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
-                return;
+        };
+    }
+
+    function getRuntimeSessid() {
+        if (window.BX && typeof window.BX.bitrix_sessid === 'function') {
+            return window.BX.bitrix_sessid();
+        }
+        return config.sessid;
+    }
+
+    function renderAnalysis(analysisRows) {
+        if (!analysisRows || !analysisRows.length) {
+            analysisTable.innerHTML = '<div class="adm-info-message">Нет пресетов для обработки.</div>';
+            return;
+        }
+
+        var html = '<table class="results-table">';
+        html += '<thead><tr>';
+        html += '<th>Проверка</th>';
+        html += '<th>Пресет</th>';
+        html += '<th>Товары</th>';
+        html += '<th>ТП (прогресс)</th>';
+        html += '</tr></thead><tbody>';
+
+        for (var i = 0; i < analysisRows.length; i++) {
+            var row = analysisRows[i] || {};
+            var products = row.products || [];
+            var productHtml = '';
+            if (products.length === 0) {
+                productHtml = '<span style="color:#a00;">Нет товаров с этим пресетом</span>';
+            } else {
+                var names = [];
+                for (var j = 0; j < products.length; j++) {
+                    names.push(escapeHtml(products[j].name + ' (ID: ' + products[j].id + ')'));
+                }
+                productHtml = names.join('<br>');
             }
 
-            if (!response || response.status < 200 || response.status >= 300 || !data || !data.success) {
-                requestInFlight = false;
-                startBtn.disabled = false;
-                handleApiError(data, response ? response.status : 0);
-                return;
+            html += '<tr id="analysis-row-' + escapeHtml(String(row.presetId)) + '">';
+            html += '<td id="analysis-icon-' + escapeHtml(String(row.presetId)) + '">⏳</td>';
+            html += '<td>' + escapeHtml(String(row.presetName)) + ' (ID: ' + escapeHtml(String(row.presetId)) + ')</td>';
+            html += '<td>' + productHtml + '</td>';
+            html += '<td id="analysis-progress-' + escapeHtml(String(row.presetId)) + '">0/' + escapeHtml(String(row.offerCount || 0)) + '</td>';
+            html += '</tr>';
+        }
+
+        html += '</tbody></table>';
+        analysisTable.innerHTML = html;
+    }
+
+    function updateAnalysisProgress(details) {
+        for (var i = 0; i < details.length; i++) {
+            var d = details[i] || {};
+            var presetId = String(d.presetId || '');
+            if (!presetId) {
+                continue;
             }
 
-            appendFrontendLog('Задача создана. Начинаем обработку...');
-            renderServerLogs(data.logs || []);
-            updateUiWithData(data);
-            pollStep(runtimeSessid);
-        });
+            var processed = Number(d.processed || 0);
+            var total = Number(d.offerCount || 0);
+            var progressEl = document.getElementById('analysis-progress-' + presetId);
+            var iconEl = document.getElementById('analysis-icon-' + presetId);
+
+            if (progressEl) {
+                progressEl.textContent = processed + '/' + total;
+            }
+
+            if (iconEl) {
+                if (total > 0 && processed >= total) {
+                    iconEl.textContent = '✅';
+                } else if (processed > 0) {
+                    iconEl.textContent = '⏳';
+                } else {
+                    iconEl.textContent = '⏳';
+                }
+            }
+        }
     }
 
     function pollStep(sessid) {
@@ -477,6 +651,7 @@ $jsMessages = [
                     requestInFlight = false;
                     startBtn.disabled = false;
                     cancelBtn.disabled = true;
+                    confirmBtn.disabled = preparedPayload ? false : true;
                     appendFrontendLog('Ошибка шага пересчёта: ' + err);
                     alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
                     return;
@@ -486,6 +661,7 @@ $jsMessages = [
                     requestInFlight = false;
                     startBtn.disabled = false;
                     cancelBtn.disabled = true;
+                    confirmBtn.disabled = preparedPayload ? false : true;
                     handleApiError(data, response ? response.status : 0);
                     return;
                 }
@@ -497,13 +673,14 @@ $jsMessages = [
                     requestInFlight = false;
                     startBtn.disabled = false;
                     cancelBtn.disabled = true;
+                    confirmBtn.disabled = false;
                     appendFrontendLog('Пересчёт завершён.');
                     return;
                 }
 
                 pollStep(sessid);
             });
-        }, 250);
+        }, 300);
     }
 
     function clearPolling() {
@@ -515,11 +692,14 @@ $jsMessages = [
 
     function updateUiWithData(data) {
         var summary = data.summary || {};
+        var details = Object.prototype.toString.call(data.details) === '[object Array]' ? data.details : [];
         var total = Number(summary.totalOffers || 0);
         var processed = Number(summary.processedOffers || 0);
         var percent = total > 0 ? Math.round((processed / total) * 100) : 100;
+
         setProgress(percent, 'Обработано ' + processed + ' из ' + total + ' ТП');
         displayResults(data);
+        updateAnalysisProgress(details);
     }
 
     function sendApiRequest(sessid, payload, callback) {
@@ -612,7 +792,7 @@ $jsMessages = [
         }
 
         if (data && data.errorCode === 'JOB_NOT_FOUND') {
-            alert('Активная задача не найдена. Запустите пересчёт заново.');
+            alert('Активная задача не найдена. Выполните анализ и запустите пересчёт заново.');
             return;
         }
 
@@ -626,14 +806,8 @@ $jsMessages = [
         if (isNaN(safePercent)) {
             safePercent = 0;
         }
-
-        if (safePercent < 0) {
-            safePercent = 0;
-        }
-
-        if (safePercent > 100) {
-            safePercent = 100;
-        }
+        if (safePercent < 0) { safePercent = 0; }
+        if (safePercent > 100) { safePercent = 100; }
 
         progressBarFill.style.width = safePercent + '%';
         progressText.textContent = safePercent + '%';
@@ -660,6 +834,7 @@ $jsMessages = [
             detailsHtml += '<table class="results-table"><thead><tr>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_PRESET') ?></th>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_OFFER_COUNT') ?></th>';
+            detailsHtml += '<th>Прогресс</th>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SUCCESS') ?></th>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SKIPPED') ?></th>';
             detailsHtml += '<th><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_ERRORS') ?></th>';
@@ -670,6 +845,7 @@ $jsMessages = [
                 detailsHtml += '<tr>';
                 detailsHtml += '<td>' + escapeHtml(String(detail.presetName)) + ' (ID: ' + escapeHtml(String(detail.presetId)) + ')</td>';
                 detailsHtml += '<td>' + escapeHtml(String(detail.offerCount)) + '</td>';
+                detailsHtml += '<td>' + escapeHtml(String(detail.processed || 0)) + '/' + escapeHtml(String(detail.offerCount || 0)) + '</td>';
                 detailsHtml += '<td style="color: #4CAF50;">' + escapeHtml(String(detail.recalculated || 0)) + '</td>';
                 detailsHtml += '<td style="color: #FFC107;">' + escapeHtml(String(detail.skipped || 0)) + '</td>';
                 detailsHtml += '<td style="color: #f44336;">' + escapeHtml(String(detail.errors ? detail.errors.length : 0)) + '</td>';
@@ -685,7 +861,6 @@ $jsMessages = [
         if (errors.length > 0) {
             var errorsHtml = '<h4 style="color: #f44336;"><?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_ERRORS') ?></h4>';
             errorsHtml += '<div class="error-list">';
-
             for (var j = 0; j < errors.length; j++) {
                 var item = errors[j] || {};
                 errorsHtml += '<div class="error-item">';
@@ -693,7 +868,6 @@ $jsMessages = [
                 errorsHtml += 'Ошибка: ' + escapeHtml(String(item.error));
                 errorsHtml += '</div>';
             }
-
             errorsHtml += '</div>';
             document.getElementById('errors-list').innerHTML = errorsHtml;
         } else {
