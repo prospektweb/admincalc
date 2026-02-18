@@ -178,6 +178,32 @@ $jsMessages = [
     border-left: 3px solid #f44336;
     padding-left: 10px;
 }
+
+.preset-relation {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #555;
+}
+.preset-products {
+    margin-top: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.preset-product-link {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #eef6ff;
+    border: 1px solid #c8ddf4;
+    color: #1d5f9e;
+    text-decoration: none;
+    line-height: 1.4;
+}
+.preset-product-link:hover {
+    background: #ddeefe;
+    text-decoration: underline;
+}
 </style>
 
 <div class="recalc-container">
@@ -270,14 +296,14 @@ $jsMessages = [
     <!-- Блок 3: Кнопка запуска и прогресс -->
     <div class="recalc-section">
         <button type="button" id="start-recalc" class="adm-btn adm-btn-save">
-            <?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_START') ?>
+            Подготовить задачу
         </button>
-        <button type="button" id="cancel-recalc" class="adm-btn" style="margin-left: 8px;">Остановить</button>
+        <button type="button" id="cancel-recalc" class="adm-btn" style="margin-left: 8px;">Закрыть задачу</button>
 
         <div id="analysis-container" style="display: none; margin-top: 15px;">
             <h4 style="margin: 0 0 10px 0;">Предварительный анализ</h4>
             <div id="analysis-table"></div>
-            <button type="button" id="confirm-recalc" class="adm-btn adm-btn-save" style="margin-top: 10px;">Подтвердить и запустить</button>
+            <button type="button" id="confirm-recalc" class="adm-btn adm-btn-save" style="margin-top: 10px;">Запустить задачу</button>
         </div>
 
         <div class="progress-container" id="progress-container">
@@ -382,20 +408,27 @@ $jsMessages = [
     });
 
     cancelBtn.addEventListener('click', function() {
-        if (!requestInFlight) {
+        var runtimeSessid = getRuntimeSessid();
+
+        clearPolling();
+
+        if (requestInFlight) {
+            sendApiRequest(runtimeSessid, { action: 'cancel', sessid: runtimeSessid }, function() {
+                appendFrontendLog('Задача закрыта пользователем.');
+                resetUiState(true);
+            });
             return;
         }
 
-        var runtimeSessid = getRuntimeSessid();
-        clearPolling();
-        sendApiRequest(runtimeSessid, { action: 'cancel', sessid: runtimeSessid }, function() {
-            requestInFlight = false;
-            startBtn.disabled = false;
-            cancelBtn.disabled = true;
-            confirmBtn.disabled = preparedPayload ? false : true;
-            appendFrontendLog('Задача отменена пользователем.');
-            setProgress(0, 'Остановлено');
-        });
+        if (preparedPayload || analysisContainer.style.display !== 'none' || resultsContainer.style.display !== 'none') {
+            sendApiRequest(runtimeSessid, { action: 'finish', sessid: runtimeSessid }, function() {
+                appendFrontendLog('Состояние задачи очищено.');
+                resetUiState(true);
+            });
+            return;
+        }
+
+        resetUiState(false);
     });
 
     function resumeExistingJob() {
@@ -407,7 +440,7 @@ $jsMessages = [
 
             requestInFlight = !data.finished;
             startBtn.disabled = requestInFlight;
-            cancelBtn.disabled = !requestInFlight;
+            cancelBtn.disabled = false;
             confirmBtn.disabled = true;
             analysisContainer.style.display = 'none';
             renderServerLogs(data.logs || []);
@@ -428,7 +461,7 @@ $jsMessages = [
 
         requestInFlight = true;
         startBtn.disabled = true;
-        cancelBtn.disabled = true;
+        cancelBtn.disabled = false;
         confirmBtn.disabled = true;
         appendFrontendLog('Запуск предварительного анализа...');
 
@@ -493,7 +526,7 @@ $jsMessages = [
             if (err) {
                 requestInFlight = false;
                 startBtn.disabled = false;
-                cancelBtn.disabled = true;
+                cancelBtn.disabled = false;
                 confirmBtn.disabled = false;
                 appendFrontendLog('Ошибка запуска: ' + err);
                 alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
@@ -503,7 +536,7 @@ $jsMessages = [
             if (!response || response.status < 200 || response.status >= 300 || !data || !data.success) {
                 requestInFlight = false;
                 startBtn.disabled = false;
-                cancelBtn.disabled = true;
+                cancelBtn.disabled = false;
                 confirmBtn.disabled = false;
                 handleApiError(data, response ? response.status : 0);
                 return;
@@ -580,8 +613,7 @@ $jsMessages = [
         var html = '<table class="results-table">';
         html += '<thead><tr>';
         html += '<th>Проверка</th>';
-        html += '<th>Пресет</th>';
-        html += '<th>Товары</th>';
+        html += '<th>Пресет и связанные товары</th>';
         html += '<th>ТП (прогресс)</th>';
         html += '</tr></thead><tbody>';
 
@@ -592,17 +624,24 @@ $jsMessages = [
             if (products.length === 0) {
                 productHtml = '<span style="color:#a00;">Нет товаров с этим пресетом</span>';
             } else {
-                var names = [];
+                var links = [];
                 for (var j = 0; j < products.length; j++) {
-                    names.push(escapeHtml(products[j].name + ' (ID: ' + products[j].id + ')'));
+                    var product = products[j] || {};
+                    var productName = escapeHtml(String(product.name || 'Без названия'));
+                    var productId = escapeHtml(String(product.id || '0'));
+                    var editUrl = escapeHtml(String(product.editUrl || ('/bitrix/admin/iblock_element_edit.php?ID=' + productId)));
+                    links.push('<a class="preset-product-link" href="' + editUrl + '" target="_blank" rel="noopener noreferrer">' + productName + ' (ID: ' + productId + ')</a>');
                 }
-                productHtml = names.join('<br>');
+                productHtml = '<div class="preset-products">' + links.join('') + '</div>';
             }
 
             html += '<tr id="analysis-row-' + escapeHtml(String(row.presetId)) + '">';
             html += '<td id="analysis-icon-' + escapeHtml(String(row.presetId)) + '">⏳</td>';
-            html += '<td>' + escapeHtml(String(row.presetName)) + ' (ID: ' + escapeHtml(String(row.presetId)) + ')</td>';
-            html += '<td>' + productHtml + '</td>';
+            html += '<td>'
+                + '<div><strong>' + escapeHtml(String(row.presetName)) + '</strong> (ID: ' + escapeHtml(String(row.presetId)) + ')</div>'
+                + '<div class="preset-relation">↳ Связанные товары:</div>'
+                + productHtml
+                + '</td>';
             html += '<td id="analysis-progress-' + escapeHtml(String(row.presetId)) + '">0/' + escapeHtml(String(row.offerCount || 0)) + '</td>';
             html += '</tr>';
         }
@@ -650,7 +689,7 @@ $jsMessages = [
                 if (err) {
                     requestInFlight = false;
                     startBtn.disabled = false;
-                    cancelBtn.disabled = true;
+                    cancelBtn.disabled = false;
                     confirmBtn.disabled = preparedPayload ? false : true;
                     appendFrontendLog('Ошибка шага пересчёта: ' + err);
                     alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
@@ -660,7 +699,7 @@ $jsMessages = [
                 if (!response || response.status < 200 || response.status >= 300 || !data || !data.success) {
                     requestInFlight = false;
                     startBtn.disabled = false;
-                    cancelBtn.disabled = true;
+                    cancelBtn.disabled = false;
                     confirmBtn.disabled = preparedPayload ? false : true;
                     handleApiError(data, response ? response.status : 0);
                     return;
@@ -672,7 +711,7 @@ $jsMessages = [
                 if (data.finished) {
                     requestInFlight = false;
                     startBtn.disabled = false;
-                    cancelBtn.disabled = true;
+                    cancelBtn.disabled = false;
                     confirmBtn.disabled = false;
                     appendFrontendLog('Пересчёт завершён.');
                     return;
@@ -875,6 +914,33 @@ $jsMessages = [
         }
 
         resultsContainer.style.display = 'block';
+    }
+
+    function resetUiState(clearPreparedPayload) {
+        requestInFlight = false;
+        clearPolling();
+
+        startBtn.disabled = false;
+        cancelBtn.disabled = true;
+        confirmBtn.disabled = true;
+
+        if (clearPreparedPayload) {
+            preparedPayload = null;
+        }
+
+        analysisContainer.style.display = 'none';
+        analysisTable.innerHTML = '';
+        progressContainer.style.display = 'none';
+        setProgress(0, '');
+
+        resultsContainer.style.display = 'none';
+        document.getElementById('summary-stats').innerHTML = '';
+        document.getElementById('details-table').innerHTML = '';
+        document.getElementById('errors-list').innerHTML = '';
+
+        frontendLog.innerHTML = '';
+        lastRenderedLogCount = 0;
+        currentPresetProgress = {};
     }
 
     function escapeHtml(text) {

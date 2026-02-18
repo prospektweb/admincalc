@@ -128,7 +128,7 @@ class BatchRecalculateService
      * Получить товары, связанные с пресетом через свойство товара CALC_PRESET.
      *
      * @param int $presetId
-     * @return array<int, array{id:int,name:string}>
+     * @return array<int, array{id:int,name:string,editUrl:string}>
      */
     public function getProductsForPreset(int $presetId): array
     {
@@ -154,10 +154,20 @@ class BatchRecalculateService
             ['ID', 'NAME']
         );
 
+        $languageId = defined('LANGUAGE_ID') ? (string)LANGUAGE_ID : 'ru';
+
         while ($row = $res->Fetch()) {
+            $productId = (int)$row['ID'];
             $products[] = [
-                'id' => (int)$row['ID'],
+                'id' => $productId,
                 'name' => (string)$row['NAME'],
+                'editUrl' => '/bitrix/admin/iblock_element_edit.php?IBLOCK_ID='
+                    . $productIblockId
+                    . '&ID='
+                    . $productId
+                    . '&type=catalog&lang='
+                    . rawurlencode($languageId)
+                    . '&find_section_section=0&WF=Y',
             ];
         }
 
@@ -168,7 +178,7 @@ class BatchRecalculateService
      * Подготовить расширенный анализ для пресетов.
      *
      * @param int[] $presetIds
-     * @return array<int, array{presetId:int,presetName:string,products:array<int,array{id:int,name:string}>,offerCount:int}>
+     * @return array<int, array{presetId:int,presetName:string,products:array<int,array{id:int,name:string,editUrl:string}>,offerCount:int}>
      */
     public function getPresetAnalysis(array $presetIds = []): array
     {
