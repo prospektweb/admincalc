@@ -375,40 +375,61 @@ if ($action === 'step') {
     $service = new BatchRecalculateService((string)$params['calcServerUrl'], (int)$params['timeout']);
     $stepStartedAt = microtime(true);
 
-    for ($i = 0; $i < $maxBatchSize && !empty($job['queue']); $i++) {
+    while (!empty($job['queue'])) {
         if ((microtime(true) - $stepStartedAt) >= $maxStepDurationSec) {
             $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'Шаг остановлен по лимиту времени'];
             break;
         }
 
-        $item = array_shift($job['queue']);
-        $presetId = (int)$item['presetId'];
-        $offerId = (int)$item['offerId'];
-        $presetName = (string)$item['presetName'];
+        $firstItem = array_shift($job['queue']);
+        $presetId = (int)$firstItem['presetId'];
+        $presetName = (string)$firstItem['presetName'];
+        $batchItems = [$firstItem];
 
-        $result = $service->recalculateOffer($offerId, (bool)$params['onlyChanged']);
-        $status = (string)($result['status'] ?? 'error');
-        $job['summary']['processedOffers']++;
-        $job['details'][$presetId]['processed']++;
+        while (count($batchItems) < $maxBatchSize && !empty($job['queue'])) {
+            $nextItem = $job['queue'][0];
+            if ((int)$nextItem['presetId'] !== $presetId) {
+                break;
+            }
+            $batchItems[] = array_shift($job['queue']);
+        }
 
-        if ($status === 'recalculated') {
-            $job['summary']['recalculated']++;
-            $job['details'][$presetId]['recalculated']++;
-            $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'ТП #' . $offerId . ' пересчитан (' . $presetName . ')'];
-        } elseif ($status === 'skipped') {
-            $job['summary']['skipped']++;
-            $job['details'][$presetId]['skipped']++;
-            $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'ТП #' . $offerId . ' пропущен (без изменений)'];
-        } else {
-            $errorMessage = (string)($result['error'] ?? 'Неизвестная ошибка');
-            $job['summary']['errors']++;
-            $job['details'][$presetId]['errors'][] = $errorMessage;
-            $job['errors'][] = [
-                'presetId' => $presetId,
-                'offerId' => $offerId,
-                'error' => $errorMessage,
+        $offerIds = array_map(static function (array $item): int {
+            return (int)$item['offerId'];
+        }, $batchItems);
+
+        $batchResults = $service->recalculateOffers($offerIds, (bool)$params['onlyChanged']);
+
+        foreach ($batchItems as $batchItem) {
+            $offerId = (int)$batchItem['offerId'];
+            $result = $batchResults[$offerId] ?? [
+                'status' => 'error',
+                'error' => 'Не удалось получить результат пересчёта',
             ];
-            $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'ТП #' . $offerId . ' ошибка: ' . $errorMessage];
+            $status = (string)($result['status'] ?? 'error');
+
+            $job['summary']['processedOffers']++;
+            $job['details'][$presetId]['processed']++;
+
+            if ($status === 'recalculated') {
+                $job['summary']['recalculated']++;
+                $job['details'][$presetId]['recalculated']++;
+                $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'ТП #' . $offerId . ' пересчитан (' . $presetName . ')'];
+            } elseif ($status === 'skipped') {
+                $job['summary']['skipped']++;
+                $job['details'][$presetId]['skipped']++;
+                $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'ТП #' . $offerId . ' пропущен (без изменений)'];
+            } else {
+                $errorMessage = (string)($result['error'] ?? 'Неизвестная ошибка');
+                $job['summary']['errors']++;
+                $job['details'][$presetId]['errors'][] = $errorMessage;
+                $job['errors'][] = [
+                    'presetId' => $presetId,
+                    'offerId' => $offerId,
+                    'error' => $errorMessage,
+                ];
+                $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'ТП #' . $offerId . ' ошибка: ' . $errorMessage];
+            }
         }
     }
 
