@@ -108,51 +108,109 @@ class DetailHandler
     }
 
     /**
-     * Копировать деталь
-     * 
-     * @param array $data Данные запроса
-     * @return array Ответ с данными скопированной детали
+     * Клонировать деталь (1:1 клон с позиционными правилами)
+     *
+     * @param array $data Данные запроса (detailId, presetId)
+     * @return array Ответ с данными клонированной детали
      */
-    public function copyDetail(array $data): array
+    public function cloneDetail(array $data): array
     {
+        $createdDetailIds = [];
+        $createdConfigIds = [];
         try {
             $detailId = (int)($data['detailId'] ?? 0);
-            $offerIds = $data['offerIds'] ?? [];
-            
+            $presetId = (int)($data['presetId'] ?? 0);
+
             if ($detailId <= 0) {
-                return [
-                    'status' => 'error',
-                    'message' => 'Не указан ID детали для копирования',
-                ];
+                return ['status' => 'error', 'message' => 'Не указан ID детали для клонирования'];
             }
-            
-            // Получаем оригинальную деталь
+
             $originalDetail = $this->getDetailById($detailId);
-            
             if (!$originalDetail) {
-                return [
-                    'status' => 'error',
-                    'message' => 'Деталь не найдена',
-                ];
+                return ['status' => 'error', 'message' => 'Деталь не найдена'];
             }
-            
-            // Копируем деталь рекурсивно
-            $result = $this->copyDetailRecursive($originalDetail);
-            
-            if (! $result || $result['status'] !== 'ok') {
-                return [
-                    'status' => 'error',
-                    'message' => 'Не удалось скопировать деталь',
-                ];
+
+            // Клонируем деталь 1:1
+            $cloneResult = $this->cloneDetailRecursive($originalDetail, $createdDetailIds, $createdConfigIds);
+            if (!$cloneResult || ($cloneResult['status'] ?? 'error') !== 'ok') {
+                $this->rollbackCreated($createdDetailIds, $createdConfigIds);
+                return ['status' => 'error', 'message' => 'Не удалось клонировать деталь'];
             }
-            
-            return $result;
-            
-        } catch (\Exception $e) {
+
+            $newDetailId = $cloneResult['detail']['id'];
+            $rootDetailId = $newDetailId;
+
+            // Позиционные правила
+            if ($presetId > 0) {
+                $presetDetails = $this->getPresetDetails($presetId);
+                $parent = $this->findParentOfDetail($detailId, $presetId);
+
+                if ($parent !== null) {
+                    // Деталь уже внутри скрепления — вставляем клон сразу после оригинала
+                    $parentDetails = $parent['DETAIL_IDS'];
+                    $pos = array_search($detailId, array_map('intval', $parentDetails));
+                    if ($pos === false) {
+                        $pos = count($parentDetails) - 1;
+                    }
+                    array_splice($parentDetails, $pos + 1, 0, [$newDetailId]);
+
+                    // Сначала очищаем свойство, затем записываем новый порядок
+                    \CIBlockElement::SetPropertyValuesEx($parent['ID'], $this->detailsIblockId, ['DETAILS' => false]);
+                    \CIBlockElement::SetPropertyValuesEx($parent['ID'], $this->detailsIblockId, ['DETAILS' => $parentDetails]);
+
+                    // rootDetailId для enrichPreset — корневой элемент пресета
+                    $rootDetailId = !empty($presetDetails) ? (int)$presetDetails[0] : $newDetailId;
+                } else {
+                    // Деталь на верхнем уровне — создаём новое скрепление [оригинал, клон]
+                    $bindingName = $originalDetail['NAME'];
+                    $bindingId = $this->createDetailElement($bindingName, 'BINDING');
+                    if (!$bindingId) {
+                        $this->rollbackCreated($createdDetailIds, $createdConfigIds);
+                        return ['status' => 'error', 'message' => 'Не удалось создать группу скрепления'];
+                    }
+                    $createdDetailIds[] = $bindingId;
+
+                    $configId = $this->createConfigElement(date('dmY_His') . '_' . substr((string)microtime(true), -6));
+                    if (!$configId) {
+                        $this->rollbackCreated($createdDetailIds, $createdConfigIds);
+                        return ['status' => 'error', 'message' => 'Не удалось создать конфигурацию скрепления'];
+                    }
+                    $createdConfigIds[] = $configId;
+
+                    \CIBlockElement::SetPropertyValuesEx($bindingId, $this->detailsIblockId, [
+                        'CALC_STAGES' => [$configId],
+                        'DETAILS' => [$detailId, $newDetailId],
+                    ]);
+
+                    // Заменяем оригинальную деталь на скрепление в пресете
+                    $updatedPresetDetails = $presetDetails;
+                    $origPos = array_search($detailId, array_map('intval', $updatedPresetDetails));
+                    if ($origPos !== false) {
+                        $updatedPresetDetails[$origPos] = $bindingId;
+                    } else {
+                        $updatedPresetDetails[] = $bindingId;
+                    }
+
+                    // Сначала очищаем свойство, затем записываем обновлённый список
+                    \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, ['CALC_DETAILS' => false]);
+                    \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
+                        'CALC_DETAILS' => array_values($updatedPresetDetails),
+                    ]);
+
+                    $rootDetailId = $bindingId;
+                }
+            }
+
             return [
-                'status' => 'error',
-                'message' => $e->getMessage(),
+                'status' => 'ok',
+                'detail' => $cloneResult['detail'],
+                'rootDetailId' => $rootDetailId,
+                'newDetailId' => $newDetailId,
             ];
+
+        } catch (\Exception $e) {
+            $this->rollbackCreated($createdDetailIds, $createdConfigIds);
+            return ['status' => 'error', 'message' => $e->getMessage()];
         }
     }
 
@@ -1135,74 +1193,60 @@ class DetailHandler
     }
 
     /**
-     * Копировать деталь рекурсивно
+     * Клонировать деталь рекурсивно (1:1)
      */
-    private function copyDetailRecursive(array $originalDetail): array
+    private function cloneDetailRecursive(array $originalDetail, array &$createdDetailIds, array &$createdConfigIds): array
     {
-        $newName = $originalDetail['NAME'];
-        
-        // Создаем копию детали
-        $newDetailId = $this->createDetailElement($newName, $originalDetail['TYPE']);
-        
-        if (! $newDetailId) {
-            return [
-                'status' => 'error',
-                'message' => 'Не удалось создать копию детали',
-            ];
+        $newDetailId = $this->createDetailElement($originalDetail['NAME'], $originalDetail['TYPE']);
+        if (!$newDetailId) {
+            return ['status' => 'error', 'message' => 'Не удалось создать клон детали'];
         }
-        
-        // Копируем конфигурации
+        $createdDetailIds[] = $newDetailId;
+
+        // Клонируем конфигурации
         $newConfigIds = [];
         foreach ($originalDetail['CONFIGS'] as $configId) {
-            $newConfigId = $this->copyConfig($configId);
+            $newConfigId = $this->cloneConfig($configId, $createdConfigIds);
             if ($newConfigId) {
                 $newConfigIds[] = $newConfigId;
             }
         }
-        
-        // Рекурсивно копируем вложенные детали для групп
-        $children = [];
+
+        // Рекурсивно клонируем вложенные детали для BINDING
         $newDetailIds = [];
         if ($originalDetail['TYPE'] === 'BINDING' && !empty($originalDetail['DETAIL_IDS'])) {
             foreach ($originalDetail['DETAIL_IDS'] as $childId) {
                 $childDetail = $this->getDetailById($childId);
                 if ($childDetail) {
-                    $childCopy = $this->copyDetailRecursive($childDetail);
-                    if ($childCopy['status'] === 'ok') {
-                        $newDetailIds[] = $childCopy['detail']['id'];
-                        $children[] = $childCopy;
+                    $childClone = $this->cloneDetailRecursive($childDetail, $createdDetailIds, $createdConfigIds);
+                    if (($childClone['status'] ?? 'error') === 'ok') {
+                        $newDetailIds[] = $childClone['detail']['id'];
                     }
                 }
             }
         }
 
+        // Копируем все свойства оригинала 1:1, перезаписываем только CALC_STAGES и DETAILS
         $propertyValues = $originalDetail['PROPERTY_VALUES'] ?? [];
         $propertyValues['CALC_STAGES'] = $newConfigIds;
         $propertyValues['DETAILS'] = $newDetailIds;
 
         \CIBlockElement::SetPropertyValuesEx($newDetailId, $this->detailsIblockId, $propertyValues);
-        
-        $configs = [];
-        foreach ($newConfigIds as $configId) {
-            $configs[] = ['id' => $configId];
-        }
-        
+
         return [
             'status' => 'ok',
             'detail' => [
                 'id' => $newDetailId,
-                'name' => $newName,
+                'name' => $originalDetail['NAME'],
                 'type' => $originalDetail['TYPE'],
             ],
-            'configs' => $configs,
-            'children' => $children,
         ];
     }
 
     /**
-     * Копировать конфигурацию
+     * Клонировать конфигурацию (1:1)
      */
-    private function copyConfig(int $configId): ?int
+    private function cloneConfig(int $configId, array &$createdConfigIds): ?int
     {
         $element = \CIBlockElement::GetList(
             [],
@@ -1211,16 +1255,15 @@ class DetailHandler
             false,
             ['ID', 'NAME']
         )->GetNextElement();
-        
+
         if (!$element) {
             return null;
         }
-        
+
         $fields = $element->GetFields();
         $properties = $element->GetProperties();
-        
+
         $el = new \CIBlockElement();
-        
         $newName = $fields['NAME'];
         $newFields = [
             'IBLOCK_ID' => $this->stagesIblockId,
@@ -1229,19 +1272,33 @@ class DetailHandler
             'ACTIVE' => 'Y',
             'PROPERTY_VALUES' => [],
         ];
-        
-        // Копируем значения свойств
+
         foreach ($properties as $prop) {
             if (!array_key_exists('VALUE', $prop) || empty($prop['CODE'])) {
                 continue;
             }
-
             $newFields['PROPERTY_VALUES'][$prop['CODE']] = $prop['VALUE'];
         }
-        
+
         $newId = $el->Add($newFields);
-        
-        return $newId ? (int)$newId : null;
+        if ($newId) {
+            $createdConfigIds[] = (int)$newId;
+            return (int)$newId;
+        }
+        return null;
+    }
+
+    /**
+     * Откат созданных элементов при ошибке
+     */
+    private function rollbackCreated(array $detailIds, array $configIds): void
+    {
+        foreach (array_reverse($detailIds) as $id) {
+            \CIBlockElement::Delete($id);
+        }
+        foreach (array_reverse($configIds) as $id) {
+            \CIBlockElement::Delete($id);
+        }
     }
 
     /**
