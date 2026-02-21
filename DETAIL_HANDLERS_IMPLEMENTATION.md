@@ -5,7 +5,7 @@
 
 ## Overview
 
-This implementation adds 8 new event handlers for managing details, binding groups, and stages in the calculator system. The handlers enable full CRUD operations on details and their configurations through the PWRT protocol.
+This implementation adds event handlers for managing details, binding groups, and stages in the calculator system. The handlers enable full CRUD operations on details and their configurations through the PWRT protocol.
 
 ## Files Modified
 
@@ -16,7 +16,7 @@ A new service class that handles all detail-related operations.
 **Key Methods:**
 
 - `addDetail(array $data): array` - Creates a new detail with an initial empty configuration
-- `copyDetail(array $data): array` - Recursively copies a detail with all its configs and children
+- `cloneDetail(array $data): array` - 1:1 clones a detail with all its configs and children, applying positional rules
 - `addGroup(array $data): array` - Creates a binding group that combines multiple details
 - `addStage(array $data): array` - Adds a new stage (configuration) to a detail
 - `deleteStage(array $data): array` - Removes a stage from a detail
@@ -31,8 +31,9 @@ A new service class that handles all detail-related operations.
 - `linkConfigToDetail()` - Links configurations to details
 - `getDetailById()` - Retrieves detail with properties
 - `getConfigsByIds()` - Retrieves multiple configs
-- `copyDetailRecursive()` - Recursive copying logic
-- `copyConfig()` - Copies a single configuration
+- `cloneDetailRecursive()` - Recursive 1:1 clone logic
+- `cloneConfig()` - Clones a single configuration
+- `rollbackCreated()` - Rolls back created elements on failure
 - `generateDetailName()` - Auto-generates detail names
 
 ### 2. lib/Calculator/ElementDataService.php
@@ -42,7 +43,7 @@ Updated `prepareRefreshPayload()` method to route new actions to DetailHandler.
 **Added Actions:**
 
 - `addNewDetail` → `DetailHandler::addDetail()`
-- `copyDetail` → `DetailHandler::copyDetail()`
+- `cloneDetail` → `DetailHandler::cloneDetail()`
 - `addNewGroup` → `DetailHandler::addGroup()`
 - `addNewStage` → `DetailHandler::addStage()`
 - `deleteStage` → `DetailHandler::deleteStage()`
@@ -52,13 +53,13 @@ Updated `prepareRefreshPayload()` method to route new actions to DetailHandler.
 
 ### 3. install/assets/js/integration.js
 
-Added 8 new event handlers in the `CalcIntegration` class.
+Added event handlers in the `CalcIntegration` class.
 
-**New Handlers:**
+**Handlers:**
 
 - `handleGetDetailRequest()` - GET_DETAIL_REQUEST → GET_DETAIL_RESPONSE
 - `handleAddNewDetailRequest()` - ADD_DETAIL_REQUEST → ADD_DETAIL_RESPONSE
-- `handleCopyDetailRequest()` - COPY_DETAIL_REQUEST → COPY_DETAIL_RESPONSE
+- `handleCloneDetailRequest()` - CLONE_DETAIL_REQUEST → INIT (after enrichPreset)
 - `handleAddNewGroupRequest()` - ADD_NEW_GROUP_REQUEST → ADD_NEW_GROUP_RESPONSE
 - `handleAddNewStageRequest()` - ADD_NEW_STAGE_REQUEST → ADD_NEW_STAGE_RESPONSE
 - `handleDeleteStageRequest()` - DELETE_STAGE_REQUEST → DELETE_STAGE_RESPONSE
@@ -136,31 +137,39 @@ Registered `DetailHandler` class in the autoloader:
 }
 ```
 
-### 3. COPY_DETAIL_REQUEST / COPY_DETAIL_RESPONSE
+### 3. CLONE_DETAIL_REQUEST
+
+Performs a true 1:1 clone of a CALC_DETAILS element and all linked stages/configs.
 
 **Request:**
 ```javascript
 {
   protocol: "pwrt-v1",
-  type: "COPY_DETAIL_REQUEST",
+  type: "CLONE_DETAIL_REQUEST",
   payload: {
     detailId: 100,
-    offerIds: [1, 2, 3]
+    presetId: 10
   }
 }
 ```
 
-**Response:**
+**Behavior:**
+- NAME is preserved exactly (no "(копия)" or other modifications).
+- New CODE/XML_ID are generated for the clone and for cloned stages/configs.
+- All properties are copied 1:1.
+- Linked stages/config elements are cloned 1:1 including all their properties.
+- Handles both TYPE=DETAIL and TYPE=BINDING.
+
+**Positional rules:**
+- If the original detail is at the **top level** of the preset (not inside a binding), a new binding group is created containing `[original, clone]` in that order. The preset's CALC_DETAILS reference is updated to point to the new binding instead of the original.
+- If the original detail is **already inside an existing binding**, the clone is inserted immediately after the original in that binding's DETAILS list.
+
+After a successful clone, `enrichPreset` is called and a new `INIT` message is sent to the client.
+
+**Response (sent via INIT after enrichPreset):**
 ```javascript
 {
-  status: "ok",
-  detail: {
-    id: 110,
-    name: "Detail name (копия)",
-    type: "DETAIL"
-  },
-  configs: [{id: 210}],
-  children: [...] // if group
+  // Full enriched preset data (same as initial INIT payload)
 }
 ```
 
@@ -317,14 +326,16 @@ The implementation uses atomic operations where possible:
 - Detail creation rolls back if config creation fails
 - Group creation rolls back if config creation fails
 - Delete operations clean up all related entities
+- Clone operations roll back all created elements if any step fails
 
 ### Recursive Operations
 
-The `copyDetail` operation supports full recursive copying:
-1. Copies the detail
-2. Copies all configurations
-3. For BINDING type: recursively copies all child details
-4. Maintains proper relationships in the copy
+The `cloneDetail` operation supports full recursive cloning:
+1. Clones the detail (1:1, NAME preserved)
+2. Clones all configurations (1:1, new CODE/XML_ID generated)
+3. For BINDING type: recursively clones all child details
+4. Maintains proper relationships in the clone
+5. Applies positional rules (creates binding or inserts after original)
 
 ### Auto-naming
 
@@ -350,10 +361,10 @@ All syntax and structure checks pass:
 ✓ DetailHandler.php syntax valid
 ✓ ElementDataService.php syntax valid
 ✓ integration.js syntax valid
-✓ All 8 methods implemented in DetailHandler
-✓ All 8 handlers implemented in integration.js
-✓ All 8 cases added to switch statement
-✓ All 9 actions routed in ElementDataService (including GET)
+✓ All methods implemented in DetailHandler
+✓ All handlers implemented in integration.js
+✓ All cases added to switch statement
+✓ All actions routed in ElementDataService
 ✓ All handlers use fetchRefreshData
 ✓ All handlers send appropriate responses
 ✓ DetailHandler registered in autoloader
@@ -372,14 +383,15 @@ const response = await sendMessage({
   }
 });
 
-// Copy detail
-const copyResponse = await sendMessage({
-  type: 'COPY_DETAIL_REQUEST',
+// Clone detail (1:1, with positional rules)
+await sendMessage({
+  type: 'CLONE_DETAIL_REQUEST',
   payload: {
     detailId: response.detail.id,
-    offerIds: [1, 2, 3]
+    presetId: currentPresetId
   }
 });
+// → receives INIT message with enriched preset data
 
 // Add stage
 const stageResponse = await sendMessage({
@@ -394,7 +406,7 @@ const groupResponse = await sendMessage({
   type: 'ADD_NEW_GROUP_REQUEST',
   payload: {
     offerIds: [1, 2, 3],
-    detailIds: [response.detail.id, copyResponse.detail.id],
+    detailIds: [response.detail.id, 200],
     name: 'My Group'
   }
 });

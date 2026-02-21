@@ -245,8 +245,8 @@
                 case 'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST':
                     await this.handleChangeCustomFieldsValue(message, origin);
                     break;
-                case 'DUBLICATE_DETAIL_REQUEST':
-                    await this.handleDublicateDetailRequest(message, origin);
+                case 'CLONE_DETAIL_REQUEST':
+                    await this.handleCloneDetailRequest(message, origin);
                     break;
                 case 'SAVE_SETTINGS_EQUIPMENT_REQUEST':
                     await this.handleSaveSettingsEquipmentRequest(message, origin);
@@ -307,7 +307,7 @@
                         'ADD_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'REMOVE_DETAIL_REQUEST', 
                         'RENAME_DETAIL_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST', 
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
-                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'DUBLICATE_DETAIL_REQUEST',
+                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
@@ -901,61 +901,7 @@
             }
         }
 
-        /**
-         * Обработка запроса копирования детали
-         */
-        async handleCopyDetailRequest(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleCopyDetailRequest START', {
-                messageType: message.type,
-                payload: message.payload,
-                origin: origin,
-            });
-
-            const payload = message.payload || {};
-
-            try {
-                const result = await this.fetchRefreshData([
-                    {
-                        action: 'copyDetail',
-                        detailId: payload.detailId || 0,
-                        offerIds: payload.offerIds || [],
-                    }
-                ]);
-
-                const responsePayload = (Array.isArray(result) && result[0])
-                    ? result[0]
-                    : { status: 'error', message: 'Empty response' };
-
-                console.log('[BitrixBridge][DEBUG] Sending COPY_DETAIL_RESPONSE', {
-                    requestId: message.requestId,
-                    status: responsePayload.status,
-                });
-
-                this.sendPwrtMessage('COPY_DETAIL_RESPONSE', responsePayload, message.requestId, origin);
-
-                console.log('[BitrixBridge][DEBUG] handleCopyDetailRequest END - success');
-
-            } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleCopyDetailRequest ERROR', {
-                    error: error,
-                    message: error.message,
-                });
-
-                this.sendPwrtMessage(
-                    'COPY_DETAIL_RESPONSE',
-                    {
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
-                    },
-                    message.requestId,
-                    origin
-                );
-            }
-        }
-
-
-
-        async handleDublicateDetailRequest(message, origin) {
+        async handleCloneDetailRequest(message, origin) {
             const payload = message.payload || {};
             const detailId = parseInt(payload.detailId, 10) || 0;
             const presetId = parseInt(payload.presetId, 10) || 0;
@@ -964,10 +910,10 @@
             }
 
             try {
-                const result = await this.fetchRefreshData([{ action: 'dublicateDetail', detailId, presetId }]);
+                const result = await this.fetchRefreshData([{ action: 'cloneDetail', detailId, presetId }]);
                 const responsePayload = (Array.isArray(result) && result[0]) ? result[0] : null;
                 if (!responsePayload || responsePayload.status !== 'ok') {
-                    throw new Error(responsePayload?.message || 'Не удалось дублировать деталь');
+                    throw new Error(responsePayload?.message || 'Не удалось клонировать деталь');
                 }
 
                 const enrichResult = await this.enrichPreset({
@@ -984,8 +930,8 @@
                     this.sendPwrtMessage('INIT', enrichResult.data, message.requestId, origin);
                 }
             } catch (error) {
-                console.error('[BitrixBridge] DUBLICATE_DETAIL_REQUEST error:', error);
-                this.sendPwrtMessage('ERROR', { message: 'Ошибка дублирования детали', details: error.message }, message.requestId, origin);
+                console.error('[BitrixBridge] CLONE_DETAIL_REQUEST error:', error);
+                this.sendPwrtMessage('ERROR', { message: 'Ошибка клонирования детали', details: error.message }, message.requestId, origin);
             }
         }
 

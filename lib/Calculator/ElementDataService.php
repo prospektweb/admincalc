@@ -45,9 +45,9 @@ class ElementDataService
                         $result[] = $handler->addDetail($request);
                         continue 2;
                         
-                    case 'copyDetail':
+                    case 'cloneDetail':
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();
-                        $result[] = $handler->copyDetail($request);
+                        $result[] = $handler->cloneDetail($request);
                         continue 2;
                         
                     case 'addNewGroup':
@@ -444,41 +444,6 @@ class ElementDataService
                         }
 
                         $result[] = ['status' => 'ok'];
-                        continue 2;
-
-                    case 'dublicateDetail':
-                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
-                        $presetId = (int)($request['presetId'] ?? 0);
-                        $detailId = (int)($request['detailId'] ?? 0);
-
-                        $copyResult = $handler->copyDetail(['detailId' => $detailId]);
-                        if (($copyResult['status'] ?? 'error') !== 'ok') {
-                            $result[] = $copyResult;
-                            continue 2;
-                        }
-
-                        if ($presetId > 0 && !empty($copyResult['detail']['id'])) {
-                            $presetIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_PRESETS', 0);
-                            if ($presetIblockId > 0) {
-                                $existingDetails = [];
-                                $presetProps = \CIBlockElement::GetProperty($presetIblockId, $presetId, ['sort' => 'asc'], ['CODE' => 'CALC_DETAILS']);
-                                while ($prop = $presetProps->Fetch()) {
-                                    if (!empty($prop['VALUE'])) {
-                                        $existingDetails[] = (int)$prop['VALUE'];
-                                    }
-                                }
-                                $existingDetails[] = (int)$copyResult['detail']['id'];
-                                \CIBlockElement::SetPropertyValuesEx($presetId, $presetIblockId, [
-                                    'CALC_DETAILS' => array_values(array_unique($existingDetails)),
-                                ]);
-                            }
-                        }
-
-                        $result[] = [
-                            'status' => 'ok',
-                            'detail' => $copyResult['detail'],
-                            'rootDetailId' => (int)($copyResult['detail']['id'] ?? 0),
-                        ];
                         continue 2;
 
                     case 'saveSettingsEquipment':
