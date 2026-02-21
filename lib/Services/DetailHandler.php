@@ -1138,7 +1138,12 @@ class DetailHandler
                 continue;
             }
 
-            $value = $property['VALUE'];
+            // For list (enum) properties use the numeric enum ID, not the display text
+            if (($property['PROPERTY_TYPE'] ?? '') === 'L') {
+                $value = $property['VALUE_ENUM_ID'] ?? null;
+            } else {
+                $value = $property['VALUE'];
+            }
             $description = (string)($property['DESCRIPTION'] ?? '');
             $isMultiple = ($property['MULTIPLE'] ?? 'N') === 'Y';
 
@@ -1253,7 +1258,7 @@ class DetailHandler
             ['ID' => $configId, 'IBLOCK_ID' => $this->stagesIblockId],
             false,
             false,
-            ['ID', 'NAME']
+            ['ID', 'NAME', 'SORT', 'ACTIVE', 'PREVIEW_TEXT', 'PREVIEW_TEXT_TYPE', 'DETAIL_TEXT', 'DETAIL_TEXT_TYPE']
         )->GetNextElement();
 
         if (!$element) {
@@ -1269,23 +1274,34 @@ class DetailHandler
             'IBLOCK_ID' => $this->stagesIblockId,
             'NAME' => $newName,
             'CODE' => $this->generateUniqueElementCode($this->stagesIblockId, $newName),
-            'ACTIVE' => 'Y',
-            'PROPERTY_VALUES' => [],
+            'ACTIVE' => $fields['ACTIVE'] ?? 'Y',
+            'SORT' => $fields['SORT'] ?? 500,
         ];
 
-        foreach ($properties as $prop) {
-            if (!array_key_exists('VALUE', $prop) || empty($prop['CODE'])) {
-                continue;
-            }
-            $newFields['PROPERTY_VALUES'][$prop['CODE']] = $prop['VALUE'];
+        if (!empty($fields['PREVIEW_TEXT'])) {
+            $newFields['PREVIEW_TEXT'] = $fields['PREVIEW_TEXT'];
+            $newFields['PREVIEW_TEXT_TYPE'] = $fields['PREVIEW_TEXT_TYPE'] ?? 'text';
+        }
+
+        if (!empty($fields['DETAIL_TEXT'])) {
+            $newFields['DETAIL_TEXT'] = $fields['DETAIL_TEXT'];
+            $newFields['DETAIL_TEXT_TYPE'] = $fields['DETAIL_TEXT_TYPE'] ?? 'text';
         }
 
         $newId = $el->Add($newFields);
-        if ($newId) {
-            $createdConfigIds[] = (int)$newId;
-            return (int)$newId;
+        if (!$newId) {
+            return null;
         }
-        return null;
+
+        $newId = (int)$newId;
+        $createdConfigIds[] = $newId;
+
+        $propValues = $this->extractElementPropertyValues($properties);
+        if (!empty($propValues)) {
+            \CIBlockElement::SetPropertyValuesEx($newId, $this->stagesIblockId, $propValues);
+        }
+
+        return $newId;
     }
 
     /**
