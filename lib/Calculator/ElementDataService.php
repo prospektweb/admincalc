@@ -342,54 +342,6 @@ class ElementDataService
                         }
                         continue 2;
                     
-                    case 'changeOperationQuantity':
-                        // New handler for CHANGE_OPERATION_QUANTITY_REQUEST (silent mode)
-                        $stageId = (int)($request['stageId'] ?? 0);
-                        $quantityValue = $request['quantityValue'] ?? 0;
-                        
-                        if ($stageId > 0) {
-                            $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
-                            
-                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                'OPERATION_QUANTITY' => $quantityValue,
-                            ]);
-                            
-                            $result[] = [
-                                'status' => 'ok',
-                                'stageId' => $stageId,
-                            ];
-                        } else {
-                            $result[] = [
-                                'status' => 'error',
-                                'message' => 'Stage ID обязателен',
-                            ];
-                        }
-                        continue 2;
-                    
-                    case 'changeMaterialQuantity':
-                        // New handler for CHANGE_MATERIAL_QUANTITY_REQUEST (silent mode)
-                        $stageId = (int)($request['stageId'] ?? 0);
-                        $quantityValue = $request['quantityValue'] ?? 0;
-                        
-                        if ($stageId > 0) {
-                            $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
-                            
-                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                'MATERIAL_QUANTITY' => $quantityValue,
-                            ]);
-                            
-                            $result[] = [
-                                'status' => 'ok',
-                                'stageId' => $stageId,
-                            ];
-                        } else {
-                            $result[] = [
-                                'status' => 'error',
-                                'message' => 'Stage ID обязателен',
-                            ];
-                        }
-                        continue 2;
-                    
                     case 'changeCustomFieldsValue':
                         // New handler for CHANGE_CUSTOM_FIELDS_VALUE_REQUEST (silent mode)
                         $stageId = (int)($request['stageId'] ?? 0);
@@ -422,6 +374,127 @@ class ElementDataService
                         }
                         continue 2;
                         
+                    case 'selectFields':
+                        $settingsId = (int)($request['settingsId'] ?? 0);
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $customFieldIds = $this->normalizeIds($request['customFieldIds'] ?? []);
+
+                        if ($settingsId > 0 && $stageId > 0 && !empty($customFieldIds)) {
+                            $settingsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_SETTINGS', 0);
+                            $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
+
+                            $existingCustomFields = [];
+                            $settingsProps = \CIBlockElement::GetProperty($settingsIblockId, $settingsId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS']);
+                            while ($prop = $settingsProps->Fetch()) {
+                                if (!empty($prop['VALUE'])) {
+                                    $existingCustomFields[] = (int)$prop['VALUE'];
+                                }
+                            }
+
+                            $mergedCustomFields = array_values(array_unique(array_merge($existingCustomFields, $customFieldIds)));
+                            \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
+                                'CUSTOM_FIELDS' => $mergedCustomFields,
+                            ]);
+
+                            $customFieldsService = new \Prospektweb\Calc\Services\CustomFieldsService();
+                            $fieldsConfig = $customFieldsService->getFieldsConfig($customFieldIds);
+                            $defaultValues = [];
+                            foreach ($fieldsConfig as $fieldConfig) {
+                                if (!array_key_exists('default', $fieldConfig)) {
+                                    continue;
+                                }
+                                $defaultValue = $fieldConfig['default'];
+                                if (is_bool($defaultValue)) {
+                                    $defaultValue = $defaultValue ? 'Y' : 'N';
+                                }
+                                $defaultValues[] = [
+                                    'VALUE' => (string)($fieldConfig['code'] ?? ''),
+                                    'DESCRIPTION' => (string)$defaultValue,
+                                ];
+                            }
+
+                            if (!empty($defaultValues)) {
+                                $existingValues = [];
+                                $stageProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS_VALUE']);
+                                while ($prop = $stageProps->Fetch()) {
+                                    if ($prop['VALUE'] === null || $prop['VALUE'] === '') {
+                                        continue;
+                                    }
+                                    $existingValues[] = [
+                                        'VALUE' => (string)$prop['VALUE'],
+                                        'DESCRIPTION' => (string)($prop['DESCRIPTION'] ?? ''),
+                                    ];
+                                }
+
+                                \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                    'CUSTOM_FIELDS_VALUE' => array_merge($existingValues, $defaultValues),
+                                ]);
+                            }
+                        }
+
+                        $result[] = ['status' => 'ok'];
+                        continue 2;
+
+                    case 'dublicateDetail':
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $detailId = (int)($request['detailId'] ?? 0);
+
+                        $copyResult = $handler->copyDetail(['detailId' => $detailId]);
+                        if (($copyResult['status'] ?? 'error') !== 'ok') {
+                            $result[] = $copyResult;
+                            continue 2;
+                        }
+
+                        if ($presetId > 0 && !empty($copyResult['detail']['id'])) {
+                            $presetIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_PRESETS', 0);
+                            if ($presetIblockId > 0) {
+                                $existingDetails = [];
+                                $presetProps = \CIBlockElement::GetProperty($presetIblockId, $presetId, ['sort' => 'asc'], ['CODE' => 'CALC_DETAILS']);
+                                while ($prop = $presetProps->Fetch()) {
+                                    if (!empty($prop['VALUE'])) {
+                                        $existingDetails[] = (int)$prop['VALUE'];
+                                    }
+                                }
+                                $existingDetails[] = (int)$copyResult['detail']['id'];
+                                \CIBlockElement::SetPropertyValuesEx($presetId, $presetIblockId, [
+                                    'CALC_DETAILS' => array_values(array_unique($existingDetails)),
+                                ]);
+                            }
+                        }
+
+                        $result[] = [
+                            'status' => 'ok',
+                            'detail' => $copyResult['detail'],
+                            'rootDetailId' => (int)($copyResult['detail']['id'] ?? 0),
+                        ];
+                        continue 2;
+
+                    case 'saveSettingsEquipment':
+                        $equipmentId = (int)($request['equipmentId'] ?? 0);
+                        $properties = is_array($request['properties'] ?? null) ? $request['properties'] : [];
+                        $equipmentIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_EQUIPMENT', 0);
+
+                        if ($equipmentId > 0 && $equipmentIblockId > 0 && !empty($properties)) {
+                            \CIBlockElement::SetPropertyValuesEx($equipmentId, $equipmentIblockId, $properties);
+                        }
+
+                        $result[] = ['status' => 'ok'];
+                        continue 2;
+
+                    case 'changeStageName':
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $name = trim((string)($request['name'] ?? ''));
+
+                        if ($stageId > 0 && $name !== '') {
+                            $el = new \CIBlockElement();
+                            $el->Update($stageId, ['NAME' => $name]);
+                        }
+
+                        $result[] = ['status' => 'ok'];
+                        continue 2;
+
+
                     case 'deleteDetail':
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();
                         $result[] = $handler->deleteDetail($request);

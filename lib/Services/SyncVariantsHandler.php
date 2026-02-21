@@ -273,8 +273,6 @@ class SyncVariantsHandler
             'OPERATION_VARIANT' => $calc['operationVariantId'] ?? null,
             'MATERIAL_VARIANT' => $calc['materialVariantId'] ?? null,
             'EQUIPMENT' => $calc['equipmentId'] ?? null,
-            'OPERATION_QUANTITY' => $calc['operationQuantity'] ?? 1,
-            'MATERIAL_QUANTITY' => $calc['materialQuantity'] ?? 1,
         ];
         
         // Сохраняем CUSTOM_FIELDS_VALUE как массив с описанием
