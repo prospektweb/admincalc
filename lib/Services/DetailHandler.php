@@ -1063,7 +1063,46 @@ class DetailHandler
             'TYPE' => $type,
             'CONFIGS' => array_map('intval', $configIds),
             'DETAIL_IDS' => array_map('intval', $detailIds),
+            'PROPERTY_VALUES' => $this->extractElementPropertyValues($properties),
         ];
+    }
+
+    /**
+     * Подготовить значения свойств для SetPropertyValuesEx.
+     */
+    private function extractElementPropertyValues(array $properties): array
+    {
+        $result = [];
+
+        foreach ($properties as $property) {
+            $code = (string)($property['CODE'] ?? '');
+            if ($code === '' || !array_key_exists('VALUE', $property)) {
+                continue;
+            }
+
+            $value = $property['VALUE'];
+            $description = (string)($property['DESCRIPTION'] ?? '');
+            $isMultiple = ($property['MULTIPLE'] ?? 'N') === 'Y';
+
+            if ($isMultiple) {
+                if (!isset($result[$code]) || !is_array($result[$code])) {
+                    $result[$code] = [];
+                }
+
+                $result[$code][] = [
+                    'VALUE' => $value,
+                    'DESCRIPTION' => $description,
+                ];
+                continue;
+            }
+
+            $result[$code] = [
+                'VALUE' => $value,
+                'DESCRIPTION' => $description,
+            ];
+        }
+
+        return $result;
     }
 
     /**
@@ -1100,7 +1139,7 @@ class DetailHandler
      */
     private function copyDetailRecursive(array $originalDetail): array
     {
-        $newName = $originalDetail['NAME'] .  ' (копия)';
+        $newName = $originalDetail['NAME'];
         
         // Создаем копию детали
         $newDetailId = $this->createDetailElement($newName, $originalDetail['TYPE']);
@@ -1121,14 +1160,10 @@ class DetailHandler
             }
         }
         
-        // Связываем конфигурации с новой деталью (используем CALC_STAGES для всех типов)
-        $this->linkConfigToDetail($newDetailId, $newConfigIds);
-        
-        // Рекур��ивно копируем вложенные детали для групп
+        // Рекурсивно копируем вложенные детали для групп
         $children = [];
+        $newDetailIds = [];
         if ($originalDetail['TYPE'] === 'BINDING' && !empty($originalDetail['DETAIL_IDS'])) {
-            $newDetailIds = [];
-            
             foreach ($originalDetail['DETAIL_IDS'] as $childId) {
                 $childDetail = $this->getDetailById($childId);
                 if ($childDetail) {
@@ -1139,12 +1174,13 @@ class DetailHandler
                     }
                 }
             }
-            
-            // Связываем вложенные детали
-            \CIBlockElement:: SetPropertyValuesEx($newDetailId, $this->detailsIblockId, [
-                'DETAILS' => $newDetailIds,
-            ]);
         }
+
+        $propertyValues = $originalDetail['PROPERTY_VALUES'] ?? [];
+        $propertyValues['CALC_STAGES'] = $newConfigIds;
+        $propertyValues['DETAILS'] = $newDetailIds;
+
+        \CIBlockElement::SetPropertyValuesEx($newDetailId, $this->detailsIblockId, $propertyValues);
         
         $configs = [];
         foreach ($newConfigIds as $configId) {
@@ -1185,7 +1221,7 @@ class DetailHandler
         
         $el = new \CIBlockElement();
         
-        $newName = $fields['NAME'] . ' (копия)';
+        $newName = $fields['NAME'];
         $newFields = [
             'IBLOCK_ID' => $this->stagesIblockId,
             'NAME' => $newName,
@@ -1196,9 +1232,11 @@ class DetailHandler
         
         // Копируем значения свойств
         foreach ($properties as $prop) {
-            if (! empty($prop['VALUE'])) {
-                $newFields['PROPERTY_VALUES'][$prop['CODE']] = $prop['VALUE'];
+            if (!array_key_exists('VALUE', $prop) || empty($prop['CODE'])) {
+                continue;
             }
+
+            $newFields['PROPERTY_VALUES'][$prop['CODE']] = $prop['VALUE'];
         }
         
         $newId = $el->Add($newFields);
