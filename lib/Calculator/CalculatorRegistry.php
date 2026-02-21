@@ -198,8 +198,6 @@ class CalculatorRegistry
                 'SUPPORTS_FINALIZATION' => $calc->supportsFinalization(),
                 'CAN_CHANGE_PRICE' => $calc->canChangePrice(),
                 'IS_SYSTEM' => $calc->isSystem(),
-                'CAN_BE_FIRST' => $calc->canBeFirst(),
-                'REQUIRES_BEFORE' => $calc->requiresBefore(),
             ];
         }
         return $result;

@@ -209,6 +209,9 @@
                 case 'SELECT_DETAILS_REQUEST':
                     await this.handleSelectDetailsRequest(message, origin);
                     break;
+                case 'SELECT_FIELDS_REQUEST':
+                    await this.handleSelectFieldsRequest(message, origin);
+                    break;
                 case 'REMOVE_OFFER_REQUEST':
                     this.handleRemoveOfferRequest(message, origin);
                     break;
@@ -239,14 +242,17 @@
                 case 'CHANGE_MATERIAL_VARIANT_REQUEST':
                     await this.handleChangeMaterialVariantRequest(message, origin);
                     break;
-                case 'CHANGE_OPERATION_QUANTITY_REQUEST':
-                    await this.handleChangeOperationQuantity(message, origin);
-                    break;
-                case 'CHANGE_MATERIAL_QUANTITY_REQUEST':
-                    await this.handleChangeMaterialQuantity(message, origin);
-                    break;
                 case 'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST':
                     await this.handleChangeCustomFieldsValue(message, origin);
+                    break;
+                case 'DUBLICATE_DETAIL_REQUEST':
+                    await this.handleDublicateDetailRequest(message, origin);
+                    break;
+                case 'SAVE_SETTINGS_EQUIPMENT_REQUEST':
+                    await this.handleSaveSettingsEquipmentRequest(message, origin);
+                    break;
+                case 'CHANGE_STAGE_NAME_REQUEST':
+                    await this.handleChangeStageNameRequest(message, origin);
                     break;
                 case 'CLEAR_PRESET_REQUEST':
                     await this.handleClearPresetRequest(message, origin);
@@ -296,13 +302,13 @@
                 default:
                     console.warn('[BitrixBridge][DEBUG] Unknown pwrt message type:', message.type);
                     console.warn('[BitrixBridge][DEBUG] Known types:', [
-                        'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'SELECT_DETAILS_TO_BINDING_REQUEST',
+                        'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'SELECT_FIELDS_REQUEST', 'SELECT_DETAILS_TO_BINDING_REQUEST',
                         'ADD_DETAIL_REQUEST', 'ADD_DETAIL_TO_BINDING_REQUEST',
                         'ADD_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'REMOVE_DETAIL_REQUEST', 
                         'RENAME_DETAIL_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST', 
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
-                        'CHANGE_OPERATION_QUANTITY_REQUEST', 'CHANGE_MATERIAL_QUANTITY_REQUEST', 
-                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST',
+                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'DUBLICATE_DETAIL_REQUEST',
+                        'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL',
@@ -641,6 +647,53 @@
             });
         }
 
+        async handleSelectFieldsRequest(message, origin) {
+            const payload = message.payload || {};
+            const settingsId = parseInt(payload.settingsId, 10) || 0;
+            const stageId = parseInt(payload.stageId, 10) || 0;
+            const presetId = parseInt(payload.presetId, 10) || 0;
+
+            const customFieldsIblock = this.findIblockByCode('CALC_CUSTOM_FIELDS');
+            const iblockId = customFieldsIblock?.id || null;
+            const iblockType = customFieldsIblock?.type || null;
+            const lang = payload.lang || (this.initData?.lang) || null;
+
+            const selectedIds = await this.openElementSelectionDialog({ iblockId, iblockType, lang });
+            if (!selectedIds || selectedIds.length === 0) {
+                return;
+            }
+
+            try {
+                await this.fetchRefreshData([{ action: 'selectFields', settingsId, stageId, customFieldIds: selectedIds }]);
+
+                const detailIds = this.initData?.preset?.properties?.CALC_DETAILS || [];
+                const firstDetailId = detailIds.length > 0 ? detailIds[0] : 0;
+                if (!presetId || !firstDetailId) {
+                    return;
+                }
+
+                const enrichResult = await this.enrichPreset({
+                    presetId,
+                    detailIds: [firstDetailId],
+                    binding: false,
+                    existingDetailId: 0,
+                    offerIds: this.config.offerIds || [],
+                    siteId: this.config.siteId || SITE_ID,
+                });
+
+                if (enrichResult.success && enrichResult.data) {
+                    this.initData = enrichResult.data;
+                    this.sendPwrtMessage('INIT', enrichResult.data, message.requestId, origin);
+                }
+            } catch (error) {
+                console.error('[BitrixBridge] SELECT_FIELDS_REQUEST error:', error);
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка выбора дополнительных полей',
+                    details: error.message,
+                }, message.requestId, origin);
+            }
+        }
+
         async handleSelectDetailsRequest(message, origin) {
             const requestPayload = message.payload || {};
             const binding = requestPayload.binding || false;
@@ -901,6 +954,70 @@
         }
 
 
+
+        async handleDublicateDetailRequest(message, origin) {
+            const payload = message.payload || {};
+            const detailId = parseInt(payload.detailId, 10) || 0;
+            const presetId = parseInt(payload.presetId, 10) || 0;
+            if (!detailId || !presetId) {
+                return;
+            }
+
+            try {
+                const result = await this.fetchRefreshData([{ action: 'dublicateDetail', detailId, presetId }]);
+                const responsePayload = (Array.isArray(result) && result[0]) ? result[0] : null;
+                if (!responsePayload || responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload?.message || 'Не удалось дублировать деталь');
+                }
+
+                const enrichResult = await this.enrichPreset({
+                    presetId,
+                    detailIds: [responsePayload.rootDetailId || detailId],
+                    binding: false,
+                    existingDetailId: 0,
+                    offerIds: this.config.offerIds || [],
+                    siteId: this.config.siteId || SITE_ID,
+                });
+
+                if (enrichResult.success && enrichResult.data) {
+                    this.initData = enrichResult.data;
+                    this.sendPwrtMessage('INIT', enrichResult.data, message.requestId, origin);
+                }
+            } catch (error) {
+                console.error('[BitrixBridge] DUBLICATE_DETAIL_REQUEST error:', error);
+                this.sendPwrtMessage('ERROR', { message: 'Ошибка дублирования детали', details: error.message }, message.requestId, origin);
+            }
+        }
+
+        async handleSaveSettingsEquipmentRequest(message, origin) {
+            const payload = message.payload || {};
+            const equipmentId = parseInt(payload.eqipmentId || payload.equipmentId, 10) || 0;
+            const properties = payload.properties || {};
+            if (!equipmentId) {
+                return;
+            }
+
+            try {
+                await this.fetchRefreshData([{ action: 'saveSettingsEquipment', equipmentId, properties }]);
+            } catch (error) {
+                console.error('[BitrixBridge] SAVE_SETTINGS_EQUIPMENT_REQUEST error:', error);
+            }
+        }
+
+        async handleChangeStageNameRequest(message, origin) {
+            const payload = message.payload || {};
+            const stageId = parseInt(payload.stageId, 10) || 0;
+            const name = payload.name || '';
+            if (!stageId || !name) {
+                return;
+            }
+
+            try {
+                await this.fetchRefreshData([{ action: 'changeStageName', stageId, name }]);
+            } catch (error) {
+                console.error('[BitrixBridge] CHANGE_STAGE_NAME_REQUEST error:', error);
+            }
+        }
 
         /**
          * Обработка запроса ADD_STAGE_REQUEST
@@ -1559,118 +1676,6 @@
                     message.requestId,
                     origin
                 );
-            }
-        }
-
-        /**
-         * Обработка запроса CHANGE_OPERATION_QUANTITY_REQUEST (silent mode)
-         * Payload: { stageId, quantityValue }
-         * Логика:
-         * 1. Обновить свойство OPERATION_QUANTITY в этапе stageId значением quantityValue
-         * 2. Ничего не отправлять (режим тишины)
-         */
-        async handleChangeOperationQuantity(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleChangeOperationQuantity START', {
-                messageType: message.type,
-                payload: message.payload,
-                origin: origin,
-            });
-
-            const payload = message.payload || {};
-            const stageId = payload.stageId || 0;
-            const quantityValue = payload.quantityValue || 0;
-
-            try {
-                if (stageId <= 0) {
-                    console.error('[BitrixBridge] Stage ID обязателен');
-                    // В режиме тишины не отправляем ошибку
-                    return;
-                }
-
-                // Вызываем обновление через AJAX
-                const result = await this.fetchRefreshData([
-                    {
-                        action: 'changeOperationQuantity',
-                        stageId: stageId,
-                        quantityValue: quantityValue,
-                    }
-                ]);
-
-                const responsePayload = (Array.isArray(result) && result[0])
-                    ? result[0]
-                    : { status: 'error', message: 'Empty response' };
-
-                if (responsePayload.status !== 'ok') {
-                    console.error('[BitrixBridge] changeOperationQuantity error:', responsePayload.message);
-                    // В режиме тишины не отправляем ошибку
-                    return;
-                }
-
-                console.log('[BitrixBridge] changeOperationQuantity success for stageId:', stageId);
-                // В режиме тишины НЕ отправляем ответ обратно во фрейм
-
-            } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleChangeOperationQuantity ERROR', {
-                    error: error,
-                    message: error.message,
-                });
-                // В режиме тишины не отправляем ошибку
-            }
-        }
-
-        /**
-         * Обработка запроса CHANGE_MATERIAL_QUANTITY_REQUEST (silent mode)
-         * Payload: { stageId, quantityValue }
-         * Логика:
-         * 1. Обновить свойство MATERIAL_QUANTITY в этапе stageId значением quantityValue
-         * 2. Ничего не отправлять (режим тишины)
-         */
-        async handleChangeMaterialQuantity(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleChangeMaterialQuantity START', {
-                messageType: message.type,
-                payload: message.payload,
-                origin: origin,
-            });
-
-            const payload = message.payload || {};
-            const stageId = payload.stageId || 0;
-            const quantityValue = payload.quantityValue || 0;
-
-            try {
-                if (stageId <= 0) {
-                    console.error('[BitrixBridge] Stage ID обязателен');
-                    // В режиме тишины не отправляем ошибку
-                    return;
-                }
-
-                // Вызываем обновление через AJAX
-                const result = await this.fetchRefreshData([
-                    {
-                        action: 'changeMaterialQuantity',
-                        stageId: stageId,
-                        quantityValue: quantityValue,
-                    }
-                ]);
-
-                const responsePayload = (Array.isArray(result) && result[0])
-                    ? result[0]
-                    : { status: 'error', message: 'Empty response' };
-
-                if (responsePayload.status !== 'ok') {
-                    console.error('[BitrixBridge] changeMaterialQuantity error:', responsePayload.message);
-                    // В режиме тишины не отправляем ошибку
-                    return;
-                }
-
-                console.log('[BitrixBridge] changeMaterialQuantity success for stageId:', stageId);
-                // В режиме тишины НЕ отправляем ответ обратно во фрейм
-
-            } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleChangeMaterialQuantity ERROR', {
-                    error: error,
-                    message: error.message,
-                });
-                // В режиме тишины не отправляем ошибку
             }
         }
 

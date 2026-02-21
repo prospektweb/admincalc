@@ -777,14 +777,6 @@ switch ($currentStep) {
                 'IS_REQUIRED' => 'N',
                 'SORT' => 200,
             ],
-            'OPERATION_QUANTITY' => [
-                'NAME' => 'Операция | Количество',
-                'TYPE' => 'N',
-                'MULTIPLE' => 'N',
-                'IS_REQUIRED' => 'N',
-                'DEFAULT_VALUE' => 1,
-                'SORT' => 300,
-            ],
             'EQUIPMENT' => [
                 'NAME' => 'Оборудование',
                 'TYPE' => 'E',
@@ -798,14 +790,6 @@ switch ($currentStep) {
                 'MULTIPLE' => 'N',
                 'IS_REQUIRED' => 'N',
                 'SORT' => 500,
-            ],
-            'MATERIAL_QUANTITY' => [
-                'NAME' => 'Материал | Количество',
-                'TYPE' => 'N',
-                'MULTIPLE' => 'N',
-                'IS_REQUIRED' => 'N',
-                'DEFAULT_VALUE' => 1,
-                'SORT' => 600,
             ],
             'CUSTOM_FIELDS_VALUE' => [
                 'NAME' => 'Значения дополнительных полей',
@@ -829,14 +813,16 @@ switch ($currentStep) {
         ];
         
         $settingsProps = [
-            'USE_OPERATION_VARIANT' => [
-                'NAME' => 'Активировать выбор варианта Операции',
+            'USED_ENTITYS' => [
+                'NAME' => 'Используемые сущности',
                 'TYPE' => 'L',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 3,
                 'SORT' => 200,
-                'IS_REQUIRED' => 'Y',
                 'VALUES' => [
-                    ['VALUE' => 'Да', 'XML_ID' => 'Y', 'DEF' => 'Y'],
-                    ['VALUE' => 'Нет', 'XML_ID' => 'N'],
+                    ['VALUE' => 'Операция', 'XML_ID' => 'VARIANT_OPERATION'],
+                    ['VALUE' => 'Оборудование', 'XML_ID' => 'EQUIPMENT'],
+                    ['VALUE' => 'Материал', 'XML_ID' => 'VARIANT_MATERIAL'],
                 ],
             ],
             'DEFAULT_OPERATION_VARIANT' => [
@@ -844,54 +830,10 @@ switch ($currentStep) {
                 'TYPE' => 'E',
                 'SORT' => 250,
             ],
-            'USE_OPERATION_QUANTITY' => [
-                'NAME' => 'Активировать количество для операций',
-                'TYPE' => 'L',
-                'SORT' => 300,
-                'IS_REQUIRED' => 'Y',
-                'VALUES' => [
-                    ['VALUE' => 'Да', 'XML_ID' => 'Y', 'DEF' => 'Y'],
-                    ['VALUE' => 'Нет', 'XML_ID' => 'N'],
-                ],
-            ],
-            'USE_MATERIAL_VARIANT' => [
-                'NAME' => 'Активировать выбор варианта Материала',
-                'TYPE' => 'L',
-                'SORT' => 400,
-                'IS_REQUIRED' => 'Y',
-                'VALUES' => [
-                    ['VALUE' => 'Да', 'XML_ID' => 'Y', 'DEF' => 'Y'],
-                    ['VALUE' => 'Нет', 'XML_ID' => 'N'],
-                ],
-            ],
             'DEFAULT_MATERIAL_VARIANT' => [
                 'NAME' => 'Вариант материала по умолчанию',
                 'TYPE' => 'E',
                 'SORT' => 450,
-            ],
-            'USE_MATERIAL_QUANTITY' => [
-                'NAME' => 'Активировать количество для материала',
-                'TYPE' => 'L',
-                'SORT' => 500,
-                'IS_REQUIRED' => 'Y',
-                'VALUES' => [
-                    ['VALUE' => 'Да', 'XML_ID' => 'Y', 'DEF' => 'Y'],
-                    ['VALUE' => 'Нет', 'XML_ID' => 'N'],
-                ],
-            ],
-            'CAN_BE_FIRST' => [
-                'NAME' => 'Может быть добавлен на первом этапе',
-                'TYPE' => 'L',
-                'SORT' => 550,
-                'VALUES' => [
-                    ['VALUE' => 'Да', 'XML_ID' => 'Y'],
-                    ['VALUE' => 'Нет', 'XML_ID' => 'N'],
-                ],
-            ],
-            'REQUIRES_BEFORE' => [
-                'NAME' => 'Используется после калькулятора',
-                'TYPE' => 'E',
-                'SORT' => 600,
             ],
             'CUSTOM_FIELDS' => [
                 'NAME' => 'Дополнительные поля',
@@ -1183,13 +1125,6 @@ switch ($currentStep) {
                 }
             }
             
-            // Обновляем REQUIRES_BEFORE
-            $rsProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $settingsIblockId, 'CODE' => 'REQUIRES_BEFORE']);
-            if ($arProperty = $rsProperty->Fetch()) {
-                $ibp->Update($arProperty['ID'], ['LINK_IBLOCK_ID' => $settingsIblockId]);
-                installLog("  → Обновлено свойство REQUIRES_BEFORE", 'success');
-            }
-            
             // Обновляем CUSTOM_FIELDS
             if ($installData['iblock_ids']['CALC_CUSTOM_FIELDS'] > 0) {
                 $rsProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $settingsIblockId, 'CODE' => 'CUSTOM_FIELDS']);
@@ -1344,6 +1279,32 @@ switch ($currentStep) {
         installLog("");
         createMeasuresWithLog();
         
+        // Включение торгового каталога для CALC_EQUIPMENT (Оборудование)
+        if ($installData['iblock_ids']['CALC_EQUIPMENT'] > 0) {
+            installLog("");
+            installLog("Включение торгового каталога для CALC_EQUIPMENT (Оборудование)...", 'header');
+
+            $equipmentIblockId = $installData['iblock_ids']['CALC_EQUIPMENT'];
+            $catalogInfo = \CCatalog::GetByID($equipmentIblockId);
+            if ($catalogInfo) {
+                installLog("  → CALC_EQUIPMENT уже является торговым каталогом", 'warning');
+            } else {
+                $result = \CCatalog::Add([
+                    'IBLOCK_ID' => $equipmentIblockId,
+                    'YANDEX_EXPORT' => 'N',
+                    'SUBSCRIPTION' => 'N',
+                    'VAT_ID' => 0,
+                ]);
+
+                if ($result) {
+                    installLog("  → CALC_EQUIPMENT успешно добавлен как торговый каталог", 'success');
+                } else {
+                    $error = getBitrixError();
+                    installLog("  → Ошибка добавления CALC_EQUIPMENT в каталоги: {$error}", 'error');
+                }
+            }
+        }
+
         // Включение торгового каталога для CALC_PRESETS (Пресеты)
         if ($installData['iblock_ids']['CALC_PRESETS'] > 0) {
             installLog("");
