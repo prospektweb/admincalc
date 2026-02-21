@@ -398,38 +398,49 @@ class ElementDataService
 
                             $customFieldsService = new \Prospektweb\Calc\Services\CustomFieldsService();
                             $fieldsConfig = $customFieldsService->getFieldsConfig($customFieldIds);
-                            $defaultValues = [];
-                            foreach ($fieldsConfig as $fieldConfig) {
-                                if (!array_key_exists('default', $fieldConfig)) {
+
+                            $existingValuesMap = [];
+                            $stageProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS_VALUE']);
+                            while ($prop = $stageProps->Fetch()) {
+                                $fieldCode = (string)($prop['VALUE'] ?? '');
+                                if ($fieldCode === '') {
                                     continue;
                                 }
-                                $defaultValue = $fieldConfig['default'];
-                                if (is_bool($defaultValue)) {
-                                    $defaultValue = $defaultValue ? 'Y' : 'N';
-                                }
-                                $defaultValues[] = [
-                                    'VALUE' => (string)($fieldConfig['code'] ?? ''),
-                                    'DESCRIPTION' => (string)$defaultValue,
+
+                                $existingValuesMap[$fieldCode] = [
+                                    'VALUE' => $fieldCode,
+                                    'DESCRIPTION' => (string)($prop['DESCRIPTION'] ?? ''),
                                 ];
                             }
 
-                            if (!empty($defaultValues)) {
-                                $existingValues = [];
-                                $stageProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS_VALUE']);
-                                while ($prop = $stageProps->Fetch()) {
-                                    if ($prop['VALUE'] === null || $prop['VALUE'] === '') {
-                                        continue;
-                                    }
-                                    $existingValues[] = [
-                                        'VALUE' => (string)$prop['VALUE'],
-                                        'DESCRIPTION' => (string)($prop['DESCRIPTION'] ?? ''),
-                                    ];
+                            foreach ($fieldsConfig as $fieldConfig) {
+                                $fieldCode = (string)($fieldConfig['code'] ?? '');
+                                if ($fieldCode === '') {
+                                    continue;
                                 }
 
-                                \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                    'CUSTOM_FIELDS_VALUE' => array_merge($existingValues, $defaultValues),
-                                ]);
+                                $description = '';
+                                if (array_key_exists('default', $fieldConfig)) {
+                                    $defaultValue = $fieldConfig['default'];
+                                    if (is_bool($defaultValue)) {
+                                        $defaultValue = $defaultValue ? 'Y' : 'N';
+                                    }
+                                    $description = (string)$defaultValue;
+                                }
+
+                                if (isset($existingValuesMap[$fieldCode])) {
+                                    continue;
+                                }
+
+                                $existingValuesMap[$fieldCode] = [
+                                    'VALUE' => $fieldCode,
+                                    'DESCRIPTION' => $description,
+                                ];
                             }
+
+                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                'CUSTOM_FIELDS_VALUE' => array_values($existingValuesMap),
+                            ]);
                         }
 
                         $result[] = ['status' => 'ok'];
