@@ -3063,10 +3063,12 @@
                 let counterNode = null;
                 let closeListenerAttached = false;
                 let functionsOverridden = false;
+                const registeredAliases = new Set();
 
                 const cleanup = () => {
-                    delete window[callbackName];
-                    delete window['InS' + callbackToken];
+                    registeredAliases.forEach(function(alias) {
+                        delete window[alias];
+                    });
                     this.currentSelectionItems = null;
 
                     if (popupWatcher) {
@@ -3122,42 +3124,77 @@
                     }
                 };
 
+                const syncCallbackAliases = (handler) => {
+                    const aliases = new Set([
+                        callbackName,
+                        'InS' + callbackToken,
+                    ]);
+
+                    try {
+                        if (popupWindow && popupWindow.document && popupWindow.document.documentElement) {
+                            const html = popupWindow.document.documentElement.innerHTML || '';
+                            const matches = html.match(/\bInS[a-zA-Z0-9_]+\b/g) || [];
+                            matches.forEach(function(alias) {
+                                aliases.add(alias);
+                            });
+                        }
+                    } catch (e) {
+                        // Игнорируем ошибки доступа к DOM popup до готовности документа
+                    }
+
+                    aliases.forEach(function(alias) {
+                        if (!alias) {
+                            return;
+                        }
+
+                        if (window[alias] !== handler) {
+                            window[alias] = handler;
+                        }
+
+                        registeredAliases.add(alias);
+                    });
+                };
+
                 const overrideFunctions = () => {
                     if (functionsOverridden) return;
 
                     try {
                         if (!popupWindow || !popupWindow.document || !popupWindow.document.body) return;
 
-                        // Переопределяем SelEl - вызывается при двойном клике на элемент
-                        popupWindow.SelEl = function(id, name) {
-                            const parsedId = parseInt(id, 10);
-                            if (parsedId && !isNaN(parsedId) && parsedId > 0) {
-                                if (selectedIds.indexOf(parsedId) === -1) {
-                                    selectedIds.push(parsedId);
-                                }
-                            }
-                            updateCounter();
-                            console.log('[PWRT] SelEl called:', id, name, 'selectedIds:', selectedIds);
-                        };
-
-                        // Переопределяем SelAll - вызывается при клике на кнопку "Выбрать"
-                        popupWindow.SelAll = function() {
-                            // Собираем все отмеченные чекбоксы
+                        const collectCheckedIds = function() {
                             const checkboxes = popupWindow.document.querySelectorAll('input[type="checkbox"][name="ID[]"]:checked');
                             checkboxes.forEach(function(checkbox) {
-                                const parsedId = parseInt(checkbox.value, 10);
-                                if (parsedId && !isNaN(parsedId) && parsedId > 0) {
-                                    if (selectedIds.indexOf(parsedId) === -1) {
-                                        selectedIds.push(parsedId);
-                                    }
-                                }
+                                handleSelectedElement(checkbox.value);
                             });
-
-                            console.log('[PWRT] SelAll called, collected IDs:', selectedIds);
-
-                            // Закрываем окно
-                            popupWindow.close();
                         };
+
+                        const safeSelEl = function(id, name) {
+                            handleSelectedElement(id);
+                            updateCounter();
+                            console.log('[PWRT] SelEl called:', id, name, 'selectedIds:', selectedIds);
+                            return false;
+                        };
+
+                        const safeSelAll = function() {
+                            collectCheckedIds();
+                            console.log('[PWRT] SelAll called, collected IDs:', selectedIds);
+                            popupWindow.close();
+                            return false;
+                        };
+
+                        // Переопределяем стандартные и числовые варианты SelEl*/SelAll*.
+                        popupWindow.SelEl = safeSelEl;
+                        popupWindow.SelAll = safeSelAll;
+
+                        Object.keys(popupWindow).forEach(function(key) {
+                            if (/^SelEl\d+$/.test(key)) {
+                                popupWindow[key] = safeSelEl;
+                            }
+
+                            if (/^SelAll\d+$/.test(key)) {
+                                popupWindow[key] = safeSelAll;
+                            }
+                        });
 
                         functionsOverridden = true;
                         console.log('[PWRT] SelEl and SelAll overridden successfully');
@@ -3181,9 +3218,8 @@
                 };
 
                 // Bitrix в зависимости от режима popup может обращаться к callback
-                // как по `func_name`, так и по шаблону `InS` + n.
-                window[callbackName] = handleSelectedElement;
-                window['InS' + callbackToken] = handleSelectedElement;
+                // по разным алиасам. Синхронизируем все известные имена.
+                syncCallbackAliases(handleSelectedElement);
 
                 popupWindow = window.open(
                     url,
@@ -3197,6 +3233,7 @@
                         return;
                     }
 
+                    syncCallbackAliases(handleSelectedElement);
                     overrideFunctions();
                     updateCounter();
 
