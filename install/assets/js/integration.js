@@ -3031,13 +3031,17 @@
             const dialogLang = lang
                 || (window.BX && window.BX.message && window.BX.message('LANGUAGE_ID'))
                 || 'ru';
-            const callbackName = '__pwrtElementSelect_' + Math.random().toString(36).slice(2);
+            // Для popup Bitrix параметр `n` должен быть безопасным alnum-токеном,
+            // иначе в popup может быть сгенерирован другой callback (`InS...`),
+            // которого нет в window.opener.
+            const callbackToken = 'pwrt' + Math.random().toString(36).slice(2);
+            const callbackName = '__pwrtElementSelect_' + callbackToken;
             const selectedIds = [];
             this.currentSelectionItems = selectedIds;
 
             const params = new URLSearchParams({
                 lang: dialogLang,
-                n: callbackName,
+                n: callbackToken,
                 func_name: callbackName,
                 m: 'y',
             });
@@ -3062,6 +3066,7 @@
 
                 const cleanup = () => {
                     delete window[callbackName];
+                    delete window['InS' + callbackToken];
                     this.currentSelectionItems = null;
 
                     if (popupWatcher) {
@@ -3161,7 +3166,7 @@
                     }
                 };
 
-                window[callbackName] = function (elementId) {
+                const handleSelectedElement = function (elementId) {
                     const parsedId = parseInt(elementId, 10);
 
                     if (!parsedId || isNaN(parsedId) || parsedId <= 0) {
@@ -3174,6 +3179,11 @@
 
                     updateCounter();
                 };
+
+                // Bitrix в зависимости от режима popup может обращаться к callback
+                // как по `func_name`, так и по шаблону `InS` + n.
+                window[callbackName] = handleSelectedElement;
+                window['InS' + callbackToken] = handleSelectedElement;
 
                 popupWindow = window.open(
                     url,
