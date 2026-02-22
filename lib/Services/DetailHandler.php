@@ -1289,6 +1289,7 @@ class DetailHandler
 
         // Копируем все свойства оригинала 1:1, перезаписываем только CALC_STAGES и DETAILS
         $propertyValues = $originalDetail['PROPERTY_VALUES'] ?? [];
+        $propertyValues['TYPE'] = $originalDetail['TYPE'];
         $propertyValues['CALC_STAGES'] = $newConfigIds;
         $propertyValues['DETAILS'] = $newDetailIds;
 
