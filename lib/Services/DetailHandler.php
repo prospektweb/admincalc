@@ -162,7 +162,7 @@ class DetailHandler
                     $rootDetailId = !empty($presetDetails) ? (int)$presetDetails[0] : $newDetailId;
                 } else {
                     // Деталь на верхнем уровне — создаём новое скрепление [оригинал, клон]
-                    $bindingName = $originalDetail['NAME'];
+                    $bindingName = 'Группа скрепления ' . $originalDetail['NAME'];
                     $bindingId = $this->createDetailElement($bindingName, 'BINDING');
                     if (!$bindingId) {
                         $this->rollbackCreated($createdDetailIds, $createdConfigIds);
@@ -1031,6 +1031,18 @@ class DetailHandler
         return null;
     }
 
+
+    /**
+     * Получить значение свойства TYPE для SetPropertyValuesEx по XML_ID (DETAIL/BINDING).
+     */
+    private function resolveDetailTypePropertyValue(string $type)
+    {
+        $type = strtoupper(trim($type));
+        $enumId = $this->getListPropertyValueId($this->detailsIblockId, 'TYPE', $type);
+
+        return $enumId ?: $type;
+    }
+
     /**
      * Создать элемент детали
      */
@@ -1040,7 +1052,7 @@ class DetailHandler
         
         // Получаем ID значения свойства TYPE по XML_ID
         // XML_ID для детали:  "DETAIL", для группы скрепления: "BINDING"
-        $typeValueId = $this->getListPropertyValueId($this->detailsIblockId, 'TYPE', $type);
+        $typeValue = $this->resolveDetailTypePropertyValue($type);
         
         $fields = [
             'IBLOCK_ID' => $this->detailsIblockId,
@@ -1048,7 +1060,7 @@ class DetailHandler
             'CODE' => $this->generateUniqueElementCode($this->detailsIblockId, $name),
             'ACTIVE' => 'Y',
             'PROPERTY_VALUES' => [
-                'TYPE' => $typeValueId ?: $type, // Если не нашли ID, используем строку (для совместимости)
+                'TYPE' => $typeValue,
             ],
         ];
         
@@ -1121,12 +1133,72 @@ class DetailHandler
             'TYPE' => $type,
             'CONFIGS' => array_map('intval', $configIds),
             'DETAIL_IDS' => array_map('intval', $detailIds),
-            'PROPERTY_VALUES' => $this->extractElementPropertyValues($properties),
+            'PROPERTY_VALUES' => $this->getElementPropertyValuesForClone((int)$fields['ID'], $this->detailsIblockId),
         ];
     }
 
     /**
-     * Подготовить значения свойств для SetPropertyValuesEx.
+     * Подготовить значения свойств элемента для полного клонирования через SetPropertyValuesEx.
+     */
+    private function getElementPropertyValuesForClone(int $elementId, int $iblockId): array
+    {
+        $result = [];
+
+        $rsProperties = \CIBlockElement::GetProperty(
+            $iblockId,
+            $elementId,
+            ['sort' => 'asc', 'id' => 'asc'],
+            []
+        );
+
+        while ($property = $rsProperties->Fetch()) {
+            $code = (string)($property['CODE'] ?? '');
+            if ($code === '') {
+                continue;
+            }
+
+            $value = $this->normalizePropertyValueForClone($property);
+            $description = (string)($property['DESCRIPTION'] ?? '');
+            $isMultiple = ($property['MULTIPLE'] ?? 'N') === 'Y';
+
+            if ($isMultiple) {
+                if (!isset($result[$code]) || !is_array($result[$code])) {
+                    $result[$code] = [];
+                }
+
+                $result[$code][] = [
+                    'VALUE' => $value,
+                    'DESCRIPTION' => $description,
+                ];
+
+                continue;
+            }
+
+            $result[$code] = [
+                'VALUE' => $value,
+                'DESCRIPTION' => $description,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Нормализация значения свойства для корректного 1:1 клонирования.
+     */
+    private function normalizePropertyValueForClone(array $property)
+    {
+        if (($property['PROPERTY_TYPE'] ?? '') === 'L') {
+            return $property['VALUE_ENUM_ID'] ?? null;
+        }
+
+        return $property['VALUE'] ?? null;
+    }
+
+    /**
+     * Подготовить значения свойств из GetProperties для SetPropertyValuesEx.
+     *
+     * @deprecated Используйте getElementPropertyValuesForClone для 1:1 клонирования.
      */
     private function extractElementPropertyValues(array $properties): array
     {
@@ -1139,11 +1211,7 @@ class DetailHandler
             }
 
             // For list (enum) properties use the numeric enum ID, not the display text
-            if (($property['PROPERTY_TYPE'] ?? '') === 'L') {
-                $value = $property['VALUE_ENUM_ID'] ?? null;
-            } else {
-                $value = $property['VALUE'];
-            }
+            $value = $this->normalizePropertyValueForClone($property);
             $description = (string)($property['DESCRIPTION'] ?? '');
             $isMultiple = ($property['MULTIPLE'] ?? 'N') === 'Y';
 
@@ -1233,6 +1301,7 @@ class DetailHandler
 
         // Копируем все свойства оригинала 1:1, перезаписываем только CALC_STAGES и DETAILS
         $propertyValues = $originalDetail['PROPERTY_VALUES'] ?? [];
+        $propertyValues['TYPE'] = $this->resolveDetailTypePropertyValue($originalDetail['TYPE']);
         $propertyValues['CALC_STAGES'] = $newConfigIds;
         $propertyValues['DETAILS'] = $newDetailIds;
 
@@ -1296,7 +1365,7 @@ class DetailHandler
         $newId = (int)$newId;
         $createdConfigIds[] = $newId;
 
-        $propValues = $this->extractElementPropertyValues($properties);
+        $propValues = $this->getElementPropertyValuesForClone((int)$fields['ID'], $this->stagesIblockId);
         if (!empty($propValues)) {
             \CIBlockElement::SetPropertyValuesEx($newId, $this->stagesIblockId, $propValues);
         }
