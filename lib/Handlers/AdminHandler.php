@@ -86,9 +86,10 @@ class AdminHandler
     {
         $asset = Asset::getInstance();
         
-        // Безопасное экранирование SITE_ID для JavaScript через JSON
+        // Используем собственный ключ, чтобы не перезаписывать системный BX.message('SITE_ID')
+        // (его использует ядро Bitrix в том числе для сохранения настроек UI Grid).
         $siteId = json_encode(SITE_ID, self::JSON_ENCODE_FLAGS);
-        $asset->addString('<script>BX.message({ SITE_ID: ' . $siteId . ' });</script>', 
+        $asset->addString('<script>BX.message({ PROSPEKTWEB_CALC_SITE_ID: ' . $siteId . ' });</script>', 
             false, \Bitrix\Main\Page\AssetLocation::AFTER_JS_KERNEL);
         
         // Добавляем CSS
