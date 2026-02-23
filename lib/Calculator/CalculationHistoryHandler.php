@@ -287,26 +287,26 @@ class CalculationHistoryHandler
             return [];
         }
 
-        if (!empty($json['details']) && is_array($json['details'])) {
-            foreach ($json['details'] as $detailIndex => $detail) {
-                if (!is_array($detail) || empty($detail['stages']) || !is_array($detail['stages'])) {
-                    continue;
-                }
+        return $this->removeKeysRecursively($json, ['inputs', 'logicApplied', 'logs', 'variables']);
+    }
 
-                foreach ($detail['stages'] as $stageIndex => $stage) {
-                    if (!is_array($stage)) {
-                        continue;
-                    }
+    /**
+     * Рекурсивно удаляет служебные ключи из расчётного payload на любой глубине вложенности.
+     */
+    private function removeKeysRecursively(array $payload, array $keysToRemove): array
+    {
+        foreach ($payload as $key => $value) {
+            if (in_array((string)$key, $keysToRemove, true)) {
+                unset($payload[$key]);
+                continue;
+            }
 
-                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['inputs']);
-                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['logicApplied']);
-                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['logs']);
-                    unset($json['details'][$detailIndex]['stages'][$stageIndex]['variables']);
-                }
+            if (is_array($value)) {
+                $payload[$key] = $this->removeKeysRecursively($value, $keysToRemove);
             }
         }
 
-        return $json;
+        return $payload;
     }
 
     /**
