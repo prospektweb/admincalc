@@ -515,9 +515,15 @@ function ensureSkuCalculatorProperties(int $skuIblockId): void
         ['XML_ID' => '1+1', 'VALUE' => '1+1', 'SORT' => 500],
     ];
 
+    $orientationEnum = [
+        ['XML_ID' => 'ALBUM', 'VALUE' => 'Альбомная', 'SORT' => 100],
+        ['XML_ID' => 'PORTRAIT', 'VALUE' => 'Портретная', 'SORT' => 200],
+    ];
+
     ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_VOLUME', 'Тираж', $volumeEnum);
     ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_FORMAT', 'Формат', $formatEnum);
     ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_COLOR_SCHEME', 'Красочность', $colorSchemeEnum);
+    ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_ORIENTATION', 'Ориентация', $orientationEnum);
 }
 
 // Создание единиц измерения
