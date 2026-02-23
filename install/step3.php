@@ -525,8 +525,8 @@ function ensureSkuCalculatorProperties(int $skuIblockId): void
         ['XML_ID' => 'VHI-MEDIUM', 'VALUE' => 'Простая средней плотности', 'SORT' => 200],
         ['XML_ID' => 'VHI-HIGH', 'VALUE' => 'Простая плотная', 'SORT' => 300],
         ['XML_ID' => 'MEL-LOW', 'VALUE' => 'Лощеная тонкая', 'SORT' => 400],
-        ['XML_ID' => 'MEL-MEDIUM', 'VALUE' => 'Лощёная средней плотности', 'SORT' => 500],
-        ['XML_ID' => 'MEL-HIGH', 'VALUE' => 'Лощёная плотная', 'SORT' => 600],
+        ['XML_ID' => 'MEL-MEDIUM', 'VALUE' => 'Лощеная средней плотности', 'SORT' => 500],
+        ['XML_ID' => 'MEL-HIGH', 'VALUE' => 'Лощеная плотная', 'SORT' => 600],
     ];
 
     ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_VOLUME', 'Тираж', $volumeEnum);
