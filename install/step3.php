@@ -515,9 +515,27 @@ function ensureSkuCalculatorProperties(int $skuIblockId): void
         ['XML_ID' => '1+1', 'VALUE' => '1+1', 'SORT' => 500],
     ];
 
+    $orientationEnum = [
+        ['XML_ID' => 'ALBUM', 'VALUE' => 'Альбомная', 'SORT' => 100],
+        ['XML_ID' => 'PORTRAIT', 'VALUE' => 'Портретная', 'SORT' => 200],
+    ];
+
+    $paperEnum = [
+        ['XML_ID' => 'VHI-LOW', 'VALUE' => 'Простая тонкая', 'SORT' => 100],
+        ['XML_ID' => 'VHI-MEDIUM', 'VALUE' => 'Простая средней плотности', 'SORT' => 200],
+        ['XML_ID' => 'VHI-HIGH', 'VALUE' => 'Простая плотная', 'SORT' => 300],
+        ['XML_ID' => 'MEL-LOW', 'VALUE' => 'Лощеная тонкая', 'SORT' => 400],
+        ['XML_ID' => 'MEL-MEDIUM', 'VALUE' => 'Лощёная средней плотности', 'SORT' => 500],
+        ['XML_ID' => 'MEL-HIGH', 'VALUE' => 'Лощёная плотная', 'SORT' => 600],
+    ];
+
     ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_VOLUME', 'Тираж', $volumeEnum);
     ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_FORMAT', 'Формат', $formatEnum);
     ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_COLOR_SCHEME', 'Красочность', $colorSchemeEnum);
+    ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_ORIENTATION', 'Ориентация', $orientationEnum);
+    ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_PAPER', 'Бумага', $paperEnum);
+    ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_BLOCK_PAPER', 'Бумага для блока', $paperEnum);
+    ensureListPropertyWithValues($skuIblockId, 'CALC_PROP_COVER_PAPER', 'Бумага для обложки', $paperEnum);
 }
 
 // Создание единиц измерения
