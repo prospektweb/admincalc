@@ -631,6 +631,14 @@ function createMeasuresWithLog(): bool
             'SYMBOL_LETTER_INTL' => 'HUR',
             'IS_DEFAULT' => 'N',
         ],
+        [
+            'CODE' => 616,
+            'MEASURE_TITLE' => 'Бобина',
+            'SYMBOL_RUS' => 'боб',
+            'SYMBOL_INTL' => 'NBB',
+            'SYMBOL_LETTER_INTL' => 'BOB',
+            'IS_DEFAULT' => 'N',
+        ],
     ];
 
     $createdCount = 0;
@@ -882,7 +890,6 @@ switch ($currentStep) {
         ];
 
         $materialsVariantsProps = [
-            'DENSITY' => ['NAME' => 'Плотность', 'TYPE' => 'N'],
             'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y'],
         ];
 
