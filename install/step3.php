@@ -882,7 +882,6 @@ switch ($currentStep) {
         ];
 
         $materialsVariantsProps = [
-            'DENSITY' => ['NAME' => 'Плотность', 'TYPE' => 'N'],
             'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y'],
         ];
 
