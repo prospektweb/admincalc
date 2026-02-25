@@ -298,14 +298,17 @@ class BatchRecalculateService
 
             try {
                 $historyHandler = new CalculationHistoryHandler();
+                $historyOffers = [];
                 foreach ($offerResults as $offerResult) {
+                    $historyOffers[] = [
+                        'offerId' => (int)($offerResult['offerId'] ?? 0),
+                        'json' => $offerResult,
+                    ];
+                }
+
+                if (!empty($historyOffers)) {
                     $historyHandler->handle([
-                        'offers' => [
-                            [
-                                'offerId' => $offerResult['offerId'],
-                                'json' => $offerResult,
-                            ],
-                        ],
+                        'offers' => $historyOffers,
                     ]);
                 }
             } catch (\Exception $e) {

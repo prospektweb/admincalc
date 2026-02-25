@@ -70,10 +70,7 @@ class OfferUpdateService
                 $pricesUpdated = false;
 
                 if (!empty($rangesByType)) {
-                    foreach (array_keys($rangesByType) as $typeId) {
-                        $this->priceService->deletePricesByType($offerId, (int)$typeId);
-                    }
-                    $pricesUpdated = $this->priceService->writePriceRangesMultiType($offerId, $rangesByType);
+                    $pricesUpdated = $this->priceService->syncPriceRangesMultiType($offerId, $rangesByType);
                 }
 
                 $results[] = [
