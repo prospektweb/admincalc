@@ -167,6 +167,132 @@ class CatalogPriceService
         return $success;
     }
 
+
+    /**
+     * Синхронизировать диапазоны цен для нескольких типов.
+     * Выполняет только необходимые add/update/delete.
+     *
+     * @param int $productId
+     * @param array $pricesByType [typeId => [{price, currency, quantityFrom, quantityTo}]]
+     * @return bool
+     */
+    public function syncPriceRangesMultiType(int $productId, array $pricesByType): bool
+    {
+        if ($productId <= 0) {
+            return false;
+        }
+
+        $currentByKey = [];
+        $priceRes = \CPrice::GetList([], ['PRODUCT_ID' => $productId]);
+        while ($row = $priceRes->Fetch()) {
+            $typeId = (int)($row['CATALOG_GROUP_ID'] ?? 0);
+            if ($typeId <= 0) {
+                continue;
+            }
+
+            $key = $this->buildPriceRangeKey(
+                $typeId,
+                $this->normalizeQuantityBound($row['QUANTITY_FROM'] ?? null),
+                $this->normalizeQuantityBound($row['QUANTITY_TO'] ?? null)
+            );
+
+            $currentByKey[$key] = [
+                'id' => (int)($row['ID'] ?? 0),
+                'price' => (float)($row['PRICE'] ?? 0),
+                'currency' => (string)($row['CURRENCY'] ?? 'RUB'),
+            ];
+        }
+
+        $targetByKey = [];
+        foreach ($pricesByType as $typeId => $ranges) {
+            $normalizedTypeId = (int)$typeId;
+            if ($normalizedTypeId <= 0 || !is_array($ranges)) {
+                continue;
+            }
+
+            foreach ($ranges as $range) {
+                if (!is_array($range)) {
+                    continue;
+                }
+
+                $price = (float)($range['price'] ?? 0);
+                $currency = (string)($range['currency'] ?? 'RUB');
+                $quantityFrom = $this->normalizeQuantityBound($range['quantityFrom'] ?? null);
+                $quantityTo = $this->normalizeQuantityBound($range['quantityTo'] ?? null);
+                $key = $this->buildPriceRangeKey($normalizedTypeId, $quantityFrom, $quantityTo);
+
+                $targetByKey[$key] = [
+                    'PRODUCT_ID' => $productId,
+                    'CATALOG_GROUP_ID' => $normalizedTypeId,
+                    'PRICE' => $price,
+                    'CURRENCY' => $currency,
+                    'QUANTITY_FROM' => $quantityFrom,
+                    'QUANTITY_TO' => $quantityTo,
+                ];
+            }
+        }
+
+        $success = true;
+
+        foreach ($currentByKey as $key => $row) {
+            if (!isset($targetByKey[$key])) {
+                if (!\CPrice::Delete((int)$row['id'])) {
+                    $success = false;
+                }
+                continue;
+            }
+
+            $target = $targetByKey[$key];
+            $needsUpdate =
+                (float)$row['price'] !== (float)$target['PRICE']
+                || (string)$row['currency'] !== (string)$target['CURRENCY'];
+
+            if ($needsUpdate) {
+                $updateResult = \CPrice::Update((int)$row['id'], [
+                    'PRICE' => $target['PRICE'],
+                    'CURRENCY' => $target['CURRENCY'],
+                ]);
+                if (!$updateResult) {
+                    $success = false;
+                }
+            }
+
+            unset($targetByKey[$key]);
+        }
+
+        foreach ($targetByKey as $target) {
+            $addFields = [
+                'PRODUCT_ID' => (int)$target['PRODUCT_ID'],
+                'CATALOG_GROUP_ID' => (int)$target['CATALOG_GROUP_ID'],
+                'PRICE' => (float)$target['PRICE'],
+                'CURRENCY' => (string)$target['CURRENCY'],
+                'QUANTITY_FROM' => $target['QUANTITY_FROM'] ?? false,
+                'QUANTITY_TO' => $target['QUANTITY_TO'] ?? false,
+            ];
+
+            $addResult = \CPrice::Add($addFields);
+            if (!$addResult) {
+                $success = false;
+            }
+        }
+
+        return $success;
+    }
+
+    private function buildPriceRangeKey(int $typeId, ?int $quantityFrom, ?int $quantityTo): string
+    {
+        return $typeId . ':' . ($quantityFrom === null ? 'n' : $quantityFrom) . ':' . ($quantityTo === null ? 'n' : $quantityTo);
+    }
+
+    private function normalizeQuantityBound($value): ?int
+    {
+        if ($value === false || $value === null || $value === '' || (string)$value === '0') {
+            return null;
+        }
+
+        return (int)$value;
+    }
+
     /**
      * Удалить цены товара для указанного типа цены
      *

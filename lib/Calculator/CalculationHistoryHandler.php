@@ -15,11 +15,11 @@ class CalculationHistoryHandler
 {
     private const MODULE_ID = 'prospektweb.calc';
     private const LOG_FILE = '/local/logs/prospektweb.calc.calculation_history.log';
-    
+
     private ConfigManager $configManager;
     private bool $supportsXmlId = false;
     private bool $supportsName = false;
-    
+
     public function __construct()
     {
         if (!Loader::includeModule('highloadblock')) {
@@ -30,20 +30,15 @@ class CalculationHistoryHandler
         }
         $this->configManager = new ConfigManager();
     }
-    
+
     /**
-     * Обработать запрос на сохранение расчётов
-     * 
-     * @param array $payload Массив с ключом 'offers', содержащий массив объектов с offerId и json
-     * @return array Результат выполнения
-     * @throws \Exception
+     * @param array $payload Массив с ключом offers/results
      */
     public function handle(array $payload): array
     {
         global $USER;
-        
+
         $userId = $USER ? (int)$USER->GetID() : 0;
-        
         if ($userId <= 0) {
             return [
                 'status' => 'error',
@@ -53,9 +48,8 @@ class CalculationHistoryHandler
                 'saved' => 0,
             ];
         }
-        
-        $offers = $this->normalizeOffers($payload);
 
+        $offers = $this->normalizeOffers($payload);
         if (empty($offers)) {
             return [
                 'status' => 'error',
@@ -65,40 +59,32 @@ class CalculationHistoryHandler
                 'saved' => 0,
             ];
         }
-        
-        // Получаем ID HighloadBlock
+
         $hlblockId = (int)Option::get(self::MODULE_ID, 'HIGHLOAD_CALC_HISTORY_ID', 0);
-        
         if ($hlblockId <= 0) {
             throw new \Exception('HighloadBlock для истории расчётов не создан');
         }
-        
-        // Получаем entity class
+
         $hlblock = HighloadBlockTable::getById($hlblockId)->fetch();
-        
         if (!$hlblock) {
             throw new \Exception('HighloadBlock не найден');
         }
-        
+
         $entity = HighloadBlockTable::compileEntity($hlblock);
         $entityClass = $entity->getDataClass();
         $fields = $entity->getFields();
         $this->supportsXmlId = isset($fields['UF_XML_ID']);
         $this->supportsName = isset($fields['UF_NAME']);
-        
-        // Получаем лимит истории
-        $historyLimit = (int)Option::get(self::MODULE_ID, 'CALC_HISTORY_LIMIT', 10);
-        
-        // Получаем ID инфоблока ТП
+
+        $historyLimit = max(1, (int)Option::get(self::MODULE_ID, 'CALC_HISTORY_LIMIT', 10));
         $skuIblockId = $this->configManager->getSkuIblockId();
-        
         if ($skuIblockId <= 0) {
             throw new \Exception('ID инфоблока ТП не настроен');
         }
-        
+
         $results = [];
         $savedCount = 0;
-        
+
         foreach ($offers as $offerData) {
             $validation = $this->validateOfferPayload($offerData);
             $offerId = $validation['offerId'];
@@ -128,10 +114,8 @@ class CalculationHistoryHandler
                 ];
                 continue;
             }
-            
-            // Конвертируем в JSON-строку, если передан массив
-            $jsonString = json_encode($sanitizedJson, JSON_UNESCAPED_UNICODE);
 
+            $jsonString = json_encode($sanitizedJson, JSON_UNESCAPED_UNICODE);
             if (!is_string($jsonString) || $jsonString === '') {
                 $message = 'Не удалось подготовить расчётные данные для сохранения';
                 $this->logOfferRejection($offerId, $message, $offerData);
@@ -143,26 +127,10 @@ class CalculationHistoryHandler
                 ];
                 continue;
             }
-            
+
             try {
-                // Проверяем количество существующих записей
-                $existingCount = $entityClass::getCount(['UF_OFFER_ID' => $offerId]);
-                
-                // Если количество >= лимита, удаляем самую старую
-                if ($existingCount >= $historyLimit) {
-                    $oldest = $entityClass::getList([
-                        'filter' => ['UF_OFFER_ID' => $offerId],
-                        'order' => ['UF_DATETIME' => 'ASC'],
-                        'limit' => 1,
-                        'select' => ['ID'],
-                    ])->fetch();
-                    
-                    if ($oldest) {
-                        $entityClass::delete($oldest['ID']);
-                    }
-                }
-                
-                // Добавляем новую запись
+                $this->pruneExcessHistory($entityClass, $offerId, $historyLimit);
+
                 $historyXmlId = $this->supportsXmlId ? $this->buildHistoryXmlId($offerId, $offerData) : null;
                 $addData = [
                     'UF_DATETIME' => new \Bitrix\Main\Type\DateTime(),
@@ -180,13 +148,11 @@ class CalculationHistoryHandler
                 }
 
                 $addResult = $entityClass::add($addData);
-                
                 if ($addResult->isSuccess()) {
                     $historyId = $addResult->getId();
-                    
-                    // Обновляем свойство COMPLETED_CALCS в инфоблоке ТП
-                    $this->updateCompletedCalcs($offerId, $skuIblockId, $entityClass);
-                    
+                    $historyLinks = $this->collectHistoryLinks($entityClass, $offerId, $historyLimit);
+                    $this->updateCompletedCalcs($offerId, $skuIblockId, $historyLinks);
+
                     $results[] = [
                         'offerId' => $offerId,
                         'historyId' => $historyId,
@@ -214,7 +180,7 @@ class CalculationHistoryHandler
                 ];
             }
         }
-        
+
         return [
             'status' => $savedCount > 0 ? 'ok' : 'error',
             'results' => $results,
@@ -223,9 +189,6 @@ class CalculationHistoryHandler
         ];
     }
 
-    /**
-     * Нормализует входной payload к единому формату offers.
-     */
     private function normalizeOffers(array $payload): array
     {
         if (isset($payload['offers']) && is_array($payload['offers'])) {
@@ -290,9 +253,6 @@ class CalculationHistoryHandler
         return $this->removeKeysRecursively($json, ['inputs', 'logicApplied', 'logs', 'variables']);
     }
 
-    /**
-     * Рекурсивно удаляет служебные ключи из расчётного payload на любой глубине вложенности.
-     */
     private function removeKeysRecursively(array $payload, array $keysToRemove): array
     {
         foreach ($payload as $key => $value) {
@@ -309,9 +269,6 @@ class CalculationHistoryHandler
         return $payload;
     }
 
-    /**
-     * Валидирует расчётные данные по конкретному offer.
-     */
     private function validateOfferPayload($offerData): array
     {
         $errors = [];
@@ -361,26 +318,43 @@ class CalculationHistoryHandler
             'offerData' => $offerData,
         ], 'CalculationHistoryHandler rejection', self::LOG_FILE);
     }
-    
-    /**
-     * Обновить свойство COMPLETED_CALCS в элементе инфоблока ТП
-     * 
-     * @param int $offerId ID торгового предложения
-     * Синхронизирует значение с фактическими записями HL, чтобы исключить фантомные значения.
-     */
-    private function updateCompletedCalcs(int $offerId, int $skuIblockId, string $entityClass): void
+
+    private function pruneExcessHistory(string $entityClass, int $offerId, int $historyLimit): void
+    {
+        $rows = $entityClass::getList([
+            'filter' => ['UF_OFFER_ID' => $offerId],
+            'order' => ['UF_DATETIME' => 'DESC', 'ID' => 'DESC'],
+            'select' => ['ID'],
+        ]);
+
+        $index = 0;
+        while ($row = $rows->fetch()) {
+            $index++;
+            if ($index < $historyLimit) {
+                continue;
+            }
+
+            $historyId = (int)($row['ID'] ?? 0);
+            if ($historyId > 0) {
+                $entityClass::delete($historyId);
+            }
+        }
+    }
+
+    private function collectHistoryLinks(string $entityClass, int $offerId, int $historyLimit): array
     {
         $historyLinks = [];
 
-        $historyRows = $entityClass::getList([
+        $rows = $entityClass::getList([
             'filter' => ['UF_OFFER_ID' => $offerId],
             'order' => ['UF_DATETIME' => 'DESC', 'ID' => 'DESC'],
+            'limit' => $historyLimit,
             'select' => ['ID', 'UF_XML_ID'],
         ]);
 
-        while ($row = $historyRows->fetch()) {
+        while ($row = $rows->fetch()) {
             $link = '';
-            if (isset($row['UF_XML_ID']) && (string)$row['UF_XML_ID'] !== '') {
+            if ($this->supportsXmlId && isset($row['UF_XML_ID']) && (string)$row['UF_XML_ID'] !== '') {
                 $link = (string)$row['UF_XML_ID'];
             } else {
                 $link = (string)($row['ID'] ?? '');
@@ -391,15 +365,16 @@ class CalculationHistoryHandler
             }
         }
 
-        $historyLinks = array_values(array_unique($historyLinks));
+        return array_values(array_unique($historyLinks));
+    }
 
-        // Жёстко очищаем и перезаписываем, чтобы не оставалось фантомных позиций после переустановок.
+    /**
+     * @param string[] $historyLinks
+     */
+    private function updateCompletedCalcs(int $offerId, int $skuIblockId, array $historyLinks): void
+    {
         \CIBlockElement::SetPropertyValuesEx($offerId, $skuIblockId, [
-            'COMPLETED_CALCS' => false,
-        ]);
-
-        \CIBlockElement::SetPropertyValuesEx($offerId, $skuIblockId, [
-            'COMPLETED_CALCS' => $historyLinks,
+            'COMPLETED_CALCS' => empty($historyLinks) ? false : $historyLinks,
         ]);
     }
 }
