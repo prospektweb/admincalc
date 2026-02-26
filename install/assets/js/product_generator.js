@@ -62,7 +62,17 @@
                     '<span class="bx-core-popup-menu-item-text">Генератор товаров</span>';
                 item.addEventListener('click', function(e) {
                     e.preventDefault();
-                    self.openDialog();
+                    e.stopPropagation();
+
+                    if (typeof e.stopImmediatePropagation === 'function') {
+                        e.stopImmediatePropagation();
+                    }
+
+                    // Даем штатному popup-меню Bitrix завершить цикл клика,
+                    // после чего открываем независимый модальный диалог.
+                    setTimeout(function() {
+                        self.openDialog();
+                    }, 0);
                 });
 
                 menu.appendChild(item);
@@ -78,13 +88,14 @@
             content.className = 'pw-calc-generator';
             content.innerHTML = this.getDialogMarkup();
 
-            var dialog = new BX.CDialog({
+            var dialog = new BX.CAdminDialog({
                 title: 'Генератор товаров',
                 content: content,
                 width: 1200,
                 height: 720,
                 draggable: true,
-                resizable: true
+                resizable: true,
+                buttons: []
             });
 
             dialog.Show();
