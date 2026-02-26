@@ -89,8 +89,17 @@ class AdminHandler
         // Используем собственный ключ, чтобы не перезаписывать системный BX.message('SITE_ID')
         // (его использует ядро Bitrix в том числе для сохранения настроек UI Grid).
         $siteId = json_encode(SITE_ID, self::JSON_ENCODE_FLAGS);
-        $asset->addString('<script>BX.message({ PROSPEKTWEB_CALC_SITE_ID: ' . $siteId . ' });</script>', 
-            false, \Bitrix\Main\Page\AssetLocation::AFTER_JS_KERNEL);
+        $presetIblockId = 0;
+        if (Loader::includeModule('prospektweb.calc')) {
+            $configManager = new \Prospektweb\Calc\Config\ConfigManager();
+            $presetIblockId = (int)$configManager->getIblockId('CALC_PRESETS');
+        }
+
+        $asset->addString(
+            '<script>BX.message({ PROSPEKTWEB_CALC_SITE_ID: ' . $siteId . ' }); window.PROSPEKTWEB_CALC_PRESET_IBLOCK_ID = ' . (int)$presetIblockId . ';</script>',
+            false,
+            \Bitrix\Main\Page\AssetLocation::AFTER_JS_KERNEL
+        );
         
         // Добавляем CSS
         $cssPath = '/local/css/prospektweb.calc/calculator.css';
@@ -113,6 +122,11 @@ class AdminHandler
         $productGeneratorPath = '/local/js/prospektweb.calc/product_generator.js';
         if (file_exists(Application::getDocumentRoot() . $productGeneratorPath)) {
             $asset->addJs($productGeneratorPath);
+        }
+
+        $presetClonePath = '/local/js/prospektweb.calc/preset_clone.js';
+        if (file_exists(Application::getDocumentRoot() . $presetClonePath)) {
+            $asset->addJs($presetClonePath);
         }
 
         // Добавляем встроенный JS для инициализации кнопки
