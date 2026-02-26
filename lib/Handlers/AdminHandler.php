@@ -110,6 +110,11 @@ class AdminHandler
             $asset->addJs($jsPath);
         }
 
+        $productGeneratorPath = '/local/js/prospektweb.calc/product_generator.js';
+        if (file_exists(Application::getDocumentRoot() . $productGeneratorPath)) {
+            $asset->addJs($productGeneratorPath);
+        }
+
         // Добавляем встроенный JS для инициализации кнопки
         $asset->addString('<script>
             BX.ready(function() {
