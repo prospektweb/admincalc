@@ -200,6 +200,10 @@ try {
             handleClearPreset($request);
             break;
 
+        case 'clonePreset':
+            handleClonePreset($request);
+            break;
+
         default:
             sendJsonResponse(['error' => 'Invalid action', 'message' => 'Неизвестное действие'], 400);
     }
@@ -625,6 +629,36 @@ function handleClearPreset($request): void
         ]);
     } catch (\Exception $e) {
         logError('ClearPreset error: ' . $e->getMessage());
+        sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
+    }
+}
+
+/**
+ * Обработка запроса clonePreset - клонирование пресета вместе с деталями/этапами
+ */
+function handleClonePreset($request): void
+{
+    $presetId = (int)($request->get('presetId') ?? 0);
+
+    if ($presetId <= 0) {
+        sendJsonResponse(['error' => 'Missing parameter', 'message' => 'Параметр presetId обязателен'], 400);
+    }
+
+    try {
+        $bundleHandler = new BundleHandler();
+        $newPresetId = $bundleHandler->clonePreset($presetId);
+
+        logInfo(sprintf('ClonePreset success: presetId=%d, newPresetId=%d', $presetId, $newPresetId));
+
+        sendJsonResponse([
+            'success' => true,
+            'data' => [
+                'presetId' => $presetId,
+                'newPresetId' => $newPresetId,
+            ],
+        ]);
+    } catch (\Exception $e) {
+        logError('ClonePreset error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
 }

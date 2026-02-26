@@ -5,6 +5,7 @@ namespace Prospektweb\Calc\Calculator;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Config\ConfigManager;
+use Prospektweb\Calc\Services\DetailHandler;
 
 /**
  * Обработчик операций со сборками (bundles)
@@ -73,6 +74,79 @@ class BundleHandler
         
         return (int)$presetId;
     }
+
+    /**
+     * Клонировать пресет вместе со всеми деталями/этапами.
+     *
+     * @param int $presetId ID исходного пресета
+     * @return int ID нового пресета
+     * @throws \Exception
+     */
+    public function clonePreset(int $presetId): int
+    {
+        if ($presetId <= 0) {
+            throw new \Exception('presetId не указан');
+        }
+
+        $presetsIblockId = $this->configManager->getIblockId('CALC_PRESETS');
+        if ($presetsIblockId <= 0) {
+            throw new \Exception('Инфоблок CALC_PRESETS не настроен');
+        }
+
+        $original = \CIBlockElement::GetList(
+            [],
+            ['ID' => $presetId, 'IBLOCK_ID' => $presetsIblockId],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'NAME', 'ACTIVE', 'SORT', 'PREVIEW_TEXT', 'PREVIEW_TEXT_TYPE', 'DETAIL_TEXT', 'DETAIL_TEXT_TYPE']
+        )->Fetch();
+
+        if (!$original) {
+            throw new \Exception('Пресет не найден');
+        }
+
+        $newPresetName = sprintf('%s (копия %s)', $original['NAME'], date('d.m.Y H:i:s'));
+        $newPresetId = (new \CIBlockElement())->Add([
+            'IBLOCK_ID' => $presetsIblockId,
+            'NAME' => $newPresetName,
+            'CODE' => $this->generateUniqueElementCode($presetsIblockId, $newPresetName),
+            'ACTIVE' => $original['ACTIVE'] ?? 'Y',
+            'SORT' => (int)($original['SORT'] ?? 500),
+            'PREVIEW_TEXT' => $original['PREVIEW_TEXT'] ?? '',
+            'PREVIEW_TEXT_TYPE' => $original['PREVIEW_TEXT_TYPE'] ?? 'text',
+            'DETAIL_TEXT' => $original['DETAIL_TEXT'] ?? '',
+            'DETAIL_TEXT_TYPE' => $original['DETAIL_TEXT_TYPE'] ?? 'text',
+        ]);
+
+        if (!$newPresetId) {
+            throw new \Exception('Ошибка создания клона пресета');
+        }
+
+        $newPresetId = (int)$newPresetId;
+
+        try {
+            $detailHandler = new DetailHandler();
+            $propertyValues = $this->getElementPropertyValuesForClone($presetId, $presetsIblockId);
+            $originalDetailIds = $this->normalizeToIntArray($propertyValues['CALC_DETAILS'] ?? []);
+            $clonedDetailIds = [];
+
+            foreach ($originalDetailIds as $detailId) {
+                $cloneResult = $detailHandler->cloneDetail(['detailId' => $detailId]);
+                if (($cloneResult['status'] ?? 'error') !== 'ok') {
+                    throw new \Exception((string)($cloneResult['message'] ?? 'Не удалось клонировать детали пресета'));
+                }
+                $clonedDetailIds[] = (int)$cloneResult['detail']['id'];
+            }
+
+            $propertyValues['CALC_DETAILS'] = $clonedDetailIds;
+            \CIBlockElement::SetPropertyValuesEx($newPresetId, $presetsIblockId, $propertyValues);
+
+            return $newPresetId;
+        } catch (\Throwable $e) {
+            \CIBlockElement::Delete($newPresetId);
+            throw $e;
+        }
+    }
     
     /**
      * Получить ID товара из ТП
@@ -97,6 +171,46 @@ class BundleHandler
         }
         
         return 0;
+    }
+
+    private function getElementPropertyValuesForClone(int $elementId, int $iblockId): array
+    {
+        $result = [];
+
+        $dbProps = \CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc', 'id' => 'asc'], []);
+        while ($prop = $dbProps->Fetch()) {
+            $code = (string)($prop['CODE'] ?? '');
+            if ($code === '') {
+                continue;
+            }
+
+            $value = $prop['VALUE'];
+            if (($prop['PROPERTY_TYPE'] ?? '') === 'S' && ($prop['USER_TYPE'] ?? '') === 'HTML') {
+                $value = ['TEXT' => (string)($prop['~VALUE']['TEXT'] ?? $prop['VALUE']), 'TYPE' => (string)($prop['VALUE_TYPE'] ?? 'text')];
+            }
+
+            if (($prop['MULTIPLE'] ?? 'N') === 'Y') {
+                if (!array_key_exists($code, $result) || !is_array($result[$code])) {
+                    $result[$code] = [];
+                }
+                $result[$code][] = $value;
+            } else {
+                $result[$code] = $value;
+            }
+        }
+
+        return $result;
+    }
+
+    private function normalizeToIntArray($value): array
+    {
+        if (!is_array($value)) {
+            $value = [$value];
+        }
+
+        return array_values(array_filter(array_map('intval', $value), static function ($id) {
+            return $id > 0;
+        }));
     }
     
     /**
