@@ -94,22 +94,42 @@
                 width: 1200,
                 height: 720,
                 draggable: true,
-                resizable: true,
-                buttons: []
+                resizable: true
             });
 
             dialog.Show();
+
+            // Защита от автозакрытия при глобальных кликах Bitrix popup-меню.
+            var canCloseDialog = false;
+            var originalClose = dialog.Close.bind(dialog);
+            var requestClose = function() {
+                canCloseDialog = true;
+                originalClose();
+            };
+
+            dialog.Close = function() {
+                if (!canCloseDialog) {
+                    return;
+                }
+
+                originalClose();
+            };
+
+            if (dialog.PARTS && dialog.PARTS.CLOSE_BTN) {
+                BX.bind(dialog.PARTS.CLOSE_BTN, 'click', function(e) {
+                    if (e && e.preventDefault) {
+                        e.preventDefault();
+                    }
+
+                    requestClose();
+                });
+            }
 
             var state = {
                 dialog: dialog,
                 context: context,
                 properties: []
             };
-
-            var closeBtn = content.querySelector('[data-role="close"]');
-            closeBtn.addEventListener('click', function() {
-                dialog.Close();
-            });
 
             content.querySelector('[data-role="refresh"]').addEventListener('click', function() {
                 self.loadProperties(state, content);
@@ -167,7 +187,6 @@
                 '<div class="pw-calc-generator__grid" data-role="properties"></div>' +
                 '<div class="pw-calc-generator__footer">' +
                 '<button class="adm-btn adm-btn-save" data-role="generate">Создать товары</button>' +
-                '<button class="adm-btn" data-role="close">Закрыть</button>' +
                 '<span class="pw-calc-generator__status" data-role="status"></span>' +
                 '</div>';
         },
