@@ -86,39 +86,47 @@
 
             var content = document.createElement('div');
             content.className = 'pw-calc-generator';
-            content.style.width = '1180px';
-            content.style.maxWidth = 'calc(100vw - 80px)';
-            content.style.height = '720px';
-            content.style.maxHeight = 'calc(100vh - 120px)';
-            content.style.overflow = 'auto';
             content.innerHTML = this.getDialogMarkup();
 
-            var popupId = 'prospektweb-product-generator-popup';
-            var existing = BX.PopupWindowManager.getPopupById(popupId);
-            if (existing) {
-                existing.destroy();
-            }
-
-            var popup = BX.PopupWindowManager.create(popupId, null, {
-                className: 'pw-product-generator-popup',
-                closeIcon: true,
-                titleBar: 'Генератор товаров',
+            var dialog = new BX.CAdminDialog({
+                title: 'Генератор товаров',
                 content: content,
-                autoHide: false,
-                closeByEsc: true,
-                overlay: true,
-                draggable: { restrict: true },
-                events: {
-                    onPopupClose: function() {
-                        this.destroy();
-                    }
-                }
+                width: 1200,
+                height: 720,
+                draggable: true,
+                resizable: true
             });
 
-            popup.show();
+            dialog.Show();
+
+            // Защита от автозакрытия при глобальных кликах Bitrix popup-меню.
+            var canCloseDialog = false;
+            var originalClose = dialog.Close.bind(dialog);
+            var requestClose = function() {
+                canCloseDialog = true;
+                originalClose();
+            };
+
+            dialog.Close = function() {
+                if (!canCloseDialog) {
+                    return;
+                }
+
+                originalClose();
+            };
+
+            if (dialog.PARTS && dialog.PARTS.CLOSE_BTN) {
+                BX.bind(dialog.PARTS.CLOSE_BTN, 'click', function(e) {
+                    if (e && e.preventDefault) {
+                        e.preventDefault();
+                    }
+
+                    requestClose();
+                });
+            }
 
             var state = {
-                dialog: popup,
+                dialog: dialog,
                 context: context,
                 properties: []
             };
