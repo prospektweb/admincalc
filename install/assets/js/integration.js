@@ -2652,7 +2652,7 @@
 
             this.sendProcessMessage(
                 'info',
-                'Запущено пакетное сохранение расчётов',
+                'Сохранение расчётов запущено',
                 { step: 'start', total: total },
                 message.requestId,
                 origin
@@ -2665,7 +2665,6 @@
                 success: 0,
                 failed: 0,
                 percent: 0,
-                mode: 'estimated',
             }, message.requestId, origin);
 
             if (total === 0) {
@@ -2687,186 +2686,72 @@
                 return;
             }
 
-            const estimatedMs = this.estimateSaveCalculationDurationMs(offers);
-            const watchdogMs = 60000;
-            const startedAt = Date.now();
-            let progressPercent = 0;
-            let reached99At = null;
+            const aggregateResults = [];
+            let savedCount = 0;
 
-            const sendEstimatedProgress = () => {
-                const elapsedMs = Date.now() - startedAt;
-                const estimate = Math.max(1000, estimatedMs);
-                let nextPercent;
+            for (let index = 0; index < offers.length; index++) {
+                const offer = offers[index];
+                const progressResult = await this.saveCalculationForOffer(offer, message.requestId);
+                const itemResult = progressResult.itemResult;
 
-                if (elapsedMs <= estimate) {
-                    nextPercent = Math.min(90, Math.round((elapsedMs / estimate) * 90));
-                } else {
-                    const overtimeMs = elapsedMs - estimate;
-                    const slowdownWindowMs = Math.max(10000, estimate * 0.8);
-                    const normalized = Math.min(1, overtimeMs / slowdownWindowMs);
-                    nextPercent = Math.min(99, Math.round(90 + (9 * normalized)));
+                aggregateResults.push(itemResult);
+                if (itemResult.status === 'ok') {
+                    savedCount++;
                 }
 
-                if (nextPercent <= progressPercent) {
-                    nextPercent = Math.min(99, progressPercent + 1);
-                }
-
-                progressPercent = nextPercent;
-                if (progressPercent >= 99 && reached99At === null) {
-                    reached99At = Date.now();
-                }
+                const processed = index + 1;
+                const failed = processed - savedCount;
+                const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
 
                 this.sendPwrtMessage('SAVE_CALCULATION_PROGRESS', {
-                    step: 'estimated',
+                    step: 'item',
                     total: total,
-                    processed: 0,
-                    success: 0,
-                    failed: 0,
-                    percent: progressPercent,
-                    mode: 'estimated',
-                    plan: {
-                        estimatedMs: estimate,
-                        elapsedMs: elapsedMs,
-                        watchdogMs: watchdogMs,
-                    },
+                    processed: processed,
+                    success: savedCount,
+                    failed: failed,
+                    percent: percent,
+                    item: itemResult,
                 }, message.requestId, origin);
+            }
+
+            const failedCount = total - savedCount;
+            const finalStatus = failedCount === 0 ? 'ok' : (savedCount > 0 ? 'partial' : 'error');
+            const finalPayload = {
+                status: finalStatus,
+                results: aggregateResults,
+                total: total,
+                saved: savedCount,
+                failed: failedCount,
             };
 
-            sendEstimatedProgress();
-            const progressTimer = setInterval(() => {
-                sendEstimatedProgress();
-            }, 450);
-
-            const requestPromise = this.sendPwrtRequest('SAVE_CALCULATION_REQUEST', {
-                offers: offers,
-            }, message.requestId);
-
-            try {
-                let response = null;
-                while (!response) {
-                    const raceResult = await Promise.race([
-                        requestPromise.then((value) => ({ done: true, value: value })),
-                        new Promise((resolve) => setTimeout(() => resolve({ done: false }), 250)),
-                    ]);
-
-                    if (raceResult.done) {
-                        response = raceResult.value;
-                        break;
-                    }
-
-                    if (reached99At !== null && (Date.now() - reached99At) >= watchdogMs) {
-                        throw new Error('Превышено время ожидания подтверждения сохранения (watchdog 60 секунд)');
-                    }
-                }
-
-                const responsePayload = response && response.payload ? response.payload : {};
-                const responseResults = Array.isArray(responsePayload.results) ? responsePayload.results : [];
-                const savedCount = Number(responsePayload.saved || 0);
-                const failedCount = Math.max(0, total - savedCount);
-                const finalStatus = responsePayload.status || (failedCount === 0 ? 'ok' : (savedCount > 0 ? 'partial' : 'error'));
-
-                this.sendProcessMessage(
-                    finalStatus === 'error' ? 'error' : 'success',
-                    'Сохранение расчётов завершено',
-                    {
-                        step: 'complete',
-                        total: total,
-                        saved: savedCount,
-                        failed: failedCount,
-                        durationMs: Date.now() - startedAt,
-                    },
-                    message.requestId,
-                    origin
-                );
-
-                this.sendPwrtMessage('SAVE_CALCULATION_PROGRESS', {
+            this.sendProcessMessage(
+                finalStatus === 'error' ? 'error' : 'success',
+                'Сохранение расчётов завершено',
+                {
                     step: 'complete',
                     total: total,
-                    processed: total,
-                    success: savedCount,
-                    failed: failedCount,
-                    percent: 100,
-                    mode: 'final',
-                }, message.requestId, origin);
-
-                this.sendPwrtMessage('SAVE_CALCULATION_RESPONSE', {
-                    status: finalStatus,
-                    results: responseResults,
-                    total: Number(responsePayload.total || total),
                     saved: savedCount,
-                    updated: Number(responsePayload.updated || 0),
                     failed: failedCount,
-                    durationMs: Date.now() - startedAt,
-                }, message.requestId, origin);
-            } catch (error) {
-                this.sendProcessMessage(
-                    'error',
-                    'Ошибка пакетного сохранения расчётов',
-                    {
-                        step: 'error',
-                        total: total,
-                        durationMs: Date.now() - startedAt,
-                    },
-                    message.requestId,
-                    origin
-                );
+                },
+                message.requestId,
+                origin
+            );
 
-                this.sendPwrtMessage('SAVE_CALCULATION_RESPONSE', {
-                    status: 'error',
-                    message: error && error.message ? error.message : 'Unknown error',
-                    results: [],
-                    total: total,
-                    saved: 0,
-                    failed: total,
-                    durationMs: Date.now() - startedAt,
-                }, message.requestId, origin);
-            } finally {
-                clearInterval(progressTimer);
-            }
-        }
+            this.sendPwrtMessage('SAVE_CALCULATION_PROGRESS', {
+                step: 'complete',
+                total: total,
+                processed: total,
+                success: savedCount,
+                failed: failedCount,
+                percent: 100,
+            }, message.requestId, origin);
 
-        estimateSaveCalculationDurationMs(offers) {
-            const baseMs = 1200;
-            const perOfferMs = 2500;
-            const perRangeMs = 40;
-
-            const rangeCount = offers.reduce((sum, offer) => {
-                const json = offer && typeof offer === 'object' ? (offer.json || offer) : null;
-                if (!json || typeof json !== 'object') {
-                    return sum;
-                }
-
-                const ranges = Array.isArray(json.priceRangesWithMarkup) ? json.priceRangesWithMarkup : [];
-                let localRanges = 0;
-                for (let i = 0; i < ranges.length; i++) {
-                    const range = ranges[i];
-                    const prices = range && Array.isArray(range.prices) ? range.prices : [];
-                    localRanges += Math.max(1, prices.length || 0);
-                }
-
-                return sum + localRanges;
-            }, 0);
-
-            return baseMs + (offers.length * perOfferMs) + (rangeCount * perRangeMs);
+            this.sendPwrtMessage('SAVE_CALCULATION_RESPONSE', finalPayload, message.requestId, origin);
         }
 
         normalizeSaveCalculationOffers(payload) {
             if (Array.isArray(payload.offers)) {
-                return payload.offers
-                    .map((item) => {
-                        if (!item || typeof item !== 'object') {
-                            return null;
-                        }
-
-                        const offerId = Number(item.offerId || item.offerID || item.id || 0);
-                        const json = Object.prototype.hasOwnProperty.call(item, 'json') ? item.json : item;
-
-                        return {
-                            offerId: offerId,
-                            json: json,
-                        };
-                    })
-                    .filter((item) => item && item.offerId > 0);
+                return payload.offers;
             }
 
             if (!Array.isArray(payload.results)) {
@@ -2888,6 +2773,36 @@
                     };
                 })
                 .filter((item) => item && item.offerId > 0);
+        }
+
+        async saveCalculationForOffer(offer, requestId) {
+            try {
+                const response = await this.sendPwrtRequest('SAVE_CALCULATION_REQUEST', {
+                    offers: [offer],
+                }, requestId);
+                const responsePayload = response && response.payload ? response.payload : {};
+                const itemResult = Array.isArray(responsePayload.results) && responsePayload.results[0]
+                    ? responsePayload.results[0]
+                    : {
+                        offerId: Number(offer.offerId || 0),
+                        historyId: null,
+                        status: responsePayload.status || 'error',
+                        message: responsePayload.message || 'Пустой ответ сохранения расчёта',
+                    };
+
+                return {
+                    itemResult: itemResult,
+                };
+            } catch (error) {
+                return {
+                    itemResult: {
+                        offerId: Number(offer.offerId || 0),
+                        historyId: null,
+                        status: 'error',
+                        message: error && error.message ? error.message : 'Unknown error',
+                    },
+                };
+            }
         }
 
         async sendSelectDetailsResponse({ ids, iblockId, iblockType, lang, requestId, origin }) {
