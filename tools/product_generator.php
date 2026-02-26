@@ -40,6 +40,64 @@ if ($iblockId <= 0) {
     die();
 }
 
+const PRODUCT_NAME_MAX_LENGTH = 255;
+const SYMBOLIC_CODE_MAX_LENGTH = 255;
+const UNIQUE_SUFFIX_LENGTH = 6;
+
+/**
+ * @return string
+ */
+function generateUniqueSuffix(): string
+{
+    return strtoupper(substr(bin2hex(random_bytes(4)), 0, UNIQUE_SUFFIX_LENGTH));
+}
+
+/**
+ * @param string $value
+ * @param int $maxLength
+ * @param string $suffix
+ * @param string $separator
+ * @return string
+ */
+function appendSuffixWithLimit(string $value, int $maxLength, string $suffix, string $separator = '-'): string
+{
+    $suffixPart = $separator . $suffix;
+    $baseLimit = max(1, $maxLength - mb_strlen($suffixPart));
+    $base = trim(mb_substr($value, 0, $baseLimit));
+
+    if ($base === '') {
+        $base = 'item';
+    }
+
+    return mb_substr($base . $suffixPart, 0, $maxLength);
+}
+
+/**
+ * @param int $iblockId
+ * @param string $code
+ * @return bool
+ */
+function isElementCodeExists(int $iblockId, string $code): bool
+{
+    if ($code === '') {
+        return false;
+    }
+
+    $res = \CIBlockElement::GetList(
+        [],
+        [
+            'IBLOCK_ID' => $iblockId,
+            '=CODE' => $code,
+            'CHECK_PERMISSIONS' => 'N',
+        ],
+        false,
+        ['nTopCount' => 1],
+        ['ID']
+    );
+
+    return (bool)$res->Fetch();
+}
+
 /**
  * @param int $iblockId
  * @return array<int,array<string,mixed>>
@@ -268,11 +326,29 @@ if ($action === 'generate') {
             $name = 'Товар';
         }
 
-        $code = \CUtil::translit($name, 'ru', [
+        $nameBase = $name;
+        $uniqueSuffix = generateUniqueSuffix();
+        $name = appendSuffixWithLimit($nameBase, PRODUCT_NAME_MAX_LENGTH, $uniqueSuffix, ' ');
+
+        $baseCode = \CUtil::translit($nameBase, 'ru', [
             'replace_space' => '-',
             'replace_other' => '-',
             'change_case' => 'L',
         ]);
+        $baseCode = trim((string)$baseCode, '-');
+        if ($baseCode === '') {
+            $baseCode = 'product';
+        }
+
+        $code = appendSuffixWithLimit($baseCode, SYMBOLIC_CODE_MAX_LENGTH, $uniqueSuffix, '-');
+
+        $attempt = 0;
+        while (isElementCodeExists($iblockId, $code) && $attempt < 5) {
+            $attempt++;
+            $uniqueSuffix = generateUniqueSuffix();
+            $name = appendSuffixWithLimit($nameBase, PRODUCT_NAME_MAX_LENGTH, $uniqueSuffix, ' ');
+            $code = appendSuffixWithLimit($baseCode, SYMBOLIC_CODE_MAX_LENGTH, $uniqueSuffix, '-');
+        }
 
         $propertyValues = [];
         foreach ($combo as $item) {
