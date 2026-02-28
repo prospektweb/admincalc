@@ -285,6 +285,7 @@ $tabControl = new CAdminTabControl('tabControl', [
     ['DIV' => 'edit2', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_OFFERS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_OFFERS_TITLE')],
     ['DIV' => 'edit3', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS_TITLE')],
     ['DIV' => 'edit4', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION_TITLE')],
+    ['DIV' => 'edit5', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC_TITLE')],
 ]);
 
 $tabControl->Begin();
@@ -549,6 +550,180 @@ $tabControl->Begin();
             <br><span style="color: #777; font-size: 11px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_CALC_SERVER_URL_HINT') ?></span>
         </td>
     </tr>
+
+    <?php $tabControl->BeginNextTab(); ?>
+
+    <tr>
+        <td colspan="2" style="padding: 16px;">
+            <div style="margin-bottom: 16px;">
+                <button type="button" id="btn-run-diagnostic" class="adm-btn adm-btn-save" onclick="pwCalcDiagRun()">
+                    🔍 Запустить диагностику
+                </button>
+                &nbsp;
+                <button type="button" id="btn-fix-events" class="adm-btn" onclick="pwCalcDiagFix('fix_events', 'Восстановить обработчики событий? Все текущие обработчики будут удалены и зарегистрированы заново.')">
+                    🔧 Восстановить обработчики
+                </button>
+                &nbsp;
+                <button type="button" id="btn-fix-files" class="adm-btn" onclick="pwCalcDiagFix('fix_files', 'Переустановить файлы модуля? Файлы будут скопированы заново из директории модуля.')">
+                    📁 Переустановить файлы
+                </button>
+            </div>
+            <div id="pwcalc-diag-loading" style="display:none; margin-bottom: 12px;">
+                <img src="/bitrix/images/main/wait.gif" alt="Загрузка..."> Выполняется диагностика...
+            </div>
+            <div id="pwcalc-diag-results"></div>
+        </td>
+    </tr>
+
+    <script>
+    (function() {
+        var diagUrl = '/bitrix/tools/prospektweb.calc/diagnostic.php';
+        var diagSessid = '<?= bitrix_sessid() ?>';
+
+        function pwCalcDiagRun() {
+            var loading = document.getElementById('pwcalc-diag-loading');
+            var results = document.getElementById('pwcalc-diag-results');
+            loading.style.display = 'block';
+            results.innerHTML = '';
+
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', diagUrl, true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.onload = function() {
+                loading.style.display = 'none';
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data.success && data.data) {
+                        renderDiagnosticResults(results, data.data);
+                    } else {
+                        results.innerHTML = '<div style="color:red; padding:8px; border:1px solid #f88; background:#fff5f5;">Ошибка: ' + (data.error || 'Неизвестная ошибка') + '</div>';
+                    }
+                } catch(e) {
+                    results.innerHTML = '<div style="color:red; padding:8px;">Ошибка разбора ответа: ' + e.message + '</div>';
+                }
+            };
+            xhr.onerror = function() {
+                loading.style.display = 'none';
+                results.innerHTML = '<div style="color:red; padding:8px;">Сетевая ошибка при выполнении запроса</div>';
+            };
+            xhr.send('sessid=' + encodeURIComponent(diagSessid) + '&action=run');
+        }
+
+        function pwCalcDiagFix(action, confirmText) {
+            if (!confirm(confirmText)) {
+                return;
+            }
+            var loading = document.getElementById('pwcalc-diag-loading');
+            var results = document.getElementById('pwcalc-diag-results');
+            loading.style.display = 'block';
+            results.innerHTML = '';
+
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', diagUrl, true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.onload = function() {
+                loading.style.display = 'none';
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    var msgDiv = document.createElement('div');
+                    msgDiv.style.cssText = 'padding:8px; margin-bottom:12px; border:1px solid ' + (data.success ? '#8bc34a' : '#f88') + '; background:' + (data.success ? '#f1f8e9' : '#fff5f5') + '; border-radius:4px;';
+                    msgDiv.textContent = data.message || (data.success ? 'Успешно выполнено' : ('Ошибка: ' + (data.error || 'Неизвестная ошибка')));
+                    results.appendChild(msgDiv);
+                    if (data.success) {
+                        pwCalcDiagRun();
+                    }
+                } catch(e) {
+                    results.innerHTML = '<div style="color:red; padding:8px;">Ошибка разбора ответа: ' + e.message + '</div>';
+                }
+            };
+            xhr.onerror = function() {
+                loading.style.display = 'none';
+                results.innerHTML = '<div style="color:red; padding:8px;">Сетевая ошибка при выполнении запроса</div>';
+            };
+            xhr.send('sessid=' + encodeURIComponent(diagSessid) + '&action=' + encodeURIComponent(action));
+        }
+
+        function renderDiagnosticResults(container, data) {
+            container.innerHTML = '';
+            var sections = data.sections || [];
+
+            sections.forEach(function(section) {
+                var hasErrors = section.errors && section.errors.length > 0;
+                var hasWarnings = section.warnings && section.warnings.length > 0;
+                var borderColor = hasErrors ? '#e53935' : (hasWarnings ? '#fb8c00' : '#43a047');
+                var statusIcon = hasErrors ? '❌' : (hasWarnings ? '⚠️' : '✅');
+
+                var block = document.createElement('div');
+                block.style.cssText = 'border-left:4px solid ' + borderColor + '; margin-bottom:12px; padding:12px 16px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.08); border-radius:0 4px 4px 0;';
+
+                var title = document.createElement('div');
+                title.style.cssText = 'font-weight:bold; font-size:14px; margin-bottom:8px;';
+                title.textContent = statusIcon + ' ' + section.icon + ' ' + section.name;
+                block.appendChild(title);
+
+                if (section.checks && section.checks.length > 0) {
+                    var table = document.createElement('table');
+                    table.style.cssText = 'width:100%; border-collapse:collapse; font-size:12px;';
+
+                    section.checks.forEach(function(check) {
+                        var tr = document.createElement('tr');
+                        var icon = check.status === 'ok' ? '✅' : (check.status === 'warning' ? '⚠️' : '❌');
+                        var bgColor = check.status === 'ok' ? '#f9fff9' : (check.status === 'warning' ? '#fffdf0' : '#fff5f5');
+                        tr.style.cssText = 'background:' + bgColor + ';';
+
+                        var tdIcon = document.createElement('td');
+                        tdIcon.style.cssText = 'padding:3px 6px; width:24px; text-align:center;';
+                        tdIcon.textContent = icon;
+
+                        var tdLabel = document.createElement('td');
+                        tdLabel.style.cssText = 'padding:3px 8px; color:#333; white-space:nowrap;';
+                        tdLabel.textContent = check.label;
+
+                        var tdValue = document.createElement('td');
+                        tdValue.style.cssText = 'padding:3px 8px; color:#555; width:60%;';
+                        tdValue.textContent = check.value;
+
+                        tr.appendChild(tdIcon);
+                        tr.appendChild(tdLabel);
+                        tr.appendChild(tdValue);
+                        table.appendChild(tr);
+                    });
+
+                    block.appendChild(table);
+                }
+
+                if (section.errors && section.errors.length > 0) {
+                    var errList = document.createElement('ul');
+                    errList.style.cssText = 'margin:8px 0 0; padding:0 0 0 20px; color:#c62828; font-size:12px;';
+                    section.errors.forEach(function(err) {
+                        var li = document.createElement('li');
+                        li.textContent = err;
+                        errList.appendChild(li);
+                    });
+                    block.appendChild(errList);
+                }
+
+                if (section.warnings && section.warnings.length > 0) {
+                    var warnList = document.createElement('ul');
+                    warnList.style.cssText = 'margin:8px 0 0; padding:0 0 0 20px; color:#e65100; font-size:12px;';
+                    section.warnings.forEach(function(warn) {
+                        var li = document.createElement('li');
+                        li.textContent = warn;
+                        warnList.appendChild(li);
+                    });
+                    block.appendChild(warnList);
+                }
+
+                container.appendChild(block);
+            });
+        }
+
+        // Экспорт в глобальный scope для использования в onclick
+        window.pwCalcDiagRun = pwCalcDiagRun;
+        window.pwCalcDiagFix = pwCalcDiagFix;
+        window.renderDiagnosticResults = renderDiagnosticResults;
+    })();
+    </script>
 
     <?php
     $tabControl->Buttons([

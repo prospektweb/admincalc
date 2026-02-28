@@ -29,6 +29,9 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\BatchRecalculateService' => 'lib/Services/BatchRecalculateService.php',
     'Prospektweb\\Calc\\Handlers\\AdminHandler' => 'lib/Handlers/AdminHandler.php',
     'Prospektweb\\Calc\\Handlers\\DependencyHandler' => 'lib/Handlers/DependencyHandler.php',
+    'Prospektweb\\Calc\\Diagnostic\\ModuleDiagnostic' => 'lib/Diagnostic/ModuleDiagnostic.php',
+    'Prospektweb\\Calc\\Diagnostic\\GitHubClient' => 'lib/Diagnostic/GitHubClient.php',
+    'Prospektweb\\Calc\\Diagnostic\\DiagnosticCache' => 'lib/Diagnostic/DiagnosticCache.php',
 ]);
 
 // Примечание: Обработчик OnBuildGlobalMenu регистрируется только через persistent handler
