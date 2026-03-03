@@ -182,12 +182,17 @@ class BundleHandler
                     $mappedChildIds[] = (int)$detailMap[$childId];
                 }
 
+                $bindingDetails = false;
+                if (!empty($mappedChildIds)) {
+                    $bindingDetails = [];
+                    foreach ($mappedChildIds as $id) {
+                        $bindingDetails[] = ['VALUE' => (int)$id, 'DESCRIPTION' => ''];
+                    }
+                    $mappedChildIds[] = (int)$detailMap[$childId];
+                }
+
                 \CIBlockElement::SetPropertyValuesEx((int)$detailMap[$detailId], $detailsIblockId, [
-                    'DETAILS' => !empty($mappedChildIds)
-                        ? array_map(static function (int $id): array {
-                            return ['VALUE' => $id, 'DESCRIPTION' => ''];
-                        }, $mappedChildIds)
-                        : false,
+                    'DETAILS' => $bindingDetails,
                 ]);
             }
 
@@ -307,6 +312,7 @@ class BundleHandler
                     $result[] = $stageId;
                 }
             }
+        }
 
         return $result;
     }
@@ -336,7 +342,6 @@ class BundleHandler
         if (!$newId) {
             throw new \Exception('Ошибка создания клона детали/скрепления ID=' . $oldId);
         }
-    }
 
         $newId = (int)$newId;
         $propertyValues = $this->getElementPropertyValuesForClone($oldId, $detailsIblockId);
@@ -353,17 +358,23 @@ class BundleHandler
             'этапов детали ID=' . $oldId
         );
         $propertyValues['TYPE'] = ['VALUE' => $typeEnumId, 'DESCRIPTION' => ''];
-        $propertyValues['CALC_STAGES'] = !empty($mappedStageIds)
-            ? array_map(static function (int $id): array {
-                return ['VALUE' => $id, 'DESCRIPTION' => ''];
-            }, $mappedStageIds)
-            : false;
+        if (!empty($mappedStageIds)) {
+            $stageValues = [];
+            foreach ($mappedStageIds as $id) {
+                $stageValues[] = ['VALUE' => (int)$id, 'DESCRIPTION' => ''];
+            }
+            $propertyValues['CALC_STAGES'] = $stageValues;
+        } else {
+            $propertyValues['CALC_STAGES'] = false;
+        }
 
         if ($type === 'BINDING') {
             if (is_array($bindingDetailsValue)) {
-                $propertyValues['DETAILS'] = array_map(static function (int $id): array {
-                    return ['VALUE' => $id, 'DESCRIPTION' => ''];
-                }, array_values(array_map('intval', $bindingDetailsValue)));
+                $detailsValues = [];
+                foreach ($bindingDetailsValue as $id) {
+                    $detailsValues[] = ['VALUE' => (int)$id, 'DESCRIPTION' => ''];
+                }
+                $propertyValues['DETAILS'] = $detailsValues;
             } else {
                 $propertyValues['DETAILS'] = false;
             }
