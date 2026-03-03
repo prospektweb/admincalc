@@ -134,16 +134,25 @@ class BundleHandler
             $rootDetailIds = array_values(array_diff($originalDetailIds, $nestedDetailIds));
 
             // 2. Клонируем ТОЛЬКО корневые детали (скрепления рекурсивно клонируют свои вложенные)
-            $clonedDetailIds = [];
+            $allClonedDetailIds = [];
             $allClonedConfigIds = [];
-            $detailIdMap = []; // оригинал → клон (для маппинга вложенных)
 
             foreach ($rootDetailIds as $detailId) {
                 $cloneResult = $detailHandler->cloneDetail(['detailId' => $detailId]);
                 if (($cloneResult['status'] ?? 'error') !== 'ok') {
                     throw new \Exception((string)($cloneResult['message'] ?? 'Не удалось клонировать детали пресета'));
                 }
-                $clonedDetailIds[] = (int)$cloneResult['detail']['id'];
+
+                // Собираем ID всех склонированных деталей (корневых + вложенных).
+                // createdDetailIds всегда содержит как минимум ID корневого клона.
+                if (!empty($cloneResult['createdDetailIds'])) {
+                    foreach ($cloneResult['createdDetailIds'] as $createdId) {
+                        $allClonedDetailIds[] = (int)$createdId;
+                    }
+                } else {
+                    // Запасной вариант: если createdDetailIds не вернулись, добавляем хотя бы корневой ID
+                    $allClonedDetailIds[] = (int)$cloneResult['detail']['id'];
+                }
 
                 // Собираем ID всех склонированных этапов
                 if (!empty($cloneResult['createdConfigIds'])) {
@@ -171,7 +180,7 @@ class BundleHandler
             $finalStageIds = array_merge($allClonedConfigIds, $clonedPresetOnlyStageIds);
 
             // 6. Подменяем свойства на клонированные ID
-            $propertyValues['CALC_DETAILS'] = $clonedDetailIds;
+            $propertyValues['CALC_DETAILS'] = $allClonedDetailIds;
             $propertyValues['CALC_STAGES'] = !empty($finalStageIds) ? $finalStageIds : [];
 
             \CIBlockElement::SetPropertyValuesEx($newPresetId, $presetsIblockId, $propertyValues);
@@ -286,29 +295,6 @@ class BundleHandler
     }
 
     /**
-     * Рекурсивно собрать все CALC_STAGES из деталей пресета.
-     */
-    private function collectAllDetailStageIds(int $presetId, int $presetsIblockId): array
-    {
-        $detailsIblockId = $this->configManager->getIblockId('CALC_DETAILS');
-
-        $detailIds = [];
-        $rs = \CIBlockElement::GetProperty($presetsIblockId, $presetId, [], ['CODE' => 'CALC_DETAILS']);
-        while ($prop = $rs->Fetch()) {
-            if (!empty($prop['VALUE'])) {
-                $detailIds[] = (int)$prop['VALUE'];
-            }
-        }
-
-        $allStageIds = [];
-        foreach ($detailIds as $detailId) {
-            $this->collectStageIdsRecursive($detailId, $detailsIblockId, $allStageIds);
-        }
-
-        return $allStageIds;
-    }
-
-    /**
      * Рекурсивно собрать CALC_STAGES из детали и её вложенных деталей.
      */
     private function collectStageIdsRecursive(int $detailId, int $detailsIblockId, array &$result): void
@@ -341,44 +327,6 @@ class BundleHandler
         }
         foreach ($childIds as $childId) {
             $this->collectStageIdsRecursive((int)$childId, $detailsIblockId, $result);
-        }
-    }
-
-    /**
-     * Рекурсивно собрать CALC_STAGES из детали и её вложенных деталей.
-     */
-    private function collectStageIdsRecursive(int $detailId, int $detailsIblockId, array &$result): void
-    {
-        $element = \CIBlockElement::GetList(
-            [],
-            ['ID' => $detailId, 'IBLOCK_ID' => $detailsIblockId],
-            false,
-            ['nTopCount' => 1],
-            ['ID']
-        )->GetNextElement();
-
-        if (!$element) {
-            return;
-        }
-
-        $properties = $element->GetProperties();
-
-        // Собираем CALC_STAGES этой детали
-        $stageValues = $properties['CALC_STAGES']['VALUE'] ?? [];
-        if (!is_array($stageValues)) {
-            $stageValues = !empty($stageValues) ? [$stageValues] : [];
-        }
-        foreach ($stageValues as $stageId) {
-            $result[] = (int)$stageId;
-        }
-
-        // Рекурсивно обрабатываем вложенные детали (DETAILS) для скреплений
-        $detailValues = $properties['DETAILS']['VALUE'] ?? [];
-        if (!is_array($detailValues)) {
-            $detailValues = !empty($detailValues) ? [$detailValues] : [];
-        }
-        foreach ($detailValues as $childDetailId) {
-            $this->collectStageIdsRecursive((int)$childDetailId, $detailsIblockId, $result);
         }
     }
     
