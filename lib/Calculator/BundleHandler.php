@@ -188,6 +188,7 @@ class BundleHandler
                     foreach ($mappedChildIds as $id) {
                         $bindingDetails[] = ['VALUE' => (int)$id, 'DESCRIPTION' => ''];
                     }
+                    $mappedChildIds[] = (int)$detailMap[$childId];
                 }
 
                 \CIBlockElement::SetPropertyValuesEx((int)$detailMap[$detailId], $detailsIblockId, [
