@@ -127,6 +127,8 @@ class BundleHandler
         try {
             $detailHandler = new DetailHandler();
             $propertyValues = $this->getElementPropertyValuesForClone($presetId, $presetsIblockId);
+
+            // 1. Клонируем CALC_DETAILS (детали)
             $originalDetailIds = $this->normalizeToIntArray($propertyValues['CALC_DETAILS'] ?? []);
             $clonedDetailIds = [];
 
@@ -138,7 +140,23 @@ class BundleHandler
                 $clonedDetailIds[] = (int)$cloneResult['detail']['id'];
             }
 
+            // 2. Клонируем CALC_STAGES (этапы пресета)
+            $originalStageIds = $this->normalizeToIntArray($propertyValues['CALC_STAGES'] ?? []);
+            $clonedStageIds = [];
+
+            foreach ($originalStageIds as $stageId) {
+                $newStageId = $this->cloneStageElement($stageId, $presetsIblockId);
+                if ($newStageId) {
+                    $clonedStageIds[] = $newStageId;
+                }
+            }
+
+            // 3. Подменяем оба свойства на клонированные ID
             $propertyValues['CALC_DETAILS'] = $clonedDetailIds;
+            if (!empty($clonedStageIds)) {
+                $propertyValues['CALC_STAGES'] = $clonedStageIds;
+            }
+
             \CIBlockElement::SetPropertyValuesEx($newPresetId, $presetsIblockId, $propertyValues);
 
             return $newPresetId;
@@ -211,6 +229,69 @@ class BundleHandler
         return array_values(array_filter(array_map('intval', $value), static function ($id) {
             return $id > 0;
         }));
+    }
+
+    /**
+     * Клонировать элемент этапа (CALC_STAGES) для пресета.
+     *
+     * @param int $stageId ID оригинального этапа
+     * @param int $presetsIblockId ID инфоблока пресетов (не используется напрямую, но нужен для контекста)
+     * @return int|null ID нового этапа или null при ошибке
+     */
+    private function cloneStageElement(int $stageId, int $presetsIblockId): ?int
+    {
+        $stagesIblockId = $this->configManager->getIblockId('CALC_STAGES');
+        if ($stagesIblockId <= 0) {
+            return null;
+        }
+
+        $element = \CIBlockElement::GetList(
+            [],
+            ['ID' => $stageId, 'IBLOCK_ID' => $stagesIblockId],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'NAME', 'ACTIVE', 'SORT', 'PREVIEW_TEXT', 'PREVIEW_TEXT_TYPE', 'DETAIL_TEXT', 'DETAIL_TEXT_TYPE']
+        )->GetNextElement();
+
+        if (!$element) {
+            return null;
+        }
+
+        $fields = $element->GetFields();
+
+        $el = new \CIBlockElement();
+        $newFields = [
+            'IBLOCK_ID' => $stagesIblockId,
+            'NAME' => $fields['NAME'],
+            'CODE' => $this->generateUniqueElementCode($stagesIblockId, $fields['NAME']),
+            'ACTIVE' => $fields['ACTIVE'] ?? 'Y',
+            'SORT' => $fields['SORT'] ?? 500,
+        ];
+
+        if (!empty($fields['PREVIEW_TEXT'])) {
+            $newFields['PREVIEW_TEXT'] = $fields['PREVIEW_TEXT'];
+            $newFields['PREVIEW_TEXT_TYPE'] = $fields['PREVIEW_TEXT_TYPE'] ?? 'text';
+        }
+
+        if (!empty($fields['DETAIL_TEXT'])) {
+            $newFields['DETAIL_TEXT'] = $fields['DETAIL_TEXT'];
+            $newFields['DETAIL_TEXT_TYPE'] = $fields['DETAIL_TEXT_TYPE'] ?? 'text';
+        }
+
+        $newId = $el->Add($newFields);
+        if (!$newId) {
+            return null;
+        }
+
+        $newId = (int)$newId;
+
+        // Копируем все свойства этапа
+        $propValues = $this->getElementPropertyValuesForClone($stageId, $stagesIblockId);
+        if (!empty($propValues)) {
+            \CIBlockElement::SetPropertyValuesEx($newId, $stagesIblockId, $propValues);
+        }
+
+        return $newId;
     }
     
     /**
