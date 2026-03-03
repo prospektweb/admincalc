@@ -307,7 +307,6 @@ class BundleHandler
                     $result[] = $stageId;
                 }
             }
-        }
 
         return $result;
     }
@@ -337,6 +336,7 @@ class BundleHandler
         if (!$newId) {
             throw new \Exception('Ошибка создания клона детали/скрепления ID=' . $oldId);
         }
+    }
 
         $newId = (int)$newId;
         $propertyValues = $this->getElementPropertyValuesForClone($oldId, $detailsIblockId);
