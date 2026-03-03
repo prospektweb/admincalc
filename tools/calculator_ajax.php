@@ -37,10 +37,11 @@ register_shutdown_function(function() {
         if (!headers_sent()) {
             header('Content-Type: application/json; charset=utf-8');
         }
+        logError('Fatal shutdown error: ' . ($error['message'] ?? 'unknown'));
         echo json_encode([
             'error' => 'Internal Server Error',
-            'message' => 'A fatal error occurred'
-            // Note: Not including error details for security reasons
+            'message' => 'A fatal error occurred',
+            'details' => $error['message'] ?? ''
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -141,7 +142,7 @@ if ($pwrtMessage) {
                     'timestamp' => time(),
                 ], 400);
         }
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('Exception in PWRT message handler: ' . $e->getMessage());
         sendJsonResponse([
             'protocol' => 'pwrt-v1',
@@ -207,7 +208,7 @@ try {
         default:
             sendJsonResponse(['error' => 'Invalid action', 'message' => 'Неизвестное действие'], 400);
     }
-} catch (\Exception $e) {
+} catch (\Throwable $e) {
     logError('Exception in calculator_ajax.php: ' . $e->getMessage());
     sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
 }
@@ -238,7 +239,7 @@ function handleGetInitData($request): void
 
         logInfo('GetInitData success for offers: ' . implode(',', $offerIds));
         sendJsonResponse(['success' => true, 'data' => $payload]);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('GetInitData error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
@@ -323,7 +324,7 @@ function handleCheckPresets($request): void
                 'offersWithoutPreset' => $hasPreset ? [] : $offerIds,
             ],
         ]);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('CheckPresets error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
@@ -360,7 +361,7 @@ function handleCreateAndAssignPreset($request): void
                 'offerIds' => $offerIds,
             ],
         ]);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('CreateAndAssignPreset error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
@@ -393,7 +394,7 @@ function handleSave($request): void
 
         logInfo('Save request processed. Status: ' . $result['status']);
         sendJsonResponse(['success' => $result['status'] !== 'error', 'data' => $result]);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('Save error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
@@ -426,7 +427,7 @@ function handleSaveBundle($request): void
 
         logInfo('SaveBundle request processed. BundleId: ' . $result['bundleId']);
         sendJsonResponse(['success' => true, 'data' => $result]);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('SaveBundle error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
@@ -450,7 +451,7 @@ function handleFinalizeBundle($request): void
 
         logInfo('FinalizeBundle success for bundle: ' . $bundleId);
         sendJsonResponse(['success' => true, 'data' => $result]);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('FinalizeBundle error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
@@ -482,7 +483,7 @@ function handleRefreshData($request): void
 
         logInfo('RefreshData success for ' . count($payload) . ' groups');
         sendJsonResponse(['success' => true, 'data' => $result]);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('RefreshData error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
@@ -593,7 +594,7 @@ function handleEnrichPreset($request): void
             'success' => true,
             'data' => $initPayload,
         ]);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('EnrichPreset error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
@@ -627,7 +628,7 @@ function handleClearPreset($request): void
             'success' => true,
             'data' => $initPayload,
         ]);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('ClearPreset error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
@@ -657,7 +658,7 @@ function handleClonePreset($request): void
                 'newPresetId' => $newPresetId,
             ],
         ]);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         logError('ClonePreset error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
