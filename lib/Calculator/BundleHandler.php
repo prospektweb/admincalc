@@ -307,6 +307,23 @@ class BundleHandler
                     $result[] = $stageId;
                 }
             }
+        }
+    }
+
+    /**
+     * @param array<int, array> $graph
+     * @return int[]
+     */
+    private function collectStageIdsFromGraph(array $graph): array
+    {
+        $result = [];
+        foreach ($graph as $node) {
+            foreach (($node['stageIds'] ?? []) as $stageId) {
+                $stageId = (int)$stageId;
+                if ($stageId > 0 && !in_array($stageId, $result, true)) {
+                    $result[] = $stageId;
+                }
+            }
 
         return $result;
     }
@@ -550,42 +567,95 @@ class BundleHandler
             return;
         }
 
-        // 1) Копируем карточку товара каталога 1:1 (включая валюту/НДС/флаги)
-        $sourceProduct = \CCatalogProduct::GetByID($sourceId);
-        if ($sourceProduct) {
-            $targetProduct = \CCatalogProduct::GetByID($targetId);
-            $productFields = $sourceProduct;
-            unset($productFields['ID']);
+        // 1) Копирование каталожной карточки (VAT, purchasing, currency и т.д.)
+        if (class_exists('\CCatalogProduct')) {
+            $sourceProduct = \CCatalogProduct::GetByID($sourceId);
+            if ($sourceProduct) {
+                $targetProduct = \CCatalogProduct::GetByID($targetId);
+                $productFields = $sourceProduct;
+                unset($productFields['ID']);
 
-            if ($targetProduct) {
-                \CCatalogProduct::Update($targetId, $productFields);
-            } else {
-                $productFields['ID'] = $targetId;
-                \CCatalogProduct::Add($productFields);
+                if ($targetProduct) {
+                    \CCatalogProduct::Update($targetId, $productFields);
+                } else {
+                    $productFields['ID'] = $targetId;
+                    \CCatalogProduct::Add($productFields);
+                }
+            }
+        } elseif (class_exists('\Bitrix\Catalog\ProductTable')) {
+            $sourceProduct = \Bitrix\Catalog\ProductTable::getRow([
+                'filter' => ['=ID' => $sourceId],
+                'select' => ['*'],
+            ]);
+            if ($sourceProduct) {
+                $targetProduct = \Bitrix\Catalog\ProductTable::getRow([
+                    'filter' => ['=ID' => $targetId],
+                    'select' => ['ID'],
+                ]);
+                unset($sourceProduct['ID']);
+                if ($targetProduct) {
+                    \Bitrix\Catalog\ProductTable::update($targetId, $sourceProduct);
+                } else {
+                    $sourceProduct['ID'] = $targetId;
+                    \Bitrix\Catalog\ProductTable::add($sourceProduct);
+                }
             }
         }
 
-        // 2) Полностью пересоздаём цены целевого элемента и переносим все строки 1:1,
-        // включая диапазоны QUANTITY_FROM/QUANTITY_TO (расширенный режим цен).
-        $existingTargetPrices = \CPrice::GetList([], ['PRODUCT_ID' => $targetId]);
-        while ($existing = $existingTargetPrices->Fetch()) {
-            \CPrice::Delete((int)$existing['ID']);
-        }
+        // 2) Полный перенос цен 1:1, включая диапазоны QUANTITY_FROM/QUANTITY_TO.
+        if (class_exists('\CPrice')) {
+            $existingTargetPrices = \CPrice::GetList([], ['PRODUCT_ID' => $targetId]);
+            while ($existing = $existingTargetPrices->Fetch()) {
+                \CPrice::Delete((int)$existing['ID']);
+            }
 
-        $sourcePrices = \CPrice::GetList(['ID' => 'ASC'], ['PRODUCT_ID' => $sourceId]);
-        while ($price = $sourcePrices->Fetch()) {
-            $priceFields = [
-                'PRODUCT_ID' => $targetId,
-                'CATALOG_GROUP_ID' => (int)$price['CATALOG_GROUP_ID'],
-                'PRICE' => (float)$price['PRICE'],
-                'CURRENCY' => (string)$price['CURRENCY'],
-                'QUANTITY_FROM' => $price['QUANTITY_FROM'] === null ? false : (int)$price['QUANTITY_FROM'],
-                'QUANTITY_TO' => $price['QUANTITY_TO'] === null ? false : (int)$price['QUANTITY_TO'],
-                'EXTRA_ID' => isset($price['EXTRA_ID']) ? (int)$price['EXTRA_ID'] : false,
-            ];
+            $sourcePrices = \CPrice::GetList(['ID' => 'ASC'], ['PRODUCT_ID' => $sourceId]);
+            while ($price = $sourcePrices->Fetch()) {
+                $priceFields = [
+                    'PRODUCT_ID' => $targetId,
+                    'CATALOG_GROUP_ID' => (int)$price['CATALOG_GROUP_ID'],
+                    'PRICE' => (float)$price['PRICE'],
+                    'CURRENCY' => (string)$price['CURRENCY'],
+                    'QUANTITY_FROM' => $price['QUANTITY_FROM'] === null ? false : (int)$price['QUANTITY_FROM'],
+                    'QUANTITY_TO' => $price['QUANTITY_TO'] === null ? false : (int)$price['QUANTITY_TO'],
+                ];
 
-            if (!\CPrice::Add($priceFields)) {
-                throw new \Exception('Не удалось скопировать цену для группы ' . (int)$price['CATALOG_GROUP_ID']);
+                $extraId = isset($price['EXTRA_ID']) ? (int)$price['EXTRA_ID'] : 0;
+                if ($extraId > 0) {
+                    $priceFields['EXTRA_ID'] = $extraId;
+                }
+
+                if (!\CPrice::Add($priceFields)) {
+                    throw new \Exception('Не удалось скопировать цену для группы ' . (int)$price['CATALOG_GROUP_ID']);
+                }
+            }
+        } elseif (class_exists('\Bitrix\Catalog\PriceTable')) {
+            $existingTargetPrices = \Bitrix\Catalog\PriceTable::getList([
+                'filter' => ['=PRODUCT_ID' => $targetId],
+                'select' => ['ID'],
+            ]);
+            while ($existing = $existingTargetPrices->fetch()) {
+                \Bitrix\Catalog\PriceTable::delete((int)$existing['ID']);
+            }
+
+            $sourcePrices = \Bitrix\Catalog\PriceTable::getList([
+                'order' => ['ID' => 'ASC'],
+                'filter' => ['=PRODUCT_ID' => $sourceId],
+                'select' => ['CATALOG_GROUP_ID', 'PRICE', 'CURRENCY', 'QUANTITY_FROM', 'QUANTITY_TO', 'EXTRA_ID'],
+            ]);
+            while ($price = $sourcePrices->fetch()) {
+                $addRes = \Bitrix\Catalog\PriceTable::add([
+                    'PRODUCT_ID' => $targetId,
+                    'CATALOG_GROUP_ID' => (int)$price['CATALOG_GROUP_ID'],
+                    'PRICE' => (float)$price['PRICE'],
+                    'CURRENCY' => (string)$price['CURRENCY'],
+                    'QUANTITY_FROM' => $price['QUANTITY_FROM'] === null ? null : (int)$price['QUANTITY_FROM'],
+                    'QUANTITY_TO' => $price['QUANTITY_TO'] === null ? null : (int)$price['QUANTITY_TO'],
+                    'EXTRA_ID' => isset($price['EXTRA_ID']) ? (int)$price['EXTRA_ID'] : null,
+                ]);
+                if (!$addRes->isSuccess()) {
+                    throw new \Exception('Не удалось скопировать цену: ' . implode('; ', $addRes->getErrorMessages()));
+                }
             }
         }
     }
