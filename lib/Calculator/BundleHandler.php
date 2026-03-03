@@ -5,7 +5,6 @@ namespace Prospektweb\Calc\Calculator;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Config\ConfigManager;
-use Prospektweb\Calc\Services\DetailHandler;
 
 /**
  * Обработчик операций со сборками (bundles)
@@ -89,8 +88,9 @@ class BundleHandler
         }
 
         $presetsIblockId = $this->configManager->getIblockId('CALC_PRESETS');
-        if ($presetsIblockId <= 0) {
-            throw new \Exception('Инфоблок CALC_PRESETS не настроен');
+        $detailsIblockId = $this->configManager->getIblockId('CALC_DETAILS');
+        if ($presetsIblockId <= 0 || $detailsIblockId <= 0) {
+            throw new \Exception('Инфоблоки CALC_PRESETS/CALC_DETAILS не настроены');
         }
 
         $original = \CIBlockElement::GetList(
@@ -123,69 +123,101 @@ class BundleHandler
         }
 
         $newPresetId = (int)$newPresetId;
-        
+
         try {
-            $detailHandler = new DetailHandler();
             $propertyValues = $this->getElementPropertyValuesForClone($presetId, $presetsIblockId);
+            $rootDetailIds = $this->normalizeToIntArray($propertyValues['CALC_DETAILS'] ?? []);
 
-            // 1. Определяем корневые детали — те, что НЕ являются вложенными в скрепления
-            $originalDetailIds = $this->normalizeToIntArray($propertyValues['CALC_DETAILS'] ?? []);
-            $nestedDetailIds = $this->collectNestedDetailIds($originalDetailIds);
-            $rootDetailIds = array_values(array_diff($originalDetailIds, $nestedDetailIds));
+            $detailGraph = [];
+            $detailOrder = [];
+            $this->collectDetailGraph($rootDetailIds, $detailsIblockId, $detailGraph, $detailOrder, []);
 
-            // 2. Клонируем ТОЛЬКО корневые детали (скрепления рекурсивно клонируют свои вложенные)
-            $allClonedDetailIds = [];
-            $allClonedConfigIds = [];
-
-            foreach ($rootDetailIds as $detailId) {
-                $cloneResult = $detailHandler->cloneDetail(['detailId' => $detailId]);
-                if (($cloneResult['status'] ?? 'error') !== 'ok') {
-                    throw new \Exception((string)($cloneResult['message'] ?? 'Не удалось клонировать детали пресета'));
-                }
-
-                // Собираем ID всех склонированных деталей (корневых + вложенных).
-                // createdDetailIds всегда содержит как минимум ID корневого клона.
-                if (!empty($cloneResult['createdDetailIds'])) {
-                    foreach ($cloneResult['createdDetailIds'] as $createdId) {
-                        $allClonedDetailIds[] = (int)$createdId;
-                    }
-                } else {
-                    // Запасной вариант: если createdDetailIds не вернулись, добавляем хотя бы корневой ID
-                    $allClonedDetailIds[] = (int)$cloneResult['detail']['id'];
-                }
-
-                // Собираем ID всех склонированных этапов
-                if (!empty($cloneResult['createdConfigIds'])) {
-                    foreach ($cloneResult['createdConfigIds'] as $configId) {
-                        $allClonedConfigIds[] = (int)$configId;
-                    }
+            // Шаг 1: единоразово клонируем все этапы (у деталей, скреплений и пресета).
+            $stageIdsToClone = $this->collectStageIdsFromGraph($detailGraph);
+            foreach ($this->normalizeToIntArray($propertyValues['CALC_STAGES'] ?? []) as $presetStageId) {
+                if (!in_array($presetStageId, $stageIdsToClone, true)) {
+                    $stageIdsToClone[] = $presetStageId;
                 }
             }
 
-            // 3. Определяем собственные этапы пресета (не принадлежащие деталям)
-            $originalStageIds = $this->normalizeToIntArray($propertyValues['CALC_STAGES'] ?? []);
-            $detailStageIds = $this->collectAllDetailStageIds($presetId, $presetsIblockId);
-            $presetOnlyStageIds = array_values(array_diff($originalStageIds, $detailStageIds));
-
-            // 4. Клонируем ТОЛЬКО собственные этапы пресета
-            $clonedPresetOnlyStageIds = [];
-            foreach ($presetOnlyStageIds as $stageId) {
+            $stageMap = [];
+            foreach ($stageIdsToClone as $stageId) {
                 $newStageId = $this->cloneStageElement($stageId, $presetsIblockId);
-                if ($newStageId) {
-                    $clonedPresetOnlyStageIds[] = $newStageId;
+                if (!$newStageId) {
+                    throw new \Exception('Не удалось клонировать этап ID=' . $stageId);
                 }
+                $stageMap[$stageId] = (int)$newStageId;
             }
 
-            // 5. Итоговые CALC_STAGES = этапы из деталей + собственные этапы пресета
-            $finalStageIds = array_merge($allClonedConfigIds, $clonedPresetOnlyStageIds);
+            // Шаг 2: клонируем только детали (TYPE=DETAIL).
+            $detailMap = [];
+            foreach ($detailOrder as $detailId) {
+                $node = $detailGraph[$detailId] ?? null;
+                if (!$node || $node['type'] !== 'DETAIL') {
+                    continue;
+                }
+                $detailMap[$detailId] = $this->cloneDetailNode($node, $detailsIblockId, $stageMap, []);
+            }
 
-            // 6. Подменяем свойства на клонированные ID
-            $propertyValues['CALC_DETAILS'] = $allClonedDetailIds;
-            $propertyValues['CALC_STAGES'] = !empty($finalStageIds) ? $finalStageIds : [];
+            // Шаг 3: клонируем скрепления (TYPE=BINDING) без DETAILS, затем проставляем DETAILS по карте.
+            foreach ($detailOrder as $detailId) {
+                $node = $detailGraph[$detailId] ?? null;
+                if (!$node || $node['type'] !== 'BINDING') {
+                    continue;
+                }
+                $detailMap[$detailId] = $this->cloneDetailNode($node, $detailsIblockId, $stageMap, false);
+            }
+
+            foreach ($detailOrder as $detailId) {
+                $node = $detailGraph[$detailId] ?? null;
+                if (!$node || $node['type'] !== 'BINDING') {
+                    continue;
+                }
+
+                $mappedChildIds = [];
+                foreach ($node['detailIds'] as $childId) {
+                    if (!isset($detailMap[$childId])) {
+                        throw new \Exception('Некорректное клонирование: отсутствует клон дочерней детали ID=' . $childId);
+                    }
+                    $mappedChildIds[] = (int)$detailMap[$childId];
+                }
+
+                \CIBlockElement::SetPropertyValuesEx((int)$detailMap[$detailId], $detailsIblockId, [
+                    'DETAILS' => !empty($mappedChildIds)
+                        ? array_map(static function (int $id): array {
+                            return ['VALUE' => $id, 'DESCRIPTION' => ''];
+                        }, $mappedChildIds)
+                        : false,
+                ]);
+            }
+
+            // Валидация от дублирования клонирования
+            if (count($detailMap) !== count($detailGraph)) {
+                throw new \Exception('Обнаружено дублирование/потеря при клонировании деталей: ожидалось '
+                    . count($detailGraph) . ', создано ' . count($detailMap));
+            }
+
+            // Шаг 4: клонируем пресетные ссылки на детали и этапы с сохранением последовательности.
+            $mappedRootDetailIds = [];
+            foreach ($rootDetailIds as $rootDetailId) {
+                if (!isset($detailMap[$rootDetailId])) {
+                    throw new \Exception('Не найден клон корневой детали ID=' . $rootDetailId);
+                }
+                $mappedRootDetailIds[] = (int)$detailMap[$rootDetailId];
+            }
+
+            $mappedPresetStageIds = $this->mapIdListOrFail(
+                $this->normalizeToIntArray($propertyValues['CALC_STAGES'] ?? []),
+                $stageMap,
+                'этапов пресета'
+            );
+
+            $propertyValues['CALC_DETAILS'] = !empty($mappedRootDetailIds) ? $mappedRootDetailIds : false;
+            $propertyValues['CALC_STAGES'] = !empty($mappedPresetStageIds) ? $mappedPresetStageIds : false;
 
             \CIBlockElement::SetPropertyValuesEx($newPresetId, $presetsIblockId, $propertyValues);
 
-            // 7. Клонируем данные торгового каталога (цены, НДС, валюта)
+            // Шаг 7: копируем товарный каталог (НДС/закупочная/валюта/цены).
             $this->cloneCatalogData($presetId, $newPresetId);
 
             return $newPresetId;
@@ -193,143 +225,189 @@ class BundleHandler
             \CIBlockElement::Delete($newPresetId);
             throw $e;
         }
-        
     }
 
     /**
-     * Рекурсивно собрать все ID этапов (CALC_STAGES) из деталей пресета.
-     * Нужно для определения, какие этапы принадлежат деталям, а какие — пресету.
+     * Рекурсивно загрузить граф деталей (деталь/скрепление) в порядке обхода.
      *
-     * @param int $presetId ID пресета
-     * @param int $presetsIblockId ID инфоблока пресетов
-     * @return int[] Все ID этапов из всех деталей/скреплений
+     * @param int[] $detailIds
+     * @param array<int, array> $graph
+     * @param int[] $order
+     * @param array<int, bool> $stack
      */
-    private function collectAllDetailStageIds(int $presetId, int $presetsIblockId): array
+    private function collectDetailGraph(array $detailIds, int $detailsIblockId, array &$graph, array &$order, array $stack): void
     {
-        $detailsIblockId = $this->configManager->getIblockId('CALC_DETAILS');
-
-        // Получаем ID деталей пресета
-        $detailIds = [];
-        $rs = \CIBlockElement::GetProperty($presetsIblockId, $presetId, [], ['CODE' => 'CALC_DETAILS']);
-        while ($prop = $rs->Fetch()) {
-            if (!empty($prop['VALUE'])) {
-                $detailIds[] = (int)$prop['VALUE'];
+        foreach ($detailIds as $detailId) {
+            $detailId = (int)$detailId;
+            if ($detailId <= 0) {
+                continue;
             }
-        }
 
-        $allStageIds = [];
-        foreach ($detailIds as $detailId) {
-            $this->collectStageIdsRecursive($detailId, $detailsIblockId, $allStageIds);
-        }
+            if (isset($stack[$detailId])) {
+                throw new \Exception('Обнаружена циклическая ссылка в DETAILS для ID=' . $detailId);
+            }
 
-        return $allStageIds;
-    }
+            if (isset($graph[$detailId])) {
+                continue;
+            }
 
-    /**
-     * Собрать ID деталей, которые вложены в скрепления (BINDING).
-     * Эти детали НЕ нужно клонировать отдельно — они клонируются рекурсивно
-     * при клонировании родительского скрепления.
-     *
-     * @param int[] $detailIds Все ID деталей из CALC_DETAILS пресета
-     * @return int[] ID деталей, вложенных в скрепления
-     */
-    private function collectNestedDetailIds(array $detailIds): array
-    {
-        $detailsIblockId = $this->configManager->getIblockId('CALC_DETAILS');
-        $nested = [];
-
-        foreach ($detailIds as $detailId) {
             $element = \CIBlockElement::GetList(
                 [],
                 ['ID' => $detailId, 'IBLOCK_ID' => $detailsIblockId],
                 false,
                 ['nTopCount' => 1],
-                ['ID']
+                ['ID', 'NAME', 'ACTIVE', 'SORT', 'PREVIEW_TEXT', 'PREVIEW_TEXT_TYPE', 'DETAIL_TEXT', 'DETAIL_TEXT_TYPE']
             )->GetNextElement();
 
             if (!$element) {
+                throw new \Exception('Не найдена деталь/скрепление ID=' . $detailId);
+            }
+
+            $fields = $element->GetFields();
+            $properties = $element->GetProperties();
+            $type = (string)($properties['TYPE']['VALUE_XML_ID'] ?? 'DETAIL');
+            $childIds = $this->normalizeToIntArray($properties['DETAILS']['VALUE'] ?? []);
+            $stageIds = $this->normalizeToIntArray($properties['CALC_STAGES']['VALUE'] ?? []);
+
+            if ($type !== 'DETAIL' && $type !== 'BINDING') {
+                throw new \Exception('Некорректный TYPE для ID=' . $detailId . ': ' . $type);
+            }
+
+            if ($type === 'DETAIL' && !empty($childIds)) {
+                throw new \Exception('Некорректные данные: TYPE=DETAIL содержит DETAILS для ID=' . $detailId);
+            }
+
+            $graph[$detailId] = [
+                'id' => $detailId,
+                'type' => $type,
+                'fields' => $fields,
+                'stageIds' => $stageIds,
+                'detailIds' => $childIds,
+            ];
+            $order[] = $detailId;
+
+            $stack[$detailId] = true;
+            if (!empty($childIds)) {
+                $this->collectDetailGraph($childIds, $detailsIblockId, $graph, $order, $stack);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array> $graph
+     * @return int[]
+     */
+    private function collectStageIdsFromGraph(array $graph): array
+    {
+        $result = [];
+        foreach ($graph as $node) {
+            foreach (($node['stageIds'] ?? []) as $stageId) {
+                $stageId = (int)$stageId;
+                if ($stageId > 0 && !in_array($stageId, $result, true)) {
+                    $result[] = $stageId;
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array $node Узел графа детали/скрепления
+     * @param array<int, int> $stageMap Карта oldStageId => newStageId
+     * @param array|false $bindingDetailsValue Значение DETAILS для скрепления (false на первом проходе)
+     */
+    private function cloneDetailNode(array $node, int $detailsIblockId, array $stageMap, $bindingDetailsValue): int
+    {
+        $oldId = (int)($node['id'] ?? 0);
+        $fields = $node['fields'] ?? [];
+
+        $newId = (new \CIBlockElement())->Add([
+            'IBLOCK_ID' => $detailsIblockId,
+            'NAME' => (string)($fields['NAME'] ?? ('Копия ' . $oldId)),
+            'CODE' => $this->generateUniqueElementCode($detailsIblockId, (string)($fields['NAME'] ?? ('detail-' . $oldId))),
+            'ACTIVE' => $fields['ACTIVE'] ?? 'Y',
+            'SORT' => (int)($fields['SORT'] ?? 500),
+            'PREVIEW_TEXT' => $fields['PREVIEW_TEXT'] ?? '',
+            'PREVIEW_TEXT_TYPE' => $fields['PREVIEW_TEXT_TYPE'] ?? 'text',
+            'DETAIL_TEXT' => $fields['DETAIL_TEXT'] ?? '',
+            'DETAIL_TEXT_TYPE' => $fields['DETAIL_TEXT_TYPE'] ?? 'text',
+        ]);
+
+        if (!$newId) {
+            throw new \Exception('Ошибка создания клона детали/скрепления ID=' . $oldId);
+        }
+
+        $newId = (int)$newId;
+        $propertyValues = $this->getElementPropertyValuesForClone($oldId, $detailsIblockId);
+
+        $type = (string)($node['type'] ?? 'DETAIL');
+        $typeEnumId = $this->getListPropertyEnumId($detailsIblockId, 'TYPE', $type);
+        if ($typeEnumId <= 0) {
+            throw new \Exception('Не найдено значение TYPE=' . $type . ' для детали ID=' . $oldId);
+        }
+
+        $mappedStageIds = $this->mapIdListOrFail(
+            $this->normalizeToIntArray($node['stageIds'] ?? []),
+            $stageMap,
+            'этапов детали ID=' . $oldId
+        );
+        $propertyValues['TYPE'] = ['VALUE' => $typeEnumId, 'DESCRIPTION' => ''];
+        $propertyValues['CALC_STAGES'] = !empty($mappedStageIds)
+            ? array_map(static function (int $id): array {
+                return ['VALUE' => $id, 'DESCRIPTION' => ''];
+            }, $mappedStageIds)
+            : false;
+
+        if ($type === 'BINDING') {
+            if (is_array($bindingDetailsValue)) {
+                $propertyValues['DETAILS'] = array_map(static function (int $id): array {
+                    return ['VALUE' => $id, 'DESCRIPTION' => ''];
+                }, array_values(array_map('intval', $bindingDetailsValue)));
+            } else {
+                $propertyValues['DETAILS'] = false;
+            }
+        } else {
+            $propertyValues['DETAILS'] = false;
+        }
+
+        \CIBlockElement::SetPropertyValuesEx($newId, $detailsIblockId, $propertyValues);
+
+        return $newId;
+    }
+
+    /**
+     * @param int[] $sourceIds
+     * @param array<int, int> $idMap
+     * @return int[]
+     */
+    private function mapIdListOrFail(array $sourceIds, array $idMap, string $context): array
+    {
+        $result = [];
+        foreach ($sourceIds as $sourceId) {
+            $sourceId = (int)$sourceId;
+            if ($sourceId <= 0) {
                 continue;
             }
-
-            $properties = $element->GetProperties();
-            $type = $properties['TYPE']['VALUE_XML_ID'] ?? 'DETAIL';
-
-            if ($type === 'BINDING') {
-                // Рекурсивно собираем все вложенные ID
-                $this->collectChildDetailIds($detailId, $detailsIblockId, $nested);
+            if (!isset($idMap[$sourceId])) {
+                throw new \Exception('Не найден клон для ID=' . $sourceId . ' в контексте ' . $context);
             }
+            $result[] = (int)$idMap[$sourceId];
         }
 
-        return $nested;
+        return $result;
     }
 
-    /**
-     * Рекурсивно собрать ID всех дочерних деталей скрепления.
-     */
-    private function collectChildDetailIds(int $parentId, int $detailsIblockId, array &$result): void
+    private function getListPropertyEnumId(int $iblockId, string $propertyCode, string $xmlId): int
     {
-        $element = \CIBlockElement::GetList(
-            [],
-            ['ID' => $parentId, 'IBLOCK_ID' => $detailsIblockId],
-            false,
-            ['nTopCount' => 1],
-            ['ID']
-        )->GetNextElement();
+        $enum = \CIBlockPropertyEnum::GetList(
+            ['SORT' => 'ASC', 'ID' => 'ASC'],
+            ['IBLOCK_ID' => $iblockId, 'CODE' => $propertyCode, 'XML_ID' => $xmlId]
+        )->Fetch();
 
-        if (!$element) {
-            return;
-        }
-
-        $properties = $element->GetProperties();
-        $childIds = $properties['DETAILS']['VALUE'] ?? [];
-        if (!is_array($childIds)) {
-            $childIds = !empty($childIds) ? [$childIds] : [];
-        }
-
-        foreach ($childIds as $childId) {
-            $childId = (int)$childId;
-            $result[] = $childId;
-            // Рекурсия — если дочерний элемент тоже скрепление
-            $this->collectChildDetailIds($childId, $detailsIblockId, $result);
-        }
+        return (int)($enum['ID'] ?? 0);
     }
 
-    /**
-     * Рекурсивно собрать CALC_STAGES из детали и её вложенных деталей.
-     */
-    private function collectStageIdsRecursive(int $detailId, int $detailsIblockId, array &$result): void
-    {
-        $element = \CIBlockElement::GetList(
-            [],
-            ['ID' => $detailId, 'IBLOCK_ID' => $detailsIblockId],
-            false,
-            ['nTopCount' => 1],
-            ['ID']
-        )->GetNextElement();
-
-        if (!$element) {
-            return;
-        }
-
-        $properties = $element->GetProperties();
-
-        $stageValues = $properties['CALC_STAGES']['VALUE'] ?? [];
-        if (!is_array($stageValues)) {
-            $stageValues = !empty($stageValues) ? [$stageValues] : [];
-        }
-        foreach ($stageValues as $stageId) {
-            $result[] = (int)$stageId;
-        }
-
-        $childIds = $properties['DETAILS']['VALUE'] ?? [];
-        if (!is_array($childIds)) {
-            $childIds = !empty($childIds) ? [$childIds] : [];
-        }
-        foreach ($childIds as $childId) {
-            $this->collectStageIdsRecursive((int)$childId, $detailsIblockId, $result);
-        }
-    }
-    
     /**
      * Получить ID товара из ТП
      * 
@@ -367,6 +445,9 @@ class BundleHandler
             }
 
             $value = $prop['VALUE'];
+            if (($prop['PROPERTY_TYPE'] ?? '') === 'L') {
+                $value = (int)($prop['VALUE_ENUM_ID'] ?? $prop['VALUE']);
+            }
             if (($prop['PROPERTY_TYPE'] ?? '') === 'S' && ($prop['USER_TYPE'] ?? '') === 'HTML') {
                 $value = ['TEXT' => (string)($prop['~VALUE']['TEXT'] ?? $prop['VALUE']), 'TYPE' => (string)($prop['VALUE_TYPE'] ?? 'text')];
             }
@@ -470,71 +551,99 @@ class BundleHandler
             return;
         }
 
-        // 1. Копируем данные товара (НДС, вес, единицы измерения и т.д.)
-        $product = \Bitrix\Catalog\ProductTable::getRow([
-            'filter' => ['=ID' => $sourceId],
-            'select' => ['*'],
-        ]);
+        // 1) Копирование каталожной карточки (VAT, purchasing, currency и т.д.)
+        if (class_exists('\CCatalogProduct')) {
+            $sourceProduct = \CCatalogProduct::GetByID($sourceId);
+            if ($sourceProduct) {
+                $targetProduct = \CCatalogProduct::GetByID($targetId);
+                $productFields = $sourceProduct;
+                unset($productFields['ID']);
 
-        if ($product) {
-            // Проверяем, существует ли запись каталога для нового элемента
-            $existingProduct = \Bitrix\Catalog\ProductTable::getRow([
-                'filter' => ['=ID' => $targetId],
-                'select' => ['ID'],
+                if ($targetProduct) {
+                    \CCatalogProduct::Update($targetId, $productFields);
+                } else {
+                    $productFields['ID'] = $targetId;
+                    \CCatalogProduct::Add($productFields);
+                }
+            }
+        } elseif (class_exists('\Bitrix\Catalog\ProductTable')) {
+            $sourceProduct = \Bitrix\Catalog\ProductTable::getRow([
+                'filter' => ['=ID' => $sourceId],
+                'select' => ['*'],
             ]);
-
-            $catalogFields = [
-                'VAT_ID' => $product['VAT_ID'],
-                'VAT_INCLUDED' => $product['VAT_INCLUDED'],
-                'QUANTITY' => $product['QUANTITY'] ?? 0,
-                'WEIGHT' => $product['WEIGHT'] ?? 0,
-                'WIDTH' => $product['WIDTH'] ?? 0,
-                'LENGTH' => $product['LENGTH'] ?? 0,
-                'HEIGHT' => $product['HEIGHT'] ?? 0,
-                'MEASURE' => $product['MEASURE'] ?? null,
-                'PURCHASING_PRICE' => $product['PURCHASING_PRICE'],
-                'PURCHASING_CURRENCY' => $product['PURCHASING_CURRENCY'],
-            ];
-
-            if ($existingProduct) {
-                \Bitrix\Catalog\ProductTable::update($targetId, $catalogFields);
-            } else {
-                $catalogFields['ID'] = $targetId;
-                \Bitrix\Catalog\ProductTable::add($catalogFields);
+            if ($sourceProduct) {
+                $targetProduct = \Bitrix\Catalog\ProductTable::getRow([
+                    'filter' => ['=ID' => $targetId],
+                    'select' => ['ID'],
+                ]);
+                unset($sourceProduct['ID']);
+                if ($targetProduct) {
+                    \Bitrix\Catalog\ProductTable::update($targetId, $sourceProduct);
+                } else {
+                    $sourceProduct['ID'] = $targetId;
+                    \Bitrix\Catalog\ProductTable::add($sourceProduct);
+                }
             }
         }
 
-        // 2. Копируем цены
-        $dbPrices = \Bitrix\Catalog\PriceTable::getList([
-            'filter' => ['=PRODUCT_ID' => $sourceId],
-            'select' => ['CATALOG_GROUP_ID', 'PRICE', 'CURRENCY', 'QUANTITY_FROM', 'QUANTITY_TO'],
-        ]);
-
-        while ($price = $dbPrices->fetch()) {
-            // Удаляем старые цены этого типа для нового элемента (на случай повторных вызовов)
-            $existingPrices = \Bitrix\Catalog\PriceTable::getList([
-                'filter' => [
-                    '=PRODUCT_ID' => $targetId,
-                    '=CATALOG_GROUP_ID' => $price['CATALOG_GROUP_ID'],
-                ],
-                'select' => ['ID'],
-            ]);
-
-            while ($existing = $existingPrices->fetch()) {
-                \Bitrix\Catalog\PriceTable::delete($existing['ID']);
+        // 2) Полный перенос цен 1:1, включая диапазоны QUANTITY_FROM/QUANTITY_TO.
+        if (class_exists('\CPrice')) {
+            $existingTargetPrices = \CPrice::GetList([], ['PRODUCT_ID' => $targetId]);
+            while ($existing = $existingTargetPrices->Fetch()) {
+                \CPrice::Delete((int)$existing['ID']);
             }
 
-            \Bitrix\Catalog\PriceTable::add([
-                'PRODUCT_ID' => $targetId,
-                'CATALOG_GROUP_ID' => $price['CATALOG_GROUP_ID'],
-                'PRICE' => $price['PRICE'],
-                'CURRENCY' => $price['CURRENCY'],
-                'QUANTITY_FROM' => $price['QUANTITY_FROM'],
-                'QUANTITY_TO' => $price['QUANTITY_TO'],
+            $sourcePrices = \CPrice::GetList(['ID' => 'ASC'], ['PRODUCT_ID' => $sourceId]);
+            while ($price = $sourcePrices->Fetch()) {
+                $priceFields = [
+                    'PRODUCT_ID' => $targetId,
+                    'CATALOG_GROUP_ID' => (int)$price['CATALOG_GROUP_ID'],
+                    'PRICE' => (float)$price['PRICE'],
+                    'CURRENCY' => (string)$price['CURRENCY'],
+                    'QUANTITY_FROM' => $price['QUANTITY_FROM'] === null ? false : (int)$price['QUANTITY_FROM'],
+                    'QUANTITY_TO' => $price['QUANTITY_TO'] === null ? false : (int)$price['QUANTITY_TO'],
+                ];
+
+                $extraId = isset($price['EXTRA_ID']) ? (int)$price['EXTRA_ID'] : 0;
+                if ($extraId > 0) {
+                    $priceFields['EXTRA_ID'] = $extraId;
+                }
+
+                if (!\CPrice::Add($priceFields)) {
+                    throw new \Exception('Не удалось скопировать цену для группы ' . (int)$price['CATALOG_GROUP_ID']);
+                }
+            }
+        } elseif (class_exists('\Bitrix\Catalog\PriceTable')) {
+            $existingTargetPrices = \Bitrix\Catalog\PriceTable::getList([
+                'filter' => ['=PRODUCT_ID' => $targetId],
+                'select' => ['ID'],
             ]);
+            while ($existing = $existingTargetPrices->fetch()) {
+                \Bitrix\Catalog\PriceTable::delete((int)$existing['ID']);
+            }
+
+            $sourcePrices = \Bitrix\Catalog\PriceTable::getList([
+                'order' => ['ID' => 'ASC'],
+                'filter' => ['=PRODUCT_ID' => $sourceId],
+                'select' => ['CATALOG_GROUP_ID', 'PRICE', 'CURRENCY', 'QUANTITY_FROM', 'QUANTITY_TO', 'EXTRA_ID'],
+            ]);
+            while ($price = $sourcePrices->fetch()) {
+                $addRes = \Bitrix\Catalog\PriceTable::add([
+                    'PRODUCT_ID' => $targetId,
+                    'CATALOG_GROUP_ID' => (int)$price['CATALOG_GROUP_ID'],
+                    'PRICE' => (float)$price['PRICE'],
+                    'CURRENCY' => (string)$price['CURRENCY'],
+                    'QUANTITY_FROM' => $price['QUANTITY_FROM'] === null ? null : (int)$price['QUANTITY_FROM'],
+                    'QUANTITY_TO' => $price['QUANTITY_TO'] === null ? null : (int)$price['QUANTITY_TO'],
+                    'EXTRA_ID' => isset($price['EXTRA_ID']) ? (int)$price['EXTRA_ID'] : null,
+                ]);
+                if (!$addRes->isSuccess()) {
+                    throw new \Exception('Не удалось скопировать цену: ' . implode('; ', $addRes->getErrorMessages()));
+                }
+            }
         }
     }
-    
+
     /**
      * Сохранить данные preset (SAVE_PRESET_REQUEST)
      * 
