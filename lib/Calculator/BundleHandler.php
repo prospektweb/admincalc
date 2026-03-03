@@ -183,7 +183,11 @@ class BundleHandler
                 }
 
                 \CIBlockElement::SetPropertyValuesEx((int)$detailMap[$detailId], $detailsIblockId, [
-                    'DETAILS' => !empty($mappedChildIds) ? $mappedChildIds : false,
+                    'DETAILS' => !empty($mappedChildIds)
+                        ? array_map(static function (int $id): array {
+                            return ['VALUE' => $id, 'DESCRIPTION' => ''];
+                        }, $mappedChildIds)
+                        : false,
                 ]);
             }
 
@@ -303,7 +307,6 @@ class BundleHandler
                     $result[] = $stageId;
                 }
             }
-        }
 
         return $result;
     }
@@ -336,11 +339,33 @@ class BundleHandler
 
         $newId = (int)$newId;
         $propertyValues = $this->getElementPropertyValuesForClone($oldId, $detailsIblockId);
-        $mappedStageIds = $this->mapIdListOrFail($this->normalizeToIntArray($node['stageIds'] ?? []), $stageMap, 'этапов детали ID=' . $oldId);
-        $propertyValues['CALC_STAGES'] = !empty($mappedStageIds) ? $mappedStageIds : false;
 
-        if (($node['type'] ?? 'DETAIL') === 'BINDING') {
-            $propertyValues['DETAILS'] = $bindingDetailsValue;
+        $type = (string)($node['type'] ?? 'DETAIL');
+        $typeEnumId = $this->getListPropertyEnumId($detailsIblockId, 'TYPE', $type);
+        if ($typeEnumId <= 0) {
+            throw new \Exception('Не найдено значение TYPE=' . $type . ' для детали ID=' . $oldId);
+        }
+
+        $mappedStageIds = $this->mapIdListOrFail(
+            $this->normalizeToIntArray($node['stageIds'] ?? []),
+            $stageMap,
+            'этапов детали ID=' . $oldId
+        );
+        $propertyValues['TYPE'] = ['VALUE' => $typeEnumId, 'DESCRIPTION' => ''];
+        $propertyValues['CALC_STAGES'] = !empty($mappedStageIds)
+            ? array_map(static function (int $id): array {
+                return ['VALUE' => $id, 'DESCRIPTION' => ''];
+            }, $mappedStageIds)
+            : false;
+
+        if ($type === 'BINDING') {
+            if (is_array($bindingDetailsValue)) {
+                $propertyValues['DETAILS'] = array_map(static function (int $id): array {
+                    return ['VALUE' => $id, 'DESCRIPTION' => ''];
+                }, array_values(array_map('intval', $bindingDetailsValue)));
+            } else {
+                $propertyValues['DETAILS'] = false;
+            }
         } else {
             $propertyValues['DETAILS'] = false;
         }
@@ -370,6 +395,16 @@ class BundleHandler
         }
 
         return $result;
+    }
+
+    private function getListPropertyEnumId(int $iblockId, string $propertyCode, string $xmlId): int
+    {
+        $enum = \CIBlockPropertyEnum::GetList(
+            ['SORT' => 'ASC', 'ID' => 'ASC'],
+            ['IBLOCK_ID' => $iblockId, 'CODE' => $propertyCode, 'XML_ID' => $xmlId]
+        )->Fetch();
+
+        return (int)($enum['ID'] ?? 0);
     }
 
     /**
@@ -409,6 +444,9 @@ class BundleHandler
             }
 
             $value = $prop['VALUE'];
+            if (($prop['PROPERTY_TYPE'] ?? '') === 'L') {
+                $value = (int)($prop['VALUE_ENUM_ID'] ?? $prop['VALUE']);
+            }
             if (($prop['PROPERTY_TYPE'] ?? '') === 'S' && ($prop['USER_TYPE'] ?? '') === 'HTML') {
                 $value = ['TEXT' => (string)($prop['~VALUE']['TEXT'] ?? $prop['VALUE']), 'TYPE' => (string)($prop['VALUE_TYPE'] ?? 'text')];
             }
@@ -512,71 +550,46 @@ class BundleHandler
             return;
         }
 
-        // 1. Копируем данные товара (НДС, вес, единицы измерения и т.д.)
-        $product = \Bitrix\Catalog\ProductTable::getRow([
-            'filter' => ['=ID' => $sourceId],
-            'select' => ['*'],
-        ]);
+        // 1) Копируем карточку товара каталога 1:1 (включая валюту/НДС/флаги)
+        $sourceProduct = \CCatalogProduct::GetByID($sourceId);
+        if ($sourceProduct) {
+            $targetProduct = \CCatalogProduct::GetByID($targetId);
+            $productFields = $sourceProduct;
+            unset($productFields['ID']);
 
-        if ($product) {
-            // Проверяем, существует ли запись каталога для нового элемента
-            $existingProduct = \Bitrix\Catalog\ProductTable::getRow([
-                'filter' => ['=ID' => $targetId],
-                'select' => ['ID'],
-            ]);
+            if ($targetProduct) {
+                \CCatalogProduct::Update($targetId, $productFields);
+            } else {
+                $productFields['ID'] = $targetId;
+                \CCatalogProduct::Add($productFields);
+            }
+        }
 
-            $catalogFields = [
-                'VAT_ID' => $product['VAT_ID'],
-                'VAT_INCLUDED' => $product['VAT_INCLUDED'],
-                'QUANTITY' => $product['QUANTITY'] ?? 0,
-                'WEIGHT' => $product['WEIGHT'] ?? 0,
-                'WIDTH' => $product['WIDTH'] ?? 0,
-                'LENGTH' => $product['LENGTH'] ?? 0,
-                'HEIGHT' => $product['HEIGHT'] ?? 0,
-                'MEASURE' => $product['MEASURE'] ?? null,
-                'PURCHASING_PRICE' => $product['PURCHASING_PRICE'],
-                'PURCHASING_CURRENCY' => $product['PURCHASING_CURRENCY'],
+        // 2) Полностью пересоздаём цены целевого элемента и переносим все строки 1:1,
+        // включая диапазоны QUANTITY_FROM/QUANTITY_TO (расширенный режим цен).
+        $existingTargetPrices = \CPrice::GetList([], ['PRODUCT_ID' => $targetId]);
+        while ($existing = $existingTargetPrices->Fetch()) {
+            \CPrice::Delete((int)$existing['ID']);
+        }
+
+        $sourcePrices = \CPrice::GetList(['ID' => 'ASC'], ['PRODUCT_ID' => $sourceId]);
+        while ($price = $sourcePrices->Fetch()) {
+            $priceFields = [
+                'PRODUCT_ID' => $targetId,
+                'CATALOG_GROUP_ID' => (int)$price['CATALOG_GROUP_ID'],
+                'PRICE' => (float)$price['PRICE'],
+                'CURRENCY' => (string)$price['CURRENCY'],
+                'QUANTITY_FROM' => $price['QUANTITY_FROM'] === null ? false : (int)$price['QUANTITY_FROM'],
+                'QUANTITY_TO' => $price['QUANTITY_TO'] === null ? false : (int)$price['QUANTITY_TO'],
+                'EXTRA_ID' => isset($price['EXTRA_ID']) ? (int)$price['EXTRA_ID'] : false,
             ];
 
-            if ($existingProduct) {
-                \Bitrix\Catalog\ProductTable::update($targetId, $catalogFields);
-            } else {
-                $catalogFields['ID'] = $targetId;
-                \Bitrix\Catalog\ProductTable::add($catalogFields);
+            if (!\CPrice::Add($priceFields)) {
+                throw new \Exception('Не удалось скопировать цену для группы ' . (int)$price['CATALOG_GROUP_ID']);
             }
-        }
-
-        // 2. Копируем цены
-        $dbPrices = \Bitrix\Catalog\PriceTable::getList([
-            'filter' => ['=PRODUCT_ID' => $sourceId],
-            'select' => ['CATALOG_GROUP_ID', 'PRICE', 'CURRENCY', 'QUANTITY_FROM', 'QUANTITY_TO'],
-        ]);
-
-        while ($price = $dbPrices->fetch()) {
-            // Удаляем старые цены этого типа для нового элемента (на случай повторных вызовов)
-            $existingPrices = \Bitrix\Catalog\PriceTable::getList([
-                'filter' => [
-                    '=PRODUCT_ID' => $targetId,
-                    '=CATALOG_GROUP_ID' => $price['CATALOG_GROUP_ID'],
-                ],
-                'select' => ['ID'],
-            ]);
-
-            while ($existing = $existingPrices->fetch()) {
-                \Bitrix\Catalog\PriceTable::delete($existing['ID']);
-            }
-
-            \Bitrix\Catalog\PriceTable::add([
-                'PRODUCT_ID' => $targetId,
-                'CATALOG_GROUP_ID' => $price['CATALOG_GROUP_ID'],
-                'PRICE' => $price['PRICE'],
-                'CURRENCY' => $price['CURRENCY'],
-                'QUANTITY_FROM' => $price['QUANTITY_FROM'],
-                'QUANTITY_TO' => $price['QUANTITY_TO'],
-            ]);
         }
     }
-    
+
     /**
      * Сохранить данные preset (SAVE_PRESET_REQUEST)
      * 
