@@ -159,6 +159,9 @@ class BundleHandler
 
             \CIBlockElement::SetPropertyValuesEx($newPresetId, $presetsIblockId, $propertyValues);
 
+            // 4. Клонируем данные торгового каталога (цены, НДС, валюта)
+            $this->cloneCatalogData($presetId, $newPresetId);
+
             return $newPresetId;
         } catch (\Throwable $e) {
             \CIBlockElement::Delete($newPresetId);
@@ -292,6 +295,83 @@ class BundleHandler
         }
 
         return $newId;
+    }
+
+        /**
+     * Клонировать данные торгового каталога (цены, НДС, валюта) из одного элемента в другой.
+     *
+     * @param int $sourceId ID исходного элемента
+     * @param int $targetId ID целевого элемента
+     */
+    private function cloneCatalogData(int $sourceId, int $targetId): void
+    {
+        if (!Loader::includeModule('catalog')) {
+            return;
+        }
+
+        // 1. Копируем данные товара (НДС, вес, единицы измерения и т.д.)
+        $product = \Bitrix\Catalog\ProductTable::getRow([
+            'filter' => ['=ID' => $sourceId],
+            'select' => ['*'],
+        ]);
+
+        if ($product) {
+            // Проверяем, существует ли запись каталога для нового элемента
+            $existingProduct = \Bitrix\Catalog\ProductTable::getRow([
+                'filter' => ['=ID' => $targetId],
+                'select' => ['ID'],
+            ]);
+
+            $catalogFields = [
+                'VAT_ID' => $product['VAT_ID'],
+                'VAT_INCLUDED' => $product['VAT_INCLUDED'],
+                'QUANTITY' => $product['QUANTITY'] ?? 0,
+                'WEIGHT' => $product['WEIGHT'] ?? 0,
+                'WIDTH' => $product['WIDTH'] ?? 0,
+                'LENGTH' => $product['LENGTH'] ?? 0,
+                'HEIGHT' => $product['HEIGHT'] ?? 0,
+                'MEASURE' => $product['MEASURE'] ?? null,
+                'PURCHASING_PRICE' => $product['PURCHASING_PRICE'],
+                'PURCHASING_CURRENCY' => $product['PURCHASING_CURRENCY'],
+            ];
+
+            if ($existingProduct) {
+                \Bitrix\Catalog\ProductTable::update($targetId, $catalogFields);
+            } else {
+                $catalogFields['ID'] = $targetId;
+                \Bitrix\Catalog\ProductTable::add($catalogFields);
+            }
+        }
+
+        // 2. Копируем цены
+        $dbPrices = \Bitrix\Catalog\PriceTable::getList([
+            'filter' => ['=PRODUCT_ID' => $sourceId],
+            'select' => ['CATALOG_GROUP_ID', 'PRICE', 'CURRENCY', 'QUANTITY_FROM', 'QUANTITY_TO'],
+        ]);
+
+        while ($price = $dbPrices->fetch()) {
+            // Удаляем старые цены этого типа для нового элемента (на случай повторных вызовов)
+            $existingPrices = \Bitrix\Catalog\PriceTable::getList([
+                'filter' => [
+                    '=PRODUCT_ID' => $targetId,
+                    '=CATALOG_GROUP_ID' => $price['CATALOG_GROUP_ID'],
+                ],
+                'select' => ['ID'],
+            ]);
+
+            while ($existing = $existingPrices->fetch()) {
+                \Bitrix\Catalog\PriceTable::delete($existing['ID']);
+            }
+
+            \Bitrix\Catalog\PriceTable::add([
+                'PRODUCT_ID' => $targetId,
+                'CATALOG_GROUP_ID' => $price['CATALOG_GROUP_ID'],
+                'PRICE' => $price['PRICE'],
+                'CURRENCY' => $price['CURRENCY'],
+                'QUANTITY_FROM' => $price['QUANTITY_FROM'],
+                'QUANTITY_TO' => $price['QUANTITY_TO'],
+            ]);
+        }
     }
     
     /**
