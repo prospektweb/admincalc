@@ -182,18 +182,12 @@ class BundleHandler
                     $mappedChildIds[] = (int)$detailMap[$childId];
                 }
 
-                $bindingDetails = false;
-                if (!empty($mappedChildIds)) {
-                    $bindingDetails = [];
-                    foreach ($mappedChildIds as $id) {
-                        $bindingDetails[] = ['VALUE' => (int)$id, 'DESCRIPTION' => ''];
-                    }
-                    $mappedChildIds[] = (int)$detailMap[$childId];
-                }
-
-                \CIBlockElement::SetPropertyValuesEx((int)$detailMap[$detailId], $detailsIblockId, [
-                    'DETAILS' => $bindingDetails,
-                ]);
+                $this->setMultipleElementLinkProperty(
+                    (int)$detailMap[$detailId],
+                    $detailsIblockId,
+                    'DETAILS',
+                    $mappedChildIds
+                );
             }
 
             // Валидация от дублирования клонирования
@@ -312,7 +306,6 @@ class BundleHandler
                     $result[] = $stageId;
                 }
             }
-        }
 
         return $result;
     }
@@ -357,34 +350,41 @@ class BundleHandler
             $stageMap,
             'этапов детали ID=' . $oldId
         );
-        $propertyValues['TYPE'] = ['VALUE' => $typeEnumId, 'DESCRIPTION' => ''];
-        if (!empty($mappedStageIds)) {
-            $stageValues = [];
-            foreach ($mappedStageIds as $id) {
-                $stageValues[] = ['VALUE' => (int)$id, 'DESCRIPTION' => ''];
-            }
-            $propertyValues['CALC_STAGES'] = $stageValues;
-        } else {
-            $propertyValues['CALC_STAGES'] = false;
-        }
 
-        if ($type === 'BINDING') {
-            if (is_array($bindingDetailsValue)) {
-                $detailsValues = [];
-                foreach ($bindingDetailsValue as $id) {
-                    $detailsValues[] = ['VALUE' => (int)$id, 'DESCRIPTION' => ''];
-                }
-                $propertyValues['DETAILS'] = $detailsValues;
-            } else {
-                $propertyValues['DETAILS'] = false;
-            }
-        } else {
-            $propertyValues['DETAILS'] = false;
-        }
+        // TYPE задаём скаляром (enum ID), связи задаём отдельно через helper с сохранением порядка.
+        $propertyValues['TYPE'] = $typeEnumId;
+        unset($propertyValues['CALC_STAGES'], $propertyValues['DETAILS']);
 
         \CIBlockElement::SetPropertyValuesEx($newId, $detailsIblockId, $propertyValues);
 
+        $this->setMultipleElementLinkProperty($newId, $detailsIblockId, 'CALC_STAGES', $mappedStageIds);
+
+        if ($type === 'BINDING') {
+            $bindingIds = is_array($bindingDetailsValue) ? array_map('intval', $bindingDetailsValue) : [];
+            $this->setMultipleElementLinkProperty($newId, $detailsIblockId, 'DETAILS', $bindingIds);
+        } else {
+            \CIBlockElement::SetPropertyValuesEx($newId, $detailsIblockId, ['DETAILS' => false]);
+        }
+
         return $newId;
+    }
+
+    /**
+     * Для множественных E-свойств Bitrix стабильно сохраняет порядок при схеме: clear -> set.
+     *
+     * @param int[] $ids
+     */
+    private function setMultipleElementLinkProperty(int $elementId, int $iblockId, string $propertyCode, array $ids): void
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids), static function ($id) {
+            return $id > 0;
+        }));
+
+        \CIBlockElement::SetPropertyValuesEx($elementId, $iblockId, [$propertyCode => false]);
+
+        if (!empty($ids)) {
+            \CIBlockElement::SetPropertyValuesEx($elementId, $iblockId, [$propertyCode => $ids]);
+        }
     }
 
     /**
