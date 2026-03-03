@@ -206,6 +206,7 @@ class DetailHandler
                 'detail' => $cloneResult['detail'],
                 'rootDetailId' => $rootDetailId,
                 'newDetailId' => $newDetailId,
+                'createdConfigIds' => $createdConfigIds,
             ];
 
         } catch (\Exception $e) {
