@@ -306,7 +306,6 @@ class BundleHandler
                     $result[] = $stageId;
                 }
             }
-        }
 
         return $result;
     }
