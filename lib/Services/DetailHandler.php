@@ -207,6 +207,7 @@ class DetailHandler
                 'rootDetailId' => $rootDetailId,
                 'newDetailId' => $newDetailId,
                 'createdConfigIds' => $createdConfigIds,
+                'createdDetailIds' => $createdDetailIds,
             ];
 
         } catch (\Exception $e) {
@@ -1302,9 +1303,13 @@ class DetailHandler
 
         // Копируем все свойства оригинала 1:1, перезаписываем только CALC_STAGES и DETAILS
         $propertyValues = $originalDetail['PROPERTY_VALUES'] ?? [];
-        $propertyValues['TYPE'] = $this->resolveDetailTypePropertyValue($originalDetail['TYPE']);
-        $propertyValues['CALC_STAGES'] = $newConfigIds;
-        $propertyValues['DETAILS'] = $newDetailIds;
+        $propertyValues['TYPE'] = ['VALUE' => $this->resolveDetailTypePropertyValue($originalDetail['TYPE']), 'DESCRIPTION' => ''];
+        $propertyValues['CALC_STAGES'] = array_map(static function ($id) {
+            return ['VALUE' => $id, 'DESCRIPTION' => ''];
+        }, $newConfigIds);
+        $propertyValues['DETAILS'] = array_map(static function ($id) {
+            return ['VALUE' => $id, 'DESCRIPTION' => ''];
+        }, $newDetailIds);
 
         \CIBlockElement::SetPropertyValuesEx($newDetailId, $this->detailsIblockId, $propertyValues);
 
@@ -1315,6 +1320,8 @@ class DetailHandler
                 'name' => $originalDetail['NAME'],
                 'type' => $originalDetail['TYPE'],
             ],
+            'createdConfigIds' => $createdConfigIds,
+            'createdDetailIds' => $createdDetailIds,
         ];
     }
 
