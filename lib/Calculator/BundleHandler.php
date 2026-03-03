@@ -234,7 +234,7 @@ class BundleHandler
      * @param int[] $order
      * @param array<int, bool> $stack
      */
-    private function collectDetailGraph(array $detailIds, int $detailsIblockId, array &$graph, array &$order, array $stack): void
+    private function collectDetailGraph($detailIds, $detailsIblockId, array &$graph, array &$order, $stack)
     {
         foreach ($detailIds as $detailId) {
             $detailId = (int)$detailId;
@@ -296,6 +296,23 @@ class BundleHandler
      * @param array<int, array> $graph
      * @return int[]
      */
+    private function collectStageIdsFromGraph($graph)
+    {
+        $result = [];
+        foreach ($graph as $node) {
+            foreach (($node['stageIds'] ?? []) as $stageId) {
+                $stageId = (int)$stageId;
+                if ($stageId > 0 && !in_array($stageId, $result, true)) {
+                    $result[] = $stageId;
+                }
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array> $graph
+     * @return int[]
+     */
     private function collectStageIdsFromGraph(array $graph): array
     {
         $result = [];
@@ -315,7 +332,7 @@ class BundleHandler
      * @param array<int, int> $stageMap Карта oldStageId => newStageId
      * @param array|false $bindingDetailsValue Значение DETAILS для скрепления (false на первом проходе)
      */
-    private function cloneDetailNode(array $node, int $detailsIblockId, array $stageMap, $bindingDetailsValue): int
+    private function cloneDetailNode($node, $detailsIblockId, $stageMap, $bindingDetailsValue)
     {
         $oldId = (int)($node['id'] ?? 0);
         $fields = $node['fields'] ?? [];
@@ -374,7 +391,7 @@ class BundleHandler
      *
      * @param int[] $ids
      */
-    private function setMultipleElementLinkProperty(int $elementId, int $iblockId, string $propertyCode, array $ids): void
+    private function setMultipleElementLinkProperty($elementId, $iblockId, $propertyCode, $ids)
     {
         $ids = array_values(array_filter(array_map('intval', $ids), static function ($id) {
             return $id > 0;
@@ -392,7 +409,7 @@ class BundleHandler
      * @param array<int, int> $idMap
      * @return int[]
      */
-    private function mapIdListOrFail(array $sourceIds, array $idMap, string $context): array
+    private function mapIdListOrFail($sourceIds, $idMap, $context)
     {
         $result = [];
         foreach ($sourceIds as $sourceId) {
@@ -409,7 +426,7 @@ class BundleHandler
         return $result;
     }
 
-    private function getListPropertyEnumId(int $iblockId, string $propertyCode, string $xmlId): int
+    private function getListPropertyEnumId($iblockId, $propertyCode, $xmlId)
     {
         $enum = \CIBlockPropertyEnum::GetList(
             ['SORT' => 'ASC', 'ID' => 'ASC'],
@@ -556,7 +573,7 @@ class BundleHandler
      * @param int $sourceId ID исходного элемента
      * @param int $targetId ID целевого элемента
      */
-    private function cloneCatalogData(int $sourceId, int $targetId): void
+    private function cloneCatalogData($sourceId, $targetId)
     {
         if (!Loader::includeModule('catalog')) {
             return;
