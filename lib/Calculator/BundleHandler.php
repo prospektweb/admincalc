@@ -296,23 +296,6 @@ class BundleHandler
      * @param array<int, array> $graph
      * @return int[]
      */
-    private function collectStageIdsFromGraph($graph)
-    {
-        $result = [];
-        foreach ($graph as $node) {
-            foreach (($node['stageIds'] ?? []) as $stageId) {
-                $stageId = (int)$stageId;
-                if ($stageId > 0 && !in_array($stageId, $result, true)) {
-                    $result[] = $stageId;
-                }
-            }
-        }
-    }
-
-    /**
-     * @param array<int, array> $graph
-     * @return int[]
-     */
     private function collectStageIdsFromGraph(array $graph): array
     {
         $result = [];
@@ -323,6 +306,7 @@ class BundleHandler
                     $result[] = $stageId;
                 }
             }
+        }
 
         return $result;
     }
