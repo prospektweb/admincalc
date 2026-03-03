@@ -4,13 +4,16 @@
     var PresetClone = {
         observer: null,
         initialized: false,
+        pageContext: null,
 
         init: function() {
             if (this.initialized) {
                 return;
             }
 
-            if (!this.isPresetEditPage()) {
+            this.pageContext = this.getPageContext();
+
+            if (!this.pageContext) {
                 return;
             }
 
@@ -19,19 +22,48 @@
             this.attachToMenus(document);
         },
 
-        isPresetEditPage: function() {
-            var path = window.location.pathname || '';
-            if (path.indexOf('/bitrix/admin/iblock_element_edit.php') === -1 && path.indexOf('/bitrix/admin/iblock_subelement_edit.php') === -1) {
-                return false;
+        getPageContext: function() {
+            var presetIblockId = parseInt(window.PROSPEKTWEB_CALC_PRESET_IBLOCK_ID || 0, 10);
+            if (presetIblockId <= 0) {
+                return null;
             }
 
-            var query = new URLSearchParams(window.location.search);
-            var iblockId = parseInt(query.get('IBLOCK_ID') || query.get('iblock_id') || '0', 10);
-            var elementId = parseInt(query.get('ID') || query.get('id') || '0', 10);
-            var presetIblockId = parseInt(window.PROSPEKTWEB_CALC_PRESET_IBLOCK_ID || 0, 10);
+            var currentUrl = new URL(window.location.href);
+            var candidates = [currentUrl];
+            var sidepanelUrl = currentUrl.searchParams.get('url');
 
-            return presetIblockId > 0 && iblockId === presetIblockId && elementId > 0;
+            if (sidepanelUrl) {
+                try {
+                    candidates.push(new URL(sidepanelUrl, window.location.origin));
+                } catch (e) {
+                    // ignore invalid embedded URL
+                }
+            }
+
+            for (var i = 0; i < candidates.length; i++) {
+                var candidate = candidates[i];
+                var path = candidate.pathname || '';
+                if (path.indexOf('/bitrix/admin/iblock_element_edit.php') === -1 && path.indexOf('/bitrix/admin/iblock_subelement_edit.php') === -1) {
+                    continue;
+                }
+
+                var params = candidate.searchParams;
+                var iblockId = parseInt(params.get('IBLOCK_ID') || params.get('iblock_id') || '0', 10);
+                var elementId = parseInt(params.get('ID') || params.get('id') || '0', 10);
+
+                if (iblockId === presetIblockId && elementId > 0) {
+                    return {
+                        editUrl: candidate,
+                        elementId: elementId,
+                        iblockId: iblockId
+                    };
+                }
+            }
+
+            return null;
         },
+
+
 
         observeMenus: function() {
             var self = this;
@@ -87,8 +119,8 @@
         },
 
         clonePreset: function() {
-            var query = new URLSearchParams(window.location.search);
-            var presetId = parseInt(query.get('ID') || query.get('id') || '0', 10);
+            var context = this.pageContext || this.getPageContext();
+            var presetId = context ? parseInt(context.elementId || 0, 10) : 0;
             if (!presetId) {
                 alert('Не удалось определить ID пресета');
                 return;
@@ -115,7 +147,22 @@
                 },
                 body: body.toString()
             })
-                .then(function(response) { return response.json(); })
+                .then(function(response) {
+                    return response.text().then(function(text) {
+                        var data = null;
+                        try {
+                            data = JSON.parse(text);
+                        } catch (parseError) {
+                            throw new Error('Сервер вернул не JSON (HTTP ' + response.status + '): ' + text.slice(0, 300));
+                        }
+
+                        if (!response.ok) {
+                            throw new Error((data && (data.message || data.error || data.details)) || ('HTTP ' + response.status));
+                        }
+
+                        return data;
+                    });
+                })
                 .then(function(data) {
                     if (!data || data.success !== true || !data.data || !data.data.newPresetId) {
                         throw new Error((data && (data.message || data.error)) || 'Не удалось клонировать пресет');
@@ -126,7 +173,7 @@
                         throw new Error('Некорректный ID нового пресета');
                     }
 
-                    var redirectUrl = new URL(window.location.href);
+                    var redirectUrl = new URL(context.editUrl.toString());
                     redirectUrl.searchParams.set('ID', String(newPresetId));
                     redirectUrl.searchParams.set('id', String(newPresetId));
                     window.location.href = redirectUrl.toString();
