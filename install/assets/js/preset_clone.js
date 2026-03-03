@@ -147,7 +147,22 @@
                 },
                 body: body.toString()
             })
-                .then(function(response) { return response.json(); })
+                .then(function(response) {
+                    return response.text().then(function(text) {
+                        var data = null;
+                        try {
+                            data = JSON.parse(text);
+                        } catch (parseError) {
+                            throw new Error('Сервер вернул не JSON (HTTP ' + response.status + '): ' + text.slice(0, 300));
+                        }
+
+                        if (!response.ok) {
+                            throw new Error((data && (data.message || data.error || data.details)) || ('HTTP ' + response.status));
+                        }
+
+                        return data;
+                    });
+                })
                 .then(function(data) {
                     if (!data || data.success !== true || !data.data || !data.data.newPresetId) {
                         throw new Error((data && (data.message || data.error)) || 'Не удалось клонировать пресет');

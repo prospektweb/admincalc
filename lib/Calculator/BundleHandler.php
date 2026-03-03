@@ -307,23 +307,6 @@ class BundleHandler
                     $result[] = $stageId;
                 }
             }
-        }
-    }
-
-    /**
-     * @param array<int, array> $graph
-     * @return int[]
-     */
-    private function collectStageIdsFromGraph(array $graph): array
-    {
-        $result = [];
-        foreach ($graph as $node) {
-            foreach (($node['stageIds'] ?? []) as $stageId) {
-                $stageId = (int)$stageId;
-                if ($stageId > 0 && !in_array($stageId, $result, true)) {
-                    $result[] = $stageId;
-                }
-            }
 
         return $result;
     }
@@ -353,6 +336,7 @@ class BundleHandler
         if (!$newId) {
             throw new \Exception('Ошибка создания клона детали/скрепления ID=' . $oldId);
         }
+    }
 
         $newId = (int)$newId;
         $propertyValues = $this->getElementPropertyValuesForClone($oldId, $detailsIblockId);
