@@ -454,13 +454,18 @@ class BundleHandler
                 $value = ['TEXT' => (string)($prop['~VALUE']['TEXT'] ?? $prop['VALUE']), 'TYPE' => (string)($prop['VALUE_TYPE'] ?? 'text')];
             }
 
+            $withDescription = (string)($prop['WITH_DESCRIPTION'] ?? 'N') === 'Y';
+            $preparedValue = $withDescription
+                ? ['VALUE' => $value, 'DESCRIPTION' => (string)($prop['DESCRIPTION'] ?? '')]
+                : $value;
+
             if (($prop['MULTIPLE'] ?? 'N') === 'Y') {
                 if (!array_key_exists($code, $result) || !is_array($result[$code])) {
                     $result[$code] = [];
                 }
-                $result[$code][] = $value;
+                $result[$code][] = $preparedValue;
             } else {
-                $result[$code] = $value;
+                $result[$code] = $preparedValue;
             }
         }
 
@@ -472,6 +477,14 @@ class BundleHandler
         if (!is_array($value)) {
             $value = [$value];
         }
+
+        $value = array_map(static function ($item) {
+            if (is_array($item) && array_key_exists('VALUE', $item)) {
+                return $item['VALUE'];
+            }
+
+            return $item;
+        }, $value);
 
         return array_values(array_filter(array_map('intval', $value), static function ($id) {
             return $id > 0;
