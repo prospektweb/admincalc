@@ -149,62 +149,18 @@ class BundleHandler
                 $stageMap[$stageId] = (int)$newStageId;
             }
 
-            // Шаг 2: клонируем только детали (TYPE=DETAIL).
+            // Шаг 2: клонируем все детали/скрепления 1:1 без замены связей.
             $detailMap = [];
             foreach ($detailOrder as $detailId) {
                 $node = $detailGraph[$detailId] ?? null;
-                if (!$node || $node['type'] !== 'DETAIL') {
+                if (!$node) {
                     continue;
                 }
-                $detailMap[$detailId] = $this->cloneDetailNode($node, $detailsIblockId, $stageMap, []);
+                $detailMap[$detailId] = $this->cloneDetailNodeRaw($node, $detailsIblockId);
             }
 
-            // Шаг 3: клонируем скрепления (TYPE=BINDING) без DETAILS, затем проставляем DETAILS по карте.
-            foreach ($detailOrder as $detailId) {
-                $node = $detailGraph[$detailId] ?? null;
-                if (!$node || $node['type'] !== 'BINDING') {
-                    continue;
-                }
-                $detailMap[$detailId] = $this->cloneDetailNode($node, $detailsIblockId, $stageMap, false);
-            }
-
-            foreach ($detailOrder as $detailId) {
-                $node = $detailGraph[$detailId] ?? null;
-                if (!$node || $node['type'] !== 'BINDING') {
-                    continue;
-                }
-
-                $mappedChildIds = [];
-                foreach ($node['detailIds'] as $childId) {
-                    if (!isset($detailMap[$childId])) {
-                        throw new \Exception('Некорректное клонирование: отсутствует клон дочерней детали ID=' . $childId);
-                    }
-                    $mappedChildIds[] = (int)$detailMap[$childId];
-                }
-
-                $this->setMultipleElementLinkProperty(
-                    (int)$detailMap[$detailId],
-                    $detailsIblockId,
-                    'DETAILS',
-                    $mappedChildIds
-                );
-            }
-
-            // Валидация от дублирования клонирования
-            if (count($detailMap) !== count($detailGraph)) {
-                throw new \Exception('Обнаружено дублирование/потеря при клонировании деталей: ожидалось '
-                    . count($detailGraph) . ', создано ' . count($detailMap));
-            }
-
-            // Шаг 4: клонируем пресетные ссылки на детали и этапы с сохранением последовательности.
-            $mappedRootDetailIds = [];
-            foreach ($rootDetailIds as $rootDetailId) {
-                if (!isset($detailMap[$rootDetailId])) {
-                    throw new \Exception('Не найден клон корневой детали ID=' . $rootDetailId);
-                }
-                $mappedRootDetailIds[] = (int)$detailMap[$rootDetailId];
-            }
-
+            // Шаг 3: remap связей в клонированном пресете (CALC_DETAILS/CALC_STAGES).
+            $mappedRootDetailIds = $this->mapIdListOrFail($rootDetailIds, $detailMap, 'деталей пресета');
             $mappedPresetStageIds = $this->mapIdListOrFail(
                 $this->normalizeToIntArray($propertyValues['CALC_STAGES'] ?? []),
                 $stageMap,
@@ -213,8 +169,47 @@ class BundleHandler
 
             $propertyValues['CALC_DETAILS'] = !empty($mappedRootDetailIds) ? $mappedRootDetailIds : false;
             $propertyValues['CALC_STAGES'] = !empty($mappedPresetStageIds) ? $mappedPresetStageIds : false;
-
+            
             \CIBlockElement::SetPropertyValuesEx($newPresetId, $presetsIblockId, $propertyValues);
+
+            // Шаг 4: remap связей в каждой клонированной детали.
+            foreach ($detailOrder as $detailId) {
+                $node = $detailGraph[$detailId] ?? null;
+                if (!$node || !isset($detailMap[$detailId])) {
+                    continue;
+                }
+
+                $newDetailId = (int)$detailMap[$detailId];
+
+                $mappedStageIds = $this->mapIdListOrFail(
+                    $this->normalizeToIntArray($node['stageIds'] ?? []),
+                    $stageMap,
+                    'этапов детали ID=' . $detailId
+                );
+
+                $mappedChildIds = $this->mapIdListOrFail(
+                    $this->normalizeToIntArray($node['detailIds'] ?? []),
+                    $detailMap,
+                    'DETAILS детали ID=' . $detailId
+                );
+
+                $this->setMultipleElementLinkProperty($newDetailId, $detailsIblockId, 'CALC_STAGES', $mappedStageIds);
+                $this->setMultipleElementLinkProperty($newDetailId, $detailsIblockId, 'DETAILS', $mappedChildIds);
+
+                if (($node['type'] ?? 'DETAIL') === 'BINDING') {
+                    $bindingEnumId = $this->getListPropertyEnumId($detailsIblockId, 'TYPE', 'BINDING');
+                    if ($bindingEnumId <= 0) {
+                        throw new \Exception('Не найден enum TYPE=BINDING');
+                    }
+                    \CIBlockElement::SetPropertyValuesEx($newDetailId, $detailsIblockId, ['TYPE' => $bindingEnumId]);
+                }
+            }
+
+            // Валидация от дублирования клонирования
+            if (count($detailMap) !== count($detailGraph)) {
+                throw new \Exception('Обнаружено дублирование/потеря при клонировании деталей: ожидалось '
+                    . count($detailGraph) . ', создано ' . count($detailMap));
+            }
 
             // Шаг 7: копируем товарный каталог (НДС/закупочная/валюта/цены).
             $this->cloneCatalogData($presetId, $newPresetId);
@@ -263,10 +258,11 @@ class BundleHandler
             }
 
             $fields = $element->GetFields();
-            $properties = $element->GetProperties();
-            $type = (string)($properties['TYPE']['VALUE_XML_ID'] ?? 'DETAIL');
-            $childIds = $this->normalizeToIntArray($properties['DETAILS']['VALUE'] ?? []);
-            $stageIds = $this->normalizeToIntArray($properties['CALC_STAGES']['VALUE'] ?? []);
+            $propertyValues = $this->getElementPropertyValuesForClone($detailId, $detailsIblockId);
+
+            $type = $this->resolveDetailTypeXmlId($propertyValues['TYPE'] ?? null, $detailsIblockId);
+            $childIds = $this->normalizeToIntArray($propertyValues['DETAILS'] ?? []);
+            $stageIds = $this->normalizeToIntArray($propertyValues['CALC_STAGES'] ?? []);
 
             if ($type !== 'DETAIL' && $type !== 'BINDING') {
                 throw new \Exception('Некорректный TYPE для ID=' . $detailId . ': ' . $type);
@@ -312,11 +308,11 @@ class BundleHandler
     }
 
     /**
+     * Клонировать деталь/скрепление 1:1 (без remap связей).
+     *
      * @param array $node Узел графа детали/скрепления
-     * @param array<int, int> $stageMap Карта oldStageId => newStageId
-     * @param array|false $bindingDetailsValue Значение DETAILS для скрепления (false на первом проходе)
      */
-    private function cloneDetailNode($node, $detailsIblockId, $stageMap, $bindingDetailsValue)
+    private function cloneDetailNodeRaw($node, $detailsIblockId)
     {
         $oldId = (int)($node['id'] ?? 0);
         $fields = $node['fields'] ?? [];
@@ -339,35 +335,29 @@ class BundleHandler
 
         $newId = (int)$newId;
         $propertyValues = $this->getElementPropertyValuesForClone($oldId, $detailsIblockId);
-
-        $type = (string)($node['type'] ?? 'DETAIL');
-        $typeEnumId = $this->getListPropertyEnumId($detailsIblockId, 'TYPE', $type);
-        if ($typeEnumId <= 0) {
-            throw new \Exception('Не найдено значение TYPE=' . $type . ' для детали ID=' . $oldId);
-        }
-
-        $mappedStageIds = $this->mapIdListOrFail(
-            $this->normalizeToIntArray($node['stageIds'] ?? []),
-            $stageMap,
-            'этапов детали ID=' . $oldId
-        );
-
-        // TYPE задаём скаляром (enum ID), связи задаём отдельно через helper с сохранением порядка.
-        $propertyValues['TYPE'] = $typeEnumId;
-        unset($propertyValues['CALC_STAGES'], $propertyValues['DETAILS']);
-
         \CIBlockElement::SetPropertyValuesEx($newId, $detailsIblockId, $propertyValues);
 
-        $this->setMultipleElementLinkProperty($newId, $detailsIblockId, 'CALC_STAGES', $mappedStageIds);
+        return $newId;
+    }
 
-        if ($type === 'BINDING') {
-            $bindingIds = is_array($bindingDetailsValue) ? array_map('intval', $bindingDetailsValue) : [];
-            $this->setMultipleElementLinkProperty($newId, $detailsIblockId, 'DETAILS', $bindingIds);
-        } else {
-            \CIBlockElement::SetPropertyValuesEx($newId, $detailsIblockId, ['DETAILS' => false]);
+    /**
+     * Разрешить XML_ID типа детали из значения свойства TYPE.
+     *
+     * @param mixed $typePropertyValue enum ID или иной формат значения TYPE
+     */
+    private function resolveDetailTypeXmlId($typePropertyValue, int $iblockId): string
+    {
+        $enumId = (int)$typePropertyValue;
+
+        if ($enumId > 0) {
+            $enum = \CIBlockPropertyEnum::GetList([], ['IBLOCK_ID' => $iblockId, 'ID' => $enumId])->Fetch();
+            $enumXmlId = (string)($enum['XML_ID'] ?? '');
+            if ($enumXmlId !== '') {
+                return $enumXmlId;
+            }
         }
 
-        return $newId;
+        return 'DETAIL';
     }
 
     /**
