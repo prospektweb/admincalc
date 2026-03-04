@@ -258,10 +258,11 @@ class BundleHandler
             }
 
             $fields = $element->GetFields();
-            $properties = $element->GetProperties();
-            $type = $this->resolveDetailTypeXmlId($properties, $detailsIblockId);
-            $childIds = $this->normalizeToIntArray($properties['DETAILS']['VALUE'] ?? []);
-            $stageIds = $this->normalizeToIntArray($properties['CALC_STAGES']['VALUE'] ?? []);
+            $propertyValues = $this->getElementPropertyValuesForClone($detailId, $detailsIblockId);
+
+            $type = $this->resolveDetailTypeXmlId($propertyValues['TYPE'] ?? null, $detailsIblockId);
+            $childIds = $this->normalizeToIntArray($propertyValues['DETAILS'] ?? []);
+            $stageIds = $this->normalizeToIntArray($propertyValues['CALC_STAGES'] ?? []);
 
             if ($type !== 'DETAIL' && $type !== 'BINDING') {
                 throw new \Exception('Некорректный TYPE для ID=' . $detailId . ': ' . $type);
@@ -339,17 +340,14 @@ class BundleHandler
         return $newId;
     }
 
-    private function resolveDetailTypeXmlId(array $properties, int $iblockId): string
+    /**
+     * Разрешить XML_ID типа детали из значения свойства TYPE.
+     *
+     * @param mixed $typePropertyValue enum ID или иной формат значения TYPE
+     */
+    private function resolveDetailTypeXmlId($typePropertyValue, int $iblockId): string
     {
-        $xmlId = (string)($properties['TYPE']['VALUE_XML_ID'] ?? '');
-        if ($xmlId !== '') {
-            return $xmlId;
-        }
-
-        $enumId = (int)($properties['TYPE']['VALUE_ENUM_ID'] ?? 0);
-        if ($enumId <= 0) {
-            $enumId = (int)($properties['TYPE']['VALUE'] ?? 0);
-        }
+        $enumId = (int)$typePropertyValue;
 
         if ($enumId > 0) {
             $enum = \CIBlockPropertyEnum::GetList([], ['IBLOCK_ID' => $iblockId, 'ID' => $enumId])->Fetch();
