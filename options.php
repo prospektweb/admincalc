@@ -199,7 +199,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     // Сохраняем настройки округления цен
     Option::set($module_id, 'PRICE_ROUNDING', (float)($_POST['PRICE_ROUNDING'] ?? 1));
 
-    // Сохраняем лимит истории расчётов
+    // Сохраняем настройки истории расчётов
+    Option::set($module_id, 'SAVE_CALC_HISTORY', (($_POST['SAVE_CALC_HISTORY'] ?? 'N') === 'Y') ? 'Y' : 'N');
     Option::set($module_id, 'CALC_HISTORY_LIMIT', (int)($_POST['CALC_HISTORY_LIMIT'] ?? 10));
 
     // Сохраняем настройки наценки
@@ -326,6 +327,13 @@ $tabControl->Begin();
         <td><?= Loc::getMessage('PROSPEKTWEB_CALC_LOGGING_ENABLED') ?></td>
         <td>
             <input type="checkbox" name="LOGGING_ENABLED" value="Y" <?= $currentSettings['loggingEnabled'] ? 'checked' : '' ?>>
+        </td>
+    </tr>
+
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_SAVE_CALC_HISTORY') ?></td>
+        <td>
+            <input type="checkbox" name="SAVE_CALC_HISTORY" value="Y" <?= Option::get($module_id, 'SAVE_CALC_HISTORY', 'N') === 'Y' ? 'checked' : '' ?>>
         </td>
     </tr>
 
