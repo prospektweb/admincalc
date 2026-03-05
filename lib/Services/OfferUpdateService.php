@@ -70,7 +70,19 @@ class OfferUpdateService
                 $pricesUpdated = false;
 
                 if (!empty($rangesByType)) {
-                    $pricesUpdated = $this->priceService->syncPriceRangesMultiType($offerId, $rangesByType);
+                    if ($this->isSimpleSinglePricePayload($rangesByType)) {
+                        $simplePrice = $this->extractSimpleSinglePrice($rangesByType);
+                        if ($simplePrice !== null) {
+                            $pricesUpdated = $this->priceService->writePrice(
+                                $offerId,
+                                $simplePrice['typeId'],
+                                $simplePrice['price'],
+                                $simplePrice['currency']
+                            );
+                        }
+                    } else {
+                        $pricesUpdated = $this->priceService->syncPriceRangesMultiType($offerId, $rangesByType);
+                    }
                 }
 
                 $results[] = [
@@ -202,6 +214,60 @@ class OfferUpdateService
         }
 
         return null;
+    }
+
+    private function isSimpleSinglePricePayload(array $rangesByType): bool
+    {
+        if (count($rangesByType) !== 1) {
+            return false;
+        }
+
+        $typeId = (int)array_key_first($rangesByType);
+        $ranges = $rangesByType[$typeId] ?? [];
+
+        if ($typeId <= 0 || !is_array($ranges) || count($ranges) !== 1) {
+            return false;
+        }
+
+        $range = $ranges[0] ?? [];
+        if (!is_array($range)) {
+            return false;
+        }
+
+        $quantityFrom = $range['quantityFrom'] ?? null;
+        $quantityTo = $range['quantityTo'] ?? null;
+
+        // Fast-path: единичная «базовая» цена без реальных диапазонов.
+        // quantityFrom=0 в payload трактуем как отсутствие нижней границы.
+        $isOpenStart = $quantityFrom === null || (int)$quantityFrom === 0;
+        $isOpenEnd = $quantityTo === null;
+
+        return $isOpenStart && $isOpenEnd;
+    }
+
+    private function extractSimpleSinglePrice(array $rangesByType): ?array
+    {
+        if (count($rangesByType) !== 1) {
+            return null;
+        }
+
+        $typeId = (int)array_key_first($rangesByType);
+        $ranges = $rangesByType[$typeId] ?? [];
+        $range = is_array($ranges) ? ($ranges[0] ?? null) : null;
+
+        if ($typeId <= 0 || !is_array($range)) {
+            return null;
+        }
+
+        if (!isset($range['price']) || !is_numeric($range['price'])) {
+            return null;
+        }
+
+        return [
+            'typeId' => $typeId,
+            'price' => (float)$range['price'],
+            'currency' => (string)($range['currency'] ?? 'RUB'),
+        ];
     }
 
     private function buildValueDescriptionList($items, string $valueKey, string $descriptionKey): ?array
