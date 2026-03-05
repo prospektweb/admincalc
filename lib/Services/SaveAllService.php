@@ -2,6 +2,7 @@
 
 namespace Prospektweb\Calc\Services;
 
+use Bitrix\Main\Config\Option;
 use Prospektweb\Calc\Calculator\CalculationHistoryHandler;
 
 /**
@@ -9,12 +10,12 @@ use Prospektweb\Calc\Calculator\CalculationHistoryHandler;
  */
 class SaveAllService
 {
-    private CalculationHistoryHandler $historyHandler;
+    private const MODULE_ID = 'prospektweb.calc';
+
     private OfferUpdateService $offerUpdateService;
 
     public function __construct()
     {
-        $this->historyHandler = new CalculationHistoryHandler();
         $this->offerUpdateService = new OfferUpdateService();
     }
 
@@ -24,7 +25,17 @@ class SaveAllService
      */
     public function handle(array $payload): array
     {
-        $historyResult = $this->historyHandler->handle($payload);
+        $historyResult = [
+            'status' => 'skipped',
+            'message' => 'Сохранение истории расчётов отключено в настройках модуля',
+            'results' => [],
+            'total' => 0,
+            'saved' => 0,
+        ];
+
+        if (Option::get(self::MODULE_ID, 'SAVE_CALC_HISTORY', 'N') === 'Y') {
+            $historyResult = (new CalculationHistoryHandler())->handle($payload);
+        }
 
         $offers = $this->normalizeOffersForUpdate($payload);
         if (empty($offers)) {
@@ -103,11 +114,15 @@ class SaveAllService
 
     private function resolveFinalStatus(string $historyStatus, string $offersStatus): string
     {
-        if ($historyStatus === 'ok' && $offersStatus === 'ok') {
+        if (($historyStatus === 'ok' || $historyStatus === 'skipped') && $offersStatus === 'ok') {
             return 'ok';
         }
 
         if ($historyStatus === 'error' && $offersStatus === 'error') {
+            return 'error';
+        }
+
+        if ($historyStatus === 'skipped' && $offersStatus === 'error') {
             return 'error';
         }
 

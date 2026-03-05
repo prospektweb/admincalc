@@ -36,6 +36,16 @@ class CalculationHistoryHandler
      */
     public function handle(array $payload): array
     {
+        if (Option::get(self::MODULE_ID, 'SAVE_CALC_HISTORY', 'N') !== 'Y') {
+            return [
+                'status' => 'skipped',
+                'message' => 'Сохранение истории расчётов отключено в настройках модуля',
+                'results' => [],
+                'total' => 0,
+                'saved' => 0,
+            ];
+        }
+
         global $USER;
 
         $userId = $USER ? (int)$USER->GetID() : 0;

@@ -19,6 +19,7 @@ $prospektweb_calc_default_option = [
     'FORMAT_FIELD_CODE' => 'FORMAT',
     'VOLUME_FIELD_CODE' => 'VOLUME',
     // История расчётов
+    'SAVE_CALC_HISTORY' => 'N',
     'CALC_HISTORY_LIMIT' => 10,
     // Сервер расчётов
     'CALC_SERVER_URL' => 'https://pwrt.ru/calc-api',

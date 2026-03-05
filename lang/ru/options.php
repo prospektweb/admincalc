@@ -11,6 +11,7 @@ $MESS['PROSPEKTWEB_CALC_TAB_IBLOCKS_TITLE'] = 'Инфоблоки модуля';
 $MESS['PROSPEKTWEB_CALC_DEFAULT_PRICE_TYPE'] = 'Тип цены по умолчанию';
 $MESS['PROSPEKTWEB_CALC_DEFAULT_CURRENCY'] = 'Валюта по умолчанию';
 $MESS['PROSPEKTWEB_CALC_LOGGING_ENABLED'] = 'Включить логирование';
+$MESS['PROSPEKTWEB_CALC_SAVE_CALC_HISTORY'] = 'Сохранять историю расчетов';
 $MESS['PROSPEKTWEB_CALC_PRICE_ROUNDING'] = 'Округление цен составляющих элементов';
 $MESS['PROSPEKTWEB_CALC_HISTORY_LIMIT'] = 'Макс. количество записей истории расчётов на 1 ТП';
 $MESS['PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE'] = 'Значение наценки по умолчанию';
