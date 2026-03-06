@@ -149,6 +149,8 @@ class BundleHandler
                 $stageMap[$stageId] = (int)$newStageId;
             }
 
+            $this->remapStageInputDescriptions($stageMap);
+
             // Шаг 2: клонируем все детали/скрепления 1:1 без замены связей.
             $detailMap = [];
             foreach ($detailOrder as $detailId) {
@@ -552,6 +554,83 @@ class BundleHandler
         }
 
         return $newId;
+    }
+
+    /**
+     * Обновить ссылки вида stage_{id} в DESCRIPTION свойства INPUTS у клонированных этапов.
+     *
+     * @param array<int, int> $stageMap [oldStageId => newStageId]
+     */
+    private function remapStageInputDescriptions(array $stageMap): void
+    {
+        if (empty($stageMap)) {
+            return;
+        }
+
+        $stagesIblockId = $this->configManager->getIblockId('CALC_STAGES');
+        if ($stagesIblockId <= 0) {
+            return;
+        }
+
+        foreach ($stageMap as $newStageId) {
+            $newStageId = (int)$newStageId;
+            if ($newStageId <= 0) {
+                continue;
+            }
+
+            $propValues = $this->getElementPropertyValuesForClone($newStageId, $stagesIblockId);
+            $inputs = $propValues['INPUTS'] ?? null;
+
+            if (!is_array($inputs) || $inputs === []) {
+                continue;
+            }
+
+            $updatedInputs = [];
+            $hasChanges = false;
+
+            foreach ($inputs as $input) {
+                if (!is_array($input) || !array_key_exists('VALUE', $input)) {
+                    $updatedInputs[] = $input;
+                    continue;
+                }
+
+                $description = (string)($input['DESCRIPTION'] ?? '');
+                $mappedDescription = $this->replaceStageIdsInString($description, $stageMap);
+                if ($mappedDescription !== $description) {
+                    $hasChanges = true;
+                }
+
+                $input['DESCRIPTION'] = $mappedDescription;
+                $updatedInputs[] = $input;
+            }
+
+            if ($hasChanges) {
+                \CIBlockElement::SetPropertyValuesEx($newStageId, $stagesIblockId, [
+                    'INPUTS' => $updatedInputs,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Заменить подстроки stage_{oldId} на stage_{newId} согласно карте соответствия.
+     *
+     * @param array<int, int> $stageMap [oldStageId => newStageId]
+     */
+    private function replaceStageIdsInString(string $value, array $stageMap): string
+    {
+        if ($value === '') {
+            return $value;
+        }
+
+        return (string)preg_replace_callback('/stage_(\d+)/u', static function (array $matches) use ($stageMap) {
+            $oldStageId = (int)($matches[1] ?? 0);
+            if ($oldStageId > 0 && isset($stageMap[$oldStageId])) {
+                return 'stage_' . (int)$stageMap[$oldStageId];
+            }
+
+            return $matches[0];
+        }, $value);
     }
 
         /**
