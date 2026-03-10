@@ -129,6 +129,128 @@ function cleanupCalculationHistory(string $moduleId, string $mode, ConfigManager
     ];
 }
 
+/**
+ * Сервисная очистка неиспользуемых деталей и этапов.
+ */
+function cleanupUnusedDetailsAndStages(ConfigManager $configManager): array
+{
+    if (!Loader::includeModule('iblock')) {
+        return ['deletedDetails' => 0, 'deletedStages' => 0, 'checkedDetails' => 0, 'checkedStages' => 0, 'message' => 'Модуль iblock не доступен'];
+    }
+
+    $presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
+    $detailsIblockId = $configManager->getIblockId('CALC_DETAILS');
+    $stagesIblockId = $configManager->getIblockId('CALC_STAGES');
+
+    if ($presetsIblockId <= 0 || $detailsIblockId <= 0 || $stagesIblockId <= 0) {
+        return ['deletedDetails' => 0, 'deletedStages' => 0, 'checkedDetails' => 0, 'checkedStages' => 0, 'message' => 'Не настроены инфоблоки CALC_PRESETS/CALC_DETAILS/CALC_STAGES'];
+    }
+
+    $usedDetails = [];
+    $usedStages = [];
+    $queue = [];
+
+    $presetRs = \CIBlockElement::GetList([], ['IBLOCK_ID' => $presetsIblockId], false, false, ['ID']);
+    while ($preset = $presetRs->Fetch()) {
+        $presetId = (int)$preset['ID'];
+
+        $detailsRs = \CIBlockElement::GetProperty($presetsIblockId, $presetId, [], ['CODE' => 'CALC_DETAILS']);
+        while ($detail = $detailsRs->Fetch()) {
+            $detailId = (int)($detail['VALUE'] ?? 0);
+            if ($detailId > 0 && !isset($usedDetails[$detailId])) {
+                $usedDetails[$detailId] = true;
+                $queue[] = $detailId;
+            }
+        }
+
+        $stagesRs = \CIBlockElement::GetProperty($presetsIblockId, $presetId, [], ['CODE' => 'CALC_STAGES']);
+        while ($stage = $stagesRs->Fetch()) {
+            $stageId = (int)($stage['VALUE'] ?? 0);
+            if ($stageId > 0) {
+                $usedStages[$stageId] = true;
+            }
+        }
+    }
+
+    while (!empty($queue)) {
+        $detailId = (int)array_pop($queue);
+        if ($detailId <= 0) {
+            continue;
+        }
+
+        $detailStagesRs = \CIBlockElement::GetProperty($detailsIblockId, $detailId, [], ['CODE' => 'CALC_STAGES']);
+        while ($detailStage = $detailStagesRs->Fetch()) {
+            $stageId = (int)($detailStage['VALUE'] ?? 0);
+            if ($stageId > 0) {
+                $usedStages[$stageId] = true;
+            }
+        }
+
+        $childDetailsRs = \CIBlockElement::GetProperty($detailsIblockId, $detailId, [], ['CODE' => 'DETAILS']);
+        while ($childDetail = $childDetailsRs->Fetch()) {
+            $childDetailId = (int)($childDetail['VALUE'] ?? 0);
+            if ($childDetailId > 0 && !isset($usedDetails[$childDetailId])) {
+                $usedDetails[$childDetailId] = true;
+                $queue[] = $childDetailId;
+            }
+        }
+    }
+
+    $allDetails = [];
+    $detailsRs = \CIBlockElement::GetList([], ['IBLOCK_ID' => $detailsIblockId], false, false, ['ID']);
+    while ($detail = $detailsRs->Fetch()) {
+        $detailId = (int)$detail['ID'];
+        if ($detailId > 0) {
+            $allDetails[] = $detailId;
+        }
+    }
+
+    $allStages = [];
+    $stagesRs = \CIBlockElement::GetList([], ['IBLOCK_ID' => $stagesIblockId], false, false, ['ID']);
+    while ($stage = $stagesRs->Fetch()) {
+        $stageId = (int)$stage['ID'];
+        if ($stageId > 0) {
+            $allStages[] = $stageId;
+        }
+    }
+
+    $detailsToDelete = [];
+    foreach ($allDetails as $detailId) {
+        if (!isset($usedDetails[$detailId])) {
+            $detailsToDelete[] = $detailId;
+        }
+    }
+
+    $stagesToDelete = [];
+    foreach ($allStages as $stageId) {
+        if (!isset($usedStages[$stageId])) {
+            $stagesToDelete[] = $stageId;
+        }
+    }
+
+    $deletedDetails = 0;
+    foreach ($detailsToDelete as $detailId) {
+        if (\CIBlockElement::Delete($detailId)) {
+            $deletedDetails++;
+        }
+    }
+
+    $deletedStages = 0;
+    foreach ($stagesToDelete as $stageId) {
+        if (\CIBlockElement::Delete($stageId)) {
+            $deletedStages++;
+        }
+    }
+
+    return [
+        'deletedDetails' => $deletedDetails,
+        'deletedStages' => $deletedStages,
+        'checkedDetails' => count($allDetails),
+        'checkedStages' => count($allStages),
+        'message' => 'Удалены незадействованные элементы',
+    ];
+}
+
 // Экспорт snapshot текущих данных
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_POST['EXPORT_SNAPSHOT'])) {
     try {
@@ -169,6 +291,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_PO
         ];
         LocalRedirect($APPLICATION->GetCurPage() . '?' . http_build_query($query));
     }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_POST['CLEANUP_UNUSED_ELEMENTS'])) {
+    $cleanupResult = cleanupUnusedDetailsAndStages($configManager);
+    $query = [
+        'mid' => $module_id,
+        'lang' => LANGUAGE_ID,
+        'cleanupUnused' => 'Y',
+        'deletedDetails' => (int)$cleanupResult['deletedDetails'],
+        'deletedStages' => (int)$cleanupResult['deletedStages'],
+        'checkedDetails' => (int)$cleanupResult['checkedDetails'],
+        'checkedStages' => (int)$cleanupResult['checkedStages'],
+        'cleanupMessage' => urlencode((string)$cleanupResult['message']),
+    ];
+    LocalRedirect($APPLICATION->GetCurPage() . '?' . http_build_query($query));
 }
 
 // Обработка сохранения
@@ -273,6 +410,28 @@ if (($_GET['cleanup'] ?? '') === 'Y') {
             $cleanupAction,
             $checked,
             $deleted,
+            htmlspecialcharsbx($cleanupMessage)
+        ),
+        'TYPE' => 'OK',
+        'HTML' => true,
+    ]);
+}
+
+if (($_GET['cleanupUnused'] ?? '') === 'Y') {
+    $deletedDetails = (int)($_GET['deletedDetails'] ?? 0);
+    $deletedStages = (int)($_GET['deletedStages'] ?? 0);
+    $checkedDetails = (int)($_GET['checkedDetails'] ?? 0);
+    $checkedStages = (int)($_GET['checkedStages'] ?? 0);
+    $cleanupMessage = urldecode((string)($_GET['cleanupMessage'] ?? ''));
+
+    CAdminMessage::ShowMessage([
+        'MESSAGE' => Loc::getMessage('PROSPEKTWEB_CALC_UNUSED_ELEMENTS_CLEANUP_DONE'),
+        'DETAILS' => sprintf(
+            Loc::getMessage('PROSPEKTWEB_CALC_UNUSED_ELEMENTS_CLEANUP_DETAILS') ?: '',
+            $checkedDetails,
+            $deletedDetails,
+            $checkedStages,
+            $deletedStages,
             htmlspecialcharsbx($cleanupMessage)
         ),
         'TYPE' => 'OK',
@@ -412,6 +571,15 @@ $tabControl->Begin();
                 <?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_ALL_BTN') ?>
             </button>
             <div style="color:#777;font-size:11px;margin-top:6px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_SERVICE_ALL_HINT') ?></div>
+        </td>
+    </tr>
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_UNUSED_ELEMENTS_SERVICE') ?></td>
+        <td>
+            <button type="submit" class="adm-btn" name="CLEANUP_UNUSED_ELEMENTS" value="Y" onclick="return confirm('<?= CUtil::JSEscape(Loc::getMessage('PROSPEKTWEB_CALC_UNUSED_ELEMENTS_SERVICE_CONFIRM')) ?>');">
+                <?= Loc::getMessage('PROSPEKTWEB_CALC_UNUSED_ELEMENTS_SERVICE_BTN') ?>
+            </button>
+            <div style="color:#777;font-size:11px;margin-top:6px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_UNUSED_ELEMENTS_SERVICE_HINT') ?></div>
         </td>
     </tr>
 
