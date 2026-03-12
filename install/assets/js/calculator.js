@@ -47,6 +47,7 @@ var ProspekwebCalc = {
     observer: null,
     windowCloseHandler: null,
     isClosing: false,
+    _isInserting: false,
 
     /**
      * Инициализация кнопки в админке
@@ -81,31 +82,65 @@ var ProspekwebCalc = {
         var toolbar = context.toolbar;
         var anchorNode = context.anchor;
 
-        if (document.getElementById('btn_prospektweb_calc')) {
-            if (!document.getElementById('btn_prospektweb_markup')) {
-                this.initMarkupButton(toolbar, document.getElementById('btn_prospektweb_calc') || anchorNode);
-            }
+        // Если обе кнопки уже есть — ничего не делаем
+        var existingCalc = document.getElementById('btn_prospektweb_calc');
+        var existingMarkup = document.getElementById('btn_prospektweb_markup');
+
+        if (existingCalc && existingMarkup) {
             return;
         }
 
-        var calcBtn = document.createElement('a');
-        calcBtn.id = 'btn_prospektweb_calc';
-        calcBtn.className = 'adm-btn';
-        calcBtn.href = 'javascript:void(0)';
-        calcBtn.title = 'Калькуляция себестоимости';
-        calcBtn.textContent = 'Калькуляция';
+        // Блокируем Observer на время вставки
+        self._isInserting = true;
 
-        calcBtn.addEventListener('click', function() {
-            self.openCalculatorDialog();
-        });
+        try {
+            // Создаём кнопку "Калькуляция" если её нет
+            var calcBtn = existingCalc;
+            if (!calcBtn) {
+                calcBtn = document.createElement('a');
+                calcBtn.id = 'btn_prospektweb_calc';
+                calcBtn.className = 'adm-btn';
+                calcBtn.href = 'javascript:void(0)';
+                calcBtn.title = 'Калькуляция себестоимости';
+                calcBtn.textContent = 'Калькуляция';
 
-        if (anchorNode && anchorNode.nextSibling) {
-            toolbar.insertBefore(calcBtn, anchorNode.nextSibling);
-        } else {
-            toolbar.appendChild(calcBtn);
+                calcBtn.addEventListener('click', function() {
+                    self.openCalculatorDialog();
+                });
+
+                if (anchorNode && anchorNode.nextSibling) {
+                    toolbar.insertBefore(calcBtn, anchorNode.nextSibling);
+                } else {
+                    toolbar.appendChild(calcBtn);
+                }
+            }
+
+            // Создаём кнопку "Добавить наценку" если её нет — СРАЗУ после калькуляции
+            if (!existingMarkup) {
+                var markupBtn = document.createElement('a');
+                markupBtn.id = 'btn_prospektweb_markup';
+                markupBtn.className = 'adm-btn';
+                markupBtn.href = 'javascript:void(0)';
+                markupBtn.title = 'Добавить наценку';
+                markupBtn.textContent = 'Добавить наценку';
+
+                markupBtn.addEventListener('click', function() {
+                    self.openMarkupDialog();
+                });
+
+                // Вставляем сразу после кнопки калькуляции
+                if (calcBtn.nextSibling) {
+                    toolbar.insertBefore(markupBtn, calcBtn.nextSibling);
+                } else {
+                    toolbar.appendChild(markupBtn);
+                }
+            }
+        } finally {
+            // Снимаем блокировку через микрозадержку, чтобы Observer успел пропустить наши изменения
+            setTimeout(function() {
+                self._isInserting = false;
+            }, 0);
         }
-
-        this.initMarkupButton(toolbar, calcBtn);
     },
 
     /**
@@ -190,6 +225,11 @@ var ProspekwebCalc = {
         }
         
         this.observer = new MutationObserver(function(mutations) {
+            // Пропускаем, если мы сами вставляем кнопки
+            if (self._isInserting) {
+                return;
+            }
+
             // Оптимизация: проверяем, есть ли изменения в добавленных/удалённых узлах
             var hasRelevantChanges = false;
             for (var i = 0; i < mutations.length; i++) {
