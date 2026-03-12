@@ -23,4 +23,6 @@ $prospektweb_calc_default_option = [
     'CALC_HISTORY_LIMIT' => 10,
     // Сервер расчётов
     'CALC_SERVER_URL' => 'https://pwrt.ru/calc-api',
+    // Настройки наценок
+    'MARKUP_SETTINGS' => '{"basePriceTypeId":0,"rates":{}}',
 ];

@@ -73,6 +73,10 @@ if (!Loader::includeModule('iblock')) {
     sendJsonResponse(['error' => 'Module error', 'message' => 'Модуль iblock не загружен'], 500);
 }
 
+if (!Loader::includeModule('catalog')) {
+    sendJsonResponse(['error' => 'Module error', 'message' => 'Модуль catalog не загружен'], 500);
+}
+
 // Получаем данные запроса
 $request = Application::getInstance()->getContext()->getRequest();
 
@@ -176,6 +180,14 @@ try {
             handleCreateAndAssignPreset($request);
             break;
 
+        case 'getMarkupSettings':
+            handleGetMarkupSettings();
+            break;
+
+        case 'applyMarkups':
+            handleApplyMarkups($request);
+            break;
+
         case 'save':
             handleSave($request);
             break;
@@ -243,6 +255,139 @@ function handleGetInitData($request): void
         logError('GetInitData error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
     }
+}
+
+
+/**
+ * Возвращает настройки наценок и список типов цен.
+ */
+function handleGetMarkupSettings(): void
+{
+    $moduleId = 'prospektweb.calc';
+    $priceTypes = [];
+
+    $priceTypeList = \CCatalogGroup::GetListArray();
+    foreach ($priceTypeList as $type) {
+        $typeId = (int)($type['ID'] ?? 0);
+        if ($typeId <= 0) {
+            continue;
+        }
+
+        $priceTypes[] = [
+            'id' => $typeId,
+            'name' => (string)($type['NAME'] ?? ('ID ' . $typeId)),
+        ];
+    }
+
+    $settingsRaw = Option::get($moduleId, 'MARKUP_SETTINGS', '');
+    $settings = json_decode($settingsRaw, true);
+    if (!is_array($settings)) {
+        $settings = ['basePriceTypeId' => 0, 'rates' => []];
+    }
+
+    $settings['basePriceTypeId'] = (int)($settings['basePriceTypeId'] ?? 0);
+    $settings['rates'] = is_array($settings['rates'] ?? null) ? $settings['rates'] : [];
+
+    if ($settings['basePriceTypeId'] <= 0 && !empty($priceTypes)) {
+        $settings['basePriceTypeId'] = (int)$priceTypes[0]['id'];
+    }
+
+    sendJsonResponse([
+        'success' => true,
+        'data' => [
+            'priceTypes' => $priceTypes,
+            'settings' => $settings,
+        ],
+    ]);
+}
+
+/**
+ * Применяет наценки для выбранных торговых предложений.
+ */
+function handleApplyMarkups($request): void
+{
+    $offerIdsRaw = (string)$request->get('offerIds');
+    $basePriceTypeId = (int)$request->get('basePriceTypeId');
+    $ratesRaw = (string)$request->get('rates');
+
+    if ($offerIdsRaw === '' || $basePriceTypeId <= 0 || $ratesRaw === '') {
+        sendJsonResponse(['error' => 'Missing parameter', 'message' => 'Недостаточно параметров для наценки'], 400);
+    }
+
+    $offerIds = parseOfferIds($offerIdsRaw);
+    if (empty($offerIds)) {
+        sendJsonResponse(['error' => 'Invalid parameter', 'message' => 'Некорректные ID торговых предложений'], 400);
+    }
+
+    $rates = json_decode($ratesRaw, true);
+    if (!is_array($rates) || empty($rates)) {
+        sendJsonResponse(['error' => 'Invalid parameter', 'message' => 'Некорректные настройки наценок'], 400);
+    }
+
+    $rounding = (float)Option::get('prospektweb.calc', 'PRICE_ROUNDING', 1);
+    if ($rounding <= 0) {
+        $rounding = 1.0;
+    }
+
+    $result = [
+        'updated' => 0,
+        'skipped' => [],
+    ];
+
+    foreach ($offerIds as $offerId) {
+        $basePrices = [];
+        $basePriceRs = \CPrice::GetList(
+            ['QUANTITY_FROM' => 'ASC', 'ID' => 'ASC'],
+            ['PRODUCT_ID' => $offerId, 'CATALOG_GROUP_ID' => $basePriceTypeId]
+        );
+
+        while ($row = $basePriceRs->Fetch()) {
+            $basePrices[] = $row;
+        }
+
+        if (empty($basePrices)) {
+            $result['skipped'][] = ['offerId' => $offerId, 'reason' => 'Нет стартовой цены'];
+            continue;
+        }
+
+        $basePriceRow = $basePrices[0];
+        $baseValue = (float)$basePriceRow['PRICE'];
+        $currency = (string)$basePriceRow['CURRENCY'];
+
+        $existingPriceIds = [];
+        $priceRs = \CPrice::GetList([], ['PRODUCT_ID' => $offerId]);
+        while ($price = $priceRs->Fetch()) {
+            $existingPriceIds[] = (int)$price['ID'];
+        }
+        foreach ($existingPriceIds as $priceId) {
+            \CPrice::Delete($priceId);
+        }
+
+        foreach ($rates as $catalogGroupId => $rate) {
+            $targetGroupId = (int)$catalogGroupId;
+            if ($targetGroupId <= 0) {
+                continue;
+            }
+
+            $rateValue = (float)str_replace(',', '.', (string)$rate);
+            $computedPrice = $baseValue * (1 + ($rateValue / 100));
+            $computedPrice = ceil($computedPrice / $rounding) * $rounding;
+
+            \CPrice::Add([
+                'PRODUCT_ID' => $offerId,
+                'CATALOG_GROUP_ID' => $targetGroupId,
+                'PRICE' => $computedPrice,
+                'CURRENCY' => $currency,
+            ]);
+        }
+
+        $result['updated']++;
+    }
+
+    sendJsonResponse([
+        'success' => true,
+        'data' => $result,
+    ]);
 }
 
 /**
