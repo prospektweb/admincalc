@@ -63,20 +63,21 @@ var ProspekwebCalc = {
      */
     initAdminButton: function() {
         var self = this;
+        var context = this.findOffersToolbarContext();
 
-        var genBtn = document.getElementById('btn_sub_gen');
-        if (!genBtn || !genBtn.parentNode) {
+        if (!context || !context.toolbar) {
             return;
         }
+
+        var toolbar = context.toolbar;
+        var anchorNode = context.anchor;
 
         if (document.getElementById('btn_prospektweb_calc')) {
             if (!document.getElementById('btn_prospektweb_markup')) {
-                this.initMarkupButton(genBtn.parentNode, genBtn);
+                this.initMarkupButton(toolbar, document.getElementById('btn_prospektweb_calc') || anchorNode);
             }
             return;
         }
-
-        var toolbar = genBtn.parentNode;
 
         var calcBtn = document.createElement('a');
         calcBtn.id = 'btn_prospektweb_calc';
@@ -89,8 +90,8 @@ var ProspekwebCalc = {
             self.openCalculatorDialog();
         });
 
-        if (genBtn.nextSibling) {
-            toolbar.insertBefore(calcBtn, genBtn.nextSibling);
+        if (anchorNode && anchorNode.nextSibling) {
+            toolbar.insertBefore(calcBtn, anchorNode.nextSibling);
         } else {
             toolbar.appendChild(calcBtn);
         }
@@ -98,6 +99,34 @@ var ProspekwebCalc = {
         this.initMarkupButton(toolbar, calcBtn);
     },
 
+    /**
+     * Найти тулбар ТП и опорную кнопку, рядом с которой вставлять наши кнопки.
+     */
+    findOffersToolbarContext: function() {
+        var genBtn = document.getElementById('btn_sub_gen');
+        if (genBtn && genBtn.parentNode) {
+            return { toolbar: genBtn.parentNode, anchor: genBtn };
+        }
+
+        var selectors = [
+            '#tab_sub_list .adm-detail-toolbar',
+            '#tab_sub_list .adm-list-table-top',
+            '#tab_sub_list .adm-list-table-layout',
+            '.adm-detail-content-wrap .adm-detail-toolbar'
+        ];
+
+        for (var i = 0; i < selectors.length; i++) {
+            var toolbar = document.querySelector(selectors[i]);
+            if (!toolbar) {
+                continue;
+            }
+
+            var anchor = toolbar.querySelector('.adm-btn') || toolbar.querySelector('a,button,input[type="button"]');
+            return { toolbar: toolbar, anchor: anchor };
+        }
+
+        return null;
+    },
 
     /**
      * Инициализация кнопки массовой наценки рядом с Калькуляцией
@@ -161,13 +190,12 @@ var ProspekwebCalc = {
                 return;
             }
             
-            // Проверяем, существует ли кнопка генерации и отсутствует ли наша кнопка
-            var genBtn = document.getElementById('btn_sub_gen');
+            // Проверяем, что обе кнопки присутствуют после AJAX-перерисовки
             var calcBtn = document.getElementById('btn_prospektweb_calc');
             var markupBtn = document.getElementById('btn_prospektweb_markup');
             var markupExists = !!document.querySelector('select[name="action"] option[value="pw_add_markup"]');
             
-            if (genBtn && (!calcBtn || !markupBtn)) {
+            if (!calcBtn || !markupBtn) {
                 // Небольшая задержка, чтобы DOM успел стабилизироваться
                 setTimeout(function() {
                     self.initAdminButton();
