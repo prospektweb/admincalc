@@ -35,7 +35,9 @@ var ProspekwebCalc = {
     ],
     
     // Константы
-    DOM_STABILIZATION_DELAY: 50, // Задержка в мс для стабилизации DOM после AJAX-обновлений
+    DOM_STABILIZATION_DELAY: 150, // Задержка в мс для стабилизации DOM после AJAX-обновлений
+    INIT_RETRY_DELAY: 200,        // Задержка в мс между повторными попытками initAdminButton
+    MAX_INIT_RETRIES: 10,         // Максимальное количество повторных попыток initAdminButton
     PRESET_CONFIRM_MESSAGE: 'Необходимо создать новый пресет калькуляции',
     
     // Состояние
@@ -61,11 +63,18 @@ var ProspekwebCalc = {
     /**
      * Инициализация кнопки в админке
      */
-    initAdminButton: function() {
+    initAdminButton: function(retryCount) {
         var self = this;
+        retryCount = retryCount || 0;
+
         var context = this.findOffersToolbarContext();
 
         if (!context || !context.toolbar) {
+            if (retryCount < self.MAX_INIT_RETRIES) {
+                setTimeout(function() {
+                    self.initAdminButton(retryCount + 1);
+                }, self.INIT_RETRY_DELAY);
+            }
             return;
         }
 
@@ -112,7 +121,11 @@ var ProspekwebCalc = {
             '#tab_sub_list .adm-detail-toolbar',
             '#tab_sub_list .adm-list-table-top',
             '#tab_sub_list .adm-list-table-layout',
-            '.adm-detail-content-wrap .adm-detail-toolbar'
+            '.adm-detail-content-wrap .adm-detail-toolbar',
+            '.adm-detail-toolbar',
+            '#bx-admin-prefix .adm-detail-toolbar',
+            '.adm-workarea .adm-detail-toolbar',
+            '#tab_sub_list .adm-list-table-footer'
         ];
 
         for (var i = 0; i < selectors.length; i++) {
@@ -195,8 +208,16 @@ var ProspekwebCalc = {
             var markupBtn = document.getElementById('btn_prospektweb_markup');
             var markupExists = !!document.querySelector('select[name="action"] option[value="pw_add_markup"]');
             
-            if (!calcBtn || !markupBtn) {
-                // Небольшая задержка, чтобы DOM успел стабилизироваться
+            if (calcBtn && !markupBtn) {
+                // Кнопка калькуляции есть, а наценки нет — добавляем наценку напрямую
+                setTimeout(function() {
+                    var toolbar = calcBtn.parentNode;
+                    if (toolbar) {
+                        self.initMarkupButton(toolbar, calcBtn);
+                    }
+                }, self.DOM_STABILIZATION_DELAY);
+            } else if (!calcBtn) {
+                // Обеих кнопок нет — пробуем добавить обе
                 setTimeout(function() {
                     self.initAdminButton();
                 }, self.DOM_STABILIZATION_DELAY);
