@@ -348,6 +348,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $settingsManager->setDefaultExtraCurrency((string)$_POST['DEFAULT_EXTRA_CURRENCY_VALUE']);
     }
 
+    $markupSettings = [
+        'basePriceTypeId' => (int)($_POST['MARKUP_BASE_PRICE_TYPE_ID'] ?? 0),
+        'rates' => [],
+    ];
+
+    $postedRates = $_POST['MARKUP_RATE'] ?? [];
+    if (is_array($postedRates)) {
+        foreach ($postedRates as $priceTypeId => $rateValue) {
+            $typeId = (int)$priceTypeId;
+            if ($typeId <= 0) {
+                continue;
+            }
+
+            $markupSettings['rates'][$typeId] = (float)str_replace(',', '.', (string)$rateValue);
+        }
+    }
+
+    Option::set($module_id, 'MARKUP_SETTINGS', json_encode($markupSettings, JSON_UNESCAPED_UNICODE));
+
     LocalRedirect($APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID . '&saved=Y');
 }
 
@@ -361,6 +380,20 @@ if (Loader::includeModule('catalog')) {
     foreach ($priceTypeList as $type) {
         $priceTypes[(int)$type['ID']] = $type['NAME'] ?? ('ID ' . $type['ID']);
     }
+}
+
+$markupSettingsRaw = Option::get($module_id, 'MARKUP_SETTINGS', '');
+$markupSettings = json_decode($markupSettingsRaw, true);
+if (!is_array($markupSettings)) {
+    $markupSettings = [];
+}
+
+$markupBasePriceTypeId = (int)($markupSettings['basePriceTypeId'] ?? 0);
+$markupRates = is_array($markupSettings['rates'] ?? null) ? $markupSettings['rates'] : [];
+
+if ($markupBasePriceTypeId <= 0 && !empty($priceTypes)) {
+    $firstPriceTypeId = (int)array_key_first($priceTypes);
+    $markupBasePriceTypeId = $firstPriceTypeId > 0 ? $firstPriceTypeId : 0;
 }
 
 // Получаем список валют
@@ -441,11 +474,12 @@ if (($_GET['cleanupUnused'] ?? '') === 'Y') {
 
 // Создаём вкладки
 $tabControl = new CAdminTabControl('tabControl', [
-    ['DIV' => 'edit1', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MAIN'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MAIN_TITLE')],
-    ['DIV' => 'edit2', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_OFFERS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_OFFERS_TITLE')],
-    ['DIV' => 'edit3', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS_TITLE')],
-    ['DIV' => 'edit4', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION_TITLE')],
-    ['DIV' => 'edit5', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC_TITLE')],
+    ['DIV' => 'edit1', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MARKUPS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MARKUPS_TITLE')],
+    ['DIV' => 'edit2', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MAIN'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MAIN_TITLE')],
+    ['DIV' => 'edit3', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_OFFERS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_OFFERS_TITLE')],
+    ['DIV' => 'edit4', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS_TITLE')],
+    ['DIV' => 'edit5', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION_TITLE')],
+    ['DIV' => 'edit6', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC_TITLE')],
 ]);
 
 $tabControl->Begin();
@@ -453,6 +487,60 @@ $tabControl->Begin();
 ?>
 <form method="post" action="<?= $APPLICATION->GetCurPage() ?>?mid=<?= urlencode($module_id) ?>&lang=<?= LANGUAGE_ID ?>">
     <?= bitrix_sessid_post() ?>
+
+    <?php $tabControl->BeginNextTab(); ?>
+
+    <tr>
+        <td colspan="2" class="adm-detail-content-cell-r">
+            <?php if (empty($priceTypes)): ?>
+                <div class="adm-info-message"><?= Loc::getMessage('PROSPEKTWEB_CALC_MARKUPS_EMPTY_PRICE_TYPES') ?></div>
+            <?php else: ?>
+                <table class="adm-list-table" style="width:100%; max-width: 920px;">
+                    <thead>
+                        <tr class="adm-list-table-header">
+                            <td><?= Loc::getMessage('PROSPEKTWEB_CALC_MARKUPS_COL_PRICE_TYPE') ?></td>
+                            <td style="width: 220px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_MARKUPS_COL_BASE') ?></td>
+                            <td style="width: 220px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_MARKUPS_COL_RATE') ?></td>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($priceTypes as $priceTypeId => $priceTypeName): ?>
+                            <?php $rateValue = (float)($markupRates[$priceTypeId] ?? 0); ?>
+                            <tr>
+                                <td>
+                                    <?= htmlspecialcharsbx($priceTypeName) ?> [<?= (int)$priceTypeId ?>]
+                                </td>
+                                <td>
+                                    <label>
+                                        <input
+                                            type="radio"
+                                            name="MARKUP_BASE_PRICE_TYPE_ID"
+                                            value="<?= (int)$priceTypeId ?>"
+                                            <?= $markupBasePriceTypeId === (int)$priceTypeId ? 'checked' : '' ?>
+                                        >
+                                        <?= Loc::getMessage('PROSPEKTWEB_CALC_MARKUPS_BASE_LABEL') ?>
+                                    </label>
+                                </td>
+                                <td>
+                                    <input
+                                        type="number"
+                                        name="MARKUP_RATE[<?= (int)$priceTypeId ?>]"
+                                        value="<?= htmlspecialcharsbx((string)$rateValue) ?>"
+                                        step="0.01"
+                                        style="width: 120px;"
+                                    >
+                                    <span>%</span>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <div style="color:#777;font-size:11px;margin-top:6px;">
+                    <?= Loc::getMessage('PROSPEKTWEB_CALC_MARKUPS_HINT') ?>
+                </div>
+            <?php endif; ?>
+        </td>
+    </tr>
 
     <?php $tabControl->BeginNextTab(); ?>
 
