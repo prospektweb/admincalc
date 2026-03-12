@@ -81,3 +81,13 @@ $MESS['PROSPEKTWEB_CALC_UNUSED_ELEMENTS_CLEANUP_DETAILS'] = 'Проверено 
 
 $MESS['PROSPEKTWEB_CALC_TAB_DIAGNOSTIC'] = 'Диагностика';
 $MESS['PROSPEKTWEB_CALC_TAB_DIAGNOSTIC_TITLE'] = 'Проверка целостности модуля';
+
+
+$MESS['PROSPEKTWEB_CALC_TAB_MARKUPS'] = 'Наценки';
+$MESS['PROSPEKTWEB_CALC_TAB_MARKUPS_TITLE'] = 'Настройки наценок для типов цен';
+$MESS['PROSPEKTWEB_CALC_MARKUPS_EMPTY_PRICE_TYPES'] = 'Типы цен не найдены. Проверьте модуль catalog.';
+$MESS['PROSPEKTWEB_CALC_MARKUPS_COL_PRICE_TYPE'] = 'Тип цены';
+$MESS['PROSPEKTWEB_CALC_MARKUPS_COL_BASE'] = 'Стартовая цена';
+$MESS['PROSPEKTWEB_CALC_MARKUPS_COL_RATE'] = 'Наценка';
+$MESS['PROSPEKTWEB_CALC_MARKUPS_BASE_LABEL'] = 'Базовый тип';
+$MESS['PROSPEKTWEB_CALC_MARKUPS_HINT'] = 'Для каждого типа цены задайте процент наценки относительно выбранного стартового типа цены.';

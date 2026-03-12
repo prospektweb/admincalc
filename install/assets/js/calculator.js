@@ -53,6 +53,7 @@ var ProspekwebCalc = {
         this.loadCss(this.cssPath);
         if (!containerId) {
             this.initAdminButton();
+            this.initMarkupAction();
             this.startObserver();
         }
     },
@@ -69,6 +70,9 @@ var ProspekwebCalc = {
         }
 
         if (document.getElementById('btn_prospektweb_calc')) {
+            if (!document.getElementById('btn_prospektweb_markup')) {
+                this.initMarkupButton(genBtn.parentNode, genBtn);
+            }
             return;
         }
 
@@ -89,6 +93,37 @@ var ProspekwebCalc = {
             toolbar.insertBefore(calcBtn, genBtn.nextSibling);
         } else {
             toolbar.appendChild(calcBtn);
+        }
+
+        this.initMarkupButton(toolbar, calcBtn);
+    },
+
+
+    /**
+     * Инициализация кнопки массовой наценки рядом с Калькуляцией
+     */
+    initMarkupButton: function(toolbar, afterNode) {
+        var self = this;
+
+        if (!toolbar || document.getElementById('btn_prospektweb_markup')) {
+            return;
+        }
+
+        var markupBtn = document.createElement('a');
+        markupBtn.id = 'btn_prospektweb_markup';
+        markupBtn.className = 'adm-btn';
+        markupBtn.href = 'javascript:void(0)';
+        markupBtn.title = 'Добавить наценку';
+        markupBtn.textContent = 'Добавить наценку';
+
+        markupBtn.addEventListener('click', function() {
+            self.openMarkupDialog();
+        });
+
+        if (afterNode && afterNode.nextSibling) {
+            toolbar.insertBefore(markupBtn, afterNode.nextSibling);
+        } else {
+            toolbar.appendChild(markupBtn);
         }
     },
 
@@ -129,11 +164,19 @@ var ProspekwebCalc = {
             // Проверяем, существует ли кнопка генерации и отсутствует ли наша кнопка
             var genBtn = document.getElementById('btn_sub_gen');
             var calcBtn = document.getElementById('btn_prospektweb_calc');
+            var markupBtn = document.getElementById('btn_prospektweb_markup');
+            var markupExists = !!document.querySelector('select[name="action"] option[value="pw_add_markup"]');
             
-            if (genBtn && !calcBtn) {
+            if (genBtn && (!calcBtn || !markupBtn)) {
                 // Небольшая задержка, чтобы DOM успел стабилизироваться
                 setTimeout(function() {
                     self.initAdminButton();
+                }, self.DOM_STABILIZATION_DELAY);
+            }
+
+            if (!markupExists) {
+                setTimeout(function() {
+                    self.initMarkupAction();
                 }, self.DOM_STABILIZATION_DELAY);
             }
         });
@@ -687,6 +730,167 @@ var ProspekwebCalc = {
                 });
             }
         });
+    },
+
+
+
+    initMarkupAction: function() {
+        var self = this;
+        var selects = document.querySelectorAll('select[name="action"], select.adm-select[id*="_action"]');
+
+        for (var i = 0; i < selects.length; i++) {
+            var select = selects[i];
+            if (!select || select.dataset.pwMarkupBound === 'Y') {
+                continue;
+            }
+
+            if (!select.querySelector('option[value="pw_add_markup"]')) {
+                var option = document.createElement('option');
+                option.value = 'pw_add_markup';
+                option.textContent = 'Добавить наценку';
+                select.appendChild(option);
+            }
+
+            select.addEventListener('change', function(e) {
+                var target = e.target;
+                if (!target || target.value !== 'pw_add_markup') {
+                    return;
+                }
+
+                target.value = '';
+                self.openMarkupDialog();
+            });
+
+            select.dataset.pwMarkupBound = 'Y';
+        }
+    },
+
+    openMarkupDialog: function() {
+        var self = this;
+        var offers = this.getSelectedOffers();
+
+        if (!offers.length) {
+            alert('Не выбраны торговые предложения');
+            return;
+        }
+
+        BX.ajax({
+            method: 'POST',
+            dataType: 'json',
+            url: '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
+            data: {
+                sessid: BX.bitrix_sessid(),
+                action: 'getMarkupSettings'
+            },
+            onsuccess: function(response) {
+                if (!response || !response.success || !response.data) {
+                    alert('Не удалось загрузить настройки наценок');
+                    return;
+                }
+
+                self.showMarkupPopup(response.data, offers);
+            },
+            onfailure: function() {
+                alert('Ошибка запроса настроек наценок');
+            }
+        });
+    },
+
+    showMarkupPopup: function(data, offers) {
+        var self = this;
+        var priceTypes = Array.isArray(data.priceTypes) ? data.priceTypes : [];
+        var settings = data.settings || {};
+        var rates = settings.rates || {};
+        var basePriceTypeId = parseInt(settings.basePriceTypeId || 0, 10);
+
+        if (!priceTypes.length) {
+            alert('Типы цен не найдены');
+            return;
+        }
+
+        var html = '<div style="padding:12px;max-height:520px;overflow:auto;">' +
+            '<div style="margin-bottom:10px;color:#666;">Выбрано ТП: ' + offers.length + '</div>' +
+            '<table class="adm-list-table" style="width:100%;">' +
+                '<thead><tr class="adm-list-table-header">' +
+                    '<td>Тип цены</td><td style="width:210px;">Стартовая цена</td><td style="width:210px;">Наценка, %</td>' +
+                '</tr></thead><tbody>';
+
+        for (var i = 0; i < priceTypes.length; i++) {
+            var pt = priceTypes[i];
+            var id = parseInt(pt.id, 10);
+            var checked = basePriceTypeId === id ? 'checked' : '';
+            var rate = rates[id] !== undefined ? rates[id] : 0;
+
+            html += '<tr>' +
+                '<td>' + BX.util.htmlspecialchars(pt.name || ('ID ' + id)) + ' [' + id + ']</td>' +
+                '<td><label><input type="radio" name="pw-markup-base" value="' + id + '" ' + checked + '> Базовый тип</label></td>' +
+                '<td><input type="number" data-role="pw-markup-rate" data-price-type-id="' + id + '" value="' + rate + '" step="0.01" style="width:120px;"> %</td>' +
+            '</tr>';
+        }
+
+        html += '</tbody></table></div>';
+
+        var container = document.createElement('div');
+        container.innerHTML = html;
+
+        var popup = new BX.CAdminDialog({
+            title: 'Добавить наценку',
+            content: container,
+            width: 920,
+            height: 620,
+            resizable: true,
+            buttons: [
+                '<input type="button" class="adm-btn-save" value="Запустить" id="pw-markup-run">',
+                BX.CAdminDialog.btnCancel
+            ]
+        });
+
+        popup.Show();
+
+        setTimeout(function() {
+            var runBtn = document.getElementById('pw-markup-run');
+            if (!runBtn) {
+                return;
+            }
+
+            runBtn.onclick = function() {
+                var baseNode = container.querySelector('input[name="pw-markup-base"]:checked');
+                if (!baseNode) {
+                    alert('Выберите стартовый тип цены');
+                    return;
+                }
+
+                var requestRates = {};
+                container.querySelectorAll('[data-role="pw-markup-rate"]').forEach(function(input) {
+                    requestRates[input.dataset.priceTypeId] = input.value || '0';
+                });
+
+                BX.ajax({
+                    method: 'POST',
+                    dataType: 'json',
+                    url: '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
+                    data: {
+                        sessid: BX.bitrix_sessid(),
+                        action: 'applyMarkups',
+                        offerIds: offers.map(function(o) { return o.id; }).join(','),
+                        basePriceTypeId: parseInt(baseNode.value, 10),
+                        rates: JSON.stringify(requestRates)
+                    },
+                    onsuccess: function(response) {
+                        if (!response || !response.success) {
+                            alert('Ошибка запуска наценки: ' + ((response && response.message) || 'неизвестная ошибка'));
+                            return;
+                        }
+
+                        popup.Close();
+                        alert('Готово. Обновлено ТП: ' + (response.data && response.data.updated ? response.data.updated : 0));
+                    },
+                    onfailure: function() {
+                        alert('Ошибка запроса запуска наценки');
+                    }
+                });
+            };
+        }, 0);
     },
 
     /**
