@@ -70,6 +70,9 @@ var ProspekwebCalc = {
         }
 
         if (document.getElementById('btn_prospektweb_calc')) {
+            if (!document.getElementById('btn_prospektweb_markup')) {
+                this.initMarkupButton(genBtn.parentNode, genBtn);
+            }
             return;
         }
 
@@ -90,6 +93,37 @@ var ProspekwebCalc = {
             toolbar.insertBefore(calcBtn, genBtn.nextSibling);
         } else {
             toolbar.appendChild(calcBtn);
+        }
+
+        this.initMarkupButton(toolbar, calcBtn);
+    },
+
+
+    /**
+     * Инициализация кнопки массовой наценки рядом с Калькуляцией
+     */
+    initMarkupButton: function(toolbar, afterNode) {
+        var self = this;
+
+        if (!toolbar || document.getElementById('btn_prospektweb_markup')) {
+            return;
+        }
+
+        var markupBtn = document.createElement('a');
+        markupBtn.id = 'btn_prospektweb_markup';
+        markupBtn.className = 'adm-btn';
+        markupBtn.href = 'javascript:void(0)';
+        markupBtn.title = 'Добавить наценку';
+        markupBtn.textContent = 'Добавить наценку';
+
+        markupBtn.addEventListener('click', function() {
+            self.openMarkupDialog();
+        });
+
+        if (afterNode && afterNode.nextSibling) {
+            toolbar.insertBefore(markupBtn, afterNode.nextSibling);
+        } else {
+            toolbar.appendChild(markupBtn);
         }
     },
 
@@ -130,9 +164,10 @@ var ProspekwebCalc = {
             // Проверяем, существует ли кнопка генерации и отсутствует ли наша кнопка
             var genBtn = document.getElementById('btn_sub_gen');
             var calcBtn = document.getElementById('btn_prospektweb_calc');
+            var markupBtn = document.getElementById('btn_prospektweb_markup');
             var markupExists = !!document.querySelector('select[name="action"] option[value="pw_add_markup"]');
             
-            if (genBtn && !calcBtn) {
+            if (genBtn && (!calcBtn || !markupBtn)) {
                 // Небольшая задержка, чтобы DOM успел стабилизироваться
                 setTimeout(function() {
                     self.initAdminButton();
