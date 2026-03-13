@@ -108,8 +108,8 @@ var ProspekwebCalc = {
                     self.openCalculatorDialog();
                 });
 
-                if (anchorNode && anchorNode.nextSibling) {
-                    toolbar.insertBefore(calcBtn, anchorNode.nextSibling);
+                if (anchorNode && anchorNode.parentNode) {
+                    anchorNode.parentNode.insertBefore(calcBtn, anchorNode.nextSibling);
                 } else {
                     toolbar.appendChild(calcBtn);
                 }
@@ -129,8 +129,8 @@ var ProspekwebCalc = {
                 });
 
                 // Вставляем сразу после кнопки калькуляции
-                if (calcBtn.nextSibling) {
-                    toolbar.insertBefore(markupBtn, calcBtn.nextSibling);
+                if (calcBtn && calcBtn.parentNode) {
+                    calcBtn.parentNode.insertBefore(markupBtn, calcBtn.nextSibling);
                 } else {
                     toolbar.appendChild(markupBtn);
                 }
@@ -197,8 +197,8 @@ var ProspekwebCalc = {
             self.openMarkupDialog();
         });
 
-        if (afterNode && afterNode.nextSibling) {
-            toolbar.insertBefore(markupBtn, afterNode.nextSibling);
+        if (afterNode && afterNode.parentNode) {
+            afterNode.parentNode.insertBefore(markupBtn, afterNode.nextSibling);
         } else {
             toolbar.appendChild(markupBtn);
         }
