@@ -140,6 +140,13 @@ class BundleHandler
                 }
             }
 
+            $stagesIblockId = $this->configManager->getIblockId('CALC_STAGES');
+            if ($stagesIblockId <= 0) {
+                throw new \Exception('Инфоблок CALC_STAGES не настроен');
+            }
+
+            $stageIdsToClone = $this->expandStageIdsForClone($stageIdsToClone, $stagesIblockId);
+
             $stageMap = [];
             foreach ($stageIdsToClone as $stageId) {
                 $newStageId = $this->cloneStageElement($stageId, $presetsIblockId);
@@ -307,6 +314,88 @@ class BundleHandler
         }
 
         return $result;
+    }
+
+    /**
+     * Расширить список этапов для клонирования, добавляя зависимости из INPUTS.DESCRIPTION (stage_{id}).
+     *
+     * @param int[] $initialStageIds
+     * @return int[]
+     */
+    private function expandStageIdsForClone(array $initialStageIds, int $stagesIblockId): array
+    {
+        $result = [];
+        $visited = [];
+        $queue = [];
+
+        foreach ($initialStageIds as $stageId) {
+            $stageId = (int)$stageId;
+            if ($stageId <= 0 || isset($visited[$stageId])) {
+                continue;
+            }
+
+            $visited[$stageId] = true;
+            $result[] = $stageId;
+            $queue[] = $stageId;
+        }
+
+        while (!empty($queue)) {
+            $currentStageId = (int)array_shift($queue);
+            if ($currentStageId <= 0) {
+                continue;
+            }
+
+            $stageProps = $this->getElementPropertyValuesForClone($currentStageId, $stagesIblockId);
+            $linkedStageIds = $this->extractStageIdsFromInputsDescription($stageProps['INPUTS'] ?? null);
+
+            foreach ($linkedStageIds as $linkedStageId) {
+                if (isset($visited[$linkedStageId])) {
+                    continue;
+                }
+
+                $visited[$linkedStageId] = true;
+                $result[] = $linkedStageId;
+                $queue[] = $linkedStageId;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param mixed $inputs
+     * @return int[]
+     */
+    private function extractStageIdsFromInputsDescription($inputs): array
+    {
+        if (!is_array($inputs) || $inputs === []) {
+            return [];
+        }
+
+        $stageIds = [];
+        foreach ($inputs as $input) {
+            if (!is_array($input)) {
+                continue;
+            }
+
+            $description = (string)($input['DESCRIPTION'] ?? '');
+            if ($description === '') {
+                continue;
+            }
+
+            if (!preg_match_all('/stage_(\d+)/u', $description, $matches)) {
+                continue;
+            }
+
+            foreach (($matches[1] ?? []) as $stageIdRaw) {
+                $stageId = (int)$stageIdRaw;
+                if ($stageId > 0) {
+                    $stageIds[$stageId] = true;
+                }
+            }
+        }
+
+        return array_map('intval', array_keys($stageIds));
     }
 
     /**
@@ -595,6 +684,11 @@ class BundleHandler
                 }
 
                 $description = (string)($input['DESCRIPTION'] ?? '');
+                $missingStageIds = $this->getMissingStageIdsInString($description, $stageMap);
+                if (!empty($missingStageIds)) {
+                    $this->logMissingStageMappings($newStageId, $missingStageIds, $description);
+                }
+
                 $mappedDescription = $this->replaceStageIdsInString($description, $stageMap);
                 if ($mappedDescription !== $description) {
                     $hasChanges = true;
@@ -633,7 +727,48 @@ class BundleHandler
         }, $value);
     }
 
-        /**
+    /**
+     * @param array<int, int> $stageMap
+     * @return int[]
+     */
+    private function getMissingStageIdsInString(string $value, array $stageMap): array
+    {
+        if ($value === '' || !preg_match_all('/stage_(\d+)/u', $value, $matches)) {
+            return [];
+        }
+
+        $missing = [];
+        foreach (($matches[1] ?? []) as $stageIdRaw) {
+            $stageId = (int)$stageIdRaw;
+            if ($stageId > 0 && !isset($stageMap[$stageId])) {
+                $missing[$stageId] = true;
+            }
+        }
+
+        return array_map('intval', array_keys($missing));
+    }
+
+    /**
+     * @param int[] $missingStageIds
+     */
+    private function logMissingStageMappings(int $newStageId, array $missingStageIds, string $description): void
+    {
+        $message = sprintf(
+            'BundleHandler: missing stage mapping for stage ID(s) [%s] while remapping INPUTS.DESCRIPTION in cloned stage ID=%d. Description: %s',
+            implode(', ', $missingStageIds),
+            $newStageId,
+            $description
+        );
+
+        if (function_exists('AddMessage2Log')) {
+            AddMessage2Log($message, self::MODULE_ID);
+            return;
+        }
+
+        error_log($message);
+    }
+
+    /**
      * Клонировать данные торгового каталога (цены, НДС, валюта) из одного элемента в другой.
      *
      * @param int $sourceId ID исходного элемента
