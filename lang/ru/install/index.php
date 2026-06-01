@@ -1,5 +1,5 @@
 <?php
-$MESS['PROSPEKTWEB_CALC_MODULE_NAME'] = 'Калькулятор себестоимости';
+$MESS['PROSPEKTWEB_CALC_MODULE_NAME'] = 'PROSPEKT-WEB: Калькулятор себестоимости';
 $MESS['PROSPEKTWEB_CALC_MODULE_DESC'] = 'Расчёт себестоимости полиграфической продукции';
 $MESS['PROSPEKTWEB_CALC_INSTALL_TITLE'] = 'Установка модуля';
 $MESS['PROSPEKTWEB_CALC_UNINSTALL_TITLE'] = 'Удаление модуля';
