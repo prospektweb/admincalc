@@ -179,7 +179,7 @@ class BatchRecalculateService
      * Получить товары, связанные с пресетом через свойство товара CALC_PRESET.
      *
      * @param int $presetId
-     * @return array<int, array{id:int,name:string,editUrl:string}>
+     * @return array<int, array{id:int,name:string,editUrl:string,offerCount:int}>
      */
     public function getProductsForPreset(int $presetId): array
     {
@@ -228,8 +228,15 @@ class BatchRecalculateService
                     . '&lang='
                     . rawurlencode($languageId)
                     . '&find_section_section=0&WF=Y',
+                'offerCount' => 0,
             ];
         }
+
+        $offerCounts = $this->countOffersByProductIds(array_column($products, 'id'));
+        foreach ($products as &$product) {
+            $product['offerCount'] = $offerCounts[(int)$product['id']] ?? 0;
+        }
+        unset($product);
 
         return $products;
     }
@@ -238,7 +245,7 @@ class BatchRecalculateService
      * Подготовить расширенный анализ для пресетов.
      *
      * @param int[] $presetIds
-     * @return array<int, array{presetId:int,presetName:string,products:array<int,array{id:int,name:string,editUrl:string}>,offerCount:int}>
+     * @return array<int, array{presetId:int,presetName:string,products:array<int,array{id:int,name:string,editUrl:string,offerCount:int}>,offerCount:int}>
      */
     public function getPresetAnalysis(array $presetIds = []): array
     {
@@ -700,6 +707,54 @@ class BatchRecalculateService
     {
         unset($skuIblockId);
         return count($this->getOfferIdsForPreset($presetId));
+    }
+
+    /**
+     * Подсчитать количество ТП для каждого товара через связь SKU PROPERTY_CML2_LINK.
+     *
+     * @param int[] $productIds
+     * @return array<int, int>
+     */
+    private function countOffersByProductIds(array $productIds): array
+    {
+        if (!Loader::includeModule('iblock')) {
+            return [];
+        }
+
+        $productIds = array_values(array_unique(array_filter(array_map('intval', $productIds), static function (int $productId): bool {
+            return $productId > 0;
+        })));
+
+        if (empty($productIds)) {
+            return [];
+        }
+
+        $skuIblockId = $this->configManager->getSkuIblockId();
+        if ($skuIblockId <= 0) {
+            return [];
+        }
+
+        $counts = array_fill_keys($productIds, 0);
+        $rsOffers = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            [
+                'IBLOCK_ID' => $skuIblockId,
+                'ACTIVE' => 'Y',
+                'PROPERTY_CML2_LINK' => $productIds,
+            ],
+            false,
+            false,
+            ['ID', 'PROPERTY_CML2_LINK']
+        );
+
+        while ($offer = $rsOffers->Fetch()) {
+            $linkedProductId = (int)($offer['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+            if ($linkedProductId > 0 && isset($counts[$linkedProductId])) {
+                $counts[$linkedProductId]++;
+            }
+        }
+
+        return $counts;
     }
 
     /**
