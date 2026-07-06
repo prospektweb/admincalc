@@ -1,6 +1,6 @@
 <?php
-$MESS['PROSPEKTWEB_CALC_MODULE_NAME'] = 'PROSPEKT-WEB: Калькулятор себестоимости';
-$MESS['PROSPEKTWEB_CALC_MODULE_DESC'] = 'Расчёт себестоимости полиграфической продукции';
+$MESS['PROSPEKTWEB_CALC_MODULE_NAME'] = 'PROSPEKT-WEB: Калькулятор цен и параметров ТП';
+$MESS['PROSPEKTWEB_CALC_MODULE_DESC'] = 'Позволяет настраивать логику: расчёта себестоимости, цен и параметров (вес, габариты); заполнения названий и значений свойств торговых предложений';
 $MESS['PROSPEKTWEB_CALC_INSTALL_TITLE'] = 'Установка модуля';
 $MESS['PROSPEKTWEB_CALC_UNINSTALL_TITLE'] = 'Удаление модуля';
 $MESS['PROSPEKTWEB_CALC_IBLOCK_REQUIRED'] = 'Требуется модуль iblock';
