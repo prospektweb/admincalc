@@ -373,6 +373,7 @@ $jsMessages = [
     var lastRenderedLogCount = 0;
     var preparedPayload = null;
     var currentPresetProgress = {};
+    var serverOfferCountsByPreset = {};
 
     cancelBtn.disabled = true;
     confirmBtn.disabled = true;
@@ -503,6 +504,7 @@ $jsMessages = [
             preparedPayload = payload;
             renderAnalysis(data.analysis || []);
             analysisContainer.style.display = 'block';
+            updateAllSelectedOfferTotals();
             confirmBtn.disabled = false;
             appendFrontendLog('Анализ завершён. Подтвердите запуск пересчёта.');
         });
@@ -523,6 +525,7 @@ $jsMessages = [
         frontendLog.innerHTML = '';
         lastRenderedLogCount = 0;
         currentPresetProgress = {};
+        serverOfferCountsByPreset = {};
 
         setProgress(0, config.messages.STARTING);
         progressContainer.style.display = 'block';
@@ -644,8 +647,9 @@ $jsMessages = [
                     var productName = escapeHtml(String(product.name || 'Без названия'));
                     var productId = escapeHtml(String(product.id || '0'));
                     var editUrl = escapeHtml(String(product.editUrl || ('/bitrix/admin/iblock_element_edit.php?ID=' + productId)));
+                    var offerCount = Number(product.offerCount || 0);
                     links.push('<label class="preset-product-option">'
-                        + '<input type="checkbox" class="preset-product-checkbox" data-preset-id="' + escapeHtml(String(row.presetId)) + '" value="' + productId + '" checked>'
+                        + '<input type="checkbox" class="preset-product-checkbox" data-preset-id="' + escapeHtml(String(row.presetId)) + '" data-offer-count="' + escapeHtml(String(offerCount)) + '" value="' + productId + '" checked>'
                         + '<a class="preset-product-link" href="' + editUrl + '" target="_blank" rel="noopener noreferrer">' + productName + ' (ID: ' + productId + ')</a>'
                         + '</label>');
                 }
@@ -666,7 +670,49 @@ $jsMessages = [
 
         html += '</tbody></table>';
         analysisTable.innerHTML = html;
+        serverOfferCountsByPreset = {};
     }
+
+    function updateSelectedOfferTotal(presetId) {
+        presetId = String(presetId || '');
+        if (!presetId || Object.prototype.hasOwnProperty.call(serverOfferCountsByPreset, presetId)) {
+            return;
+        }
+
+        var checkboxes = document.querySelectorAll('.preset-product-checkbox[data-preset-id="' + presetId + '"]');
+        var total = 0;
+        for (var i = 0; i < checkboxes.length; i++) {
+            if (checkboxes[i].checked) {
+                total += Number(checkboxes[i].getAttribute('data-offer-count') || 0);
+            }
+        }
+
+        var progressEl = document.getElementById('analysis-progress-' + presetId);
+        if (progressEl) {
+            progressEl.textContent = '0/' + total;
+        }
+    }
+
+    function updateAllSelectedOfferTotals() {
+        var checkboxes = document.querySelectorAll('.preset-product-checkbox');
+        var seen = {};
+        for (var i = 0; i < checkboxes.length; i++) {
+            var presetId = String(checkboxes[i].getAttribute('data-preset-id') || '');
+            if (presetId && !seen[presetId]) {
+                seen[presetId] = true;
+                updateSelectedOfferTotal(presetId);
+            }
+        }
+    }
+
+    analysisTable.addEventListener('change', function(event) {
+        var target = event.target || event.srcElement;
+        if (!target || !target.className || String(target.className).indexOf('preset-product-checkbox') === -1) {
+            return;
+        }
+
+        updateSelectedOfferTotal(target.getAttribute('data-preset-id'));
+    });
 
     function collectSelectedProductsByPreset() {
         var selected = {};
@@ -702,6 +748,7 @@ $jsMessages = [
 
             var processed = Number(d.processed || 0);
             var total = Number(d.offerCount || 0);
+            serverOfferCountsByPreset[presetId] = total;
             var progressEl = document.getElementById('analysis-progress-' + presetId);
             var iconEl = document.getElementById('analysis-icon-' + presetId);
 
@@ -983,6 +1030,7 @@ $jsMessages = [
         frontendLog.innerHTML = '';
         lastRenderedLogCount = 0;
         currentPresetProgress = {};
+        serverOfferCountsByPreset = {};
     }
 
     function escapeHtml(text) {
