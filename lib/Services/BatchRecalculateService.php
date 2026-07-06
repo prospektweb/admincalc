@@ -155,6 +155,13 @@ class BatchRecalculateService
         );
 
         $languageId = defined('LANGUAGE_ID') ? (string)LANGUAGE_ID : 'ru';
+        $productIblockType = 'catalog';
+        if (Loader::includeModule('iblock')) {
+            $rsIBlock = \CIBlock::GetByID($productIblockId);
+            if ($arIBlock = $rsIBlock->Fetch()) {
+                $productIblockType = (string)($arIBlock['IBLOCK_TYPE_ID'] ?? 'catalog');
+            }
+        }
 
         while ($row = $res->Fetch()) {
             $productId = (int)$row['ID'];
@@ -165,7 +172,9 @@ class BatchRecalculateService
                     . $productIblockId
                     . '&ID='
                     . $productId
-                    . '&type=catalog&lang='
+                    . '&type='
+                    . rawurlencode($productIblockType)
+                    . '&lang='
                     . rawurlencode($languageId)
                     . '&find_section_section=0&WF=Y',
             ];
