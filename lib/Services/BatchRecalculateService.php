@@ -125,6 +125,57 @@ class BatchRecalculateService
 
 
     /**
+     * Получить ID ТП для выбранных товаров, связанных с указанным пресетом.
+     *
+     * @param int $presetId ID пресета
+     * @param int[] $productIds ID выбранных товаров
+     * @return array<int, int> Массив ID торговых предложений
+     */
+    public function getOfferIdsForPresetProducts(int $presetId, array $productIds): array
+    {
+        if (!Loader::includeModule('iblock')) {
+            return [];
+        }
+
+        $skuIblockId = $this->configManager->getSkuIblockId();
+        if ($skuIblockId <= 0) {
+            return [];
+        }
+
+        $allowedProductIds = array_column($this->getProductsForPreset($presetId), 'id');
+        $productIds = array_values(array_intersect(
+            array_values(array_unique(array_filter(array_map('intval', $productIds), static function (int $productId): bool {
+                return $productId > 0;
+            }))),
+            $allowedProductIds
+        ));
+
+        if (empty($productIds)) {
+            return [];
+        }
+
+        $offerIds = [];
+        $rsOffers = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            [
+                'IBLOCK_ID' => $skuIblockId,
+                'ACTIVE' => 'Y',
+                'PROPERTY_CML2_LINK' => $productIds,
+            ],
+            false,
+            false,
+            ['ID']
+        );
+
+        while ($offer = $rsOffers->Fetch()) {
+            $offerIds[] = (int)$offer['ID'];
+        }
+
+        return $offerIds;
+    }
+
+
+    /**
      * Получить товары, связанные с пресетом через свойство товара CALC_PRESET.
      *
      * @param int $presetId

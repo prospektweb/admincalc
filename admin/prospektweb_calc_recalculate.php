@@ -204,6 +204,19 @@ $jsMessages = [
     background: #ddeefe;
     text-decoration: underline;
 }
+.preset-product-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.preset-product-option input {
+    margin: 0;
+}
+.preset-products-hint {
+    margin-top: 3px;
+    color: #777;
+    font-size: 11px;
+}
 </style>
 
 <div class="recalc-container">
@@ -518,6 +531,7 @@ $jsMessages = [
         sendApiRequest(preparedPayload.sessid, {
             action: 'start',
             presetIds: preparedPayload.presetIds,
+            productIdsByPreset: collectSelectedProductsByPreset(),
             onlyChanged: preparedPayload.onlyChanged,
             calcServerUrl: preparedPayload.calcServerUrl,
             timeout: preparedPayload.timeout,
@@ -630,9 +644,13 @@ $jsMessages = [
                     var productName = escapeHtml(String(product.name || 'Без названия'));
                     var productId = escapeHtml(String(product.id || '0'));
                     var editUrl = escapeHtml(String(product.editUrl || ('/bitrix/admin/iblock_element_edit.php?ID=' + productId)));
-                    links.push('<a class="preset-product-link" href="' + editUrl + '" target="_blank" rel="noopener noreferrer">' + productName + ' (ID: ' + productId + ')</a>');
+                    links.push('<label class="preset-product-option">'
+                        + '<input type="checkbox" class="preset-product-checkbox" data-preset-id="' + escapeHtml(String(row.presetId)) + '" value="' + productId + '" checked>'
+                        + '<a class="preset-product-link" href="' + editUrl + '" target="_blank" rel="noopener noreferrer">' + productName + ' (ID: ' + productId + ')</a>'
+                        + '</label>');
                 }
-                productHtml = '<div class="preset-products">' + links.join('') + '</div>';
+                productHtml = '<div class="preset-products">' + links.join('') + '</div>'
+                    + '<div class="preset-products-hint">Оставьте отмеченными только товары, по которым нужно запустить задачу.</div>';
             }
 
             html += '<tr id="analysis-row-' + escapeHtml(String(row.presetId)) + '">';
@@ -648,6 +666,30 @@ $jsMessages = [
 
         html += '</tbody></table>';
         analysisTable.innerHTML = html;
+    }
+
+    function collectSelectedProductsByPreset() {
+        var selected = {};
+        var checkboxes = document.querySelectorAll('.preset-product-checkbox');
+        for (var i = 0; i < checkboxes.length; i++) {
+            var checkbox = checkboxes[i];
+            var presetId = String(checkbox.getAttribute('data-preset-id') || '');
+            var productId = parseInt(checkbox.value, 10);
+
+            if (!presetId || isNaN(productId) || productId <= 0) {
+                continue;
+            }
+
+            if (!selected[presetId]) {
+                selected[presetId] = [];
+            }
+
+            if (checkbox.checked) {
+                selected[presetId].push(productId);
+            }
+        }
+
+        return selected;
     }
 
     function updateAnalysisProgress(details) {

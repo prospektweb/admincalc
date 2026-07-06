@@ -51,6 +51,42 @@ function loadJobLimits(): array
     ];
 }
 
+function validateProductIdsByPreset(array $requestData): array
+{
+    $rawMap = $requestData['productIdsByPreset'] ?? [];
+    if (!is_array($rawMap)) {
+        respondJson(400, [
+            'success' => false,
+            'errorCode' => 'INVALID_PRODUCT_IDS',
+            'error' => 'productIdsByPreset must be an object',
+        ]);
+    }
+
+    $result = [];
+    foreach ($rawMap as $presetId => $productIds) {
+        $presetId = (int)$presetId;
+        if ($presetId <= 0) {
+            continue;
+        }
+
+        if (!is_array($productIds)) {
+            respondJson(400, [
+                'success' => false,
+                'errorCode' => 'INVALID_PRODUCT_IDS',
+                'error' => 'product IDs must be arrays',
+            ]);
+        }
+
+        $productIds = array_values(array_unique(array_filter(array_map('intval', $productIds), static function (int $productId): bool {
+            return $productId > 0;
+        })));
+
+        $result[$presetId] = $productIds;
+    }
+
+    return $result;
+}
+
 function validateCommonParams(array $requestData): array
 {
     $presetIds = $requestData['presetIds'] ?? [];
@@ -262,6 +298,7 @@ if ($action === 'analyze') {
 
 if ($action === 'start') {
     [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
+    $productIdsByPreset = validateProductIdsByPreset($requestData);
 
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
     $analysis = $service->getPresetAnalysis($presetIds);
@@ -271,7 +308,9 @@ if ($action === 'start') {
     foreach ($analysis as $row) {
         $presetId = (int)$row['presetId'];
         $presetName = (string)$row['presetName'];
-        $offerIds = $service->getOfferIdsForPreset($presetId);
+        $offerIds = isset($productIdsByPreset[$presetId])
+            ? $service->getOfferIdsForPresetProducts($presetId, $productIdsByPreset[$presetId])
+            : $service->getOfferIdsForPreset($presetId);
 
         $details[$presetId] = [
             'presetId' => $presetId,
