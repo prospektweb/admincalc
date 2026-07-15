@@ -15,6 +15,9 @@ final class PropertyDescriptionJsonExporter
     private const FILE_PREFIX = 'property-descriptions-';
     private const FILE_EXTENSION = '.json';
 
+    /** @var array<int, string> */
+    private array $enumValueNames = [];
+
     /** @return array{path:string,version:string,url:string} */
     public function export(): array
     {
@@ -159,6 +162,9 @@ final class PropertyDescriptionJsonExporter
         $link = trim((string)$this->firstValue($row['UF_LINK'] ?? ''));
         $linkText = trim((string)$this->firstValue($row['UF_LINK_TEXT'] ?? ''));
         $linkTarget = $this->normalizeLinkTarget((string)$this->firstValue($row['UF_LINK_TARGET'] ?? ''));
+        $storedValueName = trim((string)($row['UF_VALUE_NAME'] ?? ''));
+        $enumValueName = $this->getEnumValueName((int)($row['UF_VALUE_ID'] ?? 0));
+        $valueName = $enumValueName !== '' ? $enumValueName : $storedValueName;
         $item = [
             'id' => (int)($row['ID'] ?? 0),
             'iblockId' => (int)($row['UF_IBLOCK_ID'] ?? 0),
@@ -166,7 +172,12 @@ final class PropertyDescriptionJsonExporter
             'propertyCode' => (string)($row['UF_PROPERTY_CODE'] ?? ''),
             'valueId' => (int)($row['UF_VALUE_ID'] ?? 0),
             'valueXmlId' => (string)($row['UF_VALUE_XML_ID'] ?? ''),
-            'valueName' => (string)($row['UF_VALUE_NAME'] ?? ''),
+            'valueName' => $valueName,
+            'valueAliases' => array_values(array_unique(array_filter([
+                $valueName,
+                $storedValueName,
+                (string)($row['UF_VALUE_XML_ID'] ?? ''),
+            ], static fn(string $value): bool => trim($value) !== ''))),
             'title' => (string)($row['UF_TITLE'] ?? ''),
             'description' => (string)($row['UF_DESCRIPTION'] ?? ''),
             'image' => $this->getImagePath((int)($row['UF_IMAGE'] ?? 0)),
@@ -183,6 +194,22 @@ final class PropertyDescriptionJsonExporter
         }
 
         return $item;
+    }
+
+    private function getEnumValueName(int $valueId): string
+    {
+        if ($valueId <= 0 || !Loader::includeModule('iblock')) {
+            return '';
+        }
+
+        if (array_key_exists($valueId, $this->enumValueNames)) {
+            return $this->enumValueNames[$valueId];
+        }
+
+        $enum = \CIBlockPropertyEnum::GetByID($valueId);
+        $this->enumValueNames[$valueId] = is_array($enum) ? trim((string)($enum['VALUE'] ?? '')) : '';
+
+        return $this->enumValueNames[$valueId];
     }
 
     /** @param mixed $value @return mixed */

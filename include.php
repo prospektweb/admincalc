@@ -71,6 +71,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\LayoutFiles\\Config' => 'features/orders/lib/Config.php',
     'Prospektweb\\LayoutFiles\\FileManager' => 'features/orders/lib/FileManager.php',
     'Prospektweb\\LayoutFiles\\EventHandlers' => 'features/orders/lib/EventHandlers.php',
+    'Prospektweb\\LayoutFiles\\BasketAssets' => 'features/orders/lib/BasketAssets.php',
     'Prospektweb\\LayoutFiles\\DesiredReceiveDateManager' => 'features/orders/lib/DesiredReceiveDateManager.php',
     'Prospektweb\\LayoutFiles\\Logger' => 'features/orders/lib/Logger.php',
     'Prospektweb\\LayoutFiles\\BackupManager' => 'features/orders/lib/BackupManager.php',

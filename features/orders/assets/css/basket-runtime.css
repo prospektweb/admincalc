@@ -1,0 +1,19 @@
+.prospekt-layout-file { margin-top: 14px; font-size: 13px; }
+.prospekt-layout-file__input { display: none !important; }
+.prospekt-layout-file__progress-wrap, .prospekt-layout-file__result { max-width: 480px; margin: 8px 0; }
+.prospekt-layout-file__progress { height: 6px; overflow: hidden; border-radius: 6px; background: #eef1f4; }
+.prospekt-layout-file__progress span { display: block; width: 0; height: 100%; background: var(--theme-base-color, #59b615); }
+.prospekt-layout-file__result { display: flex; align-items: center; gap: 7px; }
+.prospekt-layout-file__result[hidden], .prospekt-layout-file__progress-wrap[hidden], .prospekt-layout-file__error[hidden] { display: none !important; }
+.prospekt-layout-file__name { min-width: 0; overflow-wrap: anywhere; }
+.prospekt-layout-file__delete { border: 0; background: transparent; color: #999; cursor: pointer; font-size: 20px; }
+.prospekt-layout-file__error { margin-top: 7px; color: #d0021b; }
+.prospekt-desired-date--runtime { min-width: 270px; margin: 0 18px 18px 0; }
+.prospekt-desired-date__label { display: block; margin-bottom: 7px; color: #555; font-size: 12px; font-weight: 600; }
+.prospekt-desired-date__field { position: relative; }
+.prospekt-desired-date__input.form-control { min-width: 250px; padding-right: 58px; cursor: pointer !important; background: #fff; }
+.prospekt-desired-date__clear, .prospekt-desired-date__calendar { position: absolute; top: 50%; transform: translateY(-50%); }
+.prospekt-desired-date__clear { right: 30px; z-index: 2; border: 0; background: transparent; color: #888; cursor: pointer; font-size: 18px; }
+.prospekt-desired-date__calendar { right: 10px; pointer-events: none; color: var(--theme-base-color, #59b615); }
+.prospekt-desired-date__status { margin-top: 5px; font-size: 12px; }
+@media (max-width: 767px) { .prospekt-desired-date--runtime { width: 100%; margin-right: 0; } .prospekt-desired-date__input.form-control { width: 100%; } }

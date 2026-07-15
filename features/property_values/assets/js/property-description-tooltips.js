@@ -17,6 +17,7 @@
     var tooltip = null;
     var tooltipHovered = false;
     var eventsBound = false;
+    var decorationObserver = null;
 
     function ready(callback) {
         if (document.readyState === 'loading') {
@@ -131,12 +132,17 @@
         var byValueName = {};
         Object.keys(data.items || {}).forEach(function (key) {
             var item = data.items[key];
-            var normalized = normalizeValueName(item && item.valueName);
-            if (!normalized) {
-                return;
-            }
-            byValueName[normalized] = byValueName[normalized] || [];
-            byValueName[normalized].push(item);
+            var aliases = item && Array.isArray(item.valueAliases) ? item.valueAliases : [item && item.valueName];
+            aliases.forEach(function (alias) {
+                var normalized = normalizeValueName(alias);
+                if (!normalized) {
+                    return;
+                }
+                byValueName[normalized] = byValueName[normalized] || [];
+                if (byValueName[normalized].indexOf(item) === -1) {
+                    byValueName[normalized].push(item);
+                }
+            });
         });
 
         Array.prototype.forEach.call(document.querySelectorAll(LEGACY_PRODUCT_SELECTOR), function (element) {
@@ -158,7 +164,34 @@
             if (item.valueId) {
                 element.setAttribute('data-pvm-enum-id', item.valueId);
             }
+            decorateTrigger(element);
         });
+
+        Array.prototype.forEach.call(document.querySelectorAll(SKU_SELECTOR + ', ' + PRODUCT_SELECTOR), decorateTrigger);
+    }
+
+    function decorateTrigger(element) {
+        if (!element || element.getAttribute('data-pvm-trigger-ready') === 'Y') {
+            return;
+        }
+
+        element.setAttribute('data-pvm-trigger-ready', 'Y');
+        element.classList.add('pvm-description-trigger');
+        if (!element.hasAttribute('tabindex')) {
+            element.setAttribute('tabindex', '0');
+        }
+        element.setAttribute('aria-label', (element.textContent || '').replace(/\s+/g, ' ').trim() + '. Есть подробное описание');
+    }
+
+    function observeDynamicValues(data) {
+        if (decorationObserver || !('MutationObserver' in window) || !document.body) {
+            return;
+        }
+
+        decorationObserver = new MutationObserver(function () {
+            decorateLegacyProductValues(data);
+        });
+        decorationObserver.observe(document.body, {childList: true, subtree: true});
     }
 
     function findDescription(element) {
@@ -401,7 +434,7 @@
     }
 
     function handleSkuPointerOver(event) {
-        var trigger = closestTrigger(event.target, SKU_SELECTOR);
+        var trigger = closestTrigger(event.target, CANDIDATE_SELECTOR);
         if (!trigger || (event.relatedTarget && trigger.contains(event.relatedTarget))) {
             return;
         }
@@ -410,7 +443,7 @@
     }
 
     function handleSkuPointerOut(event) {
-        var trigger = closestTrigger(event.target, SKU_SELECTOR);
+        var trigger = closestTrigger(event.target, CANDIDATE_SELECTOR);
         if (!trigger || activeTrigger !== trigger || (event.relatedTarget && trigger.contains(event.relatedTarget))) {
             return;
         }
@@ -423,7 +456,7 @@
     }
 
     function handleFocusIn(event) {
-        var skuTrigger = closestTrigger(event.target, SKU_SELECTOR);
+        var skuTrigger = closestTrigger(event.target, CANDIDATE_SELECTOR);
         if (skuTrigger) {
             openForTrigger(skuTrigger, 'hover');
         }
@@ -505,6 +538,7 @@
             }
 
             decorateLegacyProductValues(data);
+            observeDynamicValues(data);
             bindEvents();
         });
     }

@@ -3,14 +3,12 @@
 namespace Prospektweb\Calc\Integration;
 
 use Bitrix\Main\Config\Option;
-use Prospektweb\LayoutFiles\BackupManager;
 use RuntimeException;
 
 final class TemplatePatchCoordinator
 {
     private const MODULE_ID = 'prospektweb.calc';
     private const MANIFEST_OPTION = 'CONSOLIDATION_TEMPLATE_MANIFEST';
-    private const TEMPLATE_RELEASE = 'prospektweb.calc-2.0.0';
     private const ASPRO_PRICES = '/bitrix/modules/aspro.premier/lib/product/prices.php';
     private const BACKUP_DIR = '/upload/prospektweb.calc/consolidation-backups/templates';
 
@@ -59,39 +57,11 @@ final class TemplatePatchCoordinator
             $frontcalcUpdated = true;
         }
 
-        try {
-            BackupManager::createBackupBeforeInstall(self::TEMPLATE_RELEASE);
-        } catch (\Throwable $exception) {
-            $rollbackErrors = [];
-            try {
-                BackupManager::rollbackOnUninstall();
-            } catch (\Throwable $rollbackException) {
-                $rollbackErrors[] = $rollbackException->getMessage();
-            }
-            if ($frontcalcUpdated && isset($manifest['frontcalc_prices'])) {
-                try {
-                    $this->restorePrices($manifest['frontcalc_prices']);
-                    unset($manifest['frontcalc_prices']);
-                    $this->saveManifest($manifest);
-                } catch (\Throwable $rollbackException) {
-                    $rollbackErrors[] = $rollbackException->getMessage();
-                }
-            }
-            if ($rollbackErrors !== []) {
-                throw new RuntimeException(
-                    $exception->getMessage() . ' Ошибки отката: ' . implode(' | ', $rollbackErrors),
-                    0,
-                    $exception
-                );
-            }
-            throw $exception;
-        }
-
         Option::set(self::MODULE_ID, 'CONSOLIDATION_TEMPLATES_APPLIED_AT', date('c'));
 
         return [
             'frontcalc_prices' => $currentHash === (string)$inspection['source_hash'] ? 'current' : 'updated',
-            'basket_templates' => 'updated',
+            'basket_templates' => 'unchanged; runtime integration is used',
             'property_values' => 'runtime injection; template files unchanged',
         ];
     }

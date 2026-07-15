@@ -89,6 +89,7 @@ class ModuleDiagnostic
         ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnEndBufferContent', 'TO_CLASS' => 'AdminPropertySettingsExtension', 'TO_METHOD' => 'onEndBufferContent'],
         ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnEndBufferContent', 'TO_CLASS' => 'PublicJsonConfigExtension', 'TO_METHOD' => 'onEndBufferContent'],
         ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnBeforeProlog', 'TO_CLASS' => 'OfferFilter', 'TO_METHOD' => 'onBeforeProlog'],
+        ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnEpilog', 'TO_CLASS' => 'BasketAssets', 'TO_METHOD' => 'onEpilog'],
         ['FROM_MODULE_ID' => 'sale', 'MESSAGE_ID' => 'OnSaleOrderSaved', 'TO_CLASS' => 'EventHandlers', 'TO_METHOD' => 'onSaleOrderSaved'],
         ['FROM_MODULE_ID' => 'sale', 'MESSAGE_ID' => 'OnSaleBasketItemSaved', 'TO_CLASS' => 'EventHandlers', 'TO_METHOD' => 'onSaleBasketItemSaved'],
     ];

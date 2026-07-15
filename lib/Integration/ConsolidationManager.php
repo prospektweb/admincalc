@@ -75,6 +75,7 @@ final class ConsolidationManager
             ['main', 'OnEndBufferContent', '\\Prospektweb\\PropValManager\\Service\\AdminPropertySettingsExtension', 'onEndBufferContent'],
             ['main', 'OnEndBufferContent', '\\Prospektweb\\PropValManager\\Service\\PublicJsonConfigExtension', 'onEndBufferContent'],
             ['main', 'OnBeforeProlog', '\\Prospektweb\\OfferFilter\\OfferFilter', 'onBeforeProlog'],
+            ['main', 'OnEpilog', '\\Prospektweb\\LayoutFiles\\BasketAssets', 'onEpilog'],
             ['sale', 'OnSaleOrderSaved', '\\Prospektweb\\LayoutFiles\\EventHandlers', 'onSaleOrderSaved'],
             ['sale', 'OnSaleBasketItemSaved', '\\Prospektweb\\LayoutFiles\\EventHandlers', 'onSaleBasketItemSaved'],
         ];

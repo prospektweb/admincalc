@@ -1,4 +1,31 @@
 /* Styles are aligned with the standard Aspro Premier .hint .tooltip look. */
+.pvm-description-trigger {
+    position: relative;
+    cursor: help;
+}
+
+.pvm-description-trigger::after {
+    content: '?';
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 6px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    color: var(--theme-base-color, #59b615);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    vertical-align: 1px;
+}
+
+.pvm-description-trigger:focus-visible {
+    outline: 2px solid var(--theme-base-color, #59b615);
+    outline-offset: 3px;
+}
+
 .pvm-description-tooltip {
     position: fixed;
     z-index: 1200;
