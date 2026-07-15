@@ -1,0 +1,14 @@
+table.adm-list-table tr.offerfilter-row th {
+    background-color: #f7f9fb;
+    padding: 2px 4px;
+}
+
+table.adm-list-table tr.offerfilter-row input.offerfilter-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    border: 1px solid #c2cbd3;
+    border-radius: 2px;
+    font-size: 12px;
+    height: 24px;
+}

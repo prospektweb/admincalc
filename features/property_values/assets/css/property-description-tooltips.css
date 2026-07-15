@@ -1,0 +1,61 @@
+/* Styles are aligned with the standard Aspro Premier .hint .tooltip look. */
+.pvm-description-tooltip {
+    position: fixed;
+    z-index: 1200;
+    display: none;
+    box-sizing: border-box;
+    width: max-content;
+    min-width: 200px;
+    max-width: min(300px, calc(100vw - 20px));
+    padding: 13px 16px;
+    border: 0;
+    border-radius: 8px;
+    border-radius: var(--theme-button-border-radius);
+    background: #fff;
+    background: var(--card_bg_hover_black);
+    box-shadow: 0px 0px 15px rgba(0, 0, 0, 0.12);
+    color: #777;
+    color: var(--basic_text_black);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 14px;
+    text-align: left;
+}
+
+.pvm-description-tooltip.is-open {
+    display: block;
+}
+
+.pvm-description-tooltip__image {
+    display: block;
+    width: 100%;
+    max-height: 160px;
+    margin-bottom: 12px;
+    border-radius: 4px;
+    object-fit: cover;
+}
+
+.pvm-description-tooltip__title {
+    margin-bottom: 6px;
+    color: #222;
+    color: var(--white_text_black);
+    font-weight: 600;
+    font-size: 13px;
+    line-height: 16px;
+}
+
+.pvm-description-tooltip__description {
+    white-space: pre-line;
+}
+
+.pvm-description-tooltip__link {
+    display: inline-flex;
+    margin-top: 12px;
+}
+
+@media (max-width: 600px) {
+    .pvm-description-tooltip {
+        max-width: calc(100vw - 16px);
+        padding: 13px 16px;
+    }
+}

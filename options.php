@@ -22,6 +22,8 @@ if (!Loader::includeModule($module_id)) {
 use Prospektweb\Calc\Config\SettingsManager;
 use Prospektweb\Calc\Config\ConfigManager;
 use Prospektweb\Calc\Install\SnapshotManager;
+use Prospektweb\Calc\Integration\ConsolidationManager;
+use Prospektweb\Calc\Integration\TemplatePatchCoordinator;
 
 global $USER, $APPLICATION;
 
@@ -308,6 +310,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_PO
     LocalRedirect($APPLICATION->GetCurPage() . '?' . http_build_query($query));
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_POST['APPLY_CONSOLIDATION'])) {
+    try {
+        (new ConsolidationManager())->apply();
+        LocalRedirect($APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID . '&consolidation=ok');
+    } catch (\Throwable $exception) {
+        LocalRedirect($APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID . '&consolidation=error&message=' . urlencode($exception->getMessage()));
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_POST['APPLY_TEMPLATE_PATCHES'])) {
+    try {
+        (new TemplatePatchCoordinator())->apply(trim((string)($_POST['APPROVED_ASPRO_PRICES_HASH'] ?? '')));
+        LocalRedirect($APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID . '&templates=ok');
+    } catch (\Throwable $exception) {
+        LocalRedirect($APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID . '&templates=error&message=' . urlencode($exception->getMessage()));
+    }
+}
+
 // Обработка сохранения
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     $settings = [
@@ -339,6 +359,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     // Сохраняем настройки истории расчётов
     Option::set($module_id, 'SAVE_CALC_HISTORY', (($_POST['SAVE_CALC_HISTORY'] ?? 'N') === 'Y') ? 'Y' : 'N');
     Option::set($module_id, 'CALC_HISTORY_LIMIT', (int)($_POST['CALC_HISTORY_LIMIT'] ?? 10));
+
+    foreach ([
+        'PRODUCTS_IBLOCK_ID', 'OFFERS_IBLOCK_ID', 'CALC_PROPERTY_CODE', 'CALC_AJAX_URL',
+        'DEADLINE_URGENT_TEXT', 'DEADLINE_STRICT_TEXT', 'DEADLINE_FLEXIBLE_TEXT',
+        'AREA_DISPLAY_UNIT', 'CALC_SERVER_TIMEOUT', 'CALC_SERVER_BATCH_LIMIT', 'SERVICE_OFFER_ID',
+        'VOLUME_GRID_VALUES', 'VOLUME_GRID_TAIL_STEP',
+        'base_folder', 'max_size', 'extensions', 'temp_lifetime_hours', 'tooltip_text',
+        'desired_receive_tooltip_text', 'desired_receive_min_hours', 'desired_receive_workdays',
+        'desired_receive_time_from', 'desired_receive_time_to', 'desired_receive_step_minutes',
+        'desired_receive_default_time', 'desired_receive_holidays',
+        'desired_receive_production_hours_property', 'hidden_basket_property_codes',
+        'yadisk_client_id',
+    ] as $optionName) {
+        Option::set($module_id, $optionName, trim((string)($_POST[$optionName] ?? '')));
+    }
+    Option::set($module_id, 'CALC_SERVER_DEBUG_CONSOLE', (($_POST['CALC_SERVER_DEBUG_CONSOLE'] ?? 'N') === 'Y') ? 'Y' : 'N');
+    Option::set($module_id, 'ENABLED', (($_POST['PROPERTY_VALUES_ENABLED'] ?? 'N') === 'Y') ? 'Y' : 'N');
+    foreach (['restricted', 'verified', 'extended'] as $scenarioCode) {
+        $postedName = 'ACCESS_SCENARIO_' . strtoupper($scenarioCode) . '_GROUP_IDS';
+        $groupIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/\s*,\s*/', trim((string)($_POST[$postedName] ?? '')), -1, PREG_SPLIT_NO_EMPTY)))));
+        Option::set($module_id, 'access_scenarios.' . $scenarioCode . '.group_ids', json_encode($groupIds));
+    }
+    Option::set($module_id, 'access_scenarios.restricted.more_url', trim((string)($_POST['ACCESS_SCENARIO_RESTRICTED_MORE_URL'] ?? '')));
+    Option::set($module_id, 'access_scenarios.restricted.mobile_message', trim((string)($_POST['ACCESS_SCENARIO_RESTRICTED_MOBILE_MESSAGE'] ?? '')));
+    $editorSchema = trim((string)($_POST['CALC_EDITOR_SCHEMA'] ?? ''));
+    if ($editorSchema === '' || json_decode($editorSchema, true) !== null) {
+        Option::set($module_id, 'CALC_EDITOR_SCHEMA', $editorSchema);
+    }
+    $yandexSecret = trim((string)($_POST['yadisk_client_secret'] ?? ''));
+    if ($yandexSecret !== '') {
+        Option::set($module_id, 'yadisk_client_secret', $yandexSecret);
+    }
 
     // Сохраняем настройки наценки
     if (isset($_POST['DEFAULT_EXTRA_VALUE'])) {
@@ -430,6 +482,19 @@ if (($_GET['saved'] ?? '') === 'Y') {
     ]);
 }
 
+foreach (['consolidation' => 'Обновление объединённого модуля', 'templates' => 'Изменение шаблона сайта'] as $resultKey => $resultTitle) {
+    $result = (string)($_GET[$resultKey] ?? '');
+    if ($result === '') {
+        continue;
+    }
+    CAdminMessage::ShowMessage([
+        'MESSAGE' => $resultTitle,
+        'DETAILS' => $result === 'ok' ? 'Операция выполнена успешно.' : htmlspecialcharsbx(urldecode((string)($_GET['message'] ?? 'Неизвестная ошибка'))),
+        'TYPE' => $result === 'ok' ? 'OK' : 'ERROR',
+        'HTML' => true,
+    ]);
+}
+
 if (($_GET['cleanup'] ?? '') === 'Y') {
     $cleanupAction = (string)($_GET['cleanupAction'] ?? 'orphans');
     $deleted = (int)($_GET['deleted'] ?? 0);
@@ -479,6 +544,10 @@ $tabControl = new CAdminTabControl('tabControl', [
     ['DIV' => 'edit3', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_OFFERS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_OFFERS_TITLE')],
     ['DIV' => 'edit4', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS_TITLE')],
     ['DIV' => 'edit5', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION_TITLE')],
+    ['DIV' => 'frontend', 'TAB' => 'Публичный калькулятор', 'TITLE' => 'Карточка товара, сервер расчёта и сценарии доступа'],
+    ['DIV' => 'properties', 'TAB' => 'Свойства и ТП', 'TITLE' => 'Описания свойств и инструменты торговых предложений'],
+    ['DIV' => 'orders', 'TAB' => 'Корзина и макеты', 'TITLE' => 'Файлы макетов, сроки и Яндекс.Диск'],
+    ['DIV' => 'consolidation', 'TAB' => 'Обновление', 'TITLE' => 'Миграция старых модулей и управляемые файлы'],
     ['DIV' => 'edit6', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC_TITLE')],
 ]);
 
@@ -814,6 +883,85 @@ $tabControl->Begin();
             <br><span style="color: #777; font-size: 11px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_CALC_SERVER_URL_HINT') ?></span>
         </td>
     </tr>
+
+    <?php $tabControl->BeginNextTab(); ?>
+
+    <tr class="heading"><td colspan="2">Инфоблоки и конфигурация</td></tr>
+    <tr><td width="40%">ID инфоблока товаров</td><td><input type="number" name="PRODUCTS_IBLOCK_ID" value="<?= (int)Option::get($module_id, 'PRODUCTS_IBLOCK_ID', Option::get($module_id, 'PRODUCT_IBLOCK_ID', 0)) ?>"></td></tr>
+    <tr><td>ID инфоблока торговых предложений</td><td><input type="number" name="OFFERS_IBLOCK_ID" value="<?= (int)Option::get($module_id, 'OFFERS_IBLOCK_ID', Option::get($module_id, 'SKU_IBLOCK_ID', 0)) ?>"></td></tr>
+    <tr><td>Свойство конфигурации товара</td><td><input type="text" name="CALC_PROPERTY_CODE" value="<?= htmlspecialcharsbx(Option::get($module_id, 'CALC_PROPERTY_CODE', 'FRONTCALC_CONFIG')) ?>"></td></tr>
+    <tr><td>AJAX endpoint</td><td><input type="text" size="55" name="CALC_AJAX_URL" value="<?= htmlspecialcharsbx(Option::get($module_id, 'CALC_AJAX_URL', '/local/ajax/frontcalc.php')) ?>"></td></tr>
+    <tr><td>Единица отображения площади</td><td><select name="AREA_DISPLAY_UNIT"><option value="mm2"<?= Option::get($module_id, 'AREA_DISPLAY_UNIT', 'mm2') === 'mm2' ? ' selected' : '' ?>>мм²</option><option value="m2"<?= Option::get($module_id, 'AREA_DISPLAY_UNIT', 'mm2') === 'm2' ? ' selected' : '' ?>>м²</option></select></td></tr>
+    <tr class="heading"><td colspan="2">Сервер расчёта и тиражи</td></tr>
+    <tr><td>Таймаут запроса, секунд</td><td><input type="number" name="CALC_SERVER_TIMEOUT" value="<?= (int)Option::get($module_id, 'CALC_SERVER_TIMEOUT', 10) ?>" min="1"></td></tr>
+    <tr><td>Максимум вариантов в batch</td><td><input type="number" name="CALC_SERVER_BATCH_LIMIT" value="<?= (int)Option::get($module_id, 'CALC_SERVER_BATCH_LIMIT', 200) ?>" min="1"></td></tr>
+    <tr><td>Отладка в консоли браузера</td><td><input type="checkbox" name="CALC_SERVER_DEBUG_CONSOLE" value="Y"<?= Option::get($module_id, 'CALC_SERVER_DEBUG_CONSOLE', 'N') === 'Y' ? ' checked' : '' ?>></td></tr>
+    <tr><td>ID служебного торгового предложения</td><td><input type="number" name="SERVICE_OFFER_ID" value="<?= (int)Option::get($module_id, 'SERVICE_OFFER_ID', 0) ?>"></td></tr>
+    <tr><td>Сетка тиражей</td><td><textarea name="VOLUME_GRID_VALUES" cols="85" rows="3"><?= htmlspecialcharsbx(Option::get($module_id, 'VOLUME_GRID_VALUES', '')) ?></textarea></td></tr>
+    <tr><td>Шаг после последнего тиража</td><td><input type="number" name="VOLUME_GRID_TAIL_STEP" value="<?= (int)Option::get($module_id, 'VOLUME_GRID_TAIL_STEP', 50000) ?>"></td></tr>
+    <tr class="heading"><td colspan="2">Сценарии доступа</td></tr>
+    <?php foreach (['restricted' => 'Ограниченный', 'verified' => 'Проверенный', 'extended' => 'Расширенный'] as $scenarioCode => $scenarioLabel): ?>
+        <?php $scenarioGroups = json_decode((string)Option::get($module_id, 'access_scenarios.' . $scenarioCode . '.group_ids', '[]'), true); ?>
+        <tr><td><?= $scenarioLabel ?>: ID групп</td><td><input type="text" size="55" name="ACCESS_SCENARIO_<?= strtoupper($scenarioCode) ?>_GROUP_IDS" value="<?= htmlspecialcharsbx(implode(',', is_array($scenarioGroups) ? $scenarioGroups : [])) ?>"></td></tr>
+    <?php endforeach; ?>
+    <tr><td>Ссылка «Подробнее» для ограниченного доступа</td><td><input type="text" size="75" name="ACCESS_SCENARIO_RESTRICTED_MORE_URL" value="<?= htmlspecialcharsbx(Option::get($module_id, 'access_scenarios.restricted.more_url', '')) ?>"></td></tr>
+    <tr><td>Сообщение для мобильного устройства</td><td><textarea name="ACCESS_SCENARIO_RESTRICTED_MOBILE_MESSAGE" cols="85" rows="2"><?= htmlspecialcharsbx(Option::get($module_id, 'access_scenarios.restricted.mobile_message', '')) ?></textarea></td></tr>
+    <tr><td>JSON-схема редактора</td><td><textarea name="CALC_EDITOR_SCHEMA" cols="100" rows="8"><?= htmlspecialcharsbx(Option::get($module_id, 'CALC_EDITOR_SCHEMA', '')) ?></textarea><br><small>Пустое значение включает схему по умолчанию.</small></td></tr>
+    <tr class="heading"><td colspan="2">Тексты сроков</td></tr>
+    <?php foreach (['DEADLINE_URGENT_TEXT' => 'Срочный', 'DEADLINE_STRICT_TEXT' => 'Строгий', 'DEADLINE_FLEXIBLE_TEXT' => 'Гибкий'] as $deadlineOption => $deadlineLabel): ?>
+        <tr><td><?= $deadlineLabel ?></td><td><textarea name="<?= $deadlineOption ?>" cols="85" rows="2"><?= htmlspecialcharsbx(Option::get($module_id, $deadlineOption, '')) ?></textarea></td></tr>
+    <?php endforeach; ?>
+
+    <?php $tabControl->BeginNextTab(); ?>
+
+    <tr class="heading"><td colspan="2">Описания значений свойств</td></tr>
+    <tr><td width="40%">Функция включена</td><td><input type="checkbox" name="PROPERTY_VALUES_ENABLED" value="Y"<?= Option::get($module_id, 'ENABLED', 'Y') === 'Y' ? ' checked' : '' ?>></td></tr>
+    <tr><td>HL-блок описаний</td><td>#<?= (int)Option::get($module_id, 'PROPERTY_DESCRIPTIONS_HL_BLOCK_ID', 0) ?></td></tr>
+    <tr><td>Публичный JSON</td><td><code><?= htmlspecialcharsbx(Option::get($module_id, 'PROPERTY_DESCRIPTIONS_JSON_PATH', '—')) ?></code></td></tr>
+    <tr><td>Редактор описаний</td><td><a class="adm-btn" href="/bitrix/admin/prospektweb_calc_property_values.php?lang=<?= LANGUAGE_ID ?>">Открыть редактор</a></td></tr>
+    <tr class="heading"><td colspan="2">Торговые предложения</td></tr>
+    <tr><td>Фильтр таблицы ТП</td><td>Подключается только на страницах редактирования товара и торговых предложений.</td></tr>
+    <tr><td>AJAX-генератор ТП</td><td>Совместимый обработчик штатного генератора подключается автоматически.</td></tr>
+
+    <?php $tabControl->BeginNextTab(); ?>
+
+    <tr class="heading"><td colspan="2">Загрузка макетов</td></tr>
+    <tr><td width="40%">Максимальный размер, байт</td><td><input type="number" name="max_size" value="<?= (int)Option::get($module_id, 'max_size', 104857600) ?>"></td></tr>
+    <tr><td>Разрешённые расширения</td><td><input type="text" size="80" name="extensions" value="<?= htmlspecialcharsbx(Option::get($module_id, 'extensions', 'pdf,ai,eps,cdr,psd,tif,tiff,jpg,jpeg,png,zip,rar,7z')) ?>"></td></tr>
+    <tr><td>Хранение временных файлов, часов</td><td><input type="number" name="temp_lifetime_hours" value="<?= (int)Option::get($module_id, 'temp_lifetime_hours', 24) ?>"></td></tr>
+    <tr><td>Подсказка загрузки</td><td><textarea name="tooltip_text" cols="85" rows="3"><?= htmlspecialcharsbx(Option::get($module_id, 'tooltip_text', '')) ?></textarea></td></tr>
+    <tr class="heading"><td colspan="2">Желаемая дата получения</td></tr>
+    <tr><td>Минимальный задел, часов</td><td><input type="number" name="desired_receive_min_hours" value="<?= (int)Option::get($module_id, 'desired_receive_min_hours', 4) ?>"></td></tr>
+    <tr><td>Рабочие дни</td><td><input type="text" name="desired_receive_workdays" value="<?= htmlspecialcharsbx(Option::get($module_id, 'desired_receive_workdays', '1,2,3,4,5')) ?>"></td></tr>
+    <tr><td>Рабочее время</td><td><input type="text" name="desired_receive_time_from" value="<?= htmlspecialcharsbx(Option::get($module_id, 'desired_receive_time_from', '09:00')) ?>"> — <input type="text" name="desired_receive_time_to" value="<?= htmlspecialcharsbx(Option::get($module_id, 'desired_receive_time_to', '18:00')) ?>"></td></tr>
+    <tr><td>Шаг времени, минут</td><td><input type="number" name="desired_receive_step_minutes" value="<?= (int)Option::get($module_id, 'desired_receive_step_minutes', 30) ?>"></td></tr>
+    <tr><td>Время по умолчанию</td><td><input type="text" name="desired_receive_default_time" value="<?= htmlspecialcharsbx(Option::get($module_id, 'desired_receive_default_time', '11:00')) ?>"></td></tr>
+    <tr><td>Праздничные даты</td><td><input type="text" size="80" name="desired_receive_holidays" value="<?= htmlspecialcharsbx(Option::get($module_id, 'desired_receive_holidays', '')) ?>"></td></tr>
+    <tr><td>Свойство срока производства</td><td><input type="text" size="45" name="desired_receive_production_hours_property" value="<?= htmlspecialcharsbx(Option::get($module_id, 'desired_receive_production_hours_property', 'MIN_TIME_PRODUCTION_IN_WORK_HOURS')) ?>"></td></tr>
+    <tr><td>Скрываемые свойства корзины</td><td><input type="text" size="80" name="hidden_basket_property_codes" value="<?= htmlspecialcharsbx(Option::get($module_id, 'hidden_basket_property_codes', '')) ?>"></td></tr>
+    <tr><td>Подсказка желаемой даты</td><td><textarea name="desired_receive_tooltip_text" cols="85" rows="3"><?= htmlspecialcharsbx(Option::get($module_id, 'desired_receive_tooltip_text', '')) ?></textarea></td></tr>
+    <tr class="heading"><td colspan="2">Яндекс.Диск</td></tr>
+    <tr><td>Базовая папка</td><td><input type="text" size="60" name="base_folder" value="<?= htmlspecialcharsbx(Option::get($module_id, 'base_folder', '/')) ?>"></td></tr>
+    <tr><td>OAuth Client ID</td><td><input type="text" size="60" name="yadisk_client_id" value="<?= htmlspecialcharsbx(Option::get($module_id, 'yadisk_client_id', '')) ?>"></td></tr>
+    <tr><td>OAuth Client Secret</td><td><input type="password" size="60" name="yadisk_client_secret" value="" placeholder="Оставьте пустым, чтобы не менять"></td></tr>
+    <tr><td>Подключение и проверка</td><td><a class="adm-btn" href="/bitrix/admin/prospektweb_calc_orders.php?lang=<?= LANGUAGE_ID ?>">Открыть расширенные настройки</a></td></tr>
+
+    <?php $tabControl->BeginNextTab(); ?>
+
+    <?php $consolidationStatus = (new ConsolidationManager())->status(); ?>
+    <?php $templateInspection = (new TemplatePatchCoordinator())->inspect(); ?>
+    <tr class="heading"><td colspan="2">Состояние объединения</td></tr>
+    <tr><td width="40%">Версия миграции</td><td><?= htmlspecialcharsbx($consolidationStatus['version'] ?: 'не применена') ?></td></tr>
+    <tr><td>Последнее применение</td><td><?= htmlspecialcharsbx($consolidationStatus['applied_at'] ?: '—') ?></td></tr>
+    <tr><td>Управляемые wrappers</td><td><?= count($consolidationStatus['managed_files']) ?></td></tr>
+    <tr><td></td><td><button type="submit" class="adm-btn adm-btn-save" name="APPLY_CONSOLIDATION" value="Y" onclick="return confirm('Создать резервные копии, перенести настройки и зарегистрировать объединённые обработчики?');">Применить безопасное обновление</button></td></tr>
+    <tr><td></td><td><div class="adm-info-message">Старые модули не регистрируются и не удаляются. Значения существующих настроек <code>prospektweb.calc</code> имеют приоритет.</div></td></tr>
+    <tr class="heading"><td colspan="2">Шаблон сайта</td></tr>
+    <tr><td>Aspro prices.php</td><td><code><?= htmlspecialcharsbx($templateInspection['target']) ?></code></td></tr>
+    <tr><td>Текущий SHA-256</td><td><code><?= htmlspecialcharsbx($templateInspection['target_hash'] ?: 'файл не найден') ?></code></td></tr>
+    <tr><td>Подготовленный SHA-256</td><td><code><?= htmlspecialcharsbx($templateInspection['source_hash'] ?: 'файл не найден') ?></code></td></tr>
+    <tr><td>Подтверждение версии</td><td><input type="text" size="72" name="APPROVED_ASPRO_PRICES_HASH" value="<?= htmlspecialcharsbx($templateInspection['target_hash']) ?>"><br><small>Перед применением сравните боевой файл с резервной копией. Изменение выполняется только при точном совпадении hash.</small></td></tr>
+    <tr><td></td><td><button type="submit" class="adm-btn" name="APPLY_TEMPLATE_PATCHES" value="Y" onclick="return confirm('Создать резервные копии и применить согласованные изменения prices.php и шаблона корзины?');">Применить изменения шаблона</button></td></tr>
 
     <?php $tabControl->BeginNextTab(); ?>
 

@@ -1,0 +1,271 @@
+.prices-popup-ext {
+  width: 100%;
+  min-width: 250px;
+  max-width: 420px;
+}
+
+/* ===== ТИРАЖ ===== */
+.prices-popup-ext__volume {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid #eef2f7;
+  border-radius: 12px;
+  background: #f8fafc;
+  font-size: 14px;
+  line-height: 1.3;
+  color: #344054;
+}
+
+.prices-popup-ext__volume-val {
+  color: #101828;
+  font-weight: 600;
+}
+
+/* ===== ТАБЫ ===== */
+.prices-popup-ext__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 0 10px;
+}
+
+.prices-popup-ext__tab {
+  appearance: none;
+  border: 1px solid #dfe4ea;
+  border-radius: 999px;
+  background: #fff;
+  padding: 6px 11px;
+  font-size: 13px;
+  line-height: 1.2;
+  color: #475467;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  position: relative;
+}
+
+.prices-popup-ext__tab:hover {
+  border-color: #c7ced8;
+  background: #f8fafc;
+  color: #101828;
+}
+
+.prices-popup-ext__tab.is-active {
+  border-color: #101828;
+  background: #101828;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ===== ИКОНКА ПОДСКАЗКИ ===== */
+.prices-popup-ext__hint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: #98a2b3;
+}
+
+.prices-popup-ext__hint-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===== ТУЛТИП ===== */
+.prices-popup-ext__hint-box {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 50;
+  width: 240px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: #101828;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.18);
+
+  transform: translateX(-50%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.prices-popup-ext__hint:hover .prices-popup-ext__hint-box,
+.prices-popup-ext__hint:focus .prices-popup-ext__hint-box {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ===== ТАБЛИЦА ===== */
+.prices-popup-ext__table-wrap {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.prices-popup-ext__table {
+  width: 100%;
+  min-width: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  background: #fff;
+}
+
+/* ===== ЗАГОЛОВКИ ===== */
+.prices-popup-ext__th {
+  padding: 9px 11px;
+  border-bottom: 1px solid #e5e7eb;
+  border-right: 1px solid #eef2f7;
+  background: #f8fafc;
+  font-size: 13px;
+  line-height: 1.2;
+  color: #475467;
+  text-align: left;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.prices-popup-ext__th:last-child {
+  border-right: 0;
+}
+
+/* ===== ЯЧЕЙКИ ===== */
+.prices-popup-ext__cell {
+  padding: 9px 11px;
+  border-bottom: 1px solid #eef2f7;
+  border-right: 1px solid #f2f4f7;
+  font-size: 13px;
+  line-height: 1.2;
+  color: #344054;
+  vertical-align: middle;
+  background: #fff;
+}
+
+.prices-popup-ext__cell:last-child {
+  border-right: 0;
+}
+
+.prices-popup-ext__table tbody tr:last-child .prices-popup-ext__cell {
+  border-bottom: 0;
+}
+
+.prices-popup-ext__table tbody tr:hover .prices-popup-ext__cell {
+  background: #fbfdff;
+}
+
+/* ===== ВЫРАВНИВАНИЕ ===== */
+.prices-popup-ext__th--condition,
+.prices-popup-ext__cell--condition {
+  text-align: left;
+  color: #101828;
+  white-space: nowrap;
+}
+
+.prices-popup-ext__th--price,
+.prices-popup-ext__cell--price {
+  text-align: right;
+  color: #101828;
+  white-space: nowrap;
+}
+
+.prices-popup-ext__th--sum,
+.prices-popup-ext__cell--sum {
+  text-align: right;
+  color: #475467;
+  white-space: nowrap;
+}
+
+/* ===== СТРОКИ (ВАЖНО!) ===== */
+.prices-popup-ext__row {
+  display: none;
+}
+
+.prices-popup-ext__row.is-active {
+  display: table-row;
+}
+
+/* ===== МОБИЛКА ===== */
+@media (max-width: 600px) {
+  .prices-popup-ext {
+    min-width: 300px;
+    max-width: 100%;
+  }
+
+  .prices-popup-ext__volume {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .prices-popup-ext__tabs {
+    gap: 5px;
+  }
+
+  .prices-popup-ext__tab {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+
+  .prices-popup-ext__th,
+  .prices-popup-ext__cell {
+    padding: 8px;
+    font-size: 12px;
+  }
+
+  .prices-popup-ext__hint-box {
+    width: 200px;
+  }
+}
+
+.prices-popup-ext__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #eef2f7;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #475467;
+}
+
+.prices-popup-ext__notice-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 1px;
+  color: #98a2b3;
+}
+
+.prices-popup-ext__notice-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #475467;
+}
+
+.prices-popup-ext__volume {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.prices-popup-ext__volume-left {
+  font-size: 14px;
+  color: #344054;
+}
+
+.prices-popup-ext__volume-right {
+  font-size: 13px;
+  color: #667085;
+  white-space: nowrap;
+}

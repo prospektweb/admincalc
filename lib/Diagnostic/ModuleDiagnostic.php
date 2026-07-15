@@ -62,13 +62,19 @@ class ModuleDiagnostic
         'tools/elements.php',
         'tools/calculator_config.php',
         'tools/calculate.php',
-        'tools/save_result.php',
         'tools/batch_recalculate.php',
         'tools/product_generator.php',
         'install/assets/js/calculator.js',
         'install/assets/js/integration.js',
         'install/step1.php',
         'install/step3.php',
+        'lib/Integration/ConsolidationManager.php',
+        'lib/Integration/TemplatePatchCoordinator.php',
+        'features/frontend/ajax/frontcalc.php',
+        'features/frontend/assets/js/frontcalc-jqm-popup.js',
+        'features/property_values/lib/Service/PropertyDescriptionService.php',
+        'features/offers/lib/offerfilter.php',
+        'features/orders/lib/FileManager.php',
     ];
 
     private const EXPECTED_EVENTS = [
@@ -78,6 +84,13 @@ class ModuleDiagnostic
         ['FROM_MODULE_ID' => 'iblock', 'MESSAGE_ID' => 'OnAfterIBlockElementUpdate', 'TO_CLASS' => 'DependencyHandler', 'TO_METHOD' => 'onElementUpdate'],
         ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnBeforeEndBufferContent', 'TO_CLASS' => 'AdminHandler', 'TO_METHOD' => 'onBeforeEndBufferContent'],
         ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnBuildGlobalMenu', 'TO_CLASS' => 'AdminHandler', 'TO_METHOD' => 'onBuildGlobalMenu'],
+        ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnAdminContextMenuShow', 'TO_CLASS' => 'ProductCardButton', 'TO_METHOD' => 'onAdminContextMenuShow'],
+        ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnEpilog', 'TO_CLASS' => 'FrontendAssets', 'TO_METHOD' => 'onEpilog'],
+        ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnEndBufferContent', 'TO_CLASS' => 'AdminPropertySettingsExtension', 'TO_METHOD' => 'onEndBufferContent'],
+        ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnEndBufferContent', 'TO_CLASS' => 'PublicJsonConfigExtension', 'TO_METHOD' => 'onEndBufferContent'],
+        ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnBeforeProlog', 'TO_CLASS' => 'OfferFilter', 'TO_METHOD' => 'onBeforeProlog'],
+        ['FROM_MODULE_ID' => 'sale', 'MESSAGE_ID' => 'OnSaleOrderSaved', 'TO_CLASS' => 'EventHandlers', 'TO_METHOD' => 'onSaleOrderSaved'],
+        ['FROM_MODULE_ID' => 'sale', 'MESSAGE_ID' => 'OnSaleBasketItemSaved', 'TO_CLASS' => 'EventHandlers', 'TO_METHOD' => 'onSaleBasketItemSaved'],
     ];
 
     /** @var string Путь к директории модуля */

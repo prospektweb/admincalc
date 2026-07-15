@@ -1777,6 +1777,10 @@ switch ($currentStep) {
         // Регистрируем модуль ТОЛЬКО после успешного завершения всех шагов
         installLog("Регистрация модуля в системе.");
         $moduleClass->registerModule();
+
+        require_once dirname(__DIR__) . '/include.php';
+        (new \Prospektweb\Calc\Integration\ConsolidationManager())->apply();
+        installLog('Объединённые подсистемы, endpoints и обработчики подготовлены', 'success');
         installLog("Модуль зарегистрирован", 'success');
         
         installLog("═══ УСТАНОВКА ЗАВЕРШЕНА! ═══", 'header');
