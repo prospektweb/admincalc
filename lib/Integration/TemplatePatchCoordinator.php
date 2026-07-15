@@ -10,6 +10,7 @@ final class TemplatePatchCoordinator
 {
     private const MODULE_ID = 'prospektweb.calc';
     private const MANIFEST_OPTION = 'CONSOLIDATION_TEMPLATE_MANIFEST';
+    private const TEMPLATE_RELEASE = 'prospektweb.calc-2.0.0';
     private const ASPRO_PRICES = '/bitrix/modules/aspro.premier/lib/product/prices.php';
     private const BACKUP_DIR = '/upload/prospektweb.calc/consolidation-backups/templates';
 
@@ -59,7 +60,7 @@ final class TemplatePatchCoordinator
         }
 
         try {
-            BackupManager::createBackupBeforeInstall('consolidated-' . date('YmdHis'));
+            BackupManager::createBackupBeforeInstall(self::TEMPLATE_RELEASE);
         } catch (\Throwable $exception) {
             $rollbackErrors = [];
             try {

@@ -11,6 +11,10 @@ class BackupManager
     public static function createBackupBeforeInstall(string $moduleVersion): void
     {
         $documentRoot = rtrim((string)$_SERVER['DOCUMENT_ROOT'], '/');
+        if (self::isCurrentReleaseAlreadyInstalled($documentRoot, $moduleVersion)) {
+            return;
+        }
+
         $installId = date('Ymd_His') . '_' . bin2hex(random_bytes(4));
         $backupDir = $documentRoot . self::BACKUP_ROOT . '/' . $installId;
         self::ensureDirectory($backupDir);
@@ -56,6 +60,43 @@ class BackupManager
 
         self::writeManifest($backupDir . '/manifest.php', $manifest);
         Option::set(Config::MODULE_ID, 'backup_install_id', $installId);
+    }
+
+    private static function isCurrentReleaseAlreadyInstalled(string $documentRoot, string $moduleVersion): bool
+    {
+        $installId = (string)Option::get(Config::MODULE_ID, 'backup_install_id', '');
+        if ($installId === '') {
+            return false;
+        }
+
+        $manifestPath = $documentRoot . self::BACKUP_ROOT . '/' . $installId . '/manifest.php';
+        if (!is_file($manifestPath)) {
+            return false;
+        }
+
+        $manifest = include $manifestPath;
+        if (!is_array($manifest) || (string)($manifest['module_version'] ?? '') !== $moduleVersion) {
+            return false;
+        }
+
+        $conflicts = [];
+        foreach (($manifest['files'] ?? []) as $relativePath => $fileInfo) {
+            $absolutePath = $documentRoot . $relativePath;
+            $currentHash = is_file($absolutePath) ? (string)hash_file('sha256', $absolutePath) : null;
+            $installedHash = $fileInfo['installed_hash'] ?? null;
+            if ($currentHash !== $installedHash) {
+                $conflicts[] = $relativePath;
+            }
+        }
+
+        if ($conflicts !== []) {
+            throw new \RuntimeException(
+                'Файлы корзины изменены после установки шаблонного набора ' . $moduleVersion
+                . ': ' . implode(', ', $conflicts) . '. Автоматическая повторная замена остановлена.'
+            );
+        }
+
+        return true;
     }
 
     public static function rollbackOnUninstall(): void
