@@ -20,17 +20,19 @@ class BatchRecalculateService
     private int $timeout;
     private ConfigManager $configManager;
     private InitPayloadService $initPayloadService;
+    private ?CalcServerRequestSigner $requestSigner;
 
     /**
      * @param string $calcServerUrl URL сервера расчётов
      * @param int $timeout Таймаут запроса в секундах
      */
-    public function __construct(string $calcServerUrl, int $timeout = 30)
+    public function __construct(string $calcServerUrl, int $timeout = 30, ?CalcServerRequestSigner $requestSigner = null)
     {
         $this->calcServerUrl = rtrim($calcServerUrl, '/');
         $this->timeout = $timeout;
         $this->configManager = new ConfigManager();
         $this->initPayloadService = new InitPayloadService();
+        $this->requestSigner = $requestSigner;
     }
 
     /**
@@ -526,14 +528,21 @@ class BatchRecalculateService
             throw new \Exception('Не удалось сериализовать payload для calc-server');
         }
 
+        try {
+            $signer = $this->requestSigner ?? $this->createRequestSigner();
+            $authHeaders = $signer->headers($requestBody, 'POST', '/calculate');
+        } catch (\Throwable $e) {
+            throw new \Exception('Не настроена защищённая связь с сервером расчётов');
+        }
+
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge([
             'Content-Type: application/json',
             'Accept: application/json',
-        ]);
+        ], $authHeaders));
         curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 
@@ -553,7 +562,14 @@ class BatchRecalculateService
         if ($httpCode !== 200) {
             $serverMessage = '';
             if (is_array($decodedErrorResponse)) {
-                $serverMessage = (string)($decodedErrorResponse['error'] ?? $decodedErrorResponse['message'] ?? '');
+                $serverError = $decodedErrorResponse['error'] ?? null;
+                if (is_array($serverError)) {
+                    $serverMessage = (string)($serverError['message'] ?? $serverError['code'] ?? '');
+                } elseif (is_scalar($serverError)) {
+                    $serverMessage = (string)$serverError;
+                } else {
+                    $serverMessage = (string)($decodedErrorResponse['message'] ?? '');
+                }
             }
             if ($serverMessage === '' && $responseBody !== '') {
                 $serverMessage = substr($responseBody, 0, 400);
@@ -572,6 +588,26 @@ class BatchRecalculateService
         }
 
         return $result;
+    }
+
+    private function createRequestSigner(): CalcServerRequestSigner
+    {
+        $clientId = trim((string)(getenv('PROSPEKTWEB_CALC_SERVER_CLIENT_ID') ?: getenv('PROSPEKTWEB_FRONTCALC_CLIENT_ID') ?: 'prospektprint-production'));
+        $secret = trim((string)(getenv('PROSPEKTWEB_CALC_SERVER_SHARED_SECRET') ?: getenv('PROSPEKTWEB_FRONTCALC_SHARED_SECRET') ?: ''));
+        if ($secret === '') {
+            $secretFile = trim((string)(getenv('PROSPEKTWEB_CALC_SERVER_SECRET_FILE') ?: getenv('PROSPEKTWEB_FRONTCALC_SECRET_FILE') ?: ''));
+            if ($secretFile === '') {
+                $documentRoot = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? ''), '/\\');
+                if ($documentRoot !== '') {
+                    $secretFile = dirname($documentRoot) . '/.frontcalc-secret';
+                }
+            }
+            if ($secretFile !== '' && is_file($secretFile) && is_readable($secretFile)) {
+                $secret = trim((string)file_get_contents($secretFile));
+            }
+        }
+
+        return new CalcServerRequestSigner($clientId, $secret);
     }
 
     /**

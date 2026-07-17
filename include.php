@@ -27,6 +27,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\OfferUpdateService' => 'lib/Services/OfferUpdateService.php',
     'Prospektweb\\Calc\\Services\\SaveAllService' => 'lib/Services/SaveAllService.php',
     'Prospektweb\\Calc\\Services\\BatchRecalculateService' => 'lib/Services/BatchRecalculateService.php',
+    'Prospektweb\\Calc\\Services\\CalcServerRequestSigner' => 'lib/Services/CalcServerRequestSigner.php',
     'Prospektweb\\Calc\\Handlers\\AdminHandler' => 'lib/Handlers/AdminHandler.php',
     'Prospektweb\\Calc\\Handlers\\DependencyHandler' => 'lib/Handlers/DependencyHandler.php',
     'Prospektweb\\Calc\\Diagnostic\\ModuleDiagnostic' => 'lib/Diagnostic/ModuleDiagnostic.php',
