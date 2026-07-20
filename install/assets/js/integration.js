@@ -938,6 +938,7 @@
         async handleSaveSettingsEquipmentRequest(message, origin) {
             const payload = message.payload || {};
             const equipmentId = parseInt(payload.eqipmentId || payload.equipmentId, 10) || 0;
+            const name = String(payload.name || '').trim();
             const properties = payload.properties || {};
             if (!equipmentId) {
                 this.sendPwrtMessage('SAVE_SETTINGS_EQUIPMENT_RESPONSE', {
@@ -948,7 +949,7 @@
             }
 
             try {
-                const result = await this.fetchRefreshData([{ action: 'saveSettingsEquipment', equipmentId, properties }]);
+                const result = await this.fetchRefreshData([{ action: 'saveSettingsEquipment', equipmentId, name, properties }]);
                 const responsePayload = Array.isArray(result) && result[0]
                     ? result[0]
                     : { status: 'error', message: 'Пустой ответ сохранения оборудования' };
@@ -962,6 +963,9 @@
                 if (Array.isArray(equipmentItems)) {
                     const equipment = equipmentItems.find((item) => Number(item.id) === equipmentId);
                     if (equipment) {
+                        if (responsePayload.name) {
+                            equipment.name = responsePayload.name;
+                        }
                         equipment.properties = equipment.properties || {};
                         Object.entries(responsePayload.properties || {}).forEach(([code, property]) => {
                             equipment.properties[code] = {

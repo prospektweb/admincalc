@@ -448,6 +448,7 @@ class ElementDataService
 
                     case 'saveSettingsEquipment':
                         $equipmentId = (int)($request['equipmentId'] ?? 0);
+                        $equipmentName = trim((string)($request['name'] ?? ''));
                         $properties = is_array($request['properties'] ?? null) ? $request['properties'] : [];
                         $equipmentIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_EQUIPMENT', 0);
 
@@ -471,12 +472,14 @@ class ElementDataService
 
                         $fieldParts = array_map('trim', explode(',', (string)($properties['FIELDS'] ?? '')));
                         if (count($fieldParts) !== 4 || array_filter($fieldParts, static function ($value): bool {
-                            return !preg_match('/^\d+$/', (string)$value);
+                            return $value !== '' && !preg_match('/^\d+$/', (string)$value);
                         })) {
-                            $result[] = ['status' => 'error', 'message' => 'FIELDS должен содержать четыре целых числа'];
+                            $result[] = ['status' => 'error', 'message' => 'FIELDS должен содержать четыре пустых или целых значения'];
                             continue 2;
                         }
-                        $prepared['FIELDS'] = implode(',', array_map('intval', $fieldParts));
+                        $prepared['FIELDS'] = implode(',', array_map(static function ($value): string {
+                            return $value === '' ? '' : (string)(int)$value;
+                        }, $fieldParts));
                         $responseProperties['FIELDS'] = ['VALUE' => $prepared['FIELDS']];
 
                         $parametrs = [];
@@ -491,7 +494,7 @@ class ElementDataService
                             if ($code === '' && $description === '') {
                                 continue;
                             }
-                            if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $code) || $description === '') {
+                            if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $code)) {
                                 $result[] = ['status' => 'error', 'message' => 'Некорректный дополнительный параметр оборудования'];
                                 continue 3;
                             }
@@ -505,11 +508,20 @@ class ElementDataService
                             'DESCRIPTION' => $parametrDescriptions,
                         ];
 
+                        if ($equipmentName !== '') {
+                            $element = new \CIBlockElement();
+                            if (!$element->Update($equipmentId, ['NAME' => $equipmentName])) {
+                                $result[] = ['status' => 'error', 'message' => 'Не удалось сохранить название оборудования'];
+                                continue 2;
+                            }
+                        }
+
                         \CIBlockElement::SetPropertyValuesEx($equipmentId, $equipmentIblockId, $prepared);
 
                         $result[] = [
                             'status' => 'ok',
                             'equipmentId' => $equipmentId,
+                            'name' => $equipmentName,
                             'properties' => $responseProperties,
                         ];
                         continue 2;
