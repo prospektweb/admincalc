@@ -425,6 +425,42 @@ var ProspekwebCalc = {
         });
 
         dialog.Show();
+        this.expandCalculatorDialog(dialog);
+    },
+
+    /**
+     * Разворачивает CAdminDialog сразу после показа. Bitrix добавляет кнопку
+     * асинхронно, поэтому ждём два кадра отрисовки и используем штатное действие.
+     */
+    expandCalculatorDialog: function(dialog) {
+        var expand = function() {
+            var root = dialog && dialog.DIV && dialog.DIV.querySelector
+                ? dialog.DIV
+                : document;
+            var expandButton = root.querySelector('.bx-core-adm-icon-expand');
+
+            if (!expandButton && root !== document) {
+                var candidates = document.querySelectorAll('.bx-core-adm-icon-expand');
+                for (var index = candidates.length - 1; index >= 0; index--) {
+                    if (candidates[index].offsetParent !== null) {
+                        expandButton = candidates[index];
+                        break;
+                    }
+                }
+            }
+
+            if (expandButton) {
+                expandButton.click();
+            }
+        };
+
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(function() {
+                window.requestAnimationFrame(expand);
+            });
+        } else {
+            window.setTimeout(expand, 0);
+        }
     },
 
     /**

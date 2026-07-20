@@ -2686,15 +2686,28 @@
                 return;
             }
 
-            const aggregateResults = [];
+            let aggregateResults = [];
             let savedCount = 0;
 
-            for (let index = 0; index < offers.length; index++) {
-                const offer = offers[index];
-                const progressResult = await this.saveCalculationForOffer(offer, message.requestId);
-                const itemResult = progressResult.itemResult;
+            try {
+                // SaveAllService already accepts an array. Sending one request for the whole
+                // calculation avoids a full Bitrix/PHP bootstrap for every offer and mirrors
+                // the fast batch recalculation path.
+                const response = await this.sendPwrtRequest('SAVE_CALCULATION_REQUEST', {
+                    offers: offers,
+                }, message.requestId);
+                const responsePayload = response && response.payload ? response.payload : {};
+                aggregateResults = this.normalizeBatchSaveResults(offers, responsePayload);
+            } catch (error) {
+                aggregateResults = offers.map((offer) => ({
+                    offerId: Number(offer.offerId || 0),
+                    historyId: null,
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Unknown error',
+                }));
+            }
 
-                aggregateResults.push(itemResult);
+            aggregateResults.forEach((itemResult, index) => {
                 if (itemResult.status === 'ok') {
                     savedCount++;
                 }
@@ -2712,7 +2725,7 @@
                     percent: percent,
                     item: itemResult,
                 }, message.requestId, origin);
-            }
+            });
 
             const failedCount = total - savedCount;
             const finalStatus = failedCount === 0 ? 'ok' : (savedCount > 0 ? 'partial' : 'error');
@@ -2775,34 +2788,44 @@
                 .filter((item) => item && item.offerId > 0);
         }
 
-        async saveCalculationForOffer(offer, requestId) {
-            try {
-                const response = await this.sendPwrtRequest('SAVE_CALCULATION_REQUEST', {
-                    offers: [offer],
-                }, requestId);
-                const responsePayload = response && response.payload ? response.payload : {};
-                const itemResult = Array.isArray(responsePayload.results) && responsePayload.results[0]
-                    ? responsePayload.results[0]
-                    : {
-                        offerId: Number(offer.offerId || 0),
-                        historyId: null,
-                        status: responsePayload.status || 'error',
-                        message: responsePayload.message || 'Пустой ответ сохранения расчёта',
+        normalizeBatchSaveResults(offers, responsePayload) {
+            const historyByOffer = new Map(
+                (Array.isArray(responsePayload.results) ? responsePayload.results : [])
+                    .map((item) => [Number(item && item.offerId || 0), item])
+            );
+            const updateItems = responsePayload.offersUpdate && Array.isArray(responsePayload.offersUpdate.offers)
+                ? responsePayload.offersUpdate.offers
+                : [];
+            const updateByOffer = new Map(
+                updateItems.map((item) => [Number(item && item.offerId || 0), item])
+            );
+            const historyStatus = responsePayload.history && responsePayload.history.status
+                ? responsePayload.history.status
+                : 'skipped';
+
+            return offers.map((offer) => {
+                const offerId = Number(offer.offerId || 0);
+                const history = historyByOffer.get(offerId);
+                const update = updateByOffer.get(offerId);
+                const historyFailed = historyStatus !== 'skipped' && (!history || history.status !== 'ok');
+                const updateFailed = !update || update.status !== 'ok';
+
+                if (historyFailed || updateFailed) {
+                    return {
+                        offerId: offerId,
+                        historyId: history && history.historyId ? history.historyId : null,
+                        status: 'error',
+                        message: (history && history.message) || (update && update.message) || 'Не удалось сохранить расчёт',
                     };
+                }
 
                 return {
-                    itemResult: itemResult,
+                    offerId: offerId,
+                    historyId: history && history.historyId ? history.historyId : null,
+                    historyXmlId: history && history.historyXmlId ? history.historyXmlId : null,
+                    status: 'ok',
                 };
-            } catch (error) {
-                return {
-                    itemResult: {
-                        offerId: Number(offer.offerId || 0),
-                        historyId: null,
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
-                    },
-                };
-            }
+            });
         }
 
         async sendSelectDetailsResponse({ ids, iblockId, iblockType, lang, requestId, origin }) {
