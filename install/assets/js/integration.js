@@ -3474,11 +3474,17 @@
         /**
          * Обработка CLOSE_REQUEST
          */
-        handleCloseRequest(message) {
+        async handleCloseRequest(message) {
             this.logDebug('[CalcIntegration] Close request received');
 
             if (this.hasUnsavedChanges) {
-                const confirmed = confirm('Есть несохранённые изменения. Вы уверены, что хотите закрыть окно?');
+                const confirmed = window.ProspekwebCalc
+                    ? await window.ProspekwebCalc.showConfirmation(
+                        'Есть несохранённые изменения. Вы уверены, что хотите закрыть окно?',
+                        'Несохранённые изменения',
+                        'Закрыть'
+                    )
+                    : false;
                 if (!confirmed) {
                     return;
                 }
@@ -3510,7 +3516,9 @@
                 this.config.onError(message.payload);
             } else {
                 var errorMessage = (message.payload && message.payload.message) ? message.payload.message : 'Неизвестная ошибка';
-                alert('Ошибка: ' + errorMessage);
+                if (window.ProspekwebCalc) {
+                    window.ProspekwebCalc.showMessage('Ошибка: ' + errorMessage, 'Ошибка калькулятора');
+                }
             }
         }
 

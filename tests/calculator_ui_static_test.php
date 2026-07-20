@@ -29,4 +29,10 @@ if (strpos($integration, 'saveCalculationForOffer') !== false) {
     throw new RuntimeException('Save flow must not make one HTTP request per offer');
 }
 
+foreach ([$calculator, $integration] as $source) {
+    if (preg_match('/\b(?:alert|confirm|prompt)\s*\(/', $source) === 1) {
+        throw new RuntimeException('Calculator UI must not use native browser dialogs');
+    }
+}
+
 echo "Calculator UI static tests passed\n";

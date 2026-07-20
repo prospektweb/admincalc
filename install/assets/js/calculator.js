@@ -50,6 +50,93 @@ var ProspekwebCalc = {
     _isInserting: false,
 
     /**
+     * Внутренний диалог вместо системных alert/confirm. Возвращает Promise,
+     * чтобы одинаково работать в обычных и асинхронных сценариях.
+     */
+    showInternalDialog: function(options) {
+        options = options || {};
+
+        return new Promise(function(resolve) {
+            var overlay = document.createElement('div');
+            overlay.className = 'prospektweb-calc-internal-dialog';
+            overlay.setAttribute('role', 'presentation');
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(20,24,31,.48);display:flex;align-items:center;justify-content:center;padding:24px;';
+
+            var panel = document.createElement('div');
+            panel.setAttribute('role', 'dialog');
+            panel.setAttribute('aria-modal', 'true');
+            panel.style.cssText = 'width:min(460px,100%);background:#fff;border:1px solid #dfe3e8;border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.28);padding:24px;font:14px/1.45 Arial,sans-serif;color:#202124;';
+
+            var title = document.createElement('div');
+            title.style.cssText = 'font-size:18px;font-weight:600;margin:0 0 10px;';
+            title.textContent = options.title || 'Калькуляция';
+
+            var message = document.createElement('div');
+            message.style.cssText = 'white-space:pre-wrap;color:#4b5563;margin-bottom:22px;';
+            message.textContent = options.message || '';
+
+            var actions = document.createElement('div');
+            actions.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;';
+
+            var settle = function(result) {
+                document.removeEventListener('keydown', onKeyDown, true);
+                if (overlay.parentNode) {
+                    overlay.parentNode.removeChild(overlay);
+                }
+                resolve(result);
+            };
+
+            var onKeyDown = function(event) {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    settle(false);
+                }
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    settle(true);
+                }
+            };
+
+            if (options.confirm) {
+                var cancelButton = document.createElement('button');
+                cancelButton.type = 'button';
+                cancelButton.className = 'adm-btn';
+                cancelButton.textContent = options.cancelLabel || 'Отмена';
+                cancelButton.addEventListener('click', function() { settle(false); });
+                actions.appendChild(cancelButton);
+            }
+
+            var acceptButton = document.createElement('button');
+            acceptButton.type = 'button';
+            acceptButton.className = 'adm-btn adm-btn-save';
+            acceptButton.textContent = options.confirmLabel || 'Понятно';
+            acceptButton.addEventListener('click', function() { settle(true); });
+            actions.appendChild(acceptButton);
+
+            panel.appendChild(title);
+            panel.appendChild(message);
+            panel.appendChild(actions);
+            overlay.appendChild(panel);
+            document.body.appendChild(overlay);
+            document.addEventListener('keydown', onKeyDown, true);
+            acceptButton.focus();
+        });
+    },
+
+    showMessage: function(message, title) {
+        return this.showInternalDialog({ title: title || 'Калькуляция', message: message });
+    },
+
+    showConfirmation: function(message, title, confirmLabel) {
+        return this.showInternalDialog({
+            title: title || 'Подтвердите действие',
+            message: message,
+            confirm: true,
+            confirmLabel: confirmLabel || 'Продолжить'
+        });
+    },
+
+    /**
      * Инициализация кнопки в админке
      */
     init: function(containerId, props) {
@@ -350,7 +437,7 @@ var ProspekwebCalc = {
         var offers = this.getSelectedOffers();
 
         if (offers.length === 0) {
-            alert('Не выбраны торговые предложения');
+            this.showMessage('Не выбраны торговые предложения');
             return;
         }
 
@@ -398,7 +485,7 @@ var ProspekwebCalc = {
         // Проверяем доступность ProspektwebCalcIntegration
         if (typeof window.ProspektwebCalcIntegration === 'undefined') {
             console.error('[ProspekwebCalc] ProspektwebCalcIntegration not loaded');
-            alert('Ошибка загрузки модуля интеграции');
+            this.showMessage('Ошибка загрузки модуля интеграции', 'Не удалось открыть калькуляцию');
             return;
         }
 
@@ -415,7 +502,7 @@ var ProspekwebCalc = {
             },
             onError: function(error) {
                 console.error('[ProspekwebCalc] Calc error:', error);
-                alert('Ошибка калькулятора: ' + (error.message || 'Неизвестная ошибка'));
+                self.showMessage('Ошибка калькулятора: ' + (error.message || 'Неизвестная ошибка'), 'Ошибка калькулятора');
             }
         });
 
@@ -535,7 +622,7 @@ var ProspekwebCalc = {
             }
 
             // Пресета нет — запрашиваем подтверждение на создание
-            var confirmed = confirm(this.PRESET_CONFIRM_MESSAGE);
+            var confirmed = await this.showConfirmation(this.PRESET_CONFIRM_MESSAGE, 'Создание пресета', 'Создать');
             if (!confirmed) {
                 return { success: false, cancelled: true, skipPresetCheck: true };
             }
@@ -565,7 +652,7 @@ var ProspekwebCalc = {
             };
         } catch (error) {
             console.error('[ProspektwebCalc] Preset check error:', error);
-            alert('Ошибка проверки/создания пресета: ' + error.message);
+            this.showMessage('Ошибка проверки/создания пресета: ' + error.message, 'Ошибка пресета');
             return { success: false, error: true, skipPresetCheck: true };
         }
     },
@@ -895,7 +982,7 @@ var ProspekwebCalc = {
         var offers = this.getSelectedOffers();
 
         if (!offers.length) {
-            alert('Не выбраны торговые предложения');
+            this.showMessage('Не выбраны торговые предложения');
             return;
         }
 
@@ -909,14 +996,14 @@ var ProspekwebCalc = {
             },
             onsuccess: function(response) {
                 if (!response || !response.success || !response.data) {
-                    alert('Не удалось загрузить настройки наценок');
+                    self.showMessage('Не удалось загрузить настройки наценок', 'Ошибка наценки');
                     return;
                 }
 
                 self.showMarkupPopup(response.data, offers);
             },
             onfailure: function() {
-                alert('Ошибка запроса настроек наценок');
+                self.showMessage('Ошибка запроса настроек наценок', 'Ошибка наценки');
             }
         });
     },
@@ -929,7 +1016,7 @@ var ProspekwebCalc = {
         var basePriceTypeId = parseInt(settings.basePriceTypeId || 0, 10);
 
         if (!priceTypes.length) {
-            alert('Типы цен не найдены');
+            this.showMessage('Типы цен не найдены', 'Настройка наценки');
             return;
         }
 
@@ -981,7 +1068,7 @@ var ProspekwebCalc = {
             runBtn.onclick = function() {
                 var baseNode = container.querySelector('input[name="pw-markup-base"]:checked');
                 if (!baseNode) {
-                    alert('Выберите стартовый тип цены');
+                    self.showMessage('Выберите стартовый тип цены', 'Настройка наценки');
                     return;
                 }
 
@@ -1003,15 +1090,15 @@ var ProspekwebCalc = {
                     },
                     onsuccess: function(response) {
                         if (!response || !response.success) {
-                            alert('Ошибка запуска наценки: ' + ((response && response.message) || 'неизвестная ошибка'));
+                            self.showMessage('Ошибка запуска наценки: ' + ((response && response.message) || 'неизвестная ошибка'), 'Ошибка наценки');
                             return;
                         }
 
                         popup.Close();
-                        alert('Готово. Обновлено ТП: ' + (response.data && response.data.updated ? response.data.updated : 0));
+                        self.showMessage('Готово. Обновлено ТП: ' + (response.data && response.data.updated ? response.data.updated : 0), 'Наценка применена');
                     },
                     onfailure: function() {
-                        alert('Ошибка запроса запуска наценки');
+                        self.showMessage('Ошибка запроса запуска наценки', 'Ошибка наценки');
                     }
                 });
             };
