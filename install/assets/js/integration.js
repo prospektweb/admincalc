@@ -940,13 +940,50 @@
             const equipmentId = parseInt(payload.eqipmentId || payload.equipmentId, 10) || 0;
             const properties = payload.properties || {};
             if (!equipmentId) {
+                this.sendPwrtMessage('SAVE_SETTINGS_EQUIPMENT_RESPONSE', {
+                    status: 'error',
+                    message: 'Не указано оборудование',
+                }, message.requestId, origin);
                 return;
             }
 
             try {
-                await this.fetchRefreshData([{ action: 'saveSettingsEquipment', equipmentId, properties }]);
+                const result = await this.fetchRefreshData([{ action: 'saveSettingsEquipment', equipmentId, properties }]);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Пустой ответ сохранения оборудования' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось сохранить оборудование');
+                }
+
+                const equipmentItems = this.initData && this.initData.elementsStore
+                    ? this.initData.elementsStore.CALC_EQUIPMENT
+                    : null;
+                if (Array.isArray(equipmentItems)) {
+                    const equipment = equipmentItems.find((item) => Number(item.id) === equipmentId);
+                    if (equipment) {
+                        equipment.properties = equipment.properties || {};
+                        Object.entries(responsePayload.properties || {}).forEach(([code, property]) => {
+                            equipment.properties[code] = {
+                                ...(equipment.properties[code] || {}),
+                                ...property,
+                            };
+                        });
+                    }
+                }
+
+                this.sendPwrtMessage('SAVE_SETTINGS_EQUIPMENT_RESPONSE', {
+                    status: 'ok',
+                    equipmentId: equipmentId,
+                }, message.requestId, origin);
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 console.error('[BitrixBridge] SAVE_SETTINGS_EQUIPMENT_REQUEST error:', error);
+                this.sendPwrtMessage('SAVE_SETTINGS_EQUIPMENT_RESPONSE', {
+                    status: 'error',
+                    equipmentId: equipmentId,
+                    message: error && error.message ? error.message : 'Не удалось сохранить оборудование',
+                }, message.requestId, origin);
             }
         }
 

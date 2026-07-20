@@ -451,11 +451,67 @@ class ElementDataService
                         $properties = is_array($request['properties'] ?? null) ? $request['properties'] : [];
                         $equipmentIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_EQUIPMENT', 0);
 
-                        if ($equipmentId > 0 && $equipmentIblockId > 0 && !empty($properties)) {
-                            \CIBlockElement::SetPropertyValuesEx($equipmentId, $equipmentIblockId, $properties);
+                        if ($equipmentId <= 0 || $equipmentIblockId <= 0) {
+                            $result[] = ['status' => 'error', 'message' => 'Оборудование или его инфоблок не найдены'];
+                            continue 2;
                         }
 
-                        $result[] = ['status' => 'ok'];
+                        $prepared = [];
+                        $responseProperties = [];
+                        foreach (['MAX_LENGTH', 'MAX_WIDTH', 'MIN_WIDTH', 'MIN_LENGTH', 'START_COST'] as $code) {
+                            $value = trim((string)($properties[$code] ?? ''));
+                            if ($value !== '' && !is_numeric(str_replace(',', '.', $value))) {
+                                $result[] = ['status' => 'error', 'message' => "Свойство {$code} должно быть числом"];
+                                continue 3;
+                            }
+                            $normalizedValue = $value === '' ? false : str_replace(',', '.', $value);
+                            $prepared[$code] = $normalizedValue;
+                            $responseProperties[$code] = ['VALUE' => $normalizedValue];
+                        }
+
+                        $fieldParts = array_map('trim', explode(',', (string)($properties['FIELDS'] ?? '')));
+                        if (count($fieldParts) !== 4 || array_filter($fieldParts, static function ($value): bool {
+                            return !preg_match('/^\d+$/', (string)$value);
+                        })) {
+                            $result[] = ['status' => 'error', 'message' => 'FIELDS должен содержать четыре целых числа'];
+                            continue 2;
+                        }
+                        $prepared['FIELDS'] = implode(',', array_map('intval', $fieldParts));
+                        $responseProperties['FIELDS'] = ['VALUE' => $prepared['FIELDS']];
+
+                        $parametrs = [];
+                        $parametrValues = [];
+                        $parametrDescriptions = [];
+                        foreach ((array)($properties['PARAMETRS'] ?? []) as $parameter) {
+                            if (!is_array($parameter)) {
+                                continue;
+                            }
+                            $code = trim((string)($parameter['VALUE'] ?? ''));
+                            $description = trim((string)($parameter['DESCRIPTION'] ?? ''));
+                            if ($code === '' && $description === '') {
+                                continue;
+                            }
+                            if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $code) || $description === '') {
+                                $result[] = ['status' => 'error', 'message' => 'Некорректный дополнительный параметр оборудования'];
+                                continue 3;
+                            }
+                            $parametrs[] = ['VALUE' => $code, 'DESCRIPTION' => $description];
+                            $parametrValues[] = $code;
+                            $parametrDescriptions[] = $description;
+                        }
+                        $prepared['PARAMETRS'] = $parametrs ?: false;
+                        $responseProperties['PARAMETRS'] = [
+                            'VALUE' => $parametrValues,
+                            'DESCRIPTION' => $parametrDescriptions,
+                        ];
+
+                        \CIBlockElement::SetPropertyValuesEx($equipmentId, $equipmentIblockId, $prepared);
+
+                        $result[] = [
+                            'status' => 'ok',
+                            'equipmentId' => $equipmentId,
+                            'properties' => $responseProperties,
+                        ];
                         continue 2;
 
                     case 'changeStageName':

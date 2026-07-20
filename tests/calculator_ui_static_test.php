@@ -2,8 +2,9 @@
 
 $integration = file_get_contents(__DIR__ . '/../install/assets/js/integration.js');
 $calculator = file_get_contents(__DIR__ . '/../install/assets/js/calculator.js');
+$elementDataService = file_get_contents(__DIR__ . '/../lib/Calculator/ElementDataService.php');
 
-if (!is_string($integration) || !is_string($calculator)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
@@ -12,6 +13,10 @@ $checks = [
     [$integration, "normalizeBatchSaveResults", 'Batch save response must be mapped back to individual offers'],
     [$calculator, "this.expandCalculatorDialog(dialog);", 'Calculator dialog must request expanded mode after Show'],
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
+    [$integration, "SAVE_SETTINGS_EQUIPMENT_RESPONSE", 'Equipment saves must report completion to the iframe'],
+    [$elementDataService, "['MAX_LENGTH', 'MAX_WIDTH', 'MIN_WIDTH', 'MIN_LENGTH', 'START_COST']", 'Equipment scalar properties must be allowlisted'],
+    [$elementDataService, "count(\$fieldParts) !== 4", 'Equipment fields must contain four sides'],
+    [$elementDataService, "\$prepared['PARAMETRS']", 'Equipment custom parameters must preserve Bitrix descriptions'],
 ];
 
 foreach ($checks as [$source, $needle, $message]) {
