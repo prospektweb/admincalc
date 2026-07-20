@@ -588,10 +588,17 @@ class InitPayloadService
         }
 
         $propertiesRaw = $this->loadPresetProperties($iblockId, $presetId);
-        $presetElement['properties'] = array_map(
-            static fn(array $property) => $property['values'] ?? [],
-            $propertiesRaw
-        );
+        $presetElement['properties'] = [];
+        foreach ($propertiesRaw as $code => $property) {
+            if (in_array($code, ['GLOBAL_VARIABLES', 'GLOBAL_CONSTANTS'], true)) {
+                $presetElement['properties'][$code] = [
+                    'VALUE' => $property['values'] ?? [],
+                    'DESCRIPTION' => $property['descriptions'] ?? [],
+                ];
+            } else {
+                $presetElement['properties'][$code] = $property['values'] ?? [];
+            }
+        }
         $presetElement['iblockId'] = $iblockId;
 
         $this->elementsStore = $this->buildElementsStore($propertiesRaw);
@@ -656,11 +663,13 @@ class InitPayloadService
                 $result[$code] = [
                     'property' => $arProp,
                     'values' => [],
+                    'descriptions' => [],
                 ];
             }
 
             if ($arProp['VALUE'] !== null && $arProp['VALUE'] !== '') {
                 $result[$code]['values'][] = $arProp['VALUE'];
+                $result[$code]['descriptions'][] = (string)($arProp['DESCRIPTION'] ?? '');
             }
         }
 

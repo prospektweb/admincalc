@@ -342,6 +342,94 @@ class ElementDataService
                         }
                         continue 2;
                     
+                    case 'savePresetGlobals':
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $variables = is_array($request['variables'] ?? null) ? $request['variables'] : [];
+                        $constants = is_array($request['constants'] ?? null) ? $request['constants'] : [];
+                        $presetsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_PRESETS', 0);
+
+                        if ($presetId <= 0 || $presetsIblockId <= 0) {
+                            $result[] = ['status' => 'error', 'message' => 'Пресет или его инфоблок не найден'];
+                            continue 2;
+                        }
+
+                        $prepareGlobals = static function (array $rows): array {
+                            $prepared = [];
+                            $seen = [];
+                            foreach ($rows as $row) {
+                                $code = trim((string)($row['VALUE'] ?? ''));
+                                if ($code === '') {
+                                    continue;
+                                }
+                                if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $code)) {
+                                    throw new \InvalidArgumentException("Некорректный код глобального значения: {$code}");
+                                }
+                                if (isset($seen[$code])) {
+                                    throw new \InvalidArgumentException("Код глобального значения повторяется: {$code}");
+                                }
+                                $seen[$code] = true;
+                                $prepared[] = [
+                                    'VALUE' => $code,
+                                    'DESCRIPTION' => (string)($row['DESCRIPTION'] ?? ''),
+                                ];
+                            }
+                            return $prepared;
+                        };
+
+                        try {
+                            foreach ([
+                                'GLOBAL_VARIABLES' => ['NAME' => 'Глобальные переменные', 'SORT' => 1100],
+                                'GLOBAL_CONSTANTS' => ['NAME' => 'Глобальные константы', 'SORT' => 1110],
+                            ] as $propertyCode => $propertyConfig) {
+                                $existingProperty = \CIBlockProperty::GetList([], [
+                                    'IBLOCK_ID' => $presetsIblockId,
+                                    'CODE' => $propertyCode,
+                                ])->Fetch();
+                                if (!$existingProperty) {
+                                    $propertyApi = new \CIBlockProperty();
+                                    $propertyId = $propertyApi->Add([
+                                        'IBLOCK_ID' => $presetsIblockId,
+                                        'ACTIVE' => 'Y',
+                                        'CODE' => $propertyCode,
+                                        'NAME' => $propertyConfig['NAME'],
+                                        'PROPERTY_TYPE' => 'S',
+                                        'MULTIPLE' => 'Y',
+                                        'MULTIPLE_CNT' => 1,
+                                        'WITH_DESCRIPTION' => 'Y',
+                                        'SORT' => $propertyConfig['SORT'],
+                                    ]);
+                                    if (!$propertyId) {
+                                        throw new \RuntimeException("Не удалось создать свойство {$propertyCode}");
+                                    }
+                                }
+                            }
+
+                            $preparedVariables = $prepareGlobals($variables);
+                            $preparedConstants = $prepareGlobals($constants);
+                            $allCodes = array_merge(
+                                array_column($preparedVariables, 'VALUE'),
+                                array_column($preparedConstants, 'VALUE')
+                            );
+                            if (count($allCodes) !== count(array_unique($allCodes))) {
+                                throw new \InvalidArgumentException('Коды переменных и констант не должны повторяться');
+                            }
+
+                            \CIBlockElement::SetPropertyValuesEx($presetId, $presetsIblockId, [
+                                'GLOBAL_VARIABLES' => $preparedVariables ?: false,
+                                'GLOBAL_CONSTANTS' => $preparedConstants ?: false,
+                            ]);
+
+                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                            $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                            $initPayload = $firstDetailId
+                                ? $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $request['offerIds'] ?? [])
+                                : null;
+                            $result[] = ['status' => 'ok', 'initPayload' => $initPayload];
+                        } catch (\Throwable $error) {
+                            $result[] = ['status' => 'error', 'message' => $error->getMessage()];
+                        }
+                        continue 2;
+
                     case 'changeCustomFieldsValue':
                         // New handler for CHANGE_CUSTOM_FIELDS_VALUE_REQUEST (silent mode)
                         $stageId = (int)($request['stageId'] ?? 0);

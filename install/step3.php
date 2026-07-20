@@ -236,6 +236,45 @@ function createIblockTypeWithLog(string $id, string $name): bool
     }
 }
 
+function ensureIblockPropertiesWithLog(int $iblockId, array $properties): void
+{
+    $created = 0;
+    foreach ($properties as $propCode => $propData) {
+        $existing = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, 'CODE' => $propCode])->Fetch();
+        if ($existing) {
+            continue;
+        }
+
+        $arProperty = [
+            'IBLOCK_ID' => $iblockId,
+            'ACTIVE' => 'Y',
+            'CODE' => $propCode,
+            'NAME' => $propData['NAME'],
+            'PROPERTY_TYPE' => $propData['TYPE'] ?? 'S',
+            'MULTIPLE' => $propData['MULTIPLE'] ?? 'N',
+            'SORT' => $propData['SORT'] ?? 500,
+            'IS_REQUIRED' => $propData['IS_REQUIRED'] ?? 'N',
+        ];
+
+        foreach (['USER_TYPE', 'COL_COUNT', 'LINK_IBLOCK_ID', 'VALUES', 'DEFAULT_VALUE', 'HINT', 'MULTIPLE_CNT', 'WITH_DESCRIPTION'] as $option) {
+            if (array_key_exists($option, $propData)) {
+                $arProperty[$option] = $propData[$option];
+            }
+        }
+
+        $ibp = new \CIBlockProperty();
+        if ($ibp->Add($arProperty)) {
+            $created++;
+        } else {
+            installLog("  → Не удалось создать свойство {$propCode}: " . getBitrixError(), 'error');
+        }
+    }
+
+    if ($created > 0) {
+        installLog("  → Добавлено недостающих свойств: {$created}", 'success');
+    }
+}
+
 // Создание инфоблока
 function createIblockWithLog(string $typeId, string $code, string $name, array $properties = [], array $options = []): int
 {
@@ -255,6 +294,7 @@ function createIblockWithLog(string $typeId, string $code, string $name, array $
             installLog("Инфоблок '{$code}' уже существует (ID: {$id}), не удалось обновить настройки символьного кода: " . getBitrixError(), 'warning');
         }
 
+        ensureIblockPropertiesWithLog($id, $properties);
         return $id;
     }
 
@@ -1097,6 +1137,24 @@ switch ($currentStep) {
                 'MULTIPLE_CNT' => 1,
                 'SORT' => 1000,
                 // LINK_IBLOCK_ID будет установлен позже в секции обновления свойств
+            ],
+            'GLOBAL_VARIABLES' => [
+                'NAME' => 'Глобальные переменные',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 1,
+                'WITH_DESCRIPTION' => 'Y',
+                'SORT' => 1100,
+                'HINT' => 'VALUE: код; DESCRIPTION: формула|название|описание',
+            ],
+            'GLOBAL_CONSTANTS' => [
+                'NAME' => 'Глобальные константы',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 1,
+                'WITH_DESCRIPTION' => 'Y',
+                'SORT' => 1110,
+                'HINT' => 'VALUE: код; DESCRIPTION: значение|название|описание',
             ],
         ];
 

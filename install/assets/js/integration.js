@@ -257,6 +257,9 @@
                 case 'CLEAR_PRESET_REQUEST':
                     await this.handleClearPresetRequest(message, origin);
                     break;
+                case 'SAVE_PRESET_GLOBALS_REQUEST':
+                    await this.handleSavePresetGlobalsRequest(message, origin);
+                    break;
                 case 'ADD_DETAIL_TO_BINDING_REQUEST':
                     await this.handleAddDetailToBindingRequest(message, origin);
                     break;
@@ -315,7 +318,7 @@
                         'SAVE_CALC_LOGIC_REQUEST',
                         'SAVE_CALCULATION_REQUEST',
                         'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL',
-                        'CLEAR_PRESET_REQUEST', 'CLOSE_REQUEST'
+                        'CLEAR_PRESET_REQUEST', 'SAVE_PRESET_GLOBALS_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
         }
@@ -987,6 +990,34 @@
                     status: 'error',
                     equipmentId: equipmentId,
                     message: error && error.message ? error.message : 'Не удалось сохранить оборудование',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleSavePresetGlobalsRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'savePresetGlobals',
+                    presetId: Number(payload.presetId || 0),
+                    variables: Array.isArray(payload.variables) ? payload.variables : [],
+                    constants: Array.isArray(payload.constants) ? payload.constants : [],
+                    offerIds: this.config.offerIds || [],
+                }]);
+                const responsePayload = Array.isArray(result) && result[0] ? result[0] : { status: 'error', message: 'Пустой ответ сервера' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось сохранить глобальные значения');
+                }
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                } else {
+                    this.sendPwrtMessage('RESPONSE', responsePayload, message.requestId, origin);
+                }
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось сохранить глобальные значения',
+                    details: error && error.message ? error.message : 'Unknown error',
                 }, message.requestId, origin);
             }
         }
