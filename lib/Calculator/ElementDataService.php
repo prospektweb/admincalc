@@ -70,6 +70,40 @@ class ElementDataService
                             // Add stage to preset
                             $presetId = (int)($request['presetId'] ?? 0);
                             $stageId = $addResult['config']['id'] ?? 0;
+
+                            if ($stageId > 0 && !empty($request['optional'])) {
+                                $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
+                                if ($stagesIblockId > 0) {
+                                    $activationProperty = \CIBlockProperty::GetList([], [
+                                        'IBLOCK_ID' => $stagesIblockId,
+                                        'CODE' => 'ACTIVATION_CONDITION',
+                                    ])->Fetch();
+                                    if (!$activationProperty) {
+                                        $propertyApi = new \CIBlockProperty();
+                                        $propertyId = $propertyApi->Add([
+                                            'IBLOCK_ID' => $stagesIblockId,
+                                            'ACTIVE' => 'Y',
+                                            'CODE' => 'ACTIVATION_CONDITION',
+                                            'NAME' => 'Условие активации опционального этапа',
+                                            'PROPERTY_TYPE' => 'S',
+                                            'USER_TYPE' => 'HTML',
+                                            'MULTIPLE' => 'N',
+                                            'SORT' => 190,
+                                        ]);
+                                        if (!$propertyId) {
+                                            throw new \RuntimeException($propertyApi->LAST_ERROR ?: 'Не удалось создать свойство ACTIVATION_CONDITION');
+                                        }
+                                    }
+                                    \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                        'ACTIVATION_CONDITION' => json_encode([
+                                            'version' => 1,
+                                            'enabled' => true,
+                                            'kind' => null,
+                                            'code' => '',
+                                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                                    ]);
+                                }
+                            }
                             
                             if ($presetId > 0 && $stageId > 0) {
                                 $detailHandler->addStageToPreset($presetId, $stageId);
@@ -854,23 +888,26 @@ class ElementDataService
                         if ($stageId > 0 && !empty($propertyCode)) {
                             $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
                             if ($stagesIblockId > 0) {
-                                if (in_array($propertyCode, ['GLOBAL_ASSIGNMENTS', 'OPTIONS_EQUIPMENT'], true)) {
+                                if (in_array($propertyCode, ['GLOBAL_ASSIGNMENTS', 'OPTIONS_EQUIPMENT', 'ACTIVATION_CONDITION'], true)) {
                                     $existingProperty = \CIBlockProperty::GetList([], [
                                         'IBLOCK_ID' => $stagesIblockId,
                                         'CODE' => $propertyCode,
                                     ])->Fetch();
                                     if (!$existingProperty) {
                                         $isGlobalAssignments = $propertyCode === 'GLOBAL_ASSIGNMENTS';
+                                        $isActivationCondition = $propertyCode === 'ACTIVATION_CONDITION';
                                         $propertyApi = new \CIBlockProperty();
                                         $propertyId = $propertyApi->Add([
                                             'IBLOCK_ID' => $stagesIblockId,
                                             'ACTIVE' => 'Y',
                                             'CODE' => $propertyCode,
-                                            'NAME' => $isGlobalAssignments ? 'Определения глобальных значений этапа' : 'Настройки выбора оборудования',
+                                            'NAME' => $isGlobalAssignments
+                                                ? 'Определения глобальных значений этапа'
+                                                : ($isActivationCondition ? 'Условие активации опционального этапа' : 'Настройки выбора оборудования'),
                                             'PROPERTY_TYPE' => 'S',
-                                            'USER_TYPE' => $isGlobalAssignments ? 'HTML' : '',
+                                            'USER_TYPE' => ($isGlobalAssignments || $isActivationCondition) ? 'HTML' : '',
                                             'MULTIPLE' => 'N',
-                                            'SORT' => $isGlobalAssignments ? 180 : 820,
+                                            'SORT' => $isGlobalAssignments ? 180 : ($isActivationCondition ? 190 : 820),
                                         ]);
                                         if (!$propertyId) {
                                             throw new \RuntimeException('Не удалось создать свойство ' . $propertyCode);

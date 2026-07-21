@@ -224,6 +224,9 @@
                 case 'DELETE_STAGE_REQUEST':
                     await this.handleDeleteStageRequest(message, origin);
                     break;
+                case 'SAVE_OPTIONAL_STAGE_REQUEST':
+                    await this.handleSaveOptionalStageRequest(message, origin);
+                    break;
                 case 'REMOVE_DETAIL_REQUEST':
                     await this.handleRemoveDetailRequest(message, origin);
                     break;
@@ -1069,6 +1072,7 @@
                     {
                         action: 'addStage',
                         detailId: detailId,
+                        optional: payload.optional === true,
                         presetId: presetId,
                         offerIds: offerIds,
                         siteId: siteId,
@@ -2445,6 +2449,43 @@
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_EQUIPMENT error:', error);
+            }
+        }
+
+        async handleSaveOptionalStageRequest(message, origin) {
+            const payload = message.payload || {};
+            const stageId = parseInt(payload.stageId, 10);
+            const condition = payload.condition && typeof payload.condition === 'object'
+                ? payload.condition
+                : { version: 1, enabled: true, kind: null, code: '' };
+            if (!stageId) {
+                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для сохранения условия' }, message.requestId, origin);
+                return;
+            }
+            try {
+                const value = JSON.stringify({
+                    version: 1,
+                    enabled: condition.enabled === true,
+                    kind: condition.kind === 'variable' || condition.kind === 'constant' ? condition.kind : null,
+                    code: String(condition.code || '').trim(),
+                });
+                const result = await this.fetchRefreshData([{
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'ACTIVATION_CONDITION',
+                    value: value,
+                }]);
+                const response = Array.isArray(result) ? result[0] : null;
+                if (response && response.status === 'error') {
+                    throw new Error(response.message || 'Не удалось сохранить условие');
+                }
+                this.updateStagePropertyInInitData(stageId, 'ACTIVATION_CONDITION', value);
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось сохранить условие опционального этапа',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
