@@ -71,6 +71,7 @@ class ElementDataService
                             $presetId = (int)($request['presetId'] ?? 0);
                             $stageId = $addResult['config']['id'] ?? 0;
 
+                            $activationConditionJson = '';
                             if ($stageId > 0 && !empty($request['optional'])) {
                                 $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
                                 if ($stagesIblockId > 0) {
@@ -94,13 +95,19 @@ class ElementDataService
                                             throw new \RuntimeException($propertyApi->LAST_ERROR ?: 'Не удалось создать свойство ACTIVATION_CONDITION');
                                         }
                                     }
-                                    \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                        'ACTIVATION_CONDITION' => json_encode([
+                                    $activationConditionJson = json_encode([
                                             'version' => 1,
                                             'enabled' => true,
                                             'kind' => null,
                                             'code' => '',
-                                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                                    \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                        'ACTIVATION_CONDITION' => [
+                                            'VALUE' => [
+                                                'TEXT' => $activationConditionJson,
+                                                'TYPE' => 'text',
+                                            ],
+                                        ],
                                     ]);
                                 }
                             }
@@ -115,6 +122,33 @@ class ElementDataService
                                     $siteId = $request['siteId'] ?? SITE_ID;
                                     $initPayload = $detailHandler->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
                                     
+                                    // The property was written immediately before INIT preparation. On some
+                                    // Bitrix installations the property cache can still return the old stage
+                                    // payload. Preserve the authoritative marker in the response so the new
+                                    // stage is rendered as optional without requiring a page reload.
+                                    if (
+                                        $activationConditionJson !== ''
+                                        && isset($initPayload['elementsStore']['CALC_STAGES'])
+                                        && is_array($initPayload['elementsStore']['CALC_STAGES'])
+                                    ) {
+                                        foreach ($initPayload['elementsStore']['CALC_STAGES'] as &$stagePayload) {
+                                            if ((int)($stagePayload['id'] ?? 0) !== $stageId) {
+                                                continue;
+                                            }
+                                            if (!isset($stagePayload['properties']) || !is_array($stagePayload['properties'])) {
+                                                $stagePayload['properties'] = [];
+                                            }
+                                            $stagePayload['properties']['ACTIVATION_CONDITION'] = [
+                                                'VALUE' => [
+                                                    'TEXT' => $activationConditionJson,
+                                                    'TYPE' => 'text',
+                                                ],
+                                            ];
+                                            break;
+                                        }
+                                        unset($stagePayload);
+                                    }
+
                                     $addResult['initPayload'] = $initPayload;
                                 }
                             }
@@ -989,7 +1023,7 @@ class ElementDataService
                 ['ID' => $elementId],
                 false,
                 false,
-                ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_CML2_LINK']
+                ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'DETAIL_TEXT', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_CML2_LINK']
             )->GetNextElement();
 
             if (! $elementObject) {
@@ -1023,6 +1057,8 @@ class ElementDataService
                 'code' => $fields['CODE'] ?? null,
                 'productId' => $productId > 0 ? $productId : null,
                 'name' => $fields['NAME'] ?? '',
+                'previewText' => (string)($fields['PREVIEW_TEXT'] ?? ''),
+                'detailText' => (string)($fields['DETAIL_TEXT'] ?? ''),
                 'timestampX' => $fields['TIMESTAMP_X'] ?? null,
                 'modifiedBy' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
                 'timestamp_x' => $fields['TIMESTAMP_X'] ?? null,
