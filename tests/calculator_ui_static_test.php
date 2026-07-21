@@ -38,6 +38,8 @@ $checks = [
     [$appBundle, 'FIELDS.VIRTUAL.', 'Published UI bundle must expose virtual printing margin paths'],
     [$appBundle, 'prospektweb.calc.logic-import/v1', 'Published UI bundle must include the versioned logic import contract'],
     [$appBundle, 'Импорт логики', 'Published UI bundle must expose the logic import action'],
+    [$appBundle, 'Все этапы пресета', 'Global formula context must expose every preset stage'],
+    [$appBundle, 'prospektweb:context-visibility-changed', 'Context visibility settings must synchronize between editors'],
     [$appBundle, 'Схема', 'Published UI bundle must include the visual formula mode'],
     [$engineBundle, 'OUTPUTS_RUNTIME', 'Published calculation engine must preserve legacy runtime output paths'],
 ];
