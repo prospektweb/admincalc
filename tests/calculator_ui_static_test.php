@@ -3,10 +3,12 @@
 $integration = file_get_contents(__DIR__ . '/../install/assets/js/integration.js');
 $calculator = file_get_contents(__DIR__ . '/../install/assets/js/calculator.js');
 $elementDataService = file_get_contents(__DIR__ . '/../lib/Calculator/ElementDataService.php');
+$initPayloadService = file_get_contents(__DIR__ . '/../lib/Calculator/InitPayloadService.php');
+$presetEnrichmentService = file_get_contents(__DIR__ . '/../lib/Services/PresetEnrichmentService.php');
 $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/index.js');
 $engineBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js');
 
-if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService) || !is_string($appBundle) || !is_string($engineBundle)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
@@ -21,6 +23,10 @@ $checks = [
     [$elementDataService, "\$value !== '' && !preg_match", 'Equipment fields must allow individually empty sides'],
     [$elementDataService, "['NAME' => \$equipmentName]", 'Equipment save must update its display name'],
     [$elementDataService, "\$prepared['PARAMETRS']", 'Equipment custom parameters must preserve Bitrix descriptions'],
+    [$elementDataService, "strpos(\$value, '|')", 'Custom field values must reject the reserved visibility separator'],
+    [$elementDataService, "\$value . '|' . (\$visible ? 'Y' : 'N')", 'Stage custom fields must persist their visibility marker'],
+    [$initPayloadService, 'synchronizePresetCustomFields', 'INIT load must repair stale preset custom-field links'],
+    [$presetEnrichmentService, "['CALC_DETAILS' => &\$rootIds, 'CALC_CUSTOM_FIELDS' => &\$actual]", 'Preset repair must inspect every linked root detail'],
     [$appBundle, 'DESCRIPTION.CODE.', 'Published UI bundle must use stable described-property selectors'],
     [$appBundle, 'FIELDS.VIRTUAL.', 'Published UI bundle must expose virtual printing margin paths'],
     [$appBundle, 'Схема', 'Published UI bundle must include the visual formula mode'],

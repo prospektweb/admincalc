@@ -667,27 +667,14 @@
             }
 
             try {
-                await this.fetchRefreshData([{ action: 'selectFields', settingsId, stageId, customFieldIds: selectedIds }]);
-
-                const detailIds = this.initData?.preset?.properties?.CALC_DETAILS || [];
-                const firstDetailId = detailIds.length > 0 ? detailIds[0] : 0;
-                if (!presetId || !firstDetailId) {
+                const selectResult = await this.fetchRefreshData([{ action: 'selectFields', settingsId, stageId, presetId, customFieldIds: selectedIds, offerIds: this.config.offerIds || [] }]);
+                const selectPayload = Array.isArray(selectResult) ? selectResult[0] : null;
+                if (selectPayload?.initPayload) {
+                    this.initData = selectPayload.initPayload;
+                    this.sendPwrtMessage('INIT', selectPayload.initPayload, message.requestId, origin);
                     return;
                 }
-
-                const enrichResult = await this.enrichPreset({
-                    presetId,
-                    detailIds: [firstDetailId],
-                    binding: false,
-                    existingDetailId: 0,
-                    offerIds: this.config.offerIds || [],
-                    siteId: this.config.siteId || SITE_ID,
-                });
-
-                if (enrichResult.success && enrichResult.data) {
-                    this.initData = enrichResult.data;
-                    this.sendPwrtMessage('INIT', enrichResult.data, message.requestId, origin);
-                }
+                console.warn('[BitrixBridge] selectFields completed without INIT payload; data will be repaired on the next load');
             } catch (error) {
                 console.error('[BitrixBridge] SELECT_FIELDS_REQUEST error:', error);
                 this.sendPwrtMessage('ERROR', {
@@ -1717,8 +1704,8 @@
             const customFieldsValue = payload.customFieldsValue || [];
 
             try {
-                if (stageId <= 0 || customFieldsValue.length === 0) {
-                    console.error('[BitrixBridge] Stage ID и customFieldsValue обязательны');
+                if (stageId <= 0 || !Array.isArray(customFieldsValue)) {
+                    console.error('[BitrixBridge] Stage ID и массив customFieldsValue обязательны');
                     // В режиме тишины не отправляем ошибку
                     return;
                 }

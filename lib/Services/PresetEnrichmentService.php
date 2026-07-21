@@ -77,6 +77,48 @@ class PresetEnrichmentService
         return $initPayloadService->prepareInitPayload($offerIds, SITE_ID, false);
     }
 
+    /** Synchronize preset custom-field links from all currently linked root details. */
+    public function synchronizePresetCustomFields(int $presetId): array
+    {
+        if ($presetId <= 0 || !$this->getPresetById($presetId)) {
+            return ['changed' => false, 'expected' => [], 'actual' => []];
+        }
+
+        $rootIds = [];
+        $actual = [];
+        $targets = ['CALC_DETAILS' => &$rootIds, 'CALC_CUSTOM_FIELDS' => &$actual];
+        foreach ($targets as $code => &$target) {
+            $result = \CIBlockElement::GetProperty($this->presetsIblockId, $presetId, ['sort' => 'asc'], ['CODE' => $code]);
+            while ($property = $result->Fetch()) {
+                $id = (int)($property['VALUE'] ?? 0);
+                if ($id > 0) $target[] = $id;
+            }
+            $target = array_values(array_unique($target));
+        }
+        unset($target, $targets);
+
+        $linked = [];
+        foreach ($rootIds as $rootId) {
+            $this->collectLinkedElementsRecursive($rootId, $linked);
+        }
+        $expected = array_values(array_unique(array_map('intval', $linked['customFields'] ?? [])));
+        sort($expected);
+        $actualSorted = $actual;
+        sort($actualSorted);
+        if ($expected === $actualSorted) {
+            return ['changed' => false, 'expected' => $expected, 'actual' => $actual];
+        }
+
+        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
+            'CALC_CUSTOM_FIELDS' => $expected ?: false,
+        ]);
+        if (defined('BX_COMP_MANAGED_CACHE')) {
+            global $CACHE_MANAGER;
+            $CACHE_MANAGER->ClearByTag('iblock_id_' . $this->presetsIblockId);
+        }
+        return ['changed' => true, 'expected' => $expected, 'actual' => $actual];
+    }
+
     /**
      * Рекурсивно собирает все связанные элементы из детали
      *

@@ -53,6 +53,9 @@ class InitPayloadService
         
         $this->elementsStore = [];
 
+        // Самовосстановление устаревшего списка дополнительных полей до загрузки preset.
+        (new \Prospektweb\Calc\Services\PresetEnrichmentService())->synchronizePresetCustomFields((int)$presetId);
+
         // Загружаем preset с данными
         $preset = $this->loadPreset($presetId);
 

@@ -435,19 +435,29 @@ class ElementDataService
                         $stageId = (int)($request['stageId'] ?? 0);
                         $customFieldsValue = $request['customFieldsValue'] ?? [];
                         
-                        if ($stageId > 0 && !empty($customFieldsValue)) {
+                        if ($stageId > 0 && is_array($customFieldsValue)) {
                             $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
                             
                             $values = [];
                             foreach ($customFieldsValue as $field) {
+                                $code = trim((string)($field['CODE'] ?? ''));
+                                $value = (string)($field['VALUE'] ?? '');
+                                if ($code === '') {
+                                    continue;
+                                }
+                                if (strpos($value, '|') !== false) {
+                                    $result[] = ['status' => 'error', 'message' => 'Значение дополнительного параметра не может содержать символ |'];
+                                    continue 3;
+                                }
+                                $visible = !array_key_exists('VISIBLE', $field) || filter_var($field['VISIBLE'], FILTER_VALIDATE_BOOLEAN);
                                 $values[] = [
-                                    'VALUE' => $field['CODE'],        // CODE идёт в VALUE
-                                    'DESCRIPTION' => $field['VALUE'], // VALUE идёт в DESCRIPTION
+                                    'VALUE' => $code,
+                                    'DESCRIPTION' => $value . '|' . ($visible ? 'Y' : 'N'),
                                 ];
                             }
                             
                             \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                'CUSTOM_FIELDS_VALUE' => $values,
+                                'CUSTOM_FIELDS_VALUE' => $values ?: false,
                             ]);
                             
                             $result[] = [
@@ -457,7 +467,7 @@ class ElementDataService
                         } else {
                             $result[] = [
                                 'status' => 'error',
-                                'message' => 'Stage ID и customFieldsValue обязательны',
+                                'message' => 'Stage ID и массив customFieldsValue обязательны',
                             ];
                         }
                         continue 2;
@@ -495,9 +505,15 @@ class ElementDataService
                                     continue;
                                 }
 
+                                $existingDescription = (string)($prop['DESCRIPTION'] ?? '');
+                                $visibilityMarker = 'Y';
+                                if (preg_match('/^(.*)\|[YN]$/s', $existingDescription, $matches)) {
+                                    $visibilityMarker = substr($existingDescription, -1);
+                                    $existingDescription = $matches[1];
+                                }
                                 $existingValuesMap[$fieldCode] = [
                                     'VALUE' => $fieldCode,
-                                    'DESCRIPTION' => (string)($prop['DESCRIPTION'] ?? ''),
+                                    'DESCRIPTION' => $existingDescription . '|' . $visibilityMarker,
                                 ];
                             }
 
@@ -517,12 +533,13 @@ class ElementDataService
                                 }
 
                                 if (isset($existingValuesMap[$fieldCode])) {
+                                    $existingValuesMap[$fieldCode]['DESCRIPTION'] = preg_replace('/\|N$/', '|Y', $existingValuesMap[$fieldCode]['DESCRIPTION']);
                                     continue;
                                 }
 
                                 $existingValuesMap[$fieldCode] = [
                                     'VALUE' => $fieldCode,
-                                    'DESCRIPTION' => $description,
+                                    'DESCRIPTION' => $description . '|Y',
                                 ];
                             }
 
@@ -531,7 +548,17 @@ class ElementDataService
                             ]);
                         }
 
-                        $result[] = ['status' => 'ok'];
+                        $selectResponse = ['status' => 'ok'];
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
+                        if ($presetId > 0) {
+                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                            $enrichmentService->synchronizePresetCustomFields($presetId);
+                            if (!empty($offerIds)) {
+                                $selectResponse['initPayload'] = (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
+                            }
+                        }
+                        $result[] = $selectResponse;
                         continue 2;
 
                     case 'saveSettingsEquipment':
