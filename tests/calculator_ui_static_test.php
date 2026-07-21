@@ -7,7 +7,8 @@ $initPayloadService = file_get_contents(__DIR__ . '/../lib/Calculator/InitPayloa
 $presetEnrichmentService = file_get_contents(__DIR__ . '/../lib/Services/PresetEnrichmentService.php');
 $installer = file_get_contents(__DIR__ . '/../install/step3.php');
 $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/index.js');
-$engineBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js');
+$engineBundlePath = __DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js';
+$engineBundle = is_file($engineBundlePath) ? file_get_contents($engineBundlePath) : $appBundle;
 
 if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($installer) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
