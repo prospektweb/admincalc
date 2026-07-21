@@ -883,6 +883,11 @@ switch ($currentStep) {
                 'TYPE' => 'S',
                 'SORT' => 810,
             ],
+            'OPTIONS_EQUIPMENT' => [
+                'NAME' => 'Настройки выбора оборудования',
+                'TYPE' => 'S',
+                'SORT' => 820,
+            ],
         ];
         
         $settingsProps = [

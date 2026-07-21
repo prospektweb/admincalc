@@ -103,6 +103,12 @@ class ElementDataService
                                 ];
                                 continue 2;
                             }
+
+                            // Preserve declaration metadata, but make every global
+                            // value that referenced the deleted stage explicitly stale.
+                            if ($presetId > 0) {
+                                $this->markDeletedStageGlobalReferences($presetId, $stageId);
+                            }
                             
                             // Enrich preset based on first detail
                             if ($presetId > 0) {
@@ -629,6 +635,7 @@ class ElementDataService
                                 $result[] = ['status' => 'error', 'message' => 'Не удалось сохранить название оборудования'];
                                 continue 2;
                             }
+
                         }
 
                         \CIBlockElement::SetPropertyValuesEx($equipmentId, $equipmentIblockId, $prepared);
@@ -847,25 +854,26 @@ class ElementDataService
                         if ($stageId > 0 && !empty($propertyCode)) {
                             $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
                             if ($stagesIblockId > 0) {
-                                if ($propertyCode === 'GLOBAL_ASSIGNMENTS') {
+                                if (in_array($propertyCode, ['GLOBAL_ASSIGNMENTS', 'OPTIONS_EQUIPMENT'], true)) {
                                     $existingProperty = \CIBlockProperty::GetList([], [
                                         'IBLOCK_ID' => $stagesIblockId,
-                                        'CODE' => 'GLOBAL_ASSIGNMENTS',
+                                        'CODE' => $propertyCode,
                                     ])->Fetch();
                                     if (!$existingProperty) {
+                                        $isGlobalAssignments = $propertyCode === 'GLOBAL_ASSIGNMENTS';
                                         $propertyApi = new \CIBlockProperty();
                                         $propertyId = $propertyApi->Add([
                                             'IBLOCK_ID' => $stagesIblockId,
                                             'ACTIVE' => 'Y',
-                                            'CODE' => 'GLOBAL_ASSIGNMENTS',
-                                            'NAME' => 'Определения глобальных значений этапа',
+                                            'CODE' => $propertyCode,
+                                            'NAME' => $isGlobalAssignments ? 'Определения глобальных значений этапа' : 'Настройки выбора оборудования',
                                             'PROPERTY_TYPE' => 'S',
-                                            'USER_TYPE' => 'HTML',
+                                            'USER_TYPE' => $isGlobalAssignments ? 'HTML' : '',
                                             'MULTIPLE' => 'N',
-                                            'SORT' => 180,
+                                            'SORT' => $isGlobalAssignments ? 180 : 820,
                                         ]);
                                         if (!$propertyId) {
-                                            throw new \RuntimeException('Не удалось создать свойство GLOBAL_ASSIGNMENTS');
+                                            throw new \RuntimeException('Не удалось создать свойство ' . $propertyCode);
                                         }
                                     }
                                 }
@@ -1127,6 +1135,59 @@ class ElementDataService
         }
 
         return null;
+    }
+
+    private function markDeletedStageGlobalReferences(int $presetId, int $stageId): void
+    {
+        $presetsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_PRESETS', 0);
+        if ($presetId <= 0 || $stageId <= 0 || $presetsIblockId <= 0) {
+            return;
+        }
+
+        foreach (['GLOBAL_CONSTANTS', 'GLOBAL_VARIABLES'] as $propertyCode) {
+            $rows = [];
+            $iterator = \CIBlockElement::GetProperty(
+                $presetsIblockId,
+                $presetId,
+                ['sort' => 'asc', 'id' => 'asc'],
+                ['CODE' => $propertyCode]
+            );
+
+            while ($property = $iterator->Fetch()) {
+                $description = (string)($property['DESCRIPTION'] ?? '');
+                $separatorPosition = null;
+                $escaped = false;
+                $length = strlen($description);
+                for ($index = 0; $index < $length; $index++) {
+                    $character = $description[$index];
+                    if ($character === '\\') {
+                        $escaped = !$escaped;
+                        continue;
+                    }
+                    if ($character === '|' && !$escaped) {
+                        $separatorPosition = $index;
+                        break;
+                    }
+                    $escaped = false;
+                }
+
+                $formula = $separatorPosition === null ? $description : substr($description, 0, $separatorPosition);
+                if (preg_match('/(^|[^A-Za-z0-9_])stage_' . preg_quote((string)$stageId, '/') . '(?:\.|$)/', $formula)) {
+                    $description = '{StageDeleted}' . ($separatorPosition === null ? '' : substr($description, $separatorPosition));
+                }
+
+                $rows[] = [
+                    'VALUE' => (string)($property['VALUE'] ?? ''),
+                    'DESCRIPTION' => $description,
+                ];
+            }
+
+            if ($rows !== []) {
+                \CIBlockElement::SetPropertyValuesEx($presetId, $presetsIblockId, [
+                    $propertyCode => $rows,
+                ]);
+            }
+        }
     }
 
     private function getPrices(int $productId): array

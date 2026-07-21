@@ -284,6 +284,9 @@
                 case 'CHANGE_OPTIONS_MATERIAL':
                     await this.handleChangeOptionsMaterial(message, origin);
                     break;
+                case 'CHANGE_OPTIONS_EQUIPMENT':
+                    await this.handleChangeOptionsEquipment(message, origin);
+                    break;
                 case 'SAVE_CALC_LOGIC_REQUEST':
                     await this.handleSaveCalcLogicRequest(message, origin);
                     break;
@@ -295,6 +298,9 @@
                     break;
                 case 'CLEAR_OPTIONS_MATERIAL':
                     await this.handleClearOptionsMaterial(message, origin);
+                    break;
+                case 'CLEAR_OPTIONS_EQUIPMENT':
+                    await this.handleClearOptionsEquipment(message, origin);
                     break;
                 case 'CHANGE_LOGIC':
                     await this.handleChangeLogic(message, origin);
@@ -314,10 +320,10 @@
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
-                        'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL',
+                        'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
                         'SAVE_CALC_LOGIC_REQUEST',
                         'SAVE_CALCULATION_REQUEST',
-                        'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL',
+                        'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL', 'CLEAR_OPTIONS_EQUIPMENT',
                         'CLEAR_PRESET_REQUEST', 'SAVE_PRESET_GLOBALS_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
@@ -2420,6 +2426,28 @@
          * Записывает данные в LOGIC_JSON/PARAMS калькулятора и INPUTS/OUTPUTS этапа.
          * Использует "лёгкое обогащение" - модификация this.initData без AJAX
          */
+        async handleChangeOptionsEquipment(message, origin) {
+            const payload = message.payload || {};
+            const stageId = parseInt(payload.stageId, 10);
+            const json = payload.json || '';
+            if (!stageId) {
+                console.warn('[BitrixBridge] CHANGE_OPTIONS_EQUIPMENT: stageId не указан');
+                return;
+            }
+            try {
+                await this.fetchRefreshData([{
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'OPTIONS_EQUIPMENT',
+                    value: json
+                }]);
+                this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', json);
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                console.error('[BitrixBridge] CHANGE_OPTIONS_EQUIPMENT error:', error);
+            }
+        }
+
         async handleSaveCalcLogicRequest(message, origin) {
             const payload = message.payload || {};
             const settingsId = parseInt(payload.settingsId, 10);
@@ -2616,6 +2644,27 @@
          * Записывает json в свойство LOGIC_JSON калькулятора
          * Ничего не отправляет в ответ
          */
+        async handleClearOptionsEquipment(message, origin) {
+            const payload = message.payload || {};
+            const stageId = parseInt(payload.stageId, 10);
+            if (!stageId) {
+                console.warn('[BitrixBridge] CLEAR_OPTIONS_EQUIPMENT: stageId не указан');
+                return;
+            }
+            try {
+                await this.fetchRefreshData([{
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'OPTIONS_EQUIPMENT',
+                    value: ''
+                }]);
+                this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', '');
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                console.error('[BitrixBridge] CLEAR_OPTIONS_EQUIPMENT error:', error);
+            }
+        }
+
         async handleChangeLogic(message, origin) {
             const payload = message.payload || {};
             const settingsId = payload.settingsId;

@@ -649,10 +649,12 @@ class SnapshotManager
                     $value = $this->remapStageReferencesInString($value, $elementIdMapsByCode['CALC_STAGES'] ?? []);
                 }
 
-                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL'], true)) {
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT'], true)) {
                     $targetMap = (string)$code === 'OPTIONS_OPERATION'
                         ? (array)($elementIdMapsByCode['CALC_OPERATIONS_VARIANTS'] ?? [])
-                        : (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? []);
+                        : ((string)$code === 'OPTIONS_MATERIAL'
+                            ? (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? [])
+                            : (array)($elementIdMapsByCode['CALC_EQUIPMENT'] ?? []));
                     $value = $this->remapVariantIdsInOptionsJson($value, $targetMap);
                 }
 
@@ -715,10 +717,12 @@ class SnapshotManager
                     $description = $this->remapStageReferencesInString($description, $elementIdMapsByCode['CALC_STAGES'] ?? []);
                 }
 
-                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL'], true)) {
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT'], true)) {
                     $targetMap = (string)$code === 'OPTIONS_OPERATION'
                         ? (array)($elementIdMapsByCode['CALC_OPERATIONS_VARIANTS'] ?? [])
-                        : (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? []);
+                        : ((string)$code === 'OPTIONS_MATERIAL'
+                            ? (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? [])
+                            : (array)($elementIdMapsByCode['CALC_EQUIPMENT'] ?? []));
                     $description = $this->remapVariantIdsInOptionsJson($description, $targetMap);
                 }
 
