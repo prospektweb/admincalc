@@ -1092,6 +1092,21 @@
                     this.initData = responsePayload.initPayload;
                 }
 
+                // Bitrix can return a freshly rebuilt INIT before the HTML property cache
+                // exposes ACTIVATION_CONDITION. The request itself and the newly created
+                // stage id are authoritative for this immediate response, so keep the new
+                // stage in the optional section without requiring another page reload.
+                if (payload.optional === true) {
+                    const createdStageId = parseInt(responsePayload?.config?.id, 10);
+                    if (createdStageId > 0) {
+                        this.updateStagePropertyInInitData(
+                            createdStageId,
+                            'ACTIVATION_CONDITION',
+                            JSON.stringify({ version: 1, enabled: true, kind: null, code: '' })
+                        );
+                    }
+                }
+
                 // Отправляем INIT message
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
 

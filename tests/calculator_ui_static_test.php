@@ -40,6 +40,8 @@ $checks = [
     [$elementDataService, "'{StageDeleted}'", 'Deleting a stage must mark dependent global values explicitly'],
     [$elementDataService, "'enabled' => true", 'Creating an optional stage must persist its activation marker'],
     [$elementDataService, "\$initPayload['elementsStore']['CALC_STAGES'] as &\$stagePayload", 'Optional stage marker must be reflected in the immediate INIT payload'],
+    [$integration, "if (payload.optional === true)", 'Bridge must preserve a newly created optional stage in immediate INIT'],
+    [$integration, "responsePayload?.config?.id", 'Bridge must identify the newly created stage before marking it optional'],
     [$integration, "propertyCode: 'OPTIONS_EQUIPMENT'", 'Equipment matching must persist through the iframe bridge'],
     [$appBundle, 'DESCRIPTION.CODE.', 'Published UI bundle must use stable described-property selectors'],
     [$appBundle, 'FIELDS.VIRTUAL.', 'Published UI bundle must expose virtual printing margin paths'],
