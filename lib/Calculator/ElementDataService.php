@@ -847,6 +847,28 @@ class ElementDataService
                         if ($stageId > 0 && !empty($propertyCode)) {
                             $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
                             if ($stagesIblockId > 0) {
+                                if ($propertyCode === 'GLOBAL_ASSIGNMENTS') {
+                                    $existingProperty = \CIBlockProperty::GetList([], [
+                                        'IBLOCK_ID' => $stagesIblockId,
+                                        'CODE' => 'GLOBAL_ASSIGNMENTS',
+                                    ])->Fetch();
+                                    if (!$existingProperty) {
+                                        $propertyApi = new \CIBlockProperty();
+                                        $propertyId = $propertyApi->Add([
+                                            'IBLOCK_ID' => $stagesIblockId,
+                                            'ACTIVE' => 'Y',
+                                            'CODE' => 'GLOBAL_ASSIGNMENTS',
+                                            'NAME' => 'Определения глобальных значений этапа',
+                                            'PROPERTY_TYPE' => 'S',
+                                            'USER_TYPE' => 'HTML',
+                                            'MULTIPLE' => 'N',
+                                            'SORT' => 180,
+                                        ]);
+                                        if (!$propertyId) {
+                                            throw new \RuntimeException('Не удалось создать свойство GLOBAL_ASSIGNMENTS');
+                                        }
+                                    }
+                                }
                                 \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
                                     $propertyCode => $value
                                 ]);

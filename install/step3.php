@@ -836,6 +836,13 @@ switch ($currentStep) {
                 'WITH_DESCRIPTION' => 'Y',
                 'SORT' => 170,
             ],
+            'GLOBAL_ASSIGNMENTS' => [
+                'NAME' => 'Определения глобальных значений этапа',
+                'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
+                'SORT' => 180,
+                'HINT' => 'JSON назначений глобальных переменных и однократных определений констант',
+            ],
             'OPERATION_VARIANT' => [
                 'NAME' => 'Вариант операции',
                 'TYPE' => 'E',

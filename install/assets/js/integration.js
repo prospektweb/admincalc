@@ -2437,6 +2437,9 @@
             const params = Array.isArray(calcSettings.params) ? calcSettings.params : [];
             const inputs = Array.isArray(stageWiring.inputs) ? stageWiring.inputs : [];
             const outputs = Array.isArray(stageWiring.outputs) ? stageWiring.outputs : [];
+            const globalAssignments = typeof stageWiring.globalAssignments === 'string'
+                ? stageWiring.globalAssignments
+                : '{"version":1,"assignments":[]}';
             const schemeOffer = Array.isArray(stageParametrValuesScheme.offer)
                 ? stageParametrValuesScheme.offer
                 : [];
@@ -2488,6 +2491,12 @@
                     propertyCode: 'SCHEME_PARAMETR_VALUES',
                     value: toValueDescriptionList(schemeOffer, 'name', 'template'),
                 });
+                refreshPayload.push({
+                    action: 'updateStageProperty',
+                    stageId: stageId,
+                    propertyCode: 'GLOBAL_ASSIGNMENTS',
+                    value: globalAssignments,
+                });
             }
 
             try {
@@ -2518,6 +2527,12 @@
                         stageId,
                         'SCHEME_PARAMETR_VALUES',
                         schemeOffer.map((item) => ({ value: item?.name ?? '', description: item?.template ?? '' }))
+                    );
+                    this.updateStagePropertyInInitDataWithRaw(
+                        stageId,
+                        'GLOBAL_ASSIGNMENTS',
+                        this.escapeHtmlValue(globalAssignments),
+                        globalAssignments
                     );
                 }
 
