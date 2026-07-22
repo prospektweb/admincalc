@@ -3,6 +3,7 @@
 $integration = file_get_contents(__DIR__ . '/../install/assets/js/integration.js');
 $calculator = file_get_contents(__DIR__ . '/../install/assets/js/calculator.js');
 $elementDataService = file_get_contents(__DIR__ . '/../lib/Calculator/ElementDataService.php');
+$detailHandler = file_get_contents(__DIR__ . '/../lib/Services/DetailHandler.php');
 $initPayloadService = file_get_contents(__DIR__ . '/../lib/Calculator/InitPayloadService.php');
 $presetEnrichmentService = file_get_contents(__DIR__ . '/../lib/Services/PresetEnrichmentService.php');
 $installer = file_get_contents(__DIR__ . '/../install/step3.php');
@@ -38,8 +39,10 @@ $checks = [
     [$integration, "updateStagePropertyInInitDataWithRaw(\n                        stageId,\n                        'GLOBAL_ASSIGNMENTS'", 'INIT cache must receive saved global assignments without reload'],
     [$elementDataService, "\$propertyCode === 'GLOBAL_ASSIGNMENTS'", 'Existing installations must lazily create the global assignment property'],
     [$elementDataService, "'{StageDeleted}'", 'Deleting a stage must mark dependent global values explicitly'],
-    [$elementDataService, "'enabled' => true", 'Creating an optional stage must persist its activation marker'],
-    [$elementDataService, "'ACTIVATION_CONDITION' => \$activationConditionJson", 'Optional stage marker must be stored as a plain string'],
+    [$detailHandler, "'enabled' => true", 'Creating an optional stage must persist its activation marker'],
+    [$detailHandler, "'ACTIVATION_CONDITION' => \$activationConditionJson", 'Optional stage marker must be stored as a plain string'],
+    [$detailHandler, "['CODE' => 'ACTIVATION_CONDITION']", 'Optional stage creation must verify the stored Bitrix property'],
+    [$detailHandler, "Не удалось сохранить условие активации опционального этапа", 'Optional stage creation must fail instead of silently losing its marker'],
     [$integration, "propertyCode: 'OPTIONS_EQUIPMENT'", 'Equipment matching must persist through the iframe bridge'],
     [$appBundle, 'DESCRIPTION.CODE.', 'Published UI bundle must use stable described-property selectors'],
     [$appBundle, 'FIELDS.VIRTUAL.', 'Published UI bundle must expose virtual printing margin paths'],

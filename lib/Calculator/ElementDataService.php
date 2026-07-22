@@ -71,21 +71,6 @@ class ElementDataService
                             $presetId = (int)($request['presetId'] ?? 0);
                             $stageId = $addResult['config']['id'] ?? 0;
 
-                            if ($stageId > 0 && !empty($request['optional'])) {
-                                $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
-                                if ($stagesIblockId > 0) {
-                                    $activationConditionJson = json_encode([
-                                            'version' => 1,
-                                            'enabled' => true,
-                                            'kind' => null,
-                                            'code' => '',
-                                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                                    \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                        'ACTIVATION_CONDITION' => $activationConditionJson,
-                                    ]);
-                                }
-                            }
-                            
                             if ($presetId > 0 && $stageId > 0) {
                                 $detailHandler->addStageToPreset($presetId, $stageId);
                                 
