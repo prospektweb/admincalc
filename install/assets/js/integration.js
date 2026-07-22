@@ -257,6 +257,18 @@
                 case 'CHANGE_STAGE_NAME_REQUEST':
                     await this.handleChangeStageNameRequest(message, origin);
                     break;
+                case 'CHANGE_ENTITY_META_REQUEST':
+                    await this.handleChangeEntityMetaRequest(message, origin);
+                    break;
+                case 'GET_AI_SETTINGS_REQUEST':
+                    await this.handleGetAiSettingsRequest(message, origin);
+                    break;
+                case 'SAVE_AI_SETTINGS_REQUEST':
+                    await this.handleSaveAiSettingsRequest(message, origin);
+                    break;
+                case 'GENERATE_STAGE_PREVIEW_REQUEST':
+                    await this.handleGenerateStagePreviewRequest(message, origin);
+                    break;
                 case 'CLEAR_PRESET_REQUEST':
                     await this.handleClearPresetRequest(message, origin);
                     break;
@@ -320,7 +332,8 @@
                         'RENAME_DETAIL_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST', 
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
-                        'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST',
+                        'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
+                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
@@ -1022,14 +1035,91 @@
             const payload = message.payload || {};
             const stageId = parseInt(payload.stageId, 10) || 0;
             const name = payload.name || '';
+            const previewText = payload.previewText || '';
             if (!stageId || !name) {
                 return;
             }
 
             try {
-                await this.fetchRefreshData([{ action: 'changeStageName', stageId, name }]);
+                const result = await this.fetchRefreshData([{ action: 'changeStageName', stageId, name, previewText }]);
+                const response = Array.isArray(result) ? result[0] : null;
+                if (!response || response.status !== 'ok') {
+                    throw new Error(response && response.message ? response.message : 'Не удалось сохранить этап');
+                }
+                const stage = this.initData && this.initData.elementsStore && Array.isArray(this.initData.elementsStore.CALC_STAGES)
+                    ? this.initData.elementsStore.CALC_STAGES.find(item => Number(item.id) === stageId)
+                    : null;
+                if (stage) {
+                    stage.name = name;
+                    stage.previewText = previewText;
+                }
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_STAGE_NAME_REQUEST error:', error);
+                this.sendPwrtMessage('ERROR', { message: error && error.message ? error.message : 'Не удалось сохранить этап' }, message.requestId, origin);
+            }
+        }
+
+        async handleChangeEntityMetaRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'changeEntityMeta',
+                    entityType: payload.entityType,
+                    entityId: Number(payload.entityId || 0),
+                    name: payload.name || '',
+                    previewText: payload.previewText || '',
+                }]);
+                const response = Array.isArray(result) ? result[0] : null;
+                if (!response || response.status !== 'ok') throw new Error(response && response.message ? response.message : 'Не удалось сохранить данные');
+                if (payload.entityType === 'detail' && this.initData && this.initData.elementsStore && Array.isArray(this.initData.elementsStore.CALC_DETAILS)) {
+                    const item = this.initData.elementsStore.CALC_DETAILS.find(entity => Number(entity.id) === Number(payload.entityId));
+                    if (item) { item.name = payload.name; item.previewText = payload.previewText || ''; }
+                }
+                if (payload.entityType === 'preset' && this.initData && this.initData.preset) {
+                    this.initData.preset.name = payload.name;
+                    this.initData.preset.previewText = payload.previewText || '';
+                }
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', { message: error && error.message ? error.message : 'Не удалось сохранить данные' }, message.requestId, origin);
+            }
+        }
+
+        async handleGetAiSettingsRequest(message, origin) {
+            try {
+                const result = await this.fetchRefreshData([{ action: 'getAiSettings' }]);
+                this.sendPwrtMessage('AI_SETTINGS_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('AI_SETTINGS_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось загрузить настройки AI' }, message.requestId, origin);
+            }
+        }
+
+        async handleSaveAiSettingsRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'saveAiSettings',
+                    apiKey: payload.apiKey || '',
+                    templates: Array.isArray(payload.templates) ? payload.templates : [],
+                }]);
+                this.sendPwrtMessage('AI_SETTINGS_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('AI_SETTINGS_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сохранить настройки AI' }, message.requestId, origin);
+            }
+        }
+
+        async handleGenerateStagePreviewRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'generateStagePreview',
+                    templateId: payload.templateId || '',
+                    context: payload.context || {},
+                }]);
+                this.sendPwrtMessage('AI_GENERATE_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('AI_GENERATE_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сгенерировать описание' }, message.requestId, origin);
             }
         }
 
@@ -3383,8 +3473,12 @@
         }
 
         async fetchRefreshData(items) {
+            const debugItems = Array.isArray(items) ? items.map(item => {
+                if (!item || typeof item !== 'object' || !Object.prototype.hasOwnProperty.call(item, 'apiKey')) return item;
+                return Object.assign({}, item, { apiKey: item.apiKey ? '[REDACTED]' : '' });
+            }) : items;
             console.log('[BitrixBridge][DEBUG] fetchRefreshData START', {
-                items: items,
+                items: debugItems,
                 ajaxEndpoint: this.config.ajaxEndpoint,
             });
 
@@ -3396,7 +3490,7 @@
 
             console.log('[BitrixBridge][DEBUG] fetchRefreshData request', {
                 action: 'refreshData',
-                payload: payloadJson,
+                payload: JSON.stringify(debugItems),
                 hasSessid: !!this.config.sessid,
             });
 

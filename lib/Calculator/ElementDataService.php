@@ -35,6 +35,18 @@ class ElementDataService
             // Проверяем специальные actions
             if (isset($request['action'])) {
                 switch ($request['action']) {
+                    case 'getAiSettings':
+                        $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->getSettings();
+                        continue 2;
+
+                    case 'saveAiSettings':
+                        $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->saveSettings($request);
+                        continue 2;
+
+                    case 'generateStagePreview':
+                        $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->generateStagePreview($request);
+                        continue 2;
+
                     case 'syncVariants':
                         $handler = new \Prospektweb\Calc\Services\SyncVariantsHandler();
                         $result[] = $handler->handle($request);
@@ -651,13 +663,48 @@ class ElementDataService
                     case 'changeStageName':
                         $stageId = (int)($request['stageId'] ?? 0);
                         $name = trim((string)($request['name'] ?? ''));
+                        $previewText = trim((string)($request['previewText'] ?? ''));
 
                         if ($stageId > 0 && $name !== '') {
                             $el = new \CIBlockElement();
-                            $el->Update($stageId, ['NAME' => $name]);
+                            if (!$el->Update($stageId, [
+                                'NAME' => $name,
+                                'PREVIEW_TEXT' => $previewText,
+                                'PREVIEW_TEXT_TYPE' => 'text',
+                            ])) {
+                                $result[] = ['status' => 'error', 'message' => $el->LAST_ERROR ?: 'Не удалось сохранить этап'];
+                                continue 2;
+                            }
                         }
 
-                        $result[] = ['status' => 'ok'];
+                        $result[] = ['status' => 'ok', 'id' => $stageId, 'name' => $name, 'previewText' => $previewText];
+                        continue 2;
+
+                    case 'changeEntityMeta':
+                        $entityId = (int)($request['entityId'] ?? 0);
+                        $entityType = (string)($request['entityType'] ?? '');
+                        $name = trim((string)($request['name'] ?? ''));
+                        $previewText = trim((string)($request['previewText'] ?? ''));
+                        if ($entityId <= 0 || !in_array($entityType, ['detail', 'preset'], true) || $name === '') {
+                            $result[] = ['status' => 'error', 'message' => 'Некорректные данные сущности'];
+                            continue 2;
+                        }
+                        $el = new \CIBlockElement();
+                        if (!$el->Update($entityId, [
+                            'NAME' => $name,
+                            'PREVIEW_TEXT' => $previewText,
+                            'PREVIEW_TEXT_TYPE' => 'text',
+                        ])) {
+                            $result[] = ['status' => 'error', 'message' => $el->LAST_ERROR ?: 'Не удалось сохранить данные'];
+                            continue 2;
+                        }
+                        $result[] = [
+                            'status' => 'ok',
+                            'entityType' => $entityType,
+                            'id' => $entityId,
+                            'name' => $name,
+                            'previewText' => $previewText,
+                        ];
                         continue 2;
 
 
