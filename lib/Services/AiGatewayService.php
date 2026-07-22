@@ -111,7 +111,6 @@ final class AiGatewayService
             'messages' => [
                 ['role' => 'user', 'content' => $prompt],
             ],
-            'temperature' => 0.3,
         ]);
         $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
         if ($content === '') {
@@ -218,10 +217,45 @@ final class AiGatewayService
         $status = (int)$client->getStatus();
         $decoded = json_decode((string)$raw, true);
         if ($status < 200 || $status >= 300 || !is_array($decoded)) {
-            $message = is_array($decoded) ? (string)($decoded['error']['message'] ?? $decoded['message'] ?? '') : '';
-            throw new \RuntimeException($message !== '' ? $message : 'Ошибка Timeweb AI Gateway (HTTP ' . $status . ')');
+            $message = $this->extractGatewayError($decoded);
+            if ($message === '' && method_exists($client, 'getError')) {
+                $clientErrors = $client->getError();
+                if (is_array($clientErrors) && $clientErrors !== []) {
+                    $message = implode('; ', array_map('strval', $clientErrors));
+                }
+            }
+            if ($message === '') {
+                $message = 'HTTP ' . $status;
+            }
+            throw new \RuntimeException('Timeweb AI Gateway: ' . mb_substr($message, 0, 1000));
         }
         return $decoded;
+    }
+
+    private function extractGatewayError($decoded): string
+    {
+        if (!is_array($decoded)) {
+            return '';
+        }
+
+        $error = $decoded['error'] ?? null;
+        if (is_string($error)) {
+            return trim($error);
+        }
+        if (is_array($error)) {
+            $message = $error['message'] ?? $error['detail'] ?? '';
+            if (is_string($message)) {
+                return trim($message);
+            }
+        }
+
+        foreach (['message', 'detail'] as $key) {
+            if (isset($decoded[$key]) && is_string($decoded[$key])) {
+                return trim($decoded[$key]);
+            }
+        }
+
+        return '';
     }
 
     private function assertAdmin(): void

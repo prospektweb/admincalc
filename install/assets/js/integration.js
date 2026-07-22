@@ -3504,12 +3504,25 @@
                 });
 
                 console.log('[BitrixBridge][DEBUG] fetchRefreshData response status:', response.status, response.ok);
-
-                if (!response.ok) {
-                    throw new Error('HTTP error ' + response.status);
+                const responseText = await response.text();
+                let data = null;
+                try {
+                    data = responseText ? JSON.parse(responseText) : null;
+                } catch (parseError) {
+                    console.error('[BitrixBridge][DEBUG] fetchRefreshData invalid JSON response', {
+                        status: response.status,
+                        parseError: parseError,
+                    });
                 }
 
-                const data = await response.json();
+                if (!response.ok) {
+                    const serverMessage = data && (data.message || data.error || data.details);
+                    throw new Error(serverMessage || ('HTTP error ' + response.status));
+                }
+
+                if (!data || typeof data !== 'object') {
+                    throw new Error('Сервер вернул некорректный ответ');
+                }
 
                 const dataLength = Array.isArray(data.data) ? data.data.length : 0;
                 console.log('[BitrixBridge][DEBUG] fetchRefreshData response data', {

@@ -11,12 +11,17 @@ $checks = [
     'server-side key option' => strpos($service, "AI_GATEWAY_API_KEY") !== false,
     'models endpoint' => strpos($service, "'/models'") !== false,
     'chat completions endpoint' => strpos($service, "'/chat/completions'") !== false,
+    'unsupported temperature is not sent' => strpos($service, "'temperature'") === false,
+    'gateway error details are preserved' => strpos($service, 'extractGatewayError') !== false
+        && strpos($service, 'Timeweb AI Gateway: ') !== false,
     'preset preview tag' => strpos($service, "{анонс пресета}") !== false,
     'AI actions are routed' => strpos($elementService, "case 'getAiSettings'") !== false
         && strpos($elementService, "case 'saveAiSettings'") !== false
         && strpos($elementService, "case 'generateStagePreview'") !== false,
     'stage preview is persisted' => strpos($elementService, "'PREVIEW_TEXT' => \$previewText") !== false,
     'AI key is redacted from debug output' => strpos($integration, "[REDACTED]") !== false,
+    'HTTP error body is surfaced to UI' => strpos($integration, 'await response.text()') !== false
+        && strpos($integration, 'data.message || data.error || data.details') !== false,
     'AI service is registered' => strpos($include, 'AiGatewayService') !== false,
 ];
 
