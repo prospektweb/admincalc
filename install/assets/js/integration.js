@@ -224,8 +224,9 @@
                 case 'DELETE_STAGE_REQUEST':
                     await this.handleDeleteStageRequest(message, origin);
                     break;
-                case 'SAVE_OPTIONAL_STAGE_REQUEST':
-                    await this.handleSaveOptionalStageRequest(message, origin);
+                case 'SAVE_STAGE_ACTIVATION_REQUEST':
+                case 'SAVE_OPTIONAL_STAGE_REQUEST': // backward compatibility with an older bundle
+                    await this.handleSaveStageActivationRequest(message, origin);
                     break;
                 case 'REMOVE_DETAIL_REQUEST':
                     await this.handleRemoveDetailRequest(message, origin);
@@ -337,7 +338,7 @@
                     console.warn('[BitrixBridge][DEBUG] Known types:', [
                         'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'SELECT_FIELDS_REQUEST', 'SELECT_DETAILS_TO_BINDING_REQUEST',
                         'ADD_DETAIL_REQUEST', 'ADD_DETAIL_TO_BINDING_REQUEST',
-                        'ADD_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'REMOVE_DETAIL_REQUEST', 
+                        'ADD_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'SAVE_STAGE_ACTIVATION_REQUEST', 'REMOVE_DETAIL_REQUEST',
                         'RENAME_DETAIL_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST', 
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
@@ -961,6 +962,7 @@
             const equipmentId = parseInt(payload.eqipmentId || payload.equipmentId, 10) || 0;
             const name = String(payload.name || '').trim();
             const properties = payload.properties || {};
+            const previewText = String(payload.previewText || '').trim();
             if (!equipmentId) {
                 this.sendPwrtMessage('SAVE_SETTINGS_EQUIPMENT_RESPONSE', {
                     status: 'error',
@@ -970,7 +972,7 @@
             }
 
             try {
-                const result = await this.fetchRefreshData([{ action: 'saveSettingsEquipment', equipmentId, name, properties }]);
+                const result = await this.fetchRefreshData([{ action: 'saveSettingsEquipment', equipmentId, name, previewText, properties }]);
                 const responsePayload = Array.isArray(result) && result[0]
                     ? result[0]
                     : { status: 'error', message: 'Пустой ответ сохранения оборудования' };
@@ -987,6 +989,7 @@
                         if (responsePayload.name) {
                             equipment.name = responsePayload.name;
                         }
+                        equipment.previewText = responsePayload.previewText || '';
                         equipment.properties = equipment.properties || {};
                         Object.entries(responsePayload.properties || {}).forEach(([code, property]) => {
                             equipment.properties[code] = {
@@ -1211,7 +1214,6 @@
                     {
                         action: 'addStage',
                         detailId: detailId,
-                        optional: payload.optional === true,
                         presetId: presetId,
                         offerIds: offerIds,
                         siteId: siteId,
@@ -2591,7 +2593,7 @@
             }
         }
 
-        async handleSaveOptionalStageRequest(message, origin) {
+        async handleSaveStageActivationRequest(message, origin) {
             const payload = message.payload || {};
             const stageId = parseInt(payload.stageId, 10);
             const condition = payload.condition && typeof payload.condition === 'object'
@@ -2622,7 +2624,7 @@
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 this.sendPwrtMessage('ERROR', {
-                    message: 'Не удалось сохранить условие опционального этапа',
+                    message: 'Не удалось сохранить условие активации этапа',
                     details: error && error.message ? error.message : 'Unknown error',
                 }, message.requestId, origin);
             }

@@ -594,6 +594,7 @@ class ElementDataService
                     case 'saveSettingsEquipment':
                         $equipmentId = (int)($request['equipmentId'] ?? 0);
                         $equipmentName = trim((string)($request['name'] ?? ''));
+                        $equipmentPreviewText = trim((string)($request['previewText'] ?? ''));
                         $properties = is_array($request['properties'] ?? null) ? $request['properties'] : [];
                         $equipmentIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_EQUIPMENT', 0);
 
@@ -661,7 +662,11 @@ class ElementDataService
 
                         if ($equipmentName !== '') {
                             $element = new \CIBlockElement();
-                            if (!$element->Update($equipmentId, ['NAME' => $equipmentName])) {
+                            if (!$element->Update($equipmentId, [
+                                'NAME' => $equipmentName,
+                                'PREVIEW_TEXT' => $equipmentPreviewText,
+                                'PREVIEW_TEXT_TYPE' => 'text',
+                            ])) {
                                 $result[] = ['status' => 'error', 'message' => 'Не удалось сохранить название оборудования'];
                                 continue 2;
                             }
@@ -674,6 +679,7 @@ class ElementDataService
                             'status' => 'ok',
                             'equipmentId' => $equipmentId,
                             'name' => $equipmentName,
+                            'previewText' => $equipmentPreviewText,
                             'properties' => $responseProperties,
                         ];
                         continue 2;

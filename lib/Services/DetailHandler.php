@@ -327,34 +327,6 @@ class DetailHandler
                 ];
             }
 
-            if (!empty($data['optional'])) {
-                $activationConditionJson = json_encode([
-                    'version' => 1,
-                    'enabled' => true,
-                    'kind' => null,
-                    'code' => '',
-                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-                \CIBlockElement::SetPropertyValuesEx($configId, $this->stagesIblockId, [
-                    'ACTIVATION_CONDITION' => $activationConditionJson,
-                ]);
-
-                $storedCondition = \CIBlockElement::GetProperty(
-                    $this->stagesIblockId,
-                    $configId,
-                    [],
-                    ['CODE' => 'ACTIVATION_CONDITION']
-                )->Fetch();
-
-                if ((string)($storedCondition['VALUE'] ?? '') !== $activationConditionJson) {
-                    \CIBlockElement::Delete($configId);
-                    return [
-                        'status' => 'error',
-                        'message' => 'Не удалось сохранить условие активации опционального этапа',
-                    ];
-                }
-            }
-
             // 2. Добавить его ID в свойство CALC_STAGES детали
             $existingConfigs = $detail['CONFIGS'];
             $existingConfigs[] = $configId;
