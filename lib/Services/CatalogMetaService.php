@@ -2,16 +2,15 @@
 
 namespace Prospektweb\Calc\Services;
 
-use Bitrix\Main\Config\Option;
+use Prospektweb\Calc\Config\ConfigManager;
 
 final class CatalogMetaService
 {
-    private const MODULE_ID = 'prospektweb.calc';
-    private const OPTIONS = [
-        'calculator' => ['IBLOCK_CALC_SETTINGS'],
-        'equipment' => ['IBLOCK_CALC_EQUIPMENT'],
-        'operation' => ['IBLOCK_CALC_OPERATIONS', 'IBLOCK_CALC_OPERATION_VARIANTS'],
-        'material' => ['IBLOCK_CALC_MATERIALS', 'IBLOCK_CALC_MATERIAL_VARIANTS'],
+    private const IBLOCK_CODES = [
+        'calculator' => ['CALC_SETTINGS'],
+        'equipment' => ['CALC_EQUIPMENT'],
+        'operation' => ['CALC_OPERATIONS', 'CALC_OPERATIONS_VARIANTS'],
+        'material' => ['CALC_MATERIALS', 'CALC_MATERIALS_VARIANTS'],
     ];
 
     public function get(array $request): array
@@ -41,24 +40,54 @@ final class CatalogMetaService
         $type = (string)($request['entityType'] ?? '');
         $iblocks = $this->getIblocks($type);
         $entities = is_array($request['entities'] ?? null) ? $request['entities'] : [];
+        if ($entities === []) throw new \InvalidArgumentException('Не переданы элементы для сохранения');
+        $allowedEntityIds = $this->resolveAllowedEntityIds($type, $iblocks, (int)($entities[0]['id'] ?? 0));
         $updated = [];
         foreach ($entities as $entity) {
             $id = (int)($entity['id'] ?? 0);
             $name = trim((string)($entity['name'] ?? ''));
             if ($id <= 0 || $name === '') throw new \InvalidArgumentException('Название технического элемента не может быть пустым');
-            $this->loadElement($id, $iblocks);
+            if (!isset($allowedEntityIds[$id])) throw new \InvalidArgumentException('Элемент не относится к выбранному родителю или его вариантам');
+            $loaded = $this->loadElement($id, $iblocks);
             $element = new \CIBlockElement();
             $preview = trim((string)($entity['previewText'] ?? ''));
             if (!$element->Update($id, ['NAME' => $name, 'PREVIEW_TEXT' => $preview, 'PREVIEW_TEXT_TYPE' => 'text'])) throw new \RuntimeException($element->LAST_ERROR ?: 'Не удалось сохранить технический элемент');
-            $updated[] = ['id' => $id, 'name' => $name, 'previewText' => $preview];
+            $parameters = $this->normalizeParameters((array)($entity['parameters'] ?? []));
+            \CIBlockElement::SetPropertyValuesEx($id, (int)$loaded['iblockId'], [
+                'PARAMETRS' => $parameters ? array_map(static function (array $parameter): array {
+                    return [
+                        'VALUE' => $parameter['code'],
+                        'DESCRIPTION' => implode('|', [$parameter['value'], $parameter['title'], $parameter['description']]),
+                    ];
+                }, $parameters) : false,
+            ]);
+            $updated[] = ['id' => $id, 'name' => $name, 'previewText' => $preview, 'parameters' => $parameters];
         }
         return ['status' => 'ok', 'entityType' => $type, 'entities' => $updated];
     }
 
+    private function resolveAllowedEntityIds(string $type, array $iblocks, int $anchorId): array
+    {
+        if ($anchorId <= 0) return [];
+        $anchor = $this->loadElement($anchorId, $iblocks);
+        if ($type === 'calculator' || $type === 'equipment') return [$anchorId => true];
+
+        $parentId = $anchor['iblockId'] === $iblocks[0]
+            ? $anchorId
+            : $this->getParentId($anchorId, $iblocks[1]);
+        if ($parentId <= 0) throw new \RuntimeException('Не удалось определить родительский элемент');
+
+        $allowed = [$parentId => true];
+        $cursor = \CIBlockElement::GetList([], ['IBLOCK_ID' => $iblocks[1], 'PROPERTY_CML2_LINK' => $parentId], false, false, ['ID']);
+        while ($row = $cursor->Fetch()) $allowed[(int)$row['ID']] = true;
+        return $allowed;
+    }
+
     private function getIblocks(string $type): array
     {
-        if (!isset(self::OPTIONS[$type])) throw new \InvalidArgumentException('Неизвестный тип технического элемента');
-        $ids = array_map(static fn(string $option): int => (int)Option::get(self::MODULE_ID, $option, 0), self::OPTIONS[$type]);
+        if (!isset(self::IBLOCK_CODES[$type])) throw new \InvalidArgumentException('Неизвестный тип технического элемента');
+        $config = new ConfigManager();
+        $ids = array_map(static fn(string $code): int => $config->getIblockId($code), self::IBLOCK_CODES[$type]);
         if (in_array(0, $ids, true)) throw new \RuntimeException('Инфоблок технического элемента не настроен');
         return $ids;
     }
@@ -73,7 +102,56 @@ final class CatalogMetaService
 
     private function normalize(array $row): array
     {
-        return ['id' => (int)$row['ID'], 'iblockId' => (int)$row['IBLOCK_ID'], 'name' => (string)$row['NAME'], 'code' => (string)$row['CODE'], 'previewText' => trim(strip_tags((string)($row['PREVIEW_TEXT'] ?? '')))];
+        return [
+            'id' => (int)$row['ID'],
+            'iblockId' => (int)$row['IBLOCK_ID'],
+            'name' => (string)$row['NAME'],
+            'code' => (string)$row['CODE'],
+            'previewText' => trim(strip_tags((string)($row['PREVIEW_TEXT'] ?? ''))),
+            'parameters' => $this->loadParameters((int)$row['ID'], (int)$row['IBLOCK_ID']),
+        ];
+    }
+
+    private function loadParameters(int $elementId, int $iblockId): array
+    {
+        $result = [];
+        $cursor = \CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc', 'id' => 'asc'], ['CODE' => 'PARAMETRS']);
+        while ($property = $cursor->Fetch()) {
+            $code = trim((string)($property['VALUE'] ?? ''));
+            if ($code === '') continue;
+            $parts = explode('|', (string)($property['DESCRIPTION'] ?? ''), 3);
+            $result[] = [
+                'code' => $code,
+                'value' => trim((string)($parts[0] ?? '')),
+                'title' => trim((string)($parts[1] ?? '')),
+                'description' => trim((string)($parts[2] ?? '')),
+            ];
+        }
+        return $result;
+    }
+
+    private function normalizeParameters(array $parameters): array
+    {
+        $result = [];
+        $codes = [];
+        foreach ($parameters as $parameter) {
+            if (!is_array($parameter)) continue;
+            $code = trim((string)($parameter['code'] ?? ''));
+            $title = trim((string)($parameter['title'] ?? ''));
+            $value = trim((string)($parameter['value'] ?? ''));
+            $description = trim((string)($parameter['description'] ?? ''));
+            if ($code === '' && $title === '' && $value === '' && $description === '') continue;
+            if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $code)) {
+                throw new \InvalidArgumentException('Код параметра должен начинаться с латинской буквы или _ и содержать только латиницу, цифры и _');
+            }
+            if (isset($codes[$code])) throw new \InvalidArgumentException('Коды параметров внутри одного элемента не должны повторяться');
+            if (strpos($title, '|') !== false || strpos($value, '|') !== false || strpos($description, '|') !== false) {
+                throw new \InvalidArgumentException('Символ | зарезервирован и недопустим в названии, значении и описании параметра');
+            }
+            $codes[$code] = true;
+            $result[] = compact('code', 'title', 'value', 'description');
+        }
+        return $result;
     }
 
     private function getParentId(int $variantId, int $iblockId): int

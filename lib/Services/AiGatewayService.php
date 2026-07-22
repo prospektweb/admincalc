@@ -13,6 +13,7 @@ final class AiGatewayService
     private const TEMPLATES_OPTION = 'AI_PROMPT_TEMPLATES';
     private const MODELS_CACHE_OPTION = 'AI_MODELS_CACHE';
     private const MODELS_CACHE_TTL = 600;
+    private const DEFAULT_MODEL = 'openai/gpt-5.4-mini';
     private const ZONE_CONTEXT = [
         'preset_description' => ['{название пресета}' => 'presetName', '{название товара}' => 'productName', '{анонс товара}' => 'productPreview'],
         'detail_description' => ['{название детали}' => 'detailName', '{название пресета}' => 'presetName', '{анонс пресета}' => 'presetPreview', '{название товара}' => 'productName', '{анонс товара}' => 'productPreview'],
@@ -49,10 +50,10 @@ final class AiGatewayService
         $models = [];
         $modelsError = '';
         try { $models = $this->getModels(true); } catch (\Throwable $error) { $modelsError = $error->getMessage(); }
-        if ($models !== []) {
-            foreach ($templates as &$template) if ($template['model'] === '') $template['model'] = (string)$models[0]['id'];
-            unset($template);
+        foreach ($templates as &$template) {
+            if ($template['model'] === '') $template['model'] = self::DEFAULT_MODEL;
         }
+        unset($template);
         Option::set(self::MODULE_ID, self::TEMPLATES_OPTION, json_encode($templates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         return ['status' => 'ok', 'hasApiKey' => trim((string)Option::get(self::MODULE_ID, self::KEY_OPTION, '')) !== '', 'templates' => $templates, 'models' => $models, 'modelsError' => $modelsError];
     }
@@ -123,7 +124,7 @@ final class AiGatewayService
                 'zone' => $zone,
                 'name' => mb_substr(trim((string)($template['name'] ?? '')) ?: ('Шаблон ' . ($index + 1)), 0, 200),
                 'prompt' => mb_substr($prompt, 0, 12000),
-                'model' => mb_substr(trim((string)($template['model'] ?? '')), 0, 200),
+                'model' => mb_substr(trim((string)($template['model'] ?? '')) ?: self::DEFAULT_MODEL, 0, 200),
             ];
         }
         return $result;
@@ -143,7 +144,7 @@ final class AiGatewayService
             'material_variant_description' => ['Описание варианта материала', 'Опиши вариант материала {название варианта материала}. Родительский материал: {название материала}. Анонс: {анонс материала}. Верни только готовый текст.'],
         ];
         $result = [];
-        foreach ($definitions as $zone => [$name, $prompt]) $result[] = ['id' => str_replace('_', '-', $zone) . '-default', 'zone' => $zone, 'name' => $name, 'prompt' => $prompt, 'model' => ''];
+        foreach ($definitions as $zone => [$name, $prompt]) $result[] = ['id' => str_replace('_', '-', $zone) . '-default', 'zone' => $zone, 'name' => $name, 'prompt' => $prompt, 'model' => self::DEFAULT_MODEL];
         return $result;
     }
 

@@ -6,12 +6,14 @@ $elementDataService = file_get_contents(__DIR__ . '/../lib/Calculator/ElementDat
 $detailHandler = file_get_contents(__DIR__ . '/../lib/Services/DetailHandler.php');
 $initPayloadService = file_get_contents(__DIR__ . '/../lib/Calculator/InitPayloadService.php');
 $presetEnrichmentService = file_get_contents(__DIR__ . '/../lib/Services/PresetEnrichmentService.php');
+$catalogMetaService = file_get_contents(__DIR__ . '/../lib/Services/CatalogMetaService.php');
+$aiGatewayService = file_get_contents(__DIR__ . '/../lib/Services/AiGatewayService.php');
 $installer = file_get_contents(__DIR__ . '/../install/step3.php');
 $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/index.js');
 $engineBundlePath = __DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js';
 $engineBundle = is_file($engineBundlePath) ? file_get_contents($engineBundlePath) : $appBundle;
 
-if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($installer) || !is_string($appBundle) || !is_string($engineBundle)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($aiGatewayService) || !is_string($installer) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
@@ -26,6 +28,7 @@ $checks = [
     [$elementDataService, "\$value !== '' && !preg_match", 'Equipment fields must allow individually empty sides'],
     [$elementDataService, "['NAME' => \$equipmentName]", 'Equipment save must update its display name'],
     [$elementDataService, "\$prepared['PARAMETRS']", 'Equipment custom parameters must preserve Bitrix descriptions'],
+    [$elementDataService, "explode('|', \$description, 3)", 'Equipment parameters must persist value, title and description through the reserved separator'],
     [$elementDataService, "'PREVIEW_TEXT', 'DETAIL_TEXT'", 'Calculator context must expose its announcement and full description'],
     [$elementDataService, "strpos(\$value, '|')", 'Custom field values must reject the reserved visibility separator'],
     [$elementDataService, "\$value . '|' . (\$visible ? 'Y' : 'N')", 'Stage custom fields must persist their visibility marker'],
@@ -58,7 +61,14 @@ $checks = [
     [$appBundle, 'prospektweb.calc.global-values/v1', 'Global values must use a versioned import and export contract'],
     [$appBundle, 'global-values-import', 'Global values editor must expose JSON import'],
     [$appBundle, 'global-values-export', 'Global values editor must expose JSON export'],
-    [$appBundle, 'btn-generate-logic-prompt', 'Stage calculator must expose the AI logic prompt action'],
+    [$catalogMetaService, "'CALC_OPERATIONS_VARIANTS'", 'Operation variants must use the canonical configured iblock code'],
+    [$catalogMetaService, "'CALC_MATERIALS_VARIANTS'", 'Material variants must use the canonical configured iblock code'],
+    [$catalogMetaService, "'description' => trim", 'Catalog parameters must expose their human-readable descriptions'],
+    [$catalogMetaService, "implode('|', [\$parameter['value'], \$parameter['title'], \$parameter['description']])", 'Catalog parameters must persist value, title and description in Bitrix DESCRIPTION'],
+    [$aiGatewayService, "private const DEFAULT_MODEL = 'openai/gpt-5.4-mini'", 'AI prompt templates must default to GPT-5.4 mini'],
+    [$appBundle, 'btn-operation-parameters', 'Operation row must expose the parent and variants parameter editor'],
+    [$appBundle, 'btn-material-parameters', 'Material row must expose the parent and variants parameter editor'],
+    [$appBundle, 'Описание параметра', 'All parameter editors must expose the third human-readable description field'],
     [$appBundle, 'btn-edit-optional-stage-name', 'Optional stage tabs must expose the same rename action as required stages'],
     [$appBundle, 'Добавьте опциональный этап, который выполняется по условию', 'Empty optional-stage block must explain its purpose in a tooltip'],
     [$appBundle, 'Опциональный этап #', 'Optional stage tabs must expose their full label in a tooltip'],
@@ -76,6 +86,10 @@ foreach ($checks as [$source, $needle, $message]) {
 
 if (strpos($integration, 'saveCalculationForOffer') !== false) {
     throw new RuntimeException('Save flow must not make one HTTP request per offer');
+}
+
+if (strpos($appBundle, 'btn-generate-logic-prompt') !== false) {
+    throw new RuntimeException('Deprecated calculator prompt generator must not remain in the published UI bundle');
 }
 
 foreach ([$calculator, $integration] as $source) {

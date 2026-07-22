@@ -643,6 +643,12 @@ class ElementDataService
                                 $result[] = ['status' => 'error', 'message' => 'Некорректный дополнительный параметр оборудования'];
                                 continue 3;
                             }
+                            if (substr_count($description, '|') > 2) {
+                                $result[] = ['status' => 'error', 'message' => 'Символ | разрешён только как разделитель значения, названия и описания параметра'];
+                                continue 3;
+                            }
+                            $descriptionParts = array_pad(explode('|', $description, 3), 3, '');
+                            $description = implode('|', array_map('trim', $descriptionParts));
                             $parametrs[] = ['VALUE' => $code, 'DESCRIPTION' => $description];
                             $parametrValues[] = $code;
                             $parametrDescriptions[] = $description;
