@@ -22,6 +22,7 @@ if (!Loader::includeModule($module_id)) {
 use Prospektweb\Calc\Config\SettingsManager;
 use Prospektweb\Calc\Config\ConfigManager;
 use Prospektweb\Calc\Install\SnapshotManager;
+use Prospektweb\Calc\Services\AsproAiPatchManager;
 
 global $USER, $APPLICATION;
 
@@ -308,6 +309,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_PO
     LocalRedirect($APPLICATION->GetCurPage() . '?' . http_build_query($query));
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_POST['ASPRO_AI_PATCH_ACTION'])) {
+    $patchAction = (string)$_POST['ASPRO_AI_PATCH_ACTION'];
+    $timewebEnabled = (($_POST['ASPRO_AI_TIMEWEB_ENABLED'] ?? 'N') === 'Y') ? 'Y' : 'N';
+    $timewebBaseUrl = trim((string)($_POST['ASPRO_AI_TIMEWEB_BASE_URL'] ?? 'https://api.timeweb.ai/v1'));
+    if ($timewebBaseUrl === '') {
+        $timewebBaseUrl = 'https://api.timeweb.ai/v1';
+    }
+
+    $parsedBaseUrl = parse_url($timewebBaseUrl);
+    $isValidBaseUrl = is_array($parsedBaseUrl)
+        && strtolower((string)($parsedBaseUrl['scheme'] ?? '')) === 'https'
+        && (string)($parsedBaseUrl['host'] ?? '') !== ''
+        && empty($parsedBaseUrl['user'])
+        && empty($parsedBaseUrl['pass'])
+        && empty($parsedBaseUrl['query'])
+        && empty($parsedBaseUrl['fragment']);
+
+    try {
+        if (!$isValidBaseUrl) {
+            throw new \RuntimeException('Base URL должен быть корректным HTTPS-адресом без логина, пароля, query и fragment.');
+        }
+
+        Option::set($module_id, 'ASPRO_AI_TIMEWEB_ENABLED', $timewebEnabled);
+        Option::set($module_id, 'ASPRO_AI_TIMEWEB_BASE_URL', rtrim($timewebBaseUrl, '/'));
+
+        $patchManager = new AsproAiPatchManager();
+        if ($patchAction === 'apply') {
+            $patchResult = $patchManager->apply();
+        } elseif ($patchAction === 'remove') {
+            $patchResult = $patchManager->remove();
+        } else {
+            throw new \RuntimeException('Неизвестное действие менеджера патча.');
+        }
+
+        $_SESSION['PROSPEKTWEB_CALC_ASPRO_PATCH_FLASH'] = [
+            'TYPE' => 'OK',
+            'MESSAGE' => (string)($patchResult['message'] ?? 'Действие выполнено.'),
+        ];
+    } catch (\Throwable $exception) {
+        $_SESSION['PROSPEKTWEB_CALC_ASPRO_PATCH_FLASH'] = [
+            'TYPE' => 'ERROR',
+            'MESSAGE' => $exception->getMessage(),
+        ];
+    }
+
+    LocalRedirect($APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID . '&asproPatch=Y');
+}
+
 // Обработка сохранения
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     $settings = [
@@ -328,6 +377,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     
     // Сохраняем URL calc-server
     Option::set($module_id, 'CALC_SERVER_URL', (string)($_POST['CALC_SERVER_URL'] ?? 'http://localhost:3100'));
+    Option::set($module_id, 'ASPRO_AI_TIMEWEB_ENABLED', (($_POST['ASPRO_AI_TIMEWEB_ENABLED'] ?? 'N') === 'Y') ? 'Y' : 'N');
+
+    $timewebBaseUrl = trim((string)($_POST['ASPRO_AI_TIMEWEB_BASE_URL'] ?? 'https://api.timeweb.ai/v1'));
+    $parsedBaseUrl = parse_url($timewebBaseUrl);
+    if (
+        is_array($parsedBaseUrl)
+        && strtolower((string)($parsedBaseUrl['scheme'] ?? '')) === 'https'
+        && (string)($parsedBaseUrl['host'] ?? '') !== ''
+        && empty($parsedBaseUrl['user'])
+        && empty($parsedBaseUrl['pass'])
+        && empty($parsedBaseUrl['query'])
+        && empty($parsedBaseUrl['fragment'])
+    ) {
+        Option::set($module_id, 'ASPRO_AI_TIMEWEB_BASE_URL', rtrim($timewebBaseUrl, '/'));
+    }
 
     // Сохраняем настройки связей ТП
     Option::set($module_id, 'FORMAT_FIELD_CODE', (string)($_POST['FORMAT_FIELD_CODE'] ?? 'FORMAT'));
@@ -420,6 +484,20 @@ if ($skuIblockId > 0 && Loader::includeModule('iblock')) {
     }
 }
 
+$asproAiPatchStatus = [
+    'state' => 'access_error',
+    'message' => 'Не удалось получить состояние патча.',
+    'canApply' => false,
+    'canRemove' => false,
+    'asproVersion' => '',
+    'patchVersion' => AsproAiPatchManager::PATCH_VERSION,
+];
+try {
+    $asproAiPatchStatus = (new AsproAiPatchManager())->getStatus();
+} catch (\Throwable $exception) {
+    $asproAiPatchStatus['message'] = $exception->getMessage();
+}
+
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';
 
 // Вывод сообщения об успешном сохранении
@@ -427,6 +505,15 @@ if (($_GET['saved'] ?? '') === 'Y') {
     CAdminMessage::ShowMessage([
         'MESSAGE' => Loc::getMessage('PROSPEKTWEB_CALC_SETTINGS_SAVED'),
         'TYPE' => 'OK',
+    ]);
+}
+
+if (($_GET['asproPatch'] ?? '') === 'Y' && isset($_SESSION['PROSPEKTWEB_CALC_ASPRO_PATCH_FLASH'])) {
+    $patchFlash = (array)$_SESSION['PROSPEKTWEB_CALC_ASPRO_PATCH_FLASH'];
+    unset($_SESSION['PROSPEKTWEB_CALC_ASPRO_PATCH_FLASH']);
+    CAdminMessage::ShowMessage([
+        'MESSAGE' => htmlspecialcharsbx((string)($patchFlash['MESSAGE'] ?? '')),
+        'TYPE' => (($patchFlash['TYPE'] ?? '') === 'OK') ? 'OK' : 'ERROR',
     ]);
 }
 
@@ -812,6 +899,79 @@ $tabControl->Begin();
         <td>
             <input type="text" name="CALC_SERVER_URL" value="<?= htmlspecialcharsbx(Option::get($module_id, 'CALC_SERVER_URL', 'http://localhost:3100')) ?>" size="50" style="width: 400px;">
             <br><span style="color: #777; font-size: 11px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_CALC_SERVER_URL_HINT') ?></span>
+        </td>
+    </tr>
+
+    <tr class="heading">
+        <td colspan="2">Timeweb Cloud AI Gateway для «Аспро: AI»</td>
+    </tr>
+
+    <tr>
+        <td width="40%">Использовать Timeweb Cloud AI Gateway</td>
+        <td width="60%">
+            <input type="hidden" name="ASPRO_AI_TIMEWEB_ENABLED" value="N">
+            <label>
+                <input
+                    type="checkbox"
+                    name="ASPRO_AI_TIMEWEB_ENABLED"
+                    value="Y"
+                    <?= Option::get($module_id, 'ASPRO_AI_TIMEWEB_ENABLED', 'N') === 'Y' ? 'checked' : '' ?>
+                >
+                Направлять штатные текстовые запросы «Аспро: AI» через Timeweb
+            </label>
+        </td>
+    </tr>
+
+    <tr>
+        <td>Base URL</td>
+        <td>
+            <input
+                type="url"
+                name="ASPRO_AI_TIMEWEB_BASE_URL"
+                value="<?= htmlspecialcharsbx(Option::get($module_id, 'ASPRO_AI_TIMEWEB_BASE_URL', 'https://api.timeweb.ai/v1')) ?>"
+                size="60"
+                style="width: 460px;"
+            >
+            <br><span style="color:#777;font-size:11px;">По умолчанию: https://api.timeweb.ai/v1. API-ключ остаётся в штатных настройках «Аспро: AI».</span>
+        </td>
+    </tr>
+
+    <tr>
+        <td>Состояние управляемого патча</td>
+        <td>
+            <div style="max-width:760px;padding:12px 14px;border:1px solid #d5d9de;border-radius:4px;background:#fff;">
+                <div style="font-weight:600;margin-bottom:6px;"><?= htmlspecialcharsbx((string)$asproAiPatchStatus['message']) ?></div>
+                <div style="color:#666;font-size:12px;line-height:1.5;">
+                    Состояние: <code><?= htmlspecialcharsbx((string)$asproAiPatchStatus['state']) ?></code>;
+                    «Аспро: AI»: <code><?= htmlspecialcharsbx((string)($asproAiPatchStatus['asproVersion'] ?: 'не определена')) ?></code>;
+                    патч: <code><?= htmlspecialcharsbx((string)$asproAiPatchStatus['patchVersion']) ?></code>.
+                </div>
+            </div>
+            <div class="adm-info-message" style="max-width:760px;margin-top:10px;">
+                После обновления шаблона рекомендуется повторно установить патч.
+            </div>
+            <div style="max-width:760px;margin:10px 0;color:#777;font-size:12px;line-height:1.5;">
+                Патч меняет только Base URL штатного сервиса «Аспро: AI». Текстовые запросы и список моделей используют совместимые endpoints.
+                Совместимость штатной генерации изображений с прямым Timeweb AI Gateway не подтверждена и этим патчем не гарантируется.
+            </div>
+            <button
+                type="submit"
+                class="adm-btn adm-btn-save"
+                name="ASPRO_AI_PATCH_ACTION"
+                value="apply"
+                title="Добавляет поддержку Timeweb Cloud AI Gateway в модуль «Аспро: AI». После обновления Аспро патч может потребовать повторной установки."
+                <?= empty($asproAiPatchStatus['canApply']) && ($asproAiPatchStatus['state'] ?? '') !== 'installed' ? 'disabled' : '' ?>
+            >Патч AI-интеграции Аспро</button>
+            <?php if (!empty($asproAiPatchStatus['canRemove'])): ?>
+                &nbsp;
+                <button
+                    type="submit"
+                    class="adm-btn"
+                    name="ASPRO_AI_PATCH_ACTION"
+                    value="remove"
+                    onclick="return confirm('Снять управляемый патч и восстановить подтверждённую резервную копию?');"
+                >Снять патч</button>
+            <?php endif; ?>
         </td>
     </tr>
 

@@ -66,6 +66,17 @@ uninstallLog(Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_MODULE_ID') . ': ' . $m
 uninstallLog(Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_DELETE_DATA_OPTION') . ': ' . ($deleteData ? Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_YES') : Loc::getMessage('PROSPEKTWEB_CALC_UNINSTALL_NO')));
 uninstallLog('');
 
+// До удаления файлов модуля безопасно снимаем только подтверждённый управляемый патч.
+// При внешних изменениях менеджер намеренно оставляет файл «Аспро: AI» нетронутым.
+try {
+    if (Loader::includeModule($moduleId)) {
+        $patchResult = (new \Prospektweb\Calc\Services\AsproAiPatchManager())->remove();
+        uninstallLog('Патч «Аспро: AI»: ' . (string)($patchResult['message'] ?? 'состояние проверено'), 'info');
+    }
+} catch (\Throwable $exception) {
+    uninstallLog('Патч «Аспро: AI» не снят автоматически: ' . $exception->getMessage(), 'warning');
+}
+
 // ============= ШАГ 1: УДАЛЕНИЕ ДАННЫХ =============
 
 {
