@@ -47,6 +47,18 @@ class ElementDataService
                         $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->generateStagePreview($request);
                         continue 2;
 
+                    case 'generateAiText':
+                        $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->generateText($request);
+                        continue 2;
+
+                    case 'getCatalogEntityMeta':
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->get($request);
+                        continue 2;
+
+                    case 'saveCatalogEntityMeta':
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->save($request);
+                        continue 2;
+
                     case 'syncVariants':
                         $handler = new \Prospektweb\Calc\Services\SyncVariantsHandler();
                         $result[] = $handler->handle($request);

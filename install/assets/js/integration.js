@@ -269,6 +269,15 @@
                 case 'GENERATE_STAGE_PREVIEW_REQUEST':
                     await this.handleGenerateStagePreviewRequest(message, origin);
                     break;
+                case 'GENERATE_AI_TEXT_REQUEST':
+                    await this.handleGenerateAiTextRequest(message, origin);
+                    break;
+                case 'GET_CATALOG_ENTITY_META_REQUEST':
+                    await this.handleGetCatalogEntityMetaRequest(message, origin);
+                    break;
+                case 'SAVE_CATALOG_ENTITY_META_REQUEST':
+                    await this.handleSaveCatalogEntityMetaRequest(message, origin);
+                    break;
                 case 'CLEAR_PRESET_REQUEST':
                     await this.handleClearPresetRequest(message, origin);
                     break;
@@ -1120,6 +1129,46 @@
                 this.sendPwrtMessage('AI_GENERATE_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
             } catch (error) {
                 this.sendPwrtMessage('AI_GENERATE_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сгенерировать описание' }, message.requestId, origin);
+            }
+        }
+
+        async handleGenerateAiTextRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'generateAiText',
+                    templateId: payload.templateId || '',
+                    zone: payload.zone || '',
+                    prompt: payload.prompt || '',
+                    context: payload.context || {},
+                }]);
+                this.sendPwrtMessage('AI_GENERATE_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('AI_GENERATE_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сгенерировать описание' }, message.requestId, origin);
+            }
+        }
+
+        async handleGetCatalogEntityMetaRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{ action: 'getCatalogEntityMeta', entityType: payload.entityType, entityId: Number(payload.entityId || 0) }]);
+                this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось загрузить данные' }, message.requestId, origin);
+            }
+        }
+
+        async handleSaveCatalogEntityMetaRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{ action: 'saveCatalogEntityMeta', entityType: payload.entityType, entities: Array.isArray(payload.entities) ? payload.entities : [] }]);
+                const response = Array.isArray(result) ? result[0] : { status: 'error' };
+                this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', response, message.requestId, origin);
+                if (response && response.status === 'ok') {
+                    await this.handleRefreshRequest({ requestId: message.requestId, payload: {} }, origin);
+                }
+            } catch (error) {
+                this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сохранить данные' }, message.requestId, origin);
             }
         }
 

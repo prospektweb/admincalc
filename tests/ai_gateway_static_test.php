@@ -17,12 +17,18 @@ $checks = [
     'preset preview tag' => strpos($service, "{анонс пресета}") !== false,
     'AI actions are routed' => strpos($elementService, "case 'getAiSettings'") !== false
         && strpos($elementService, "case 'saveAiSettings'") !== false
-        && strpos($elementService, "case 'generateStagePreview'") !== false,
+        && strpos($elementService, "case 'generateStagePreview'") !== false
+        && strpos($elementService, "case 'generateAiText'") !== false,
+    'AI zones are allowlisted' => strpos($service, 'ZONE_CONTEXT') !== false
+        && strpos($service, 'material_variant_description') !== false,
+    'prompt override is bounded' => strpos($service, "request['prompt']") !== false
+        && strpos($service, 'mb_substr($override, 0, 12000)') !== false,
     'stage preview is persisted' => strpos($elementService, "'PREVIEW_TEXT' => \$previewText") !== false,
     'AI key is redacted from debug output' => strpos($integration, "[REDACTED]") !== false,
     'HTTP error body is surfaced to UI' => strpos($integration, 'await response.text()') !== false
         && strpos($integration, 'data.message || data.error || data.details') !== false,
     'AI service is registered' => strpos($include, 'AiGatewayService') !== false,
+    'catalog metadata service is registered' => strpos($include, 'CatalogMetaService') !== false,
 ];
 
 foreach ($checks as $label => $ok) {
