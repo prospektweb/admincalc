@@ -42,15 +42,15 @@ final class CatalogMetaService
         $entities = is_array($request['entities'] ?? null) ? $request['entities'] : [];
         if ($entities === []) throw new \InvalidArgumentException('Не переданы элементы для сохранения');
         $createdVariantId = 0;
+        $createdEntityId = 0;
         if (!empty($request['create'])) {
-            if (!in_array($type, ['operation', 'material'], true)) {
-                throw new \InvalidArgumentException('Создание поддерживается только для операций и материалов');
-            }
-            [$entities, $createdVariantId] = $this->createEntities(
-                $iblocks,
+            [$entities, $createdEntityId] = $this->createParentEntity(
+                $iblocks[0],
                 $entities,
                 (int)($request['sectionId'] ?? 0)
             );
+        } elseif (($type === 'operation' || $type === 'material') && count($entities) > 1) {
+            [$entities, $createdVariantId] = $this->createMissingVariants($iblocks, $entities);
         }
         $allowedEntityIds = $this->resolveAllowedEntityIds($type, $iblocks, (int)($entities[0]['id'] ?? 0));
         $updated = [];
@@ -97,7 +97,13 @@ final class CatalogMetaService
                 'catalog' => $catalog,
             ];
         }
-        return ['status' => 'ok', 'entityType' => $type, 'entities' => $updated, 'createdVariantId' => $createdVariantId];
+        return [
+            'status' => 'ok',
+            'entityType' => $type,
+            'entities' => $updated,
+            'createdEntityId' => $createdEntityId,
+            'createdVariantId' => $createdVariantId,
+        ];
     }
 
     private function resolveAllowedEntityIds(string $type, array $iblocks, int $anchorId): array
@@ -142,6 +148,7 @@ final class CatalogMetaService
             'name' => (string)$row['NAME'],
             'code' => (string)$row['CODE'],
             'adminUrl' => $this->buildAdminUrl((int)$row['IBLOCK_ID'], (int)$row['ID']),
+            'sectionPath' => $this->buildSectionPath((int)$row['IBLOCK_ID'], (int)($row['IBLOCK_SECTION_ID'] ?? 0)),
             'previewText' => trim(strip_tags((string)($row['PREVIEW_TEXT'] ?? ''))),
             'detailText' => (string)($row['DETAIL_TEXT'] ?? ''),
             'parameters' => $this->loadParameters((int)$row['ID'], (int)$row['IBLOCK_ID']),
@@ -206,34 +213,46 @@ final class CatalogMetaService
         return $result;
     }
 
-    private function createEntities(array $iblocks, array $entities, int $sectionId): array
+    private function createParentEntity(int $iblockId, array $entities, int $sectionId): array
     {
-        if (count($entities) < 2) {
-            throw new \InvalidArgumentException('Для новой карточки нужен родитель и хотя бы один вариант');
-        }
+        if (count($entities) !== 1) throw new \InvalidArgumentException('Для создания родителя передайте одну карточку');
         if ($sectionId > 0 && !\CIBlockSection::GetList([], [
             'ID' => $sectionId,
-            'IBLOCK_ID' => $iblocks[0],
+            'IBLOCK_ID' => $iblockId,
         ], false, ['ID'])->Fetch()) {
             throw new \InvalidArgumentException('Выбранный раздел не найден');
         }
 
         $element = new \CIBlockElement();
         $parentName = trim((string)($entities[0]['name'] ?? ''));
+        if ($parentName === '') throw new \InvalidArgumentException('Название технического элемента не может быть пустым');
         $parentId = (int)$element->Add([
-            'IBLOCK_ID' => $iblocks[0],
+            'IBLOCK_ID' => $iblockId,
             'IBLOCK_SECTION_ID' => $sectionId > 0 ? $sectionId : false,
             'ACTIVE' => 'Y',
             'NAME' => $parentName,
-            'CODE' => $this->makeUniqueCode($iblocks[0], $parentName),
+            'CODE' => $this->makeUniqueCode($iblockId, $parentName),
         ]);
         if ($parentId <= 0) throw new \RuntimeException($element->LAST_ERROR ?: 'Не удалось создать родительский элемент');
 
-        $createdIds = [$parentId];
+        $entities[0]['id'] = $parentId;
+        return [$entities, $parentId];
+    }
+
+    private function createMissingVariants(array $iblocks, array $entities): array
+    {
+        $parentId = (int)($entities[0]['id'] ?? 0);
+        if ($parentId <= 0) throw new \InvalidArgumentException('Не выбран родитель для новой вариации');
+        $this->loadElement($parentId, [$iblocks[0]]);
+
+        $element = new \CIBlockElement();
         $createdVariantId = 0;
+        $createdIds = [];
         try {
-            foreach (array_slice($entities, 1) as $entity) {
+            foreach (array_slice($entities, 1) as $index => $entity) {
+                if ((int)($entity['id'] ?? 0) > 0) continue;
                 $variantName = trim((string)($entity['name'] ?? ''));
+                if ($variantName === '') throw new \InvalidArgumentException('Название вариации не может быть пустым');
                 $variantId = (int)$element->Add([
                     'IBLOCK_ID' => $iblocks[1],
                     'ACTIVE' => 'Y',
@@ -244,15 +263,41 @@ final class CatalogMetaService
                 if ($variantId <= 0) throw new \RuntimeException($element->LAST_ERROR ?: 'Не удалось создать вариант');
                 $createdIds[] = $variantId;
                 if ($createdVariantId === 0) $createdVariantId = $variantId;
+                $entities[$index + 1]['id'] = $variantId;
             }
         } catch (\Throwable $exception) {
             foreach (array_reverse($createdIds) as $createdId) \CIBlockElement::Delete($createdId);
             throw $exception;
         }
-
-        foreach ($entities as $index => &$entity) $entity['id'] = $createdIds[$index];
-        unset($entity);
         return [$entities, $createdVariantId];
+    }
+
+    private function buildSectionPath(int $iblockId, int $sectionId): array
+    {
+        if ($sectionId <= 0) return [];
+        $path = [];
+        $cursor = \CIBlockSection::GetNavChain($iblockId, $sectionId, ['ID', 'NAME', 'IBLOCK_ID']);
+        while ($section = $cursor->Fetch()) {
+            $path[] = [
+                'id' => (int)$section['ID'],
+                'name' => (string)$section['NAME'],
+                'adminUrl' => $this->buildSectionAdminUrl((int)$section['IBLOCK_ID'], (int)$section['ID']),
+            ];
+        }
+        return $path;
+    }
+
+    private function buildSectionAdminUrl(int $iblockId, int $sectionId): string
+    {
+        $iblock = \CIBlock::GetByID($iblockId)->Fetch();
+        $iblockType = trim((string)($iblock['IBLOCK_TYPE_ID'] ?? ''));
+        if ($iblockType === '') return '';
+        return '/bitrix/admin/iblock_section_edit.php?' . http_build_query([
+            'IBLOCK_ID' => $iblockId,
+            'type' => $iblockType,
+            'lang' => defined('LANGUAGE_ID') ? LANGUAGE_ID : 'ru',
+            'ID' => $sectionId,
+        ]);
     }
 
     private function makeUniqueCode(int $iblockId, string $name): string

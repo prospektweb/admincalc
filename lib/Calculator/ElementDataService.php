@@ -591,6 +591,116 @@ class ElementDataService
                         $result[] = $selectResponse;
                         continue 2;
 
+                    case 'createCustomField':
+                        $settingsId = (int)($request['settingsId'] ?? 0);
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $field = is_array($request['field'] ?? null) ? $request['field'] : [];
+                        $name = trim((string)($field['name'] ?? ''));
+                        $type = trim((string)($field['type'] ?? 'text'));
+                        $allowedTypes = ['number', 'text', 'checkbox', 'select'];
+                        if ($settingsId <= 0 || $stageId <= 0 || $name === '' || !in_array($type, $allowedTypes, true)) {
+                            $result[] = ['status' => 'error', 'message' => 'Укажите название и корректный тип дополнительного параметра'];
+                            continue 2;
+                        }
+
+                        $customFieldsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_CUSTOM_FIELDS', 0);
+                        $settingsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_SETTINGS', 0);
+                        $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
+                        if ($customFieldsIblockId <= 0 || $settingsIblockId <= 0 || $stagesIblockId <= 0) {
+                            $result[] = ['status' => 'error', 'message' => 'Инфоблок дополнительных параметров не настроен'];
+                            continue 2;
+                        }
+
+                        $code = strtoupper(trim((string)($field['code'] ?? '')));
+                        if ($code === '') {
+                            $code = strtoupper((string)\CUtil::translit($name, 'ru', [
+                                'replace_space' => '_',
+                                'replace_other' => '_',
+                                'change_case' => 'U',
+                                'delete_repeat_replace' => true,
+                            ]));
+                        }
+                        $code = trim((string)preg_replace('/[^A-Z0-9_]+/', '_', $code), '_');
+                        if ($code === '' || !preg_match('/^[A-Z]/', $code)) {
+                            $code = 'FIELD_' . ($code !== '' ? $code : date('Ymd_His'));
+                        }
+                        $baseCode = $code;
+                        $suffix = 2;
+                        while (\CIBlockElement::GetList([], ['IBLOCK_ID' => $customFieldsIblockId, '=CODE' => $code], false, ['nTopCount' => 1], ['ID'])->Fetch()) {
+                            $code = $baseCode . '_' . $suffix++;
+                        }
+
+                        $enumId = static function (int $iblockId, string $propertyCode, string $xmlId): int {
+                            $property = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => $propertyCode])->Fetch();
+                            if (!$property) {
+                                return 0;
+                            }
+                            $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => (int)$property['ID'], '=XML_ID' => $xmlId])->Fetch();
+                            return $enum ? (int)$enum['ID'] : 0;
+                        };
+                        $fieldTypeEnumId = $enumId($customFieldsIblockId, 'FIELD_TYPE', $type);
+                        $requiredEnumId = $enumId($customFieldsIblockId, 'IS_REQUIRED', !empty($field['required']) ? 'Y' : 'N');
+                        if ($fieldTypeEnumId <= 0) {
+                            $result[] = ['status' => 'error', 'message' => 'Не найден тип дополнительного параметра в инфоблоке'];
+                            continue 2;
+                        }
+
+                        $element = new \CIBlockElement();
+                        $fieldId = (int)$element->Add([
+                            'IBLOCK_ID' => $customFieldsIblockId,
+                            'ACTIVE' => 'Y',
+                            'NAME' => $name,
+                            'CODE' => $code,
+                            'PROPERTY_VALUES' => [
+                                'FIELD_TYPE' => $fieldTypeEnumId,
+                                'DEFAULT_VALUE' => (string)($field['defaultValue'] ?? ''),
+                                'IS_REQUIRED' => $requiredEnumId ?: false,
+                                'UNIT' => $type === 'number' ? trim((string)($field['unit'] ?? '')) : '',
+                                'SORT_ORDER' => 500,
+                            ],
+                        ]);
+                        if ($fieldId <= 0) {
+                            $result[] = ['status' => 'error', 'message' => $element->LAST_ERROR ?: 'Битрикс не создал дополнительный параметр'];
+                            continue 2;
+                        }
+
+                        $existingCustomFields = [];
+                        $settingsProps = \CIBlockElement::GetProperty($settingsIblockId, $settingsId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS']);
+                        while ($prop = $settingsProps->Fetch()) {
+                            if (!empty($prop['VALUE'])) {
+                                $existingCustomFields[] = (int)$prop['VALUE'];
+                            }
+                        }
+                        $existingCustomFields[] = $fieldId;
+                        \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
+                            'CUSTOM_FIELDS' => array_values(array_unique($existingCustomFields)),
+                        ]);
+
+                        $existingValues = [];
+                        $stageProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS_VALUE']);
+                        while ($prop = $stageProps->Fetch()) {
+                            if ((string)($prop['VALUE'] ?? '') !== '') {
+                                $existingValues[] = ['VALUE' => (string)$prop['VALUE'], 'DESCRIPTION' => (string)($prop['DESCRIPTION'] ?? '')];
+                            }
+                        }
+                        $existingValues[] = ['VALUE' => $code, 'DESCRIPTION' => (string)($field['defaultValue'] ?? '') . '|Y'];
+                        \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                            'CUSTOM_FIELDS_VALUE' => $existingValues,
+                        ]);
+
+                        $response = ['status' => 'ok', 'fieldId' => $fieldId, 'code' => $code];
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
+                        if ($presetId > 0) {
+                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                            $enrichmentService->synchronizePresetCustomFields($presetId);
+                            if (!empty($offerIds)) {
+                                $response['initPayload'] = (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
+                            }
+                        }
+                        $result[] = $response;
+                        continue 2;
+
                     case 'saveSettingsEquipment':
                         $equipmentId = (int)($request['equipmentId'] ?? 0);
                         $createEquipment = !empty($request['create']);

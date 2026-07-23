@@ -212,6 +212,9 @@
                 case 'SELECT_FIELDS_REQUEST':
                     await this.handleSelectFieldsRequest(message, origin);
                     break;
+                case 'CREATE_CUSTOM_FIELD_REQUEST':
+                    await this.handleCreateCustomFieldRequest(message, origin);
+                    break;
                 case 'REMOVE_OFFER_REQUEST':
                     this.handleRemoveOfferRequest(message, origin);
                     break;
@@ -1032,6 +1035,35 @@
                     status: 'error',
                     equipmentId: equipmentId,
                     message: error && error.message ? error.message : 'Не удалось сохранить оборудование',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleCreateCustomFieldRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'createCustomField',
+                    settingsId: parseInt(payload.settingsId, 10) || 0,
+                    stageId: parseInt(payload.stageId, 10) || 0,
+                    presetId: parseInt(payload.presetId, 10) || 0,
+                    field: payload.field || {},
+                    offerIds: this.config.offerIds || [],
+                }]);
+                const response = Array.isArray(result) ? result[0] : null;
+                if (!response || response.status !== 'ok') {
+                    throw new Error(response?.message || 'Не удалось создать дополнительный параметр');
+                }
+                if (response.initPayload) {
+                    this.initData = response.initPayload;
+                    this.sendPwrtMessage('INIT', response.initPayload, message.requestId, origin);
+                }
+                this.sendPwrtMessage('CREATE_CUSTOM_FIELD_RESPONSE', response, message.requestId, origin);
+            } catch (error) {
+                console.error('[BitrixBridge] CREATE_CUSTOM_FIELD_REQUEST error:', error);
+                this.sendPwrtMessage('CREATE_CUSTOM_FIELD_RESPONSE', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось создать дополнительный параметр',
                 }, message.requestId, origin);
             }
         }

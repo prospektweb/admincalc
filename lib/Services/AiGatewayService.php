@@ -18,12 +18,38 @@ final class AiGatewayService
         'preset_description' => ['{название пресета}' => 'presetName', '{название товара}' => 'productName', '{анонс товара}' => 'productPreview'],
         'detail_description' => ['{название детали}' => 'detailName', '{название пресета}' => 'presetName', '{анонс пресета}' => 'presetPreview', '{название товара}' => 'productName', '{анонс товара}' => 'productPreview'],
         'stage_description' => ['{название этапа}' => 'stageName', '{название детали}' => 'detailName', '{анонс детали}' => 'detailPreview', '{название пресета}' => 'presetName', '{анонс пресета}' => 'presetPreview', '{название товара}' => 'productName', '{анонс товара}' => 'productPreview'],
-        'calculator_description' => ['{название калькулятора}' => 'calculatorName'],
-        'operation_description' => ['{название операции}' => 'operationName'],
-        'operation_variant_description' => ['{название варианта операции}' => 'operationVariantName', '{название операции}' => 'operationName', '{анонс операции}' => 'operationPreview'],
+        'calculator_description' => ['{название калькулятора}' => 'calculatorName', '{Источники данных}' => 'sourceLinks'],
+        'operation_description' => ['{название операции}' => 'operationName', '{Источники данных}' => 'sourceLinks'],
+        'operation_variant_description' => ['{название варианта операции}' => 'operationVariantName', '{название операции}' => 'operationName', '{анонс операции}' => 'operationPreview', '{Источники данных}' => 'sourceLinks'],
         'equipment_description' => ['{название оборудования}' => 'equipmentName', '{Источники данных}' => 'equipmentSources'],
-        'material_description' => ['{название материала}' => 'materialName'],
-        'material_variant_description' => ['{название варианта материала}' => 'materialVariantName', '{название материала}' => 'materialName', '{анонс материала}' => 'materialPreview'],
+        'material_description' => ['{название материала}' => 'materialName', '{Источники данных}' => 'sourceLinks'],
+        'material_variant_description' => ['{название варианта материала}' => 'materialVariantName', '{название материала}' => 'materialName', '{анонс материала}' => 'materialPreview', '{Источники данных}' => 'sourceLinks'],
+    ];
+    private const STRUCTURED_ZONES = [
+        'calculator_description',
+        'operation_description',
+        'operation_variant_description',
+        'equipment_description',
+        'material_description',
+        'material_variant_description',
+    ];
+    private const CATALOG_RESPONSE_SCHEMA = [
+        'version' => 1,
+        'previewText' => '',
+        'detailHtml' => '',
+        'parameters' => [['code' => '', 'value' => '', 'title' => '', 'description' => '']],
+        'catalog' => [
+            'vatId' => null,
+            'vatIncluded' => null,
+            'purchasingPrice' => null,
+            'purchasingCurrency' => '',
+            'basePrice' => null,
+            'baseCurrency' => '',
+            'weightG' => null,
+            'lengthMm' => null,
+            'widthMm' => null,
+            'heightMm' => null,
+        ],
     ];
     private const EQUIPMENT_RESPONSE_SCHEMA = [
         'version' => 1,
@@ -101,11 +127,13 @@ final class AiGatewayService
         foreach (self::ZONE_CONTEXT[$zone] as $tag => $contextKey) $tags[$tag] = (string)($context[$contextKey] ?? '');
         $override = trim((string)($request['prompt'] ?? ''));
         $prompt = strtr($override !== '' ? mb_substr($override, 0, 12000) : (string)$template['prompt'], $tags);
-        if ($zone === 'equipment_description') {
+        if (in_array($zone, self::STRUCTURED_ZONES, true)) {
+            $schema = $zone === 'equipment_description' ? self::EQUIPMENT_RESPONSE_SCHEMA : self::CATALOG_RESPONSE_SCHEMA;
             $prompt .= "\n\nОбязательная схема ответа JSON:\n"
-                . json_encode(self::EQUIPMENT_RESPONSE_SCHEMA, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)
+                . json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)
                 . "\nНе добавляй поля вне схемы. Неизвестные числа возвращай как null, неизвестные строки — как пустую строку. "
-                . "В parameters помещай только подтверждённые технические особенности, для которых нет отдельного поля.";
+                . "В parameters помещай только подтверждённые технические особенности, для которых нет отдельного поля. "
+                . "catalog.weightG означает физическую массу в граммах; catalog.lengthMm, catalog.widthMm и catalog.heightMm — внешние габариты в миллиметрах.";
         }
         $response = $this->request('POST', '/chat/completions', ['model' => (string)$template['model'], 'messages' => [['role' => 'user', 'content' => $prompt]]]);
         $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
@@ -133,7 +161,17 @@ final class AiGatewayService
     {
         $decoded = json_decode((string)Option::get(self::MODULE_ID, self::TEMPLATES_OPTION, ''), true);
         $templates = is_array($decoded) && $decoded !== [] ? $this->sanitizeTemplates($decoded) : [];
+        $cardNames = [
+            'calculator_description' => 'Заполнение карточки калькулятора',
+            'operation_description' => 'Заполнение карточки операции',
+            'operation_variant_description' => 'Заполнение карточки варианта операции',
+            'material_description' => 'Заполнение карточки материала',
+            'material_variant_description' => 'Заполнение карточки варианта материала',
+        ];
         foreach ($templates as &$template) {
+            if (isset($cardNames[$template['zone']]) && strpos($template['name'], 'Описание ') === 0) {
+                $template['name'] = $cardNames[$template['zone']];
+            }
             if ($template['zone'] === 'equipment_description' && $template['name'] === 'Описание оборудования') {
                 $template['name'] = 'Заполнение карточки оборудования';
             }
@@ -172,16 +210,21 @@ final class AiGatewayService
 
     private function getTemplatesFallback(): array
     {
+        $cardPrompt = static fn(string $kind, string $nameTag): string =>
+            'Заполни полную техническую карточку сущности «' . $kind . '» с названием ' . $nameTag
+            . '. В первую очередь используй подтверждённые сведения из блока «Источники данных»: {Источники данных}. '
+            . 'Не выдумывай характеристики. Подготовь краткий анонс, подробное HTML-описание, подтверждённые дополнительные параметры и параметры торгового каталога. '
+            . 'Вес возвращай в граммах, внешние габариты — в миллиметрах. Верни только JSON по обязательной схеме без Markdown и пояснений.';
         $definitions = [
             'preset_description' => ['Описание пресета', 'Напиши краткий анонс пресета. Пресет: {название пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
             'detail_description' => ['Описание детали', 'Напиши краткий технический анонс детали. Деталь: {название детали}. Пресет: {название пресета}. Анонс пресета: {анонс пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
             'stage_description' => ['Описание этапа', 'Напиши краткий технический анонс этапа. Этап: {название этапа}. Деталь: {название детали}. Анонс детали: {анонс детали}. Пресет: {название пресета}. Анонс пресета: {анонс пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
-            'calculator_description' => ['Описание калькулятора', 'Опиши назначение калькулятора полиграфического производства: {название калькулятора}. Верни только готовый текст.'],
-            'operation_description' => ['Описание операции', 'Опиши полиграфическую операцию: {название операции}. Верни только готовый текст.'],
-            'operation_variant_description' => ['Описание варианта операции', 'Опиши вариант операции {название варианта операции}. Родительская операция: {название операции}. Анонс: {анонс операции}. Верни только готовый текст.'],
+            'calculator_description' => ['Заполнение карточки калькулятора', $cardPrompt('калькулятор', '{название калькулятора}')],
+            'operation_description' => ['Заполнение карточки операции', $cardPrompt('операция', '{название операции}')],
+            'operation_variant_description' => ['Заполнение карточки варианта операции', $cardPrompt('вариант операции', '{название варианта операции}') . ' Родительская операция: {название операции}. Анонс: {анонс операции}.'],
             'equipment_description' => ['Заполнение карточки оборудования', 'Заполни техническую карточку полиграфического оборудования «{название оборудования}». В первую очередь используй сведения из блока «Источники данных»: {Источники данных}. Если содержимое источника недоступно или параметр не подтверждён, оставь соответствующее значение пустым и ничего не выдумывай. Подготовь краткий анонс, подробное HTML-описание, известные размеры, технические поля, допуски, цены и габариты. Особенности, для которых нет отдельного поля, добавь в массив «Другие параметры». Верни только JSON по обязательной схеме без Markdown и пояснений.'],
-            'material_description' => ['Описание материала', 'Опиши полиграфический материал: {название материала}. Верни только готовый текст.'],
-            'material_variant_description' => ['Описание варианта материала', 'Опиши вариант материала {название варианта материала}. Родительский материал: {название материала}. Анонс: {анонс материала}. Верни только готовый текст.'],
+            'material_description' => ['Заполнение карточки материала', $cardPrompt('материал', '{название материала}')],
+            'material_variant_description' => ['Заполнение карточки варианта материала', $cardPrompt('вариант материала', '{название варианта материала}') . ' Родительский материал: {название материала}. Анонс: {анонс материала}.'],
         ];
         $result = [];
         foreach ($definitions as $zone => [$name, $prompt]) $result[] = ['id' => str_replace('_', '-', $zone) . '-default', 'zone' => $zone, 'name' => $name, 'prompt' => $prompt, 'model' => self::DEFAULT_MODEL];
