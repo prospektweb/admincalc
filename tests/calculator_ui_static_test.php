@@ -77,6 +77,7 @@ $checks = [
     [$catalogMetaService, "'DETAIL_TEXT_TYPE' => 'html'", 'Operation and material cards must persist full HTML descriptions'],
     [$catalogMetaService, "'SOURCE_LINKS' => \$sourceLinks", 'Operation and material cards must persist ordered source links'],
     [$catalogMetaService, "'createdVariantId' => \$createdVariantId", 'Catalog creation must return the new selectable variant'],
+    [$catalogMetaService, "'adminUrl' => \$this->buildAdminUrl", 'Unified technical cards must expose their Bitrix element link beside the internal ID'],
     [$appBundle, 'Описание параметра', 'All parameter editors must expose the third human-readable description field'],
     [$appBundle, 'btn-stage-settings', 'Every stage tab must expose unified settings'],
     [$appBundle, 'Активировать этап по условию', 'Stage settings must expose conditional activation'],

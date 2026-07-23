@@ -141,12 +141,27 @@ final class CatalogMetaService
             'iblockId' => (int)$row['IBLOCK_ID'],
             'name' => (string)$row['NAME'],
             'code' => (string)$row['CODE'],
+            'adminUrl' => $this->buildAdminUrl((int)$row['IBLOCK_ID'], (int)$row['ID']),
             'previewText' => trim(strip_tags((string)($row['PREVIEW_TEXT'] ?? ''))),
             'detailText' => (string)($row['DETAIL_TEXT'] ?? ''),
             'parameters' => $this->loadParameters((int)$row['ID'], (int)$row['IBLOCK_ID']),
             'sourceLinks' => $this->loadSourceLinks((int)$row['ID'], (int)$row['IBLOCK_ID']),
             'catalog' => $this->loadCatalog((int)$row['ID']),
         ];
+    }
+
+    private function buildAdminUrl(int $iblockId, int $elementId): string
+    {
+        $iblock = \CIBlock::GetByID($iblockId)->Fetch();
+        $iblockType = trim((string)($iblock['IBLOCK_TYPE_ID'] ?? ''));
+        if ($iblockType === '') return '';
+
+        return '/bitrix/admin/iblock_element_edit.php?' . http_build_query([
+            'IBLOCK_ID' => $iblockId,
+            'type' => $iblockType,
+            'lang' => defined('LANGUAGE_ID') ? LANGUAGE_ID : 'ru',
+            'ID' => $elementId,
+        ]);
     }
 
     private function loadParameters(int $elementId, int $iblockId): array
