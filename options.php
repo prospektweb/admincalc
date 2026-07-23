@@ -992,6 +992,10 @@ $tabControl->Begin();
                 <button type="button" id="btn-fix-files" class="adm-btn" onclick="pwCalcDiagFix('fix_files', 'Переустановить файлы модуля? Файлы будут скопированы заново из директории модуля.')">
                     📁 Переустановить файлы
                 </button>
+                &nbsp;
+                <button type="button" id="btn-fix-schema" class="adm-btn" onclick="pwCalcDiagFix('fix_schema', 'Проверить структуру данных и создать отсутствующие свойства? Существующие свойства и данные изменены не будут.')">
+                    🧱 Восстановить структуру
+                </button>
             </div>
             <div id="pwcalc-diag-loading" style="display:none; margin-bottom: 12px;">
                 <img src="/bitrix/images/main/wait.gif" alt="Загрузка..."> Выполняется диагностика...

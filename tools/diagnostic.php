@@ -11,6 +11,7 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_ad
 use Bitrix\Main\Application;
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Diagnostic\ModuleDiagnostic;
+use Prospektweb\Calc\Install\SchemaRepairService;
 
 global $USER;
 
@@ -74,6 +75,26 @@ try {
             echo json_encode([
                 'success' => $success,
                 'message' => $success ? 'Файлы переустановлены' : 'Переустановка файлов завершилась с ошибками (см. error_log)',
+            ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            break;
+
+        case 'fix_schema':
+            $repairResult = (new SchemaRepairService())->repairMissingProperties();
+            $success = $repairResult['errorCount'] === 0;
+            $message = sprintf(
+                'Проверка завершена. Создано свойств: %d; уже существовало: %d',
+                $repairResult['createdCount'],
+                $repairResult['existingCount']
+            );
+            if (!$success) {
+                $message .= '; ошибок: ' . $repairResult['errorCount'];
+                $message .= '. ' . implode(' ', $repairResult['errors']);
+            }
+
+            echo json_encode([
+                'success' => $success,
+                'message' => $message,
+                'data' => $repairResult,
             ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
             break;
 

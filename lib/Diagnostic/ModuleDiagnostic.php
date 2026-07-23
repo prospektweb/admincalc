@@ -6,6 +6,8 @@ use Bitrix\Main\Application;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
 use Bitrix\Main\ModuleManager;
+use Prospektweb\Calc\Config\ConfigManager;
+use Prospektweb\Calc\Install\SchemaRepairService;
 
 /**
  * Главный класс диагностики модуля.
@@ -382,8 +384,17 @@ class ModuleDiagnostic
             return $this->buildSection('Свойства инфоблоков', '🏷️', $checks, $errors);
         }
 
-        foreach (self::IBLOCK_REQUIRED_PROPERTIES as $iblockCode => $requiredProps) {
-            $iblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_' . $iblockCode, 0);
+        $requiredPropertiesByIblock = self::IBLOCK_REQUIRED_PROPERTIES;
+        foreach (SchemaRepairService::getPropertySchema() as $iblockCode => $definitions) {
+            $requiredPropertiesByIblock[$iblockCode] = array_values(array_unique(array_merge(
+                $requiredPropertiesByIblock[$iblockCode] ?? [],
+                array_keys($definitions)
+            )));
+        }
+
+        $configManager = new ConfigManager();
+        foreach ($requiredPropertiesByIblock as $iblockCode => $requiredProps) {
+            $iblockId = $configManager->getIblockId($iblockCode);
             if ($iblockId <= 0) {
                 $checks[] = [
                     'label' => $iblockCode . ': свойства',
