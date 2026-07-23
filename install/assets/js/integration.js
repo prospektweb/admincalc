@@ -1185,7 +1185,13 @@
         async handleSaveCatalogEntityMetaRequest(message, origin) {
             const payload = message.payload || {};
             try {
-                const result = await this.fetchRefreshData([{ action: 'saveCatalogEntityMeta', entityType: payload.entityType, entities: Array.isArray(payload.entities) ? payload.entities : [] }]);
+                const result = await this.fetchRefreshData([{
+                    action: 'saveCatalogEntityMeta',
+                    entityType: payload.entityType,
+                    create: Boolean(payload.create),
+                    sectionId: Number(payload.sectionId || 0),
+                    entities: Array.isArray(payload.entities) ? payload.entities : [],
+                }]);
                 const response = Array.isArray(result) ? result[0] : { status: 'error' };
                 this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', response, message.requestId, origin);
                 if (response && response.status === 'ok') {
