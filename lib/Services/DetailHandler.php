@@ -1820,4 +1820,111 @@ class DetailHandler
             ];
         }
     }
+
+    /**
+     * Перенести этап между деталями и атомарно зафиксировать порядок с обеих сторон.
+     */
+    public function moveStage(
+        int $stageId,
+        int $sourceDetailId,
+        int $targetDetailId,
+        array $sourceSorting,
+        array $targetSorting
+    ): array {
+        try {
+            $readStageIds = function (int $detailId): array {
+                $result = [];
+                $propertyRows = \CIBlockElement::GetProperty(
+                    $this->detailsIblockId,
+                    $detailId,
+                    ['sort' => 'asc', 'id' => 'asc'],
+                    ['CODE' => 'CALC_STAGES']
+                );
+                while ($property = $propertyRows->Fetch()) {
+                    $value = (int)($property['VALUE'] ?? 0);
+                    if ($value > 0 && !in_array($value, $result, true)) {
+                        $result[] = $value;
+                    }
+                }
+
+                return $result;
+            };
+            $writeStageIds = function (int $detailId, array $stageIds): void {
+                \CIBlockElement::SetPropertyValuesEx(
+                    $detailId,
+                    $this->detailsIblockId,
+                    ['CALC_STAGES' => false]
+                );
+                if ($stageIds) {
+                    \CIBlockElement::SetPropertyValuesEx(
+                        $detailId,
+                        $this->detailsIblockId,
+                        ['CALC_STAGES' => array_values($stageIds)]
+                    );
+                }
+            };
+
+            if ($stageId <= 0 || $sourceDetailId <= 0 || $targetDetailId <= 0 || $sourceDetailId === $targetDetailId) {
+                return ['status' => 'error', 'message' => 'Некорректные параметры переноса этапа'];
+            }
+            if (!$this->getDetailById($sourceDetailId) || !$this->getDetailById($targetDetailId)) {
+                return ['status' => 'error', 'message' => 'Исходная или целевая деталь не найдена'];
+            }
+
+            $sourceSorting = array_values(array_unique(array_filter(array_map('intval', $sourceSorting))));
+            $targetSorting = array_values(array_unique(array_filter(array_map('intval', $targetSorting))));
+            if (in_array($stageId, $sourceSorting, true) || !in_array($stageId, $targetSorting, true)) {
+                return ['status' => 'error', 'message' => 'Некорректный состав этапов после переноса'];
+            }
+
+            $previousSourceSorting = $readStageIds($sourceDetailId);
+            $previousTargetSorting = $readStageIds($targetDetailId);
+            if (!in_array($stageId, $previousSourceSorting, true)) {
+                return ['status' => 'error', 'message' => 'Переносимый этап не принадлежит исходной детали'];
+            }
+            if (in_array($stageId, $previousTargetSorting, true)) {
+                return ['status' => 'error', 'message' => 'Переносимый этап уже принадлежит целевой детали'];
+            }
+
+            $previousStageIds = array_values(array_unique(array_merge(
+                $previousSourceSorting,
+                $previousTargetSorting
+            )));
+            $submittedStageIds = array_values(array_unique(array_merge(
+                $sourceSorting,
+                $targetSorting
+            )));
+            sort($previousStageIds);
+            sort($submittedStageIds);
+            if ($previousStageIds !== $submittedStageIds) {
+                return ['status' => 'error', 'message' => 'Состав этапов изменился во время переноса. Обновите данные и повторите операцию'];
+            }
+
+            $writeStageIds($sourceDetailId, $sourceSorting);
+            $writeStageIds($targetDetailId, $targetSorting);
+
+            $savedSourceSorting = $readStageIds($sourceDetailId);
+            $savedTargetSorting = $readStageIds($targetDetailId);
+            if ($savedSourceSorting !== $sourceSorting || $savedTargetSorting !== $targetSorting) {
+                $writeStageIds($sourceDetailId, $previousSourceSorting);
+                $writeStageIds($targetDetailId, $previousTargetSorting);
+
+                return [
+                    'status' => 'error',
+                    'message' => 'Не удалось целиком сохранить перенос этапа. Исходное состояние восстановлено',
+                ];
+            }
+
+            return [
+                'status' => 'ok',
+                'stageId' => $stageId,
+                'sourceDetailId' => $sourceDetailId,
+                'targetDetailId' => $targetDetailId,
+                'sourceSorting' => $sourceSorting,
+                'targetSorting' => $targetSorting,
+            ];
+        } catch (\Throwable $e) {
+            return ['status' => 'error', 'message' => $e->getMessage()];
+        }
+    }
 }

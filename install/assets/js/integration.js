@@ -303,6 +303,9 @@
                 case 'CHANGE_SORT_STAGE_REQUEST':
                     await this.handleChangeSortStageRequest(message, origin);
                     break;
+                case 'MOVE_STAGE_REQUEST':
+                    await this.handleMoveStageRequest(message, origin);
+                    break;
                 case 'CHANGE_PRICE_PRESET_REQUEST':
                     await this.handleChangePricePresetRequest(message, origin);
                     break;
@@ -347,7 +350,7 @@
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
                         'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST',
-                        'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST',
+                        'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
                         'SAVE_CALC_LOGIC_REQUEST',
@@ -2649,6 +2652,51 @@
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_EQUIPMENT error:', error);
+            }
+        }
+
+        /**
+         * Перенос этапа между деталями с одновременным сохранением порядка
+         * в исходной и целевой деталях.
+         */
+        async handleMoveStageRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const presetId = this.initData?.preset?.id;
+                if (!presetId) {
+                    throw new Error('Preset ID не найден');
+                }
+
+                const result = await this.fetchRefreshData([{
+                    action: 'moveStage',
+                    stageId: Number(payload.stageId || 0),
+                    sourceDetailId: Number(payload.sourceDetailId || 0),
+                    targetDetailId: Number(payload.targetDetailId || 0),
+                    sourceSorting: Array.isArray(payload.sourceSorting) ? payload.sourceSorting : [],
+                    targetSorting: Array.isArray(payload.targetSorting) ? payload.targetSorting : [],
+                    presetId: presetId,
+                    offerIds: this.config.offerIds || [],
+                    siteId: this.config.siteId || SITE_ID,
+                }]);
+
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось перенести этап');
+                }
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                }
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                // Клиент переносит карточку оптимистично. Возвращаем последнюю
+                // подтверждённую сервером структуру, если атомарный перенос не удался.
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка переноса этапа между деталями',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 

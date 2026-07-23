@@ -1063,6 +1063,30 @@ class ElementDataService
                         
                         $result[] = $stageResult;
                         continue 2;
+
+                    case 'moveStage':
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $stageResult = $handler->moveStage(
+                            (int)($request['stageId'] ?? 0),
+                            (int)($request['sourceDetailId'] ?? 0),
+                            (int)($request['targetDetailId'] ?? 0),
+                            is_array($request['sourceSorting'] ?? null) ? $request['sourceSorting'] : [],
+                            is_array($request['targetSorting'] ?? null) ? $request['targetSorting'] : []
+                        );
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        if ($stageResult['status'] === 'ok' && $presetId > 0) {
+                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                            $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                            if ($firstDetailId) {
+                                $stageResult['initPayload'] = $enrichmentService->enrichPresetFromDetails(
+                                    $presetId,
+                                    $firstDetailId,
+                                    $request['offerIds'] ?? []
+                                );
+                            }
+                        }
+                        $result[] = $stageResult;
+                        continue 2;
                     
                     case 'addDetailsToBinding':
                         // New handler for adding selected details to binding
