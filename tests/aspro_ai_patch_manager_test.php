@@ -41,7 +41,7 @@ function createPatchFixture(string $root, string $version = '1.1.1'): array
     $asproRoot = $root . '/bitrix/modules/aspro.ai';
     $target = $asproRoot . '/lib/services/chatgpt.php';
     $storage = $root . '/bitrix/modules/prospektweb.calc/var/aspro-ai-patch';
-    foreach ([dirname($target), $asproRoot . '/install'] as $directory) {
+    foreach ([dirname($target), $asproRoot . '/install', $asproRoot . '/html', $asproRoot . '/tools'] as $directory) {
         if (!is_dir($directory) && !mkdir($directory, 0777, true) && !is_dir($directory)) {
             throw new RuntimeException('Cannot create fixture directory: ' . $directory);
         }
@@ -76,8 +76,20 @@ PHP;
         $asproRoot . '/install/version.php',
         "<?php\n\$arModuleVersion = ['VERSION' => '" . addslashes($version) . "'];\n"
     );
+    $popupSource = <<<'PHP'
+<?php
+?><select name="aiType">
+    <option value="GigaChat">Сбер GigaChat</option>
+    <option value="ChatGPT">OpenAI ChatGPT</option>
+    <option value="DeepSeek">DeepSeek</option>
+</select>
+PHP;
+    $popupSource .= "\n";
+    foreach (['html/popup.php', 'tools/popup_ajax.php', 'tools/popup_group_ajax.php'] as $relativePath) {
+        file_put_contents($asproRoot . '/' . $relativePath, $popupSource);
+    }
 
-    return [$asproRoot, $target, $storage, $source];
+    return [$asproRoot, $target, $storage, $source, $popupSource];
 }
 
 $fixtureRoot = sys_get_temp_dir() . '/pwcalc-aspro-patch-' . bin2hex(random_bytes(8));
@@ -93,6 +105,10 @@ try {
     $patchedSource = (string)file_get_contents($target);
     assertPatch($installed['state'] === 'installed' && $installed['changed'] === true, 'First apply must install patch.');
     assertPatch(substr_count($patchedSource, 'PROSPEKTWEB.CALC ASPRO AI PATCH BEGIN') === 1, 'Patch marker must be unique.');
+    foreach (['html/popup.php', 'tools/popup_ajax.php', 'tools/popup_group_ajax.php'] as $relativePath) {
+        $popup = (string)file_get_contents($asproRoot . '/' . $relativePath);
+        assertPatch(substr_count($popup, 'value="ChatGPT" selected data-prospektweb-calc-default="true"') === 1, 'ChatGPT must be selected in ' . $relativePath . '.');
+    }
     assertPatch(is_file($storage . '/state.json'), 'Patch state must be persisted.');
 
     $secondApply = $manager->apply();
@@ -119,6 +135,10 @@ try {
     $removed = $cleanManager->remove();
     assertPatch($removed['changed'] === true, 'Clean managed patch must be removable.');
     assertPatch(hash('sha256', $cleanSource) === hash_file('sha256', $cleanTarget), 'Removal must restore exact original SHA-256.');
+    foreach (['html/popup.php', 'tools/popup_ajax.php', 'tools/popup_group_ajax.php'] as $relativePath) {
+        $popup = (string)file_get_contents($cleanAsproRoot . '/' . $relativePath);
+        assertPatch(strpos($popup, 'data-prospektweb-calc-default') === false, 'Removal must restore ' . $relativePath . '.');
+    }
     assertPatch($cleanManager->getStatus()['state'] === 'not_installed', 'Clean removal must reset status.');
 
     $unsupportedRoot = $fixtureRoot . '-unsupported';
@@ -126,9 +146,39 @@ try {
     $unsupportedManager = new AsproAiPatchManager($unsupportedRoot, $unsupportedAsproRoot, $unsupportedStorage, PHP_BINARY);
     assertPatch($unsupportedManager->getStatus()['state'] === 'unsupported_version', 'Unknown Aspro version must be rejected.');
 
+    $legacyRoot = $fixtureRoot . '-legacy';
+    [$legacyAsproRoot, $legacyTarget, $legacyStorage, , $legacyPopupSource] = createPatchFixture($legacyRoot);
+    $legacyManager = new AsproAiPatchManager($legacyRoot, $legacyAsproRoot, $legacyStorage, PHP_BINARY);
+    $legacyManager->apply();
+    $newState = json_decode((string)file_get_contents($legacyStorage . '/state.json'), true);
+    foreach (['html/popup.php', 'tools/popup_ajax.php', 'tools/popup_group_ajax.php'] as $relativePath) {
+        file_put_contents($legacyAsproRoot . '/' . $relativePath, $legacyPopupSource);
+    }
+    $legacyChatState = $newState['files']['lib/services/chatgpt.php'];
+    file_put_contents(
+        $legacyStorage . '/state.json',
+        json_encode([
+            'patchId' => AsproAiPatchManager::PATCH_ID,
+            'patchVersion' => '1.0.0',
+            'asproModuleId' => AsproAiPatchManager::ASPRO_MODULE_ID,
+            'asproVersion' => AsproAiPatchManager::SUPPORTED_ASPRO_VERSION,
+            'targetFile' => $legacyTarget,
+            'originalSha256' => $legacyChatState['originalSha256'],
+            'patchedSha256' => $legacyChatState['patchedSha256'],
+            'backupFile' => $legacyChatState['backupFile'],
+            'installedAt' => gmdate('c'),
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+    );
+    assertPatch($legacyManager->getStatus()['state'] === 'upgrade_available', 'Legacy 1.0.0 state must be upgradeable.');
+    $legacyUpgrade = $legacyManager->apply();
+    assertPatch($legacyUpgrade['state'] === 'installed' && $legacyUpgrade['changed'] === true, 'Legacy patch must upgrade safely.');
+    $legacyRemoved = $legacyManager->remove();
+    assertPatch($legacyRemoved['changed'] === true && $legacyManager->getStatus()['state'] === 'not_installed', 'Upgraded legacy patch must remain removable.');
+
     echo "Aspro AI patch manager tests passed.\n";
 } finally {
     removePatchFixture($fixtureRoot);
     removePatchFixture($fixtureRoot . '-clean');
     removePatchFixture($fixtureRoot . '-unsupported');
+    removePatchFixture($fixtureRoot . '-legacy');
 }
