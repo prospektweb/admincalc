@@ -963,7 +963,8 @@
             const name = String(payload.name || '').trim();
             const properties = payload.properties || {};
             const previewText = String(payload.previewText || '').trim();
-            if (!equipmentId) {
+            const create = payload.create === true;
+            if (!create && !equipmentId) {
                 this.sendPwrtMessage('SAVE_SETTINGS_EQUIPMENT_RESPONSE', {
                     status: 'error',
                     message: 'Не указано оборудование',
@@ -972,7 +973,18 @@
             }
 
             try {
-                const result = await this.fetchRefreshData([{ action: 'saveSettingsEquipment', equipmentId, name, previewText, properties }]);
+                const result = await this.fetchRefreshData([{
+                    action: 'saveSettingsEquipment',
+                    equipmentId,
+                    create,
+                    sectionId: parseInt(payload.sectionId, 10) || 0,
+                    name,
+                    previewText,
+                    detailText: String(payload.detailText || ''),
+                    image: payload.image || null,
+                    catalog: payload.catalog || {},
+                    properties,
+                }]);
                 const responsePayload = Array.isArray(result) && result[0]
                     ? result[0]
                     : { status: 'error', message: 'Пустой ответ сохранения оборудования' };
@@ -980,16 +992,25 @@
                     throw new Error(responsePayload.message || 'Не удалось сохранить оборудование');
                 }
 
+                const savedEquipmentId = parseInt(responsePayload.equipmentId, 10) || equipmentId;
                 const equipmentItems = this.initData && this.initData.elementsStore
                     ? this.initData.elementsStore.CALC_EQUIPMENT
                     : null;
                 if (Array.isArray(equipmentItems)) {
-                    const equipment = equipmentItems.find((item) => Number(item.id) === equipmentId);
+                    let equipment = equipmentItems.find((item) => Number(item.id) === savedEquipmentId);
+                    if (!equipment && responsePayload.element) {
+                        equipment = responsePayload.element;
+                        equipmentItems.push(equipment);
+                    }
                     if (equipment) {
                         if (responsePayload.name) {
                             equipment.name = responsePayload.name;
                         }
                         equipment.previewText = responsePayload.previewText || '';
+                        equipment.detailText = responsePayload.detailText || '';
+                        if (responsePayload.previewPicture) equipment.previewPicture = responsePayload.previewPicture;
+                        if (responsePayload.detailPicture) equipment.detailPicture = responsePayload.detailPicture;
+                        if (responsePayload.catalog) equipment.catalog = responsePayload.catalog;
                         equipment.properties = equipment.properties || {};
                         Object.entries(responsePayload.properties || {}).forEach(([code, property]) => {
                             equipment.properties[code] = {
@@ -1002,7 +1023,7 @@
 
                 this.sendPwrtMessage('SAVE_SETTINGS_EQUIPMENT_RESPONSE', {
                     status: 'ok',
-                    equipmentId: equipmentId,
+                    equipmentId: savedEquipmentId,
                 }, message.requestId, origin);
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {

@@ -945,10 +945,12 @@ switch ($currentStep) {
         
         $materialsProps = [
             'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y'],
+            'SOURCE_LINKS' => ['NAME' => 'Ссылки на источники данных', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y', 'SORT' => 510],
         ];
 
         $materialsVariantsProps = [
             'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y'],
+            'SOURCE_LINKS' => ['NAME' => 'Ссылки на источники данных', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y', 'SORT' => 510],
         ];
 
         $operationsProps = [
@@ -981,6 +983,7 @@ switch ($currentStep) {
             'MAX_LENGTH' => ['NAME' => 'Макс. длина, мм', 'TYPE' => 'N'],
             'START_COST' => ['NAME' => 'Стоимость старта', 'TYPE' => 'N'],
             'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y'],
+            'SOURCE_LINKS' => ['NAME' => 'Ссылки на источники данных', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'WITH_DESCRIPTION' => 'Y', 'SORT' => 510],
         ];
 
         $customFieldsProps = [

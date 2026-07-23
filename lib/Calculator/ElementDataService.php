@@ -593,12 +593,17 @@ class ElementDataService
 
                     case 'saveSettingsEquipment':
                         $equipmentId = (int)($request['equipmentId'] ?? 0);
+                        $createEquipment = !empty($request['create']);
+                        $sectionId = (int)($request['sectionId'] ?? 0);
                         $equipmentName = trim((string)($request['name'] ?? ''));
                         $equipmentPreviewText = trim((string)($request['previewText'] ?? ''));
+                        $equipmentDetailText = (string)($request['detailText'] ?? '');
+                        $image = is_array($request['image'] ?? null) ? $request['image'] : null;
+                        $catalog = is_array($request['catalog'] ?? null) ? $request['catalog'] : [];
                         $properties = is_array($request['properties'] ?? null) ? $request['properties'] : [];
                         $equipmentIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_EQUIPMENT', 0);
 
-                        if ($equipmentId <= 0 || $equipmentIblockId <= 0) {
+                        if ((!$createEquipment && $equipmentId <= 0) || $equipmentIblockId <= 0 || $equipmentName === '') {
                             $result[] = ['status' => 'error', 'message' => 'Оборудование или его инфоблок не найдены'];
                             continue 2;
                         }
@@ -660,27 +665,115 @@ class ElementDataService
                             'DESCRIPTION' => $parametrDescriptions,
                         ];
 
-                        if ($equipmentName !== '') {
-                            $element = new \CIBlockElement();
-                            if (!$element->Update($equipmentId, [
-                                'NAME' => $equipmentName,
-                                'PREVIEW_TEXT' => $equipmentPreviewText,
-                                'PREVIEW_TEXT_TYPE' => 'text',
-                            ])) {
-                                $result[] = ['status' => 'error', 'message' => 'Не удалось сохранить название оборудования'];
+                        $sourceLinks = [];
+                        $sourceValues = [];
+                        $sourceDescriptions = [];
+                        foreach ((array)($properties['SOURCE_LINKS'] ?? []) as $sourceLink) {
+                            if (!is_array($sourceLink)) {
+                                continue;
+                            }
+                            $url = trim((string)($sourceLink['VALUE'] ?? ''));
+                            $description = trim((string)($sourceLink['DESCRIPTION'] ?? ''));
+                            if ($url === '' && $description === '') {
+                                continue;
+                            }
+                            if (!filter_var($url, FILTER_VALIDATE_URL) || !preg_match('/^https?:\/\//i', $url)) {
+                                $result[] = ['status' => 'error', 'message' => 'Некорректная ссылка на источник данных'];
+                                continue 3;
+                            }
+                            if (substr_count($description, '|') > 1) {
+                                $result[] = ['status' => 'error', 'message' => 'Символ | разрешён только как разделитель названия и описания ссылки'];
+                                continue 3;
+                            }
+                            $descriptionParts = array_pad(explode('|', $description, 2), 2, '');
+                            $description = implode('|', array_map('trim', $descriptionParts));
+                            $sourceLinks[] = ['VALUE' => $url, 'DESCRIPTION' => $description];
+                            $sourceValues[] = $url;
+                            $sourceDescriptions[] = $description;
+                        }
+                        $prepared['SOURCE_LINKS'] = $sourceLinks ?: false;
+                        $responseProperties['SOURCE_LINKS'] = [
+                            'VALUE' => $sourceValues,
+                            'DESCRIPTION' => $sourceDescriptions,
+                        ];
+
+                        $element = new \CIBlockElement();
+                        $elementFields = [
+                            'NAME' => $equipmentName,
+                            'PREVIEW_TEXT' => $equipmentPreviewText,
+                            'PREVIEW_TEXT_TYPE' => 'text',
+                            'DETAIL_TEXT' => $equipmentDetailText,
+                            'DETAIL_TEXT_TYPE' => 'html',
+                        ];
+                        if ($image) {
+                            try {
+                                $elementFields = array_merge($elementFields, $this->prepareEquipmentImageFields($image));
+                            } catch (\Throwable $exception) {
+                                $result[] = ['status' => 'error', 'message' => $exception->getMessage()];
                                 continue 2;
                             }
-
+                        }
+                        $temporaryImagePaths = [];
+                        foreach (['PREVIEW_PICTURE', 'DETAIL_PICTURE'] as $pictureField) {
+                            $temporaryPath = (string)($elementFields[$pictureField]['tmp_name'] ?? '');
+                            if ($temporaryPath !== '') {
+                                $temporaryImagePaths[] = $temporaryPath;
+                            }
+                        }
+                        $createdEquipment = false;
+                        if ($createEquipment) {
+                            if ($sectionId > 0 && !\CIBlockSection::GetList([], [
+                                'ID' => $sectionId,
+                                'IBLOCK_ID' => $equipmentIblockId,
+                            ], false, ['ID'])->Fetch()) {
+                                foreach ($temporaryImagePaths as $temporaryImagePath) {
+                                    @unlink($temporaryImagePath);
+                                }
+                                $result[] = ['status' => 'error', 'message' => 'Выбранный раздел оборудования не найден'];
+                                continue 2;
+                            }
+                            $elementFields += [
+                                'IBLOCK_ID' => $equipmentIblockId,
+                                'IBLOCK_SECTION_ID' => $sectionId > 0 ? $sectionId : false,
+                                'ACTIVE' => 'Y',
+                                'CODE' => $this->makeUniqueElementCode($equipmentIblockId, $equipmentName),
+                            ];
+                            $equipmentId = (int)$element->Add($elementFields);
+                            $createdEquipment = $equipmentId > 0;
+                        } else {
+                            $equipmentId = $element->Update($equipmentId, $elementFields) ? $equipmentId : 0;
+                        }
+                        foreach ($temporaryImagePaths as $temporaryImagePath) {
+                            @unlink($temporaryImagePath);
+                        }
+                        if ($equipmentId <= 0) {
+                            $result[] = ['status' => 'error', 'message' => $element->LAST_ERROR ?: 'Не удалось сохранить оборудование'];
+                            continue 2;
                         }
 
                         \CIBlockElement::SetPropertyValuesEx($equipmentId, $equipmentIblockId, $prepared);
+                        try {
+                            $catalogResponse = $this->saveEquipmentCatalog($equipmentId, $catalog);
+                        } catch (\Throwable $exception) {
+                            if ($createdEquipment) {
+                                \CIBlockElement::Delete($equipmentId);
+                            }
+                            $result[] = ['status' => 'error', 'message' => $exception->getMessage()];
+                            continue 2;
+                        }
+                        $savedElement = $this->loadElements([$equipmentId])[0] ?? null;
 
                         $result[] = [
                             'status' => 'ok',
                             'equipmentId' => $equipmentId,
                             'name' => $equipmentName,
                             'previewText' => $equipmentPreviewText,
+                            'detailText' => $equipmentDetailText,
+                            'catalog' => $catalogResponse,
                             'properties' => $responseProperties,
+                            'previewPicture' => $savedElement['previewPicture'] ?? null,
+                            'detailPicture' => $savedElement['detailPicture'] ?? null,
+                            'element' => $savedElement,
                         ];
                         continue 2;
 
@@ -1015,9 +1108,212 @@ class ElementDataService
         return null;
     }
 
+    private function makeUniqueElementCode(int $iblockId, string $name): string
+    {
+        $base = trim((string)\CUtil::translit($name, 'ru', [
+            'replace_space' => '-',
+            'replace_other' => '-',
+            'change_case' => 'L',
+            'delete_repeat_replace' => true,
+        ]), '-');
+        if ($base === '') {
+            $base = 'equipment';
+        }
+        $code = $base;
+        $suffix = 2;
+        while (\CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => $code], false, ['nTopCount' => 1], ['ID'])->Fetch()) {
+            $code = $base . '-' . $suffix++;
+        }
+        return $code;
+    }
+
+    private function prepareEquipmentImageFields(array $image): array
+    {
+        $dataUrl = (string)($image['dataUrl'] ?? '');
+        if (!preg_match('#^data:image/[a-zA-Z0-9.+-]+;base64,(.+)$#s', $dataUrl, $matches)) {
+            throw new \RuntimeException('Некорректные данные изображения');
+        }
+        $binary = base64_decode($matches[1], true);
+        if ($binary === false || strlen($binary) > 12 * 1024 * 1024) {
+            throw new \RuntimeException('Изображение повреждено или превышает 12 МБ');
+        }
+        if (!function_exists('imagecreatefromstring') || !function_exists('imagewebp')) {
+            throw new \RuntimeException('На сервере недоступно преобразование изображений в WebP');
+        }
+        $resource = @imagecreatefromstring($binary);
+        if (!$resource) {
+            throw new \RuntimeException('Не удалось прочитать изображение');
+        }
+        $width = imagesx($resource);
+        $height = imagesy($resource);
+        $detailBasePath = tempnam(sys_get_temp_dir(), 'pw-equipment-');
+        if ($detailBasePath === false) {
+            imagedestroy($resource);
+            throw new \RuntimeException('Не удалось подготовить временный файл изображения');
+        }
+        $detailPath = $detailBasePath . '.webp';
+        @unlink($detailBasePath);
+        if (!imagewebp($resource, $detailPath, 88)) {
+            imagedestroy($resource);
+            throw new \RuntimeException('Не удалось преобразовать изображение в WebP');
+        }
+        imagedestroy($resource);
+
+        $previewBasePath = tempnam(sys_get_temp_dir(), 'pw-equipment-preview-');
+        if ($previewBasePath === false) {
+            @unlink($detailPath);
+            throw new \RuntimeException('Не удалось подготовить превью изображения');
+        }
+        $previewPath = $previewBasePath . '.webp';
+        @unlink($previewBasePath);
+        $previewWidth = min(200, $width);
+        $previewHeight = min(200, $height);
+        $previewCreated = \CFile::ResizeImageFile(
+            $detailPath,
+            $previewPath,
+            ['width' => $previewWidth, 'height' => $previewHeight],
+            BX_RESIZE_IMAGE_PROPORTIONAL,
+            [],
+            false,
+            88
+        );
+        if (!$previewCreated) {
+            @copy($detailPath, $previewPath);
+        }
+
+        $previewFile = \CFile::MakeFileArray($previewPath);
+        if (!is_array($previewFile)) {
+            @unlink($previewPath);
+            @unlink($detailPath);
+            throw new \RuntimeException('Не удалось подготовить превью изображения');
+        }
+        $previewFile['name'] = 'equipment-preview.webp';
+        $fields = ['PREVIEW_PICTURE' => $previewFile];
+        if ($width >= 200 || $height >= 200) {
+            $detailFile = \CFile::MakeFileArray($detailPath);
+            if (!is_array($detailFile)) {
+                @unlink($previewPath);
+                @unlink($detailPath);
+                throw new \RuntimeException('Не удалось подготовить детальное изображение');
+            }
+            $detailFile['name'] = 'equipment.webp';
+            $fields['DETAIL_PICTURE'] = $detailFile;
+        } else {
+            @unlink($detailPath);
+            $fields['DETAIL_PICTURE'] = ['del' => 'Y'];
+        }
+        return $fields;
+    }
+
+    private function saveEquipmentCatalog(int $equipmentId, array $catalog): array
+    {
+        $normalizeNumber = static function ($value): ?float {
+            $value = trim(str_replace(',', '.', (string)$value));
+            if ($value === '') {
+                return null;
+            }
+            if (!is_numeric($value)) {
+                throw new \RuntimeException('Параметр торгового каталога должен быть числом');
+            }
+            return (float)$value;
+        };
+        $productFields = [
+            'VAT_ID' => (int)($catalog['vatId'] ?? 0),
+            'VAT_INCLUDED' => !empty($catalog['vatIncluded']) ? 'Y' : 'N',
+            'PURCHASING_PRICE' => $normalizeNumber($catalog['purchasingPrice'] ?? null),
+            'PURCHASING_CURRENCY' => trim((string)($catalog['purchasingCurrency'] ?? 'RUB')) ?: 'RUB',
+            'WEIGHT' => $normalizeNumber($catalog['weight'] ?? null),
+            'LENGTH' => $normalizeNumber($catalog['length'] ?? null),
+            'WIDTH' => $normalizeNumber($catalog['width'] ?? null),
+            'HEIGHT' => $normalizeNumber($catalog['height'] ?? null),
+        ];
+        $existing = \CCatalogProduct::GetByID($equipmentId);
+        $saved = $existing
+            ? \CCatalogProduct::Update($equipmentId, $productFields)
+            : \CCatalogProduct::Add(['ID' => $equipmentId] + $productFields);
+        if (!$saved) {
+            throw new \RuntimeException('Не удалось сохранить параметры торгового каталога');
+        }
+
+        $basePrice = $normalizeNumber($catalog['basePrice'] ?? null);
+        $baseCurrency = trim((string)($catalog['baseCurrency'] ?? 'RUB')) ?: 'RUB';
+        $baseGroup = \CCatalogGroup::GetBaseGroup();
+        if ($basePrice !== null && !empty($baseGroup['ID'])) {
+            $price = \CPrice::GetList([], ['PRODUCT_ID' => $equipmentId, 'CATALOG_GROUP_ID' => (int)$baseGroup['ID']])->Fetch();
+            $priceFields = [
+                'PRODUCT_ID' => $equipmentId,
+                'CATALOG_GROUP_ID' => (int)$baseGroup['ID'],
+                'PRICE' => $basePrice,
+                'CURRENCY' => $baseCurrency,
+            ];
+            $priceSaved = $price ? \CPrice::Update((int)$price['ID'], $priceFields) : \CPrice::Add($priceFields);
+            if (!$priceSaved) {
+                throw new \RuntimeException('Не удалось сохранить базовую цену оборудования');
+            }
+        }
+        return [
+            'vatId' => $productFields['VAT_ID'],
+            'vatIncluded' => $productFields['VAT_INCLUDED'] === 'Y',
+            'purchasingPrice' => $productFields['PURCHASING_PRICE'],
+            'purchasingCurrency' => $productFields['PURCHASING_CURRENCY'],
+            'basePrice' => $basePrice,
+            'baseCurrency' => $baseCurrency,
+            'weight' => $productFields['WEIGHT'],
+            'length' => $productFields['LENGTH'],
+            'width' => $productFields['WIDTH'],
+            'height' => $productFields['HEIGHT'],
+        ];
+    }
+
+    private function getPicturePayload(int $fileId): ?array
+    {
+        if ($fileId <= 0) {
+            return null;
+        }
+        $file = \CFile::GetFileArray($fileId);
+        if (!$file) {
+            return null;
+        }
+        return [
+            'id' => $fileId,
+            'url' => (string)($file['SRC'] ?? ''),
+            'width' => (int)($file['WIDTH'] ?? 0),
+            'height' => (int)($file['HEIGHT'] ?? 0),
+        ];
+    }
+
+    private function getCatalogOptions(): array
+    {
+        static $options;
+        if ($options !== null) {
+            return $options;
+        }
+        $vatRates = [];
+        $vatResult = \CCatalogVat::GetList(['SORT' => 'ASC'], ['ACTIVE' => 'Y']);
+        while ($vat = $vatResult->Fetch()) {
+            $vatRates[] = [
+                'id' => (int)$vat['ID'],
+                'name' => (string)$vat['NAME'],
+                'value' => isset($vat['RATE']) ? (float)$vat['RATE'] : null,
+            ];
+        }
+        $currencies = [];
+        $currencyBy = 'sort';
+        $currencyOrder = 'asc';
+        $currencyResult = \CCurrency::GetList($currencyBy, $currencyOrder);
+        while ($currency = $currencyResult->Fetch()) {
+            $currencies[] = [
+                'code' => (string)$currency['CURRENCY'],
+                'name' => (string)($currency['FULL_NAME'] ?? $currency['CURRENCY']),
+            ];
+        }
+        return $options = ['vatRates' => $vatRates, 'currencies' => $currencies];
+    }
+
     private function loadElements(array $ids, bool $includeParent = false): array
     {
         $elements = [];
+        $equipmentIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_EQUIPMENT', 0);
 
         foreach ($ids as $elementId) {
             $elementObject = \CIBlockElement::GetList(
@@ -1025,7 +1321,7 @@ class ElementDataService
                 ['ID' => $elementId],
                 false,
                 false,
-                ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'DETAIL_TEXT', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_CML2_LINK']
+                ['ID', 'IBLOCK_ID', 'IBLOCK_SECTION_ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'DETAIL_TEXT', 'PREVIEW_PICTURE', 'DETAIL_PICTURE', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_CML2_LINK']
             )->GetNextElement();
 
             if (! $elementObject) {
@@ -1039,6 +1335,18 @@ class ElementDataService
             $measureInfo = $this->getMeasureInfo((int)($productData['MEASURE'] ?? 0));
             $measureRatio = $this->getMeasureRatio($elementId);
             $prices = $this->getPrices($elementId);
+            $basePrice = null;
+            $baseCurrency = null;
+            $baseGroup = \CCatalogGroup::GetBaseGroup();
+            if (!empty($baseGroup['ID'])) {
+                foreach ($prices as $priceRow) {
+                    if ((int)($priceRow['typeId'] ?? 0) === (int)$baseGroup['ID']) {
+                        $basePrice = isset($priceRow['price']) ? (float)$priceRow['price'] : null;
+                        $baseCurrency = $priceRow['currency'] ?? null;
+                        break;
+                    }
+                }
+            }
             $purchasingPrice = isset($productData['PURCHASING_PRICE'])
                 ? (float)$productData['PURCHASING_PRICE']
                 : null;
@@ -1056,11 +1364,14 @@ class ElementDataService
             $elementData = [
                 'id' => (int)$fields['ID'],
                 'iblockId' => (int)$fields['IBLOCK_ID'],
+                'sectionId' => isset($fields['IBLOCK_SECTION_ID']) ? (int)$fields['IBLOCK_SECTION_ID'] : 0,
                 'code' => $fields['CODE'] ?? null,
                 'productId' => $productId > 0 ? $productId : null,
                 'name' => $fields['NAME'] ?? '',
                 'previewText' => (string)($fields['PREVIEW_TEXT'] ?? ''),
                 'detailText' => (string)($fields['DETAIL_TEXT'] ?? ''),
+                'previewPicture' => $this->getPicturePayload((int)($fields['PREVIEW_PICTURE'] ?? 0)),
+                'detailPicture' => $this->getPicturePayload((int)($fields['DETAIL_PICTURE'] ?? 0)),
                 'timestampX' => $fields['TIMESTAMP_X'] ?? null,
                 'modifiedBy' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
                 'timestamp_x' => $fields['TIMESTAMP_X'] ?? null,
@@ -1076,8 +1387,23 @@ class ElementDataService
                 'purchasingPrice' => $purchasingPrice,
                 'purchasingCurrency' => $purchasingCurrency,
                 'prices' => $prices,
+                'catalog' => [
+                    'vatId' => (int)($productData['VAT_ID'] ?? 0),
+                    'vatIncluded' => ($productData['VAT_INCLUDED'] ?? 'N') === 'Y',
+                    'purchasingPrice' => $purchasingPrice,
+                    'purchasingCurrency' => $purchasingCurrency,
+                    'basePrice' => $basePrice,
+                    'baseCurrency' => $baseCurrency,
+                    'weight' => isset($productData['WEIGHT']) ? (float)$productData['WEIGHT'] : null,
+                    'length' => isset($productData['LENGTH']) ? (float)$productData['LENGTH'] : null,
+                    'width' => isset($productData['WIDTH']) ? (float)$productData['WIDTH'] : null,
+                    'height' => isset($productData['HEIGHT']) ? (float)$productData['HEIGHT'] : null,
+                ],
                 'properties' => $properties,
             ];
+            if ((int)$fields['IBLOCK_ID'] === $equipmentIblockId) {
+                $elementData['catalogOptions'] = $this->getCatalogOptions();
+            }
 
             // Если элемент имеет свойство CUSTOM_FIELDS, загружаем конфигурацию полей
             if (isset($properties['CUSTOM_FIELDS']) && !empty($properties['CUSTOM_FIELDS']['VALUE'])) {
