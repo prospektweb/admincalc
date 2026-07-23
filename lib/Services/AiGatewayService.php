@@ -21,9 +21,31 @@ final class AiGatewayService
         'calculator_description' => ['{название калькулятора}' => 'calculatorName'],
         'operation_description' => ['{название операции}' => 'operationName'],
         'operation_variant_description' => ['{название варианта операции}' => 'operationVariantName', '{название операции}' => 'operationName', '{анонс операции}' => 'operationPreview'],
-        'equipment_description' => ['{название оборудования}' => 'equipmentName'],
+        'equipment_description' => ['{название оборудования}' => 'equipmentName', '{Источники данных}' => 'equipmentSources'],
         'material_description' => ['{название материала}' => 'materialName'],
         'material_variant_description' => ['{название варианта материала}' => 'materialVariantName', '{название материала}' => 'materialName', '{анонс материала}' => 'materialPreview'],
+    ];
+    private const EQUIPMENT_RESPONSE_SCHEMA = [
+        'version' => 1,
+        'previewText' => '',
+        'detailHtml' => '',
+        'startCost' => null,
+        'workspace' => ['lengthMm' => null, 'widthMm' => null],
+        'technicalMarginsMm' => ['top' => null, 'right' => null, 'bottom' => null, 'left' => null],
+        'materialTolerancesMm' => ['minWidth' => null, 'minLength' => null],
+        'parameters' => [['code' => '', 'value' => '', 'title' => '', 'description' => '']],
+        'catalog' => [
+            'vatRate' => null,
+            'vatIncluded' => null,
+            'purchasingPrice' => null,
+            'purchasingCurrency' => '',
+            'basePrice' => null,
+            'baseCurrency' => '',
+            'weightG' => null,
+            'lengthMm' => null,
+            'widthMm' => null,
+            'heightMm' => null,
+        ],
     ];
 
     public function getSettings(): array
@@ -79,6 +101,12 @@ final class AiGatewayService
         foreach (self::ZONE_CONTEXT[$zone] as $tag => $contextKey) $tags[$tag] = (string)($context[$contextKey] ?? '');
         $override = trim((string)($request['prompt'] ?? ''));
         $prompt = strtr($override !== '' ? mb_substr($override, 0, 12000) : (string)$template['prompt'], $tags);
+        if ($zone === 'equipment_description') {
+            $prompt .= "\n\nОбязательная схема ответа JSON:\n"
+                . json_encode(self::EQUIPMENT_RESPONSE_SCHEMA, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)
+                . "\nНе добавляй поля вне схемы. Неизвестные числа возвращай как null, неизвестные строки — как пустую строку. "
+                . "В parameters помещай только подтверждённые технические особенности, для которых нет отдельного поля.";
+        }
         $response = $this->request('POST', '/chat/completions', ['model' => (string)$template['model'], 'messages' => [['role' => 'user', 'content' => $prompt]]]);
         $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
         if ($content === '') throw new \RuntimeException('AI Gateway вернул пустой текст');
@@ -105,6 +133,18 @@ final class AiGatewayService
     {
         $decoded = json_decode((string)Option::get(self::MODULE_ID, self::TEMPLATES_OPTION, ''), true);
         $templates = is_array($decoded) && $decoded !== [] ? $this->sanitizeTemplates($decoded) : [];
+        foreach ($templates as &$template) {
+            if ($template['zone'] === 'equipment_description' && $template['name'] === 'Описание оборудования') {
+                $template['name'] = 'Заполнение карточки оборудования';
+            }
+            if (
+                $template['zone'] === 'equipment_description'
+                && $template['prompt'] === 'Опиши назначение полиграфического оборудования: {название оборудования}. Верни только готовый текст.'
+            ) {
+                $template['prompt'] = 'Заполни техническую карточку полиграфического оборудования «{название оборудования}». В первую очередь используй сведения из блока «Источники данных»: {Источники данных}. Если содержимое источника недоступно или параметр не подтверждён, оставь соответствующее значение пустым и ничего не выдумывай. Подготовь краткий анонс, подробное HTML-описание, известные размеры, технические поля, допуски, цены и габариты. Особенности, для которых нет отдельного поля, добавь в массив «Другие параметры». Верни только JSON по обязательной схеме без Markdown и пояснений.';
+            }
+        }
+        unset($template);
         $present = array_fill_keys(array_column($templates, 'zone'), true);
         foreach ($this->getTemplatesFallback() as $fallback) if (!isset($present[$fallback['zone']])) $templates[] = $fallback;
         return $templates;
@@ -139,7 +179,7 @@ final class AiGatewayService
             'calculator_description' => ['Описание калькулятора', 'Опиши назначение калькулятора полиграфического производства: {название калькулятора}. Верни только готовый текст.'],
             'operation_description' => ['Описание операции', 'Опиши полиграфическую операцию: {название операции}. Верни только готовый текст.'],
             'operation_variant_description' => ['Описание варианта операции', 'Опиши вариант операции {название варианта операции}. Родительская операция: {название операции}. Анонс: {анонс операции}. Верни только готовый текст.'],
-            'equipment_description' => ['Описание оборудования', 'Опиши назначение полиграфического оборудования: {название оборудования}. Верни только готовый текст.'],
+            'equipment_description' => ['Заполнение карточки оборудования', 'Заполни техническую карточку полиграфического оборудования «{название оборудования}». В первую очередь используй сведения из блока «Источники данных»: {Источники данных}. Если содержимое источника недоступно или параметр не подтверждён, оставь соответствующее значение пустым и ничего не выдумывай. Подготовь краткий анонс, подробное HTML-описание, известные размеры, технические поля, допуски, цены и габариты. Особенности, для которых нет отдельного поля, добавь в массив «Другие параметры». Верни только JSON по обязательной схеме без Markdown и пояснений.'],
             'material_description' => ['Описание материала', 'Опиши полиграфический материал: {название материала}. Верни только готовый текст.'],
             'material_variant_description' => ['Описание варианта материала', 'Опиши вариант материала {название варианта материала}. Родительский материал: {название материала}. Анонс: {анонс материала}. Верни только готовый текст.'],
         ];

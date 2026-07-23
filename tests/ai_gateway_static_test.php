@@ -21,6 +21,11 @@ $checks = [
         && strpos($elementService, "case 'generateAiText'") !== false,
     'AI zones are allowlisted' => strpos($service, 'ZONE_CONTEXT') !== false
         && strpos($service, 'material_variant_description') !== false,
+    'equipment card uses structured response' => strpos($service, 'EQUIPMENT_RESPONSE_SCHEMA') !== false
+        && strpos($service, "'version' => 1") !== false
+        && strpos($service, "'equipmentSources'") !== false,
+    'legacy equipment prompt is upgraded' => strpos($service, "template['zone'] === 'equipment_description'") !== false
+        && strpos($service, "template['prompt'] ===") !== false,
     'prompt override is bounded' => strpos($service, "request['prompt']") !== false
         && strpos($service, 'mb_substr($override, 0, 12000)') !== false,
     'stage preview is persisted' => strpos($elementService, "'PREVIEW_TEXT' => \$previewText") !== false,
