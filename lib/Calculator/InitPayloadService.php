@@ -395,7 +395,7 @@ class InitPayloadService
             'dark',
             (int)$userId
         );
-        if (!in_array($editorTheme, ['dark', 'cream'], true)) {
+        if (!in_array($editorTheme, ['dark', 'cream', 'monolith', 'obsidian', 'soft-graphite'], true)) {
             $editorTheme = 'dark';
         }
 

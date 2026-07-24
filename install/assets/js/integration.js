@@ -3972,7 +3972,9 @@
          * Обработка READY
          */
         async handleSaveUserThemeRequest(message, origin) {
-            const theme = message.payload && message.payload.theme === 'cream' ? 'cream' : 'dark';
+            const allowedThemes = ['dark', 'cream', 'monolith', 'obsidian', 'soft-graphite'];
+            const requestedTheme = message.payload && message.payload.theme;
+            const theme = allowedThemes.includes(requestedTheme) ? requestedTheme : 'dark';
             const formData = new FormData();
             formData.append('action', 'saveUserTheme');
             formData.append('theme', theme);

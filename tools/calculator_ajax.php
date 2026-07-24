@@ -238,7 +238,7 @@ function handleSaveUserTheme($request): void
     global $USER;
 
     $theme = (string)$request->get('theme');
-    if (!in_array($theme, ['dark', 'cream'], true)) {
+    if (!in_array($theme, ['dark', 'cream', 'monolith', 'obsidian', 'soft-graphite'], true)) {
         sendJsonResponse(['success' => false, 'message' => 'Недопустимая тема редактора'], 400);
     }
 
