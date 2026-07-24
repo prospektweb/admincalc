@@ -1773,18 +1773,12 @@ class DetailHandler
      */
     public function changeSortStage(int $detailId, array $sorting): array
     {
+        $connection = null;
         try {
             if ($detailId <= 0) {
                 return [
                     'status' => 'error',
                     'message' => 'Не указан ID детали',
-                ];
-            }
-
-            if (empty($sorting)) {
-                return [
-                    'status' => 'error',
-                    'message' => 'Не указан порядок сортировки',
                 ];
             }
 
@@ -1797,23 +1791,73 @@ class DetailHandler
                 ];
             }
 
-            // 1. Сначала очистить свойство CALC_STAGES
+            $readStageIds = function () use ($detailId): array {
+                $stageIds = [];
+                $rows = \CIBlockElement::GetProperty(
+                    $this->detailsIblockId,
+                    $detailId,
+                    ['sort' => 'asc', 'id' => 'asc'],
+                    ['CODE' => 'CALC_STAGES']
+                );
+                while ($property = $rows->Fetch()) {
+                    $stageId = (int)($property['VALUE'] ?? 0);
+                    if ($stageId > 0) {
+                        $stageIds[] = $stageId;
+                    }
+                }
+                return $stageIds;
+            };
+
+            $sorting = array_values(array_filter(array_map('intval', $sorting)));
+            if (count($sorting) !== count(array_unique($sorting))) {
+                return ['status' => 'error', 'message' => 'Новый порядок содержит повторяющиеся этапы'];
+            }
+
+            $connection = \Bitrix\Main\Application::getConnection();
+            $connection->startTransaction();
+            $connection->queryExecute(
+                'SELECT ID FROM b_iblock_element WHERE ID = ' . $detailId . ' FOR UPDATE'
+            );
+            $previousSorting = $readStageIds();
+            $expected = $previousSorting;
+            $submitted = $sorting;
+            sort($expected);
+            sort($submitted);
+            if ($expected !== $submitted) {
+                throw new \RuntimeException('Состав этапов изменился. Обновите данные и повторите сортировку');
+            }
+            if ($previousSorting === $sorting) {
+                $connection->commitTransaction();
+                return ['status' => 'ok', 'detailId' => $detailId, 'sorting' => $sorting];
+            }
+
             \CIBlockElement::SetPropertyValuesEx($detailId, $this->detailsIblockId, [
                 'CALC_STAGES' => false,
             ]);
-            
-            // 2. Записать sorting в CALC_STAGES детали с нужным порядком
-            \CIBlockElement::SetPropertyValuesEx($detailId, $this->detailsIblockId, [
-                'CALC_STAGES' => array_map('intval', $sorting),
-            ]);
-            
+            if ($sorting) {
+                \CIBlockElement::SetPropertyValuesEx($detailId, $this->detailsIblockId, [
+                    'CALC_STAGES' => $sorting,
+                ]);
+            }
+            if ($readStageIds() !== $sorting) {
+                throw new \RuntimeException('Битрикс не сохранил точный порядок этапов');
+            }
+            $connection->commitTransaction();
+
             return [
                 'status' => 'ok',
                 'detailId' => $detailId,
                 'sorting' => $sorting,
             ];
             
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            if ($connection) {
+                try {
+                    $connection->rollbackTransaction();
+                } catch (\Throwable $rollbackError) {
+                    // Исходная ошибка важнее вторичной ошибки rollback.
+                }
+            }
             return [
                 'status' => 'error',
                 'message' => $e->getMessage(),
@@ -1831,6 +1875,7 @@ class DetailHandler
         array $sourceSorting,
         array $targetSorting
     ): array {
+        $connection = null;
         try {
             $readStageIds = function (int $detailId): array {
                 $result = [];
@@ -1871,19 +1916,33 @@ class DetailHandler
                 return ['status' => 'error', 'message' => 'Исходная или целевая деталь не найдена'];
             }
 
-            $sourceSorting = array_values(array_unique(array_filter(array_map('intval', $sourceSorting))));
-            $targetSorting = array_values(array_unique(array_filter(array_map('intval', $targetSorting))));
+            $sourceSorting = array_values(array_filter(array_map('intval', $sourceSorting)));
+            $targetSorting = array_values(array_filter(array_map('intval', $targetSorting)));
+            if (count($sourceSorting) !== count(array_unique($sourceSorting))
+                || count($targetSorting) !== count(array_unique($targetSorting))) {
+                return ['status' => 'error', 'message' => 'Порядок содержит повторяющиеся этапы'];
+            }
             if (in_array($stageId, $sourceSorting, true) || !in_array($stageId, $targetSorting, true)) {
                 return ['status' => 'error', 'message' => 'Некорректный состав этапов после переноса'];
             }
 
+            $connection = \Bitrix\Main\Application::getConnection();
+            $connection->startTransaction();
+            $lockedDetailIds = [$sourceDetailId, $targetDetailId];
+            sort($lockedDetailIds);
+            $connection->queryExecute(
+                'SELECT ID FROM b_iblock_element WHERE ID IN ('
+                . implode(',', $lockedDetailIds)
+                . ') ORDER BY ID FOR UPDATE'
+            );
+
             $previousSourceSorting = $readStageIds($sourceDetailId);
             $previousTargetSorting = $readStageIds($targetDetailId);
             if (!in_array($stageId, $previousSourceSorting, true)) {
-                return ['status' => 'error', 'message' => 'Переносимый этап не принадлежит исходной детали'];
+                throw new \RuntimeException('Переносимый этап не принадлежит исходной детали');
             }
             if (in_array($stageId, $previousTargetSorting, true)) {
-                return ['status' => 'error', 'message' => 'Переносимый этап уже принадлежит целевой детали'];
+                throw new \RuntimeException('Переносимый этап уже принадлежит целевой детали');
             }
 
             $previousStageIds = array_values(array_unique(array_merge(
@@ -1897,7 +1956,7 @@ class DetailHandler
             sort($previousStageIds);
             sort($submittedStageIds);
             if ($previousStageIds !== $submittedStageIds) {
-                return ['status' => 'error', 'message' => 'Состав этапов изменился во время переноса. Обновите данные и повторите операцию'];
+                throw new \RuntimeException('Состав этапов изменился во время переноса. Обновите данные и повторите операцию');
             }
 
             $writeStageIds($sourceDetailId, $sourceSorting);
@@ -1906,14 +1965,9 @@ class DetailHandler
             $savedSourceSorting = $readStageIds($sourceDetailId);
             $savedTargetSorting = $readStageIds($targetDetailId);
             if ($savedSourceSorting !== $sourceSorting || $savedTargetSorting !== $targetSorting) {
-                $writeStageIds($sourceDetailId, $previousSourceSorting);
-                $writeStageIds($targetDetailId, $previousTargetSorting);
-
-                return [
-                    'status' => 'error',
-                    'message' => 'Не удалось целиком сохранить перенос этапа. Исходное состояние восстановлено',
-                ];
+                throw new \RuntimeException('Не удалось целиком сохранить перенос этапа');
             }
+            $connection->commitTransaction();
 
             return [
                 'status' => 'ok',
@@ -1924,6 +1978,13 @@ class DetailHandler
                 'targetSorting' => $targetSorting,
             ];
         } catch (\Throwable $e) {
+            if ($connection) {
+                try {
+                    $connection->rollbackTransaction();
+                } catch (\Throwable $rollbackError) {
+                    // Исходная ошибка важнее вторичной ошибки rollback.
+                }
+            }
             return ['status' => 'error', 'message' => $e->getMessage()];
         }
     }

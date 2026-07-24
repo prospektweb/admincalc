@@ -651,6 +651,8 @@ class ElementDataService
                             'ACTIVE' => 'Y',
                             'NAME' => $name,
                             'CODE' => $code,
+                            'PREVIEW_TEXT' => trim((string)($field['description'] ?? '')),
+                            'PREVIEW_TEXT_TYPE' => 'text',
                             'PROPERTY_VALUES' => [
                                 'FIELD_TYPE' => $fieldTypeEnumId,
                                 'DEFAULT_VALUE' => (string)($field['defaultValue'] ?? ''),
@@ -1055,13 +1057,93 @@ class ElementDataService
                             $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
                             
                             if ($firstDetailId) {
-                                $offerIds = $request['offerIds'] ?? [];
-                                $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
-                                $stageResult['initPayload'] = $initPayload;
+                                try {
+                                    $offerIds = $request['offerIds'] ?? [];
+                                    $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                    $stageResult['initPayload'] = $initPayload;
+                                } catch (\Throwable $enrichmentError) {
+                                    $stageResult['enrichmentWarning'] = $enrichmentError->getMessage();
+                                }
                             }
                         }
                         
                         $result[] = $stageResult;
+                        continue 2;
+
+                    case 'changeRootDetailSort':
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $sorting = array_values(array_filter(array_map('intval', is_array($request['sorting'] ?? null) ? $request['sorting'] : [])));
+                        $presetsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_PRESETS', 0);
+                        if ($presetId <= 0 || $presetsIblockId <= 0 || !$sorting) {
+                            $result[] = ['status' => 'error', 'message' => 'Некорректные параметры сортировки колонок'];
+                            continue 2;
+                        }
+                        if (count($sorting) !== count(array_unique($sorting))) {
+                            $result[] = ['status' => 'error', 'message' => 'Порядок колонок содержит повторяющиеся детали'];
+                            continue 2;
+                        }
+
+                        $readRootIds = static function () use ($presetsIblockId, $presetId): array {
+                            $ids = [];
+                            $rows = \CIBlockElement::GetProperty(
+                                $presetsIblockId,
+                                $presetId,
+                                ['sort' => 'asc', 'id' => 'asc'],
+                                ['CODE' => 'CALC_DETAILS']
+                            );
+                            while ($property = $rows->Fetch()) {
+                                $id = (int)($property['VALUE'] ?? 0);
+                                if ($id > 0) {
+                                    $ids[] = $id;
+                                }
+                            }
+                            return $ids;
+                        };
+
+                        $connection = \Bitrix\Main\Application::getConnection();
+                        try {
+                            $connection->startTransaction();
+                            $connection->queryExecute(
+                                'SELECT ID FROM b_iblock_element WHERE ID = ' . $presetId . ' FOR UPDATE'
+                            );
+                            $current = $readRootIds();
+                            $expected = $current;
+                            $submitted = $sorting;
+                            sort($expected);
+                            sort($submitted);
+                            if ($expected !== $submitted) {
+                                throw new \RuntimeException('Состав колонок изменился. Обновите данные и повторите операцию');
+                            }
+                            \CIBlockElement::SetPropertyValuesEx($presetId, $presetsIblockId, [
+                                'CALC_DETAILS' => false,
+                            ]);
+                            \CIBlockElement::SetPropertyValuesEx($presetId, $presetsIblockId, [
+                                'CALC_DETAILS' => $sorting,
+                            ]);
+                            if ($readRootIds() !== $sorting) {
+                                throw new \RuntimeException('Битрикс не сохранил точный порядок колонок');
+                            }
+                            $connection->commitTransaction();
+                            $sortResult = ['status' => 'ok', 'presetId' => $presetId, 'sorting' => $sorting];
+                            if (!empty($request['offerIds'])) {
+                                try {
+                                    $sortResult['initPayload'] = (new InitPayloadService())->prepareInitPayload(
+                                        $request['offerIds'],
+                                        $request['siteId'] ?? SITE_ID,
+                                        false
+                                    );
+                                } catch (\Throwable $enrichmentError) {
+                                    $sortResult['enrichmentWarning'] = $enrichmentError->getMessage();
+                                }
+                            }
+                            $result[] = $sortResult;
+                        } catch (\Throwable $sortError) {
+                            try {
+                                $connection->rollbackTransaction();
+                            } catch (\Throwable $rollbackError) {
+                            }
+                            $result[] = ['status' => 'error', 'message' => $sortError->getMessage()];
+                        }
                         continue 2;
 
                     case 'moveStage':
@@ -1078,11 +1160,15 @@ class ElementDataService
                             $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
                             $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
                             if ($firstDetailId) {
-                                $stageResult['initPayload'] = $enrichmentService->enrichPresetFromDetails(
-                                    $presetId,
-                                    $firstDetailId,
-                                    $request['offerIds'] ?? []
-                                );
+                                try {
+                                    $stageResult['initPayload'] = $enrichmentService->enrichPresetFromDetails(
+                                        $presetId,
+                                        $firstDetailId,
+                                        $request['offerIds'] ?? []
+                                    );
+                                } catch (\Throwable $enrichmentError) {
+                                    $stageResult['enrichmentWarning'] = $enrichmentError->getMessage();
+                                }
                             }
                         }
                         $result[] = $stageResult;

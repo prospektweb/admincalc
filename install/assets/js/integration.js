@@ -297,6 +297,9 @@
                 case 'CHANGE_DETAIL_SORT_REQUEST':
                     await this.handleChangeDetailSortRequest(message, origin);
                     break;
+                case 'CHANGE_ROOT_DETAIL_SORT_REQUEST':
+                    await this.handleChangeRootDetailSortRequest(message, origin);
+                    break;
                 case 'CHANGE_DETAIL_LEVEL_REQUEST':
                     await this.handleChangeDetailLevelRequest(message, origin);
                     break;
@@ -694,13 +697,14 @@
             const stageId = parseInt(payload.stageId, 10) || 0;
             const presetId = parseInt(payload.presetId, 10) || 0;
 
-            const customFieldsIblock = this.findIblockByCode('CALC_CUSTOM_FIELDS');
-            const iblockId = customFieldsIblock?.id || null;
-            const iblockType = customFieldsIblock?.type || null;
-            const lang = payload.lang || (this.initData?.lang) || null;
-
-            const selectedIds = await this.openElementSelectionDialog({ iblockId, iblockType, lang });
+            const selectedIds = Array.isArray(payload.customFieldIds)
+                ? payload.customFieldIds.map(Number).filter(id => id > 0)
+                : [];
             if (!selectedIds || selectedIds.length === 0) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не выбраны дополнительные поля',
+                    details: 'Отметьте хотя бы одно поле во внутреннем списке',
+                }, message.requestId, origin);
                 return;
             }
 
@@ -1295,8 +1299,14 @@
                     this.initData = responsePayload.initPayload;
                 }
 
-                // Отправляем INIT message
-                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                if (responsePayload.initPayload) {
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                } else {
+                    this.sendPwrtMessage('PROCESS_MESSAGE', {
+                        status: 'success',
+                        message: 'Порядок этапов сохранён; данные будут обновлены при следующей синхронизации',
+                    }, message.requestId, origin);
+                }
 
                 console.log('[BitrixBridge][DEBUG] handleAddStageRequest END - success, INIT sent');
 
@@ -2382,15 +2392,11 @@
                     message: error.message,
                 });
 
-                this.sendPwrtMessage(
-                    'ERROR',
-                    {
-                        message: 'Ошибка изменения сортировки этапов',
-                        details: error && error.message ? error.message : 'Unknown error',
-                    },
-                    message.requestId,
-                    origin
-                );
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка изменения сортировки этапов',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
+                this.sendPwrtMessage('INIT', this.initData, null, origin);
             }
         }
 
@@ -2649,9 +2655,49 @@
                     value: json
                 }]);
                 this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', json);
-                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                if (responsePayload.initPayload) {
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                } else {
+                    this.sendPwrtMessage('PROCESS_MESSAGE', {
+                        status: 'success',
+                        message: 'Перенос этапа сохранён; данные будут обновлены при следующей синхронизации',
+                    }, message.requestId, origin);
+                }
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_EQUIPMENT error:', error);
+            }
+        }
+
+        async handleChangeRootDetailSortRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'changeRootDetailSort',
+                    presetId: Number(payload.presetId || 0),
+                    sorting: Array.isArray(payload.sorting) ? payload.sorting : [],
+                    offerIds: this.config.offerIds || [],
+                    siteId: this.config.siteId || SITE_ID,
+                }]);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось изменить порядок колонок');
+                }
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                } else {
+                    this.sendPwrtMessage('PROCESS_MESSAGE', {
+                        status: 'success',
+                        message: 'Порядок колонок сохранён',
+                    }, message.requestId, origin);
+                }
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка изменения порядка колонок',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
@@ -2690,13 +2736,13 @@
                 }
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
-                // Клиент переносит карточку оптимистично. Возвращаем последнюю
-                // подтверждённую сервером структуру, если атомарный перенос не удался.
-                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
                 this.sendPwrtMessage('ERROR', {
                     message: 'Ошибка переноса этапа между деталями',
                     details: error && error.message ? error.message : 'Unknown error',
                 }, message.requestId, origin);
+                // ERROR завершает коррелированную клиентскую операцию. INIT без
+                // requestId затем восстанавливает последнюю подтверждённую структуру.
+                this.sendPwrtMessage('INIT', this.initData, null, origin);
             }
         }
 

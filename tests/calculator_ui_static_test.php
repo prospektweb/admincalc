@@ -4,6 +4,7 @@ $integration = file_get_contents(__DIR__ . '/../install/assets/js/integration.js
 $calculator = file_get_contents(__DIR__ . '/../install/assets/js/calculator.js');
 $elementDataService = file_get_contents(__DIR__ . '/../lib/Calculator/ElementDataService.php');
 $detailHandler = file_get_contents(__DIR__ . '/../lib/Services/DetailHandler.php');
+$customFieldsService = file_get_contents(__DIR__ . '/../lib/Services/CustomFieldsService.php');
 $initPayloadService = file_get_contents(__DIR__ . '/../lib/Calculator/InitPayloadService.php');
 $presetEnrichmentService = file_get_contents(__DIR__ . '/../lib/Services/PresetEnrichmentService.php');
 $catalogMetaService = file_get_contents(__DIR__ . '/../lib/Services/CatalogMetaService.php');
@@ -13,7 +14,7 @@ $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/in
 $engineBundlePath = __DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js';
 $engineBundle = is_file($engineBundlePath) ? file_get_contents($engineBundlePath) : $appBundle;
 
-if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($aiGatewayService) || !is_string($installer) || !is_string($appBundle) || !is_string($engineBundle)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($aiGatewayService) || !is_string($installer) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
@@ -51,7 +52,11 @@ $checks = [
     [$integration, "case 'SAVE_STAGE_ACTIVATION_REQUEST'", 'Every stage must support an optional activation condition'],
     [$integration, "propertyCode: 'ACTIVATION_CONDITION'", 'Stage activation condition must be persisted in Bitrix'],
     [$integration, "case 'CREATE_CUSTOM_FIELD_REQUEST'", 'Stage settings must route inline custom-field creation through Bitrix'],
+    [$integration, 'payload.customFieldIds', 'Custom fields must be selected by the internal UI instead of a Bitrix picker'],
+    [$integration, "case 'CHANGE_ROOT_DETAIL_SORT_REQUEST'", 'Detail columns must support persisted root-level reordering'],
     [$elementDataService, "case 'createCustomField':", 'Bitrix handler must support inline custom-field creation'],
+    [$elementDataService, "'PREVIEW_TEXT' => trim((string)(\$field['description'] ?? ''))", 'A created custom field must persist its description'],
+    [$customFieldsService, "'description' => trim(strip_tags((string)(\$element['PREVIEW_TEXT'] ?? '')))", 'Custom-field metadata must expose descriptions to the internal selector'],
     [$elementDataService, "'DESCRIPTION' => (string)(\$field['defaultValue'] ?? '') . '|Y'", 'A newly created custom field must be activated for its stage immediately'],
     [$integration, "propertyCode: 'OPTIONS_EQUIPMENT'", 'Equipment matching must persist through the iframe bridge'],
     [$appBundle, 'DESCRIPTION.CODE.', 'Published UI bundle must use stable described-property selectors'],
@@ -83,14 +88,28 @@ $checks = [
     [$catalogMetaService, "'adminUrl' => \$this->buildAdminUrl", 'Unified technical cards must expose their Bitrix element link beside the internal ID'],
     [$appBundle, 'Описание параметра', 'All parameter editors must expose the third human-readable description field'],
     [$appBundle, 'btn-stage-settings', 'Every stage tab must expose unified settings'],
+    [$appBundle, 'detail-kanban-board', 'Published UI must expose the detail-column kanban board'],
+    [$appBundle, 'virtual-detail-column', 'Published UI must expose virtual detail-column placeholders'],
+    [$appBundle, 'stage-folder-body', 'Published UI must expose the attached stage-folder body'],
+    [$appBundle, 'data-stage-drop-slot', 'Published UI must expose stable stage drop slots'],
+    [$appBundle, 'stageDragOverlay', 'Published UI must move an exact stage-card clone during drag'],
     [$appBundle, 'Активировать этап по условию', 'Stage settings must expose conditional activation'],
     [$appBundle, 'stage-activation-condition-select', 'Stage settings must select a global activation flag'],
     [$appBundle, 'Дополнительные параметры этапа', 'Stage settings must own custom-field selection'],
-    [$appBundle, 'Создать и активировать', 'Stage settings must create and activate a custom field inline'],
+    [$appBundle, 'Создать', 'Stage settings must create a custom field inline'],
     [$appBundle, 'Описание отсутствует', 'Equipment settings must show an explicit empty-description state'],
     [$appBundle, 'defaultValue', 'Calculation reports must open their first detail level by default'],
     [$engineBundle, 'OPTIONS_EQUIPMENT', 'Published calculation engine must apply equipment mapping'],
     [$engineBundle, 'OUTPUTS_RUNTIME', 'Published calculation engine must preserve legacy runtime output paths'],
+    [$detailHandler, 'FOR UPDATE', 'Stage mutations must lock detail rows before validating their exact stage lists'],
+    [$detailHandler, 'count($sorting) !== count(array_unique($sorting))', 'Same-detail reorder must reject duplicate stage IDs'],
+    [$detailHandler, 'count($sourceSorting) !== count(array_unique($sourceSorting))', 'Cross-detail move must reject duplicate stage IDs'],
+    [$detailHandler, '$connection->startTransaction()', 'Stage mutations must run inside a database transaction'],
+    [$detailHandler, '$connection->rollbackTransaction()', 'Failed stage mutations must roll back'],
+    [$integration, "this.sendPwrtMessage('PROCESS_MESSAGE', {", 'Committed stage mutations must have a correlated success acknowledgement even when enrichment fails'],
+    [$elementDataService, "'enrichmentWarning'", 'Enrichment failure must not relabel an already committed stage mutation as failed'],
+    [$elementDataService, "case 'changeRootDetailSort':", 'Root detail-column order must be handled by the server'],
+    [$elementDataService, "'CALC_DETAILS' => \$sorting", 'Root detail-column order must be written exactly'],
 ];
 
 foreach ($checks as [$source, $needle, $message]) {

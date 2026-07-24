@@ -37,7 +37,7 @@ class CustomFieldsService
             ],
             false,
             false,
-            ['ID', 'NAME', 'CODE', 'IBLOCK_ID']
+            ['ID', 'NAME', 'CODE', 'IBLOCK_ID', 'PREVIEW_TEXT']
         );
 
         while ($element = $rsElements->Fetch()) {
@@ -69,6 +69,7 @@ class CustomFieldsService
             $fieldConfig = [
                 'code' => $element['CODE'] ?? '',
                 'name' => $element['NAME'],
+                'description' => trim(strip_tags((string)($element['PREVIEW_TEXT'] ?? ''))),
                 'type' => $fieldType,
                 'required' => ($props['IS_REQUIRED'] ??  'N') === 'Y',
             ];
