@@ -57,6 +57,12 @@ class ElementDataService
                         );
                         continue 2;
 
+                    case 'generateStageLogicProposal':
+                        $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->generateStageLogicProposal(
+                            is_array($request['request'] ?? null) ? $request['request'] : []
+                        );
+                        continue 2;
+
                     case 'getCatalogEntityMeta':
                         $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->get($request);
                         continue 2;

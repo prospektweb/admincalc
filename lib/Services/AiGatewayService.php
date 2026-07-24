@@ -16,6 +16,8 @@ final class AiGatewayService
     private const DEFAULT_MODEL = 'openai/gpt-5.4-mini';
     private const LOGIC_REQUEST_SCHEMA = 'prospektweb.calc.ai-logic-request/v1';
     private const LOGIC_PROPOSAL_SCHEMA = 'prospektweb.calc.ai-logic-proposal/v1';
+    private const STAGE_LOGIC_REQUEST_SCHEMA = 'prospektweb.calc.ai-stage-logic-request/v1';
+    private const STAGE_LOGIC_PROPOSAL_SCHEMA = 'prospektweb.calc.ai-stage-logic-proposal/v1';
     private const LOGIC_SYMBOL_TYPES = ['number', 'string', 'bool', 'array', 'any', 'unknown'];
     private const LOGIC_SYMBOL_KINDS = ['input', 'variable', 'global-variable', 'global-constant'];
     private const LOGIC_FORBIDDEN_KEYS = [
@@ -39,6 +41,7 @@ final class AiGatewayService
         'material_description' => ['{название материала}' => 'materialName', '{Источники данных}' => 'sourceLinks'],
         'material_variant_description' => ['{название варианта материала}' => 'materialVariantName', '{название материала}' => 'materialName', '{анонс материала}' => 'materialPreview', '{Источники данных}' => 'sourceLinks'],
         'logic_formula' => [],
+        'logic_stage' => [],
     ];
     private const STRUCTURED_ZONES = [
         'calculator_description',
@@ -224,6 +227,87 @@ final class AiGatewayService
         ];
     }
 
+    public function generateStageLogicProposal(array $request): array
+    {
+        $this->assertAdmin();
+        $this->assertNoForbiddenLogicKeys($request);
+        $cleanRequest = $this->sanitizeStageLogicRequest($request);
+
+        $template = null;
+        foreach ($this->getTemplates() as $candidate) {
+            if ((string)($candidate['zone'] ?? '') === 'logic_stage') {
+                $template = $candidate;
+                break;
+            }
+        }
+        if ($template === null || trim((string)($template['model'] ?? '')) === '') {
+            throw new \RuntimeException('Для AI-конструктора этапа не настроен шаблон или модель');
+        }
+
+        $responseShape = [
+            'schema' => self::STAGE_LOGIC_PROPOSAL_SCHEMA,
+            'baseFingerprint' => $cleanRequest['baseFingerprint'],
+            'status' => 'proposal | needs-clarification | cannot-propose',
+            'summary' => '',
+            'assumptions' => [''],
+            'questions' => [['key' => '', 'text' => '']],
+            'draft' => [
+                'inputs' => [[
+                    'code' => '',
+                    'title' => '',
+                    'description' => '',
+                    'type' => 'number | string | bool | array | any | unknown',
+                    'sourceRef' => 'source_001',
+                ]],
+                'variables' => [[
+                    'code' => '',
+                    'title' => '',
+                    'description' => '',
+                    'type' => 'number | string | bool | array | any | unknown',
+                    'formula' => '',
+                ]],
+                'results' => [['key' => 'width', 'source' => '']],
+                'additionalResults' => [['code' => '', 'title' => '', 'source' => '']],
+            ],
+        ];
+        $systemPrompt = trim((string)$template['prompt'])
+            . "\n\nReturn exactly one JSON object and no Markdown."
+            . "\nBuild the complete calculation draft for exactly one stage. Inputs must bind only by sourceRef values from availableSources. Never emit sourcePath or any ID."
+            . "\nUse only these formula functions: if, round, ceil, floor, min, max, abs, trim, lower, upper, len, contains, replace, toNumber, toString, split, join, get, getPrice, regexMatch, regexExtract."
+            . "\nVariables are evaluated in array order. A formula may reference inputs, globals, and only earlier variables."
+            . "\nResult key must be one of width, length, height, weight, purchasingPrice, basePrice, operationPurchasingPrice, operationBasePrice, materialPurchasingPrice, materialBasePrice."
+            . "\nPrefer explicit intermediate variables and meaningful English ASCII codes. Preserve Russian titles and descriptions."
+            . "\nIf essential production rules are missing, return needs-clarification with one to three precise questions and draft=null. Do not guess norms, spoilage, make-ready, pricing, dimensions, or unit conversions."
+            . "\nFor status=proposal return questions=[] and a complete draft. Copy baseFingerprint exactly."
+            . "\nRequired response shape:\n"
+            . json_encode($responseShape, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+
+        $startedAt = microtime(true);
+        $response = $this->request('POST', '/chat/completions', [
+            'model' => (string)$template['model'],
+            'messages' => [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user', 'content' => json_encode($cleanRequest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
+            ],
+        ]);
+        $latencyMs = (int)round((microtime(true) - $startedAt) * 1000);
+        $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
+        if ($content === '') throw new \RuntimeException('AI Gateway вернул пустой проект этапа');
+        $proposal = $this->parseStageLogicProposal($content, $cleanRequest);
+        $usage = is_array($response['usage'] ?? null) ? $response['usage'] : [];
+
+        return [
+            'status' => 'ok',
+            'proposal' => $proposal,
+            'usage' => [
+                'model' => (string)$template['model'],
+                'inputTokens' => (int)($usage['prompt_tokens'] ?? $usage['input_tokens'] ?? 0),
+                'outputTokens' => (int)($usage['completion_tokens'] ?? $usage['output_tokens'] ?? 0),
+                'latencyMs' => $latencyMs,
+            ],
+        ];
+    }
+
     public function getModels(bool $forceRefresh = false): array
     {
         $this->assertAdmin();
@@ -302,6 +386,10 @@ final class AiGatewayService
             'logic_formula' => [
                 'AI-помощник формулы',
                 'Ты помогаешь редактору полиграфических калькуляторов составить одну формулу для уже существующей переменной. Соблюдай доступный контракт и не придумывай источники данных, внутренние идентификаторы или связи.',
+            ],
+            'logic_stage' => [
+                'AI-конструктор логики этапа',
+                'Ты проектируешь полную расчётную логику одного этапа полиграфического изделия. Учитывай назначение этапа, выбранные калькулятор, операцию, оборудование и материал, доступные источники и глобальные значения. Построй связанные входы, упорядоченные переменные с формулами и результаты этапа. Не придумывай отсутствующие источники и не используй внутренние ID или пути.',
             ],
             'preset_description' => ['Описание пресета', 'Напиши краткий анонс пресета. Пресет: {название пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
             'detail_description' => ['Описание детали', 'Напиши краткий технический анонс детали. Деталь: {название детали}. Пресет: {название пресета}. Анонс пресета: {анонс пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
@@ -449,6 +537,240 @@ final class AiGatewayService
             'assumptions' => $assumptions,
             'questions' => $questions,
             'operations' => $operations,
+        ];
+    }
+
+    private function sanitizeStageLogicRequest(array $request): array
+    {
+        $this->assertAllowedLogicKeys($request, 'request', ['schema', 'baseFingerprint', 'intent', 'stage', 'currentLogic', 'availableSources', 'globals']);
+        if (($request['schema'] ?? null) !== self::STAGE_LOGIC_REQUEST_SCHEMA) {
+            throw new \InvalidArgumentException('Неподдерживаемая схема AI-запроса этапа');
+        }
+        $fingerprint = trim((string)($request['baseFingerprint'] ?? ''));
+        if (!preg_match('/^sha256:[a-f0-9]{64}$/', $fingerprint)) throw new \InvalidArgumentException('Некорректный fingerprint логики этапа');
+
+        $stage = is_array($request['stage'] ?? null) ? $request['stage'] : [];
+        $this->assertAllowedLogicKeys($stage, 'stage', ['name', 'calculatorName', 'productName', 'entities']);
+        $entities = [];
+        foreach (array_slice(is_array($stage['entities'] ?? null) ? $stage['entities'] : [], 0, 12) as $index => $entity) {
+            if (!is_array($entity)) throw new \InvalidArgumentException('stage.entities должен содержать объекты');
+            $this->assertAllowedLogicKeys($entity, 'stage.entities[' . $index . ']', ['kind', 'name', 'description']);
+            $entities[] = [
+                'kind' => $this->logicOptionalText($entity['kind'] ?? '', 40),
+                'name' => $this->logicOptionalText($entity['name'] ?? '', 300),
+                'description' => $this->logicOptionalText($entity['description'] ?? '', 1000),
+            ];
+        }
+
+        $sources = [];
+        $sourceRefs = [];
+        $rawSources = is_array($request['availableSources'] ?? null) ? $request['availableSources'] : [];
+        if (count($rawSources) > 240) throw new \InvalidArgumentException('Слишком много доступных источников этапа');
+        foreach ($rawSources as $index => $source) {
+            if (!is_array($source)) throw new \InvalidArgumentException('availableSources должен содержать объекты');
+            $this->assertAllowedLogicKeys($source, 'availableSources[' . $index . ']', ['ref', 'suggestedCode', 'title', 'description', 'type', 'group']);
+            $ref = trim((string)($source['ref'] ?? ''));
+            if (!preg_match('/^source_[0-9]{3}$/', $ref) || isset($sourceRefs[$ref])) throw new \InvalidArgumentException('Некорректный или повторный sourceRef');
+            $sourceRefs[$ref] = true;
+            $type = trim((string)($source['type'] ?? 'unknown'));
+            if (!in_array($type, self::LOGIC_SYMBOL_TYPES, true)) $type = 'unknown';
+            $sources[] = [
+                'ref' => $ref,
+                'suggestedCode' => $this->logicCode($source['suggestedCode'] ?? '', 'availableSources[' . $index . '].suggestedCode'),
+                'title' => $this->logicOptionalText($source['title'] ?? '', 200),
+                'description' => $this->logicOptionalText($source['description'] ?? '', 500),
+                'type' => $type,
+                'group' => $this->logicOptionalText($source['group'] ?? '', 120),
+            ];
+        }
+
+        $sanitizeSymbols = function ($rows, string $label, bool $withFormula = false) {
+            $result = [];
+            if (!is_array($rows)) return $result;
+            foreach (array_slice($rows, 0, 150) as $index => $row) {
+                if (!is_array($row)) throw new \InvalidArgumentException($label . ' должен содержать объекты');
+                $allowed = ['code', 'title', 'description', 'type'];
+                if ($withFormula) $allowed[] = 'formula';
+                else $allowed[] = 'sourceRef';
+                $this->assertAllowedLogicKeys($row, $label . '[' . $index . ']', $allowed);
+                $type = trim((string)($row['type'] ?? 'unknown'));
+                if (!in_array($type, self::LOGIC_SYMBOL_TYPES, true)) $type = 'unknown';
+                $item = [
+                    'code' => $this->logicCode($row['code'] ?? '', $label . '[' . $index . '].code'),
+                    'title' => $this->logicOptionalText($row['title'] ?? '', 200),
+                    'description' => $this->logicOptionalText($row['description'] ?? '', 500),
+                    'type' => $type,
+                ];
+                if ($withFormula) $item['formula'] = $this->logicOptionalText($row['formula'] ?? '', 6000);
+                elseif (trim((string)($row['sourceRef'] ?? '')) !== '') $item['sourceRef'] = trim((string)$row['sourceRef']);
+                $result[] = $item;
+            }
+            return $result;
+        };
+
+        $current = is_array($request['currentLogic'] ?? null) ? $request['currentLogic'] : [];
+        $this->assertAllowedLogicKeys($current, 'currentLogic', ['inputs', 'variables', 'results']);
+        $results = [];
+        foreach (is_array($current['results'] ?? null) ? $current['results'] : [] as $key => $value) {
+            if (!is_string($key) || mb_strlen($key) > 60) continue;
+            $results[$key] = $this->logicOptionalText($value, 120);
+        }
+
+        $globals = [];
+        foreach (array_slice(is_array($request['globals'] ?? null) ? $request['globals'] : [], 0, 100) as $index => $global) {
+            if (!is_array($global)) throw new \InvalidArgumentException('globals должен содержать объекты');
+            $this->assertAllowedLogicKeys($global, 'globals[' . $index . ']', ['code', 'title', 'description', 'type', 'kind']);
+            $kind = trim((string)($global['kind'] ?? ''));
+            if (!in_array($kind, ['variable', 'constant'], true)) throw new \InvalidArgumentException('Некорректный kind глобального значения');
+            $type = trim((string)($global['type'] ?? 'any'));
+            if (!in_array($type, self::LOGIC_SYMBOL_TYPES, true)) $type = 'any';
+            $globals[] = [
+                'code' => $this->logicCode($global['code'] ?? '', 'globals[' . $index . '].code'),
+                'title' => $this->logicOptionalText($global['title'] ?? '', 200),
+                'description' => $this->logicOptionalText($global['description'] ?? '', 500),
+                'type' => $type,
+                'kind' => $kind,
+            ];
+        }
+
+        return [
+            'schema' => self::STAGE_LOGIC_REQUEST_SCHEMA,
+            'baseFingerprint' => $fingerprint,
+            'intent' => $this->logicText($request['intent'] ?? '', 'intent', 12000),
+            'stage' => [
+                'name' => $this->logicOptionalText($stage['name'] ?? '', 300),
+                'calculatorName' => $this->logicOptionalText($stage['calculatorName'] ?? '', 300),
+                'productName' => $this->logicOptionalText($stage['productName'] ?? '', 300),
+                'entities' => $entities,
+            ],
+            'currentLogic' => [
+                'inputs' => $sanitizeSymbols($current['inputs'] ?? [], 'currentLogic.inputs'),
+                'variables' => $sanitizeSymbols($current['variables'] ?? [], 'currentLogic.variables', true),
+                'results' => $results,
+            ],
+            'availableSources' => $sources,
+            'globals' => $globals,
+        ];
+    }
+
+    private function parseStageLogicProposal(string $content, array $request): array
+    {
+        $json = trim($content);
+        if (preg_match('/^```(?:json)?\s*(.*?)\s*```$/si', $json, $matches)) $json = trim($matches[1]);
+        $proposal = json_decode($json, true);
+        if (!is_array($proposal) || array_values($proposal) === $proposal) throw new \RuntimeException('AI вернул невалидный JSON проекта этапа');
+        $this->assertNoForbiddenLogicKeys($proposal);
+        $this->assertAllowedLogicKeys($proposal, 'proposal', ['schema', 'baseFingerprint', 'status', 'summary', 'assumptions', 'questions', 'draft']);
+        if (($proposal['schema'] ?? null) !== self::STAGE_LOGIC_PROPOSAL_SCHEMA) throw new \RuntimeException('AI вернул неподдерживаемую схему проекта этапа');
+        if (($proposal['baseFingerprint'] ?? null) !== $request['baseFingerprint']) throw new \RuntimeException('AI-проект относится к другой версии этапа');
+        $status = trim((string)($proposal['status'] ?? ''));
+        if (!in_array($status, ['proposal', 'needs-clarification', 'cannot-propose'], true)) throw new \RuntimeException('AI вернул неизвестный статус проекта этапа');
+
+        $assumptions = [];
+        foreach (array_slice(is_array($proposal['assumptions'] ?? null) ? $proposal['assumptions'] : [], 0, 15) as $value) {
+            $assumptions[] = $this->logicText($value, 'assumption', 600);
+        }
+        $questions = [];
+        $rawQuestions = is_array($proposal['questions'] ?? null) ? $proposal['questions'] : [];
+        if (count($rawQuestions) > 3) throw new \RuntimeException('AI вернул больше трёх уточняющих вопросов');
+        foreach ($rawQuestions as $index => $question) {
+            if (!is_array($question)) throw new \RuntimeException('Некорректный вопрос AI');
+            $this->assertAllowedLogicKeys($question, 'questions[' . $index . ']', ['key', 'text']);
+            $questions[] = [
+                'key' => $this->logicCode($question['key'] ?? '', 'questions[' . $index . '].key'),
+                'text' => $this->logicText($question['text'] ?? '', 'questions[' . $index . '].text', 500),
+            ];
+        }
+        if ($status !== 'proposal') {
+            if (($proposal['draft'] ?? null) !== null) throw new \RuntimeException('AI не должен возвращать draft до уточнения');
+            if ($status === 'needs-clarification' && count($questions) === 0) throw new \RuntimeException('AI не вернул уточняющий вопрос');
+            return [
+                'schema' => self::STAGE_LOGIC_PROPOSAL_SCHEMA,
+                'baseFingerprint' => $request['baseFingerprint'],
+                'status' => $status,
+                'summary' => $this->logicText($proposal['summary'] ?? '', 'summary', 1200),
+                'assumptions' => $assumptions,
+                'questions' => $questions,
+                'draft' => null,
+            ];
+        }
+        if (count($questions) !== 0) throw new \RuntimeException('Готовый AI-проект не должен содержать вопросы');
+        $draft = is_array($proposal['draft'] ?? null) ? $proposal['draft'] : null;
+        if ($draft === null) throw new \RuntimeException('AI не вернул draft этапа');
+        $this->assertAllowedLogicKeys($draft, 'draft', ['inputs', 'variables', 'results', 'additionalResults']);
+        $allowedRefs = array_fill_keys(array_column($request['availableSources'], 'ref'), true);
+        $symbols = [];
+        $inputs = [];
+        $rawInputs = is_array($draft['inputs'] ?? null) ? $draft['inputs'] : [];
+        if (count($rawInputs) > 100) throw new \RuntimeException('Слишком много входов в AI-проекте');
+        foreach ($rawInputs as $index => $input) {
+            if (!is_array($input)) throw new \RuntimeException('draft.inputs должен содержать объекты');
+            $this->assertAllowedLogicKeys($input, 'draft.inputs[' . $index . ']', ['code', 'title', 'description', 'type', 'sourceRef']);
+            $code = $this->logicCode($input['code'] ?? '', 'draft.inputs[' . $index . '].code');
+            if (isset($symbols[$code])) throw new \RuntimeException('Код в AI-проекте объявлен повторно');
+            $symbols[$code] = 'input';
+            $ref = trim((string)($input['sourceRef'] ?? ''));
+            if (!isset($allowedRefs[$ref])) throw new \RuntimeException('AI сослался на недоступный источник');
+            $type = trim((string)($input['type'] ?? 'unknown'));
+            if (!in_array($type, self::LOGIC_SYMBOL_TYPES, true)) throw new \RuntimeException('Некорректный тип входа AI');
+            $inputs[] = [
+                'code' => $code,
+                'title' => $this->logicOptionalText($input['title'] ?? '', 200),
+                'description' => $this->logicOptionalText($input['description'] ?? '', 500),
+                'type' => $type,
+                'sourceRef' => $ref,
+            ];
+        }
+        $variables = [];
+        $rawVariables = is_array($draft['variables'] ?? null) ? $draft['variables'] : [];
+        if (count($rawVariables) > 150) throw new \RuntimeException('Слишком много переменных в AI-проекте');
+        foreach ($rawVariables as $index => $variable) {
+            if (!is_array($variable)) throw new \RuntimeException('draft.variables должен содержать объекты');
+            $this->assertAllowedLogicKeys($variable, 'draft.variables[' . $index . ']', ['code', 'title', 'description', 'type', 'formula']);
+            $code = $this->logicCode($variable['code'] ?? '', 'draft.variables[' . $index . '].code');
+            if (isset($symbols[$code])) throw new \RuntimeException('Код в AI-проекте объявлен повторно');
+            $symbols[$code] = 'variable';
+            $type = trim((string)($variable['type'] ?? 'unknown'));
+            if (!in_array($type, self::LOGIC_SYMBOL_TYPES, true)) throw new \RuntimeException('Некорректный тип переменной AI');
+            $variables[] = [
+                'code' => $code,
+                'title' => $this->logicOptionalText($variable['title'] ?? '', 200),
+                'description' => $this->logicOptionalText($variable['description'] ?? '', 500),
+                'type' => $type,
+                'formula' => $this->logicText($variable['formula'] ?? '', 'draft.variables[' . $index . '].formula', 6000),
+            ];
+        }
+        $allowedResultKeys = ['width', 'length', 'height', 'weight', 'purchasingPrice', 'basePrice', 'operationPurchasingPrice', 'operationBasePrice', 'materialPurchasingPrice', 'materialBasePrice'];
+        $results = [];
+        foreach (is_array($draft['results'] ?? null) ? $draft['results'] : [] as $index => $result) {
+            if (!is_array($result)) throw new \RuntimeException('draft.results должен содержать объекты');
+            $this->assertAllowedLogicKeys($result, 'draft.results[' . $index . ']', ['key', 'source']);
+            $key = trim((string)($result['key'] ?? ''));
+            $source = $this->logicCode($result['source'] ?? '', 'draft.results[' . $index . '].source');
+            if (!in_array($key, $allowedResultKeys, true) || !isset($symbols[$source])) throw new \RuntimeException('Некорректная связь результата AI');
+            $results[] = ['key' => $key, 'source' => $source];
+        }
+        $additional = [];
+        foreach (array_slice(is_array($draft['additionalResults'] ?? null) ? $draft['additionalResults'] : [], 0, 30) as $index => $result) {
+            if (!is_array($result)) throw new \RuntimeException('draft.additionalResults должен содержать объекты');
+            $this->assertAllowedLogicKeys($result, 'draft.additionalResults[' . $index . ']', ['code', 'title', 'source']);
+            $source = $this->logicCode($result['source'] ?? '', 'draft.additionalResults[' . $index . '].source');
+            if (!isset($symbols[$source])) throw new \RuntimeException('Дополнительный результат ссылается на неизвестный код');
+            $additional[] = [
+                'code' => $this->logicCode($result['code'] ?? '', 'draft.additionalResults[' . $index . '].code'),
+                'title' => $this->logicText($result['title'] ?? '', 'draft.additionalResults[' . $index . '].title', 200),
+                'source' => $source,
+            ];
+        }
+
+        return [
+            'schema' => self::STAGE_LOGIC_PROPOSAL_SCHEMA,
+            'baseFingerprint' => $request['baseFingerprint'],
+            'status' => 'proposal',
+            'summary' => $this->logicText($proposal['summary'] ?? '', 'summary', 1200),
+            'assumptions' => $assumptions,
+            'questions' => [],
+            'draft' => ['inputs' => $inputs, 'variables' => $variables, 'results' => $results, 'additionalResults' => $additional],
         ];
     }
 

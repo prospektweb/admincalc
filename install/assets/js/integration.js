@@ -298,6 +298,9 @@
                 case 'GENERATE_LOGIC_PROPOSAL_REQUEST':
                     await this.handleGenerateLogicProposalRequest(message, origin);
                     break;
+                case 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST':
+                    await this.handleGenerateStageLogicProposalRequest(message, origin);
+                    break;
                 case 'GET_CATALOG_ENTITY_META_REQUEST':
                     await this.handleGetCatalogEntityMetaRequest(message, origin);
                     break;
@@ -383,7 +386,7 @@
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
-                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST',
+                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
@@ -1306,6 +1309,27 @@
                 this.sendPwrtMessage('AI_LOGIC_PROPOSAL_RESPONSE', {
                     status: 'error',
                     message: error && error.message ? error.message : 'Не удалось сформировать предложение формулы',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleGenerateStageLogicProposalRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'generateStageLogicProposal',
+                    request: payload,
+                }]);
+                this.sendPwrtMessage(
+                    'AI_STAGE_LOGIC_PROPOSAL_RESPONSE',
+                    Array.isArray(result) ? result[0] : { status: 'error', message: 'AI не вернул проект логики этапа' },
+                    message.requestId,
+                    origin
+                );
+            } catch (error) {
+                this.sendPwrtMessage('AI_STAGE_LOGIC_PROPOSAL_RESPONSE', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось сформировать проект логики этапа',
                 }, message.requestId, origin);
             }
         }
@@ -3818,7 +3842,7 @@
         async fetchRefreshData(items) {
             const debugItems = Array.isArray(items) ? items.map(item => {
                 if (!item || typeof item !== 'object') return item;
-                if (item.action === 'generateLogicProposal') {
+                if (item.action === 'generateLogicProposal' || item.action === 'generateStageLogicProposal') {
                     const request = item.request && typeof item.request === 'object' ? item.request : {};
                     return {
                         action: item.action,
@@ -3827,8 +3851,11 @@
                             baseFingerprint: request.baseFingerprint || '',
                             variableCode: request.variable && request.variable.code ? request.variable.code : '',
                             availableSymbolsCount: Array.isArray(request.availableSymbols) ? request.availableSymbols.length : 0,
+                            availableSourcesCount: Array.isArray(request.availableSources) ? request.availableSources.length : 0,
+                            entitiesCount: request.stage && Array.isArray(request.stage.entities) ? request.stage.entities.length : 0,
                             intent: '[REDACTED]',
                             formula: '[REDACTED]',
+                            currentLogic: '[REDACTED]',
                         },
                     };
                 }
