@@ -17,6 +17,7 @@ $checks = [
     [$gateway, "prospektweb.calc.ai-stage-logic-proposal/v1", 'stage proposal schema'],
     [$gateway, "generateStageLogicProposal", 'gateway method'],
     [$gateway, "availableSources", 'source allowlist'],
+    [$gateway, "count(\$rawSources) > 120", 'source count limit'],
     [$gateway, "sourceRef", 'opaque source binding'],
     [$gateway, "draft=null", 'clarification boundary'],
     [$gateway, "Never emit sourcePath or any ID", 'prompt safety boundary'],

@@ -565,7 +565,7 @@ final class AiGatewayService
         $sources = [];
         $sourceRefs = [];
         $rawSources = is_array($request['availableSources'] ?? null) ? $request['availableSources'] : [];
-        if (count($rawSources) > 240) throw new \InvalidArgumentException('Слишком много доступных источников этапа');
+        if (count($rawSources) > 120) throw new \InvalidArgumentException('Слишком много доступных источников этапа');
         foreach ($rawSources as $index => $source) {
             if (!is_array($source)) throw new \InvalidArgumentException('availableSources должен содержать объекты');
             $this->assertAllowedLogicKeys($source, 'availableSources[' . $index . ']', ['ref', 'suggestedCode', 'title', 'description', 'type', 'group']);
