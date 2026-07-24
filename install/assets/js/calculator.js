@@ -525,7 +525,15 @@ var ProspekwebCalc = {
                 return;
             }
 
+            var nativeExpand = dialog.DIV.querySelector('.bx-core-adm-icon-expand');
+            if (nativeExpand && nativeExpand.dataset.prospektwebExpanded !== 'Y') {
+                nativeExpand.dataset.prospektwebExpanded = 'Y';
+                nativeExpand.click();
+            }
+
             dialog.DIV.classList.add('prospektweb-calc-fullscreen-dialog');
+            dialog.DIV.style.position = 'fixed';
+            dialog.DIV.style.inset = '0';
             dialog.DIV.style.left = '0';
             dialog.DIV.style.top = '0';
             dialog.DIV.style.width = '100vw';
@@ -533,12 +541,64 @@ var ProspekwebCalc = {
             dialog.DIV.style.maxWidth = 'none';
             dialog.DIV.style.maxHeight = 'none';
             dialog.DIV.style.margin = '0';
+            dialog.DIV.style.padding = '0';
+            dialog.DIV.style.border = '0';
+            dialog.DIV.style.borderRadius = '0';
+            dialog.DIV.style.boxSizing = 'border-box';
+            dialog.DIV.style.overflow = 'hidden';
             dialog.DIV.style.transform = 'none';
+
+            var head = dialog.DIV.querySelector('.bx-core-adm-dialog-head');
+            if (head) {
+                head.style.setProperty('display', 'none', 'important');
+            }
+
+            var buttons = dialog.DIV.querySelector('.bx-core-adm-dialog-buttons');
+            if (buttons) {
+                buttons.style.setProperty('display', 'none', 'important');
+            }
+
+            var tabs = dialog.DIV.querySelector('.bx-core-adm-dialog-tabs');
+            if (tabs) {
+                tabs.style.setProperty('display', 'none', 'important');
+            }
+
+            var wrap = dialog.DIV.querySelector('.bx-core-adm-dialog-content-wrap');
+            if (wrap) {
+                wrap.style.setProperty('position', 'absolute', 'important');
+                wrap.style.setProperty('inset', '0', 'important');
+                wrap.style.setProperty('width', '100%', 'important');
+                wrap.style.setProperty('height', '100%', 'important');
+                wrap.style.setProperty('max-height', 'none', 'important');
+                wrap.style.setProperty('margin', '0', 'important');
+                wrap.style.setProperty('padding', '0', 'important');
+                wrap.style.setProperty('box-sizing', 'border-box', 'important');
+                wrap.style.setProperty('overflow', 'hidden', 'important');
+            }
 
             var content = dialog.DIV.querySelector('.bx-core-adm-dialog-content');
             if (content) {
-                content.style.width = '100%';
-                content.style.height = '100%';
+                content.style.setProperty('width', '100%', 'important');
+                content.style.setProperty('height', '100%', 'important');
+                content.style.setProperty('max-height', 'none', 'important');
+                content.style.setProperty('margin', '0', 'important');
+                content.style.setProperty('padding', '0', 'important');
+                content.style.setProperty('box-sizing', 'border-box', 'important');
+                content.style.setProperty('overflow', 'hidden', 'important');
+            }
+
+            var frame = dialog.DIV.querySelector('.bx-core-adm-dialog-content iframe');
+            if (frame) {
+                frame.style.setProperty('width', '100%', 'important');
+                frame.style.setProperty('height', '100%', 'important');
+                frame.style.setProperty('margin', '0', 'important');
+                frame.style.setProperty('border', '0', 'important');
+                frame.style.setProperty('display', 'block', 'important');
+            }
+
+            var resizer = dialog.DIV.querySelector('.bx-core-resizer');
+            if (resizer) {
+                resizer.style.setProperty('display', 'none', 'important');
             }
 
             document.documentElement.classList.add('prospektweb-calc-dialog-open');

@@ -103,20 +103,23 @@ class AdminHandler
         
         // Добавляем CSS
         $cssPath = '/local/css/prospektweb.calc/calculator.css';
-        if (file_exists(Application::getDocumentRoot() . $cssPath)) {
-            $asset->addCss($cssPath);
+        $cssFile = Application::getDocumentRoot() . $cssPath;
+        if (file_exists($cssFile)) {
+            $asset->addCss($cssPath . '?v=' . (int)filemtime($cssFile));
         }
 
         // Добавляем integration.js перед calculator.js (для поддержки нового протокола postMessage)
         $jsIntegrationPath = '/local/js/prospektweb.calc/integration.js';
-        if (file_exists(Application::getDocumentRoot() . $jsIntegrationPath)) {
-            $asset->addJs($jsIntegrationPath);
+        $jsIntegrationFile = Application::getDocumentRoot() . $jsIntegrationPath;
+        if (file_exists($jsIntegrationFile)) {
+            $asset->addJs($jsIntegrationPath . '?v=' . (int)filemtime($jsIntegrationFile));
         }
 
         // Добавляем JS
         $jsPath = '/local/js/prospektweb.calc/calculator.js';
-        if (file_exists(Application::getDocumentRoot() . $jsPath)) {
-            $asset->addJs($jsPath);
+        $jsFile = Application::getDocumentRoot() . $jsPath;
+        if (file_exists($jsFile)) {
+            $asset->addJs($jsPath . '?v=' . (int)filemtime($jsFile));
         }
 
         $productGeneratorPath = '/local/js/prospektweb.calc/product_generator.js';

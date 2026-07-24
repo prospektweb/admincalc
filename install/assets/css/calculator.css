@@ -36,7 +36,8 @@ body.prospektweb-calc-dialog-open {
 
 .prospektweb-calc-fullscreen-dialog .bx-core-adm-dialog-content-wrap,
 .prospektweb-calc-fullscreen-dialog .bx-core-adm-dialog-content,
-.prospektweb-calc-fullscreen-dialog .bx-core-adm-dialog-content > div {
+.prospektweb-calc-fullscreen-dialog .bx-core-adm-dialog-content > div,
+.prospektweb-calc-fullscreen-dialog .bx-core-adm-dialog-content iframe {
     box-sizing: border-box !important;
     width: 100% !important;
     height: 100% !important;
