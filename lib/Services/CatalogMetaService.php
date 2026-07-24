@@ -19,10 +19,13 @@ final class CatalogMetaService
         $type = (string)($request['entityType'] ?? '');
         $id = (int)($request['entityId'] ?? 0);
         $iblocks = $this->getIblocks($type);
-        if ($id <= 0) throw new \InvalidArgumentException('Элемент не выбран');
+        $catalogOptions = $this->getCatalogOptions();
+        if ($id <= 0) {
+            return ['status' => 'ok', 'entityType' => $type, 'parent' => null, 'variants' => [], 'catalogOptions' => $catalogOptions];
+        }
         if ($type === 'calculator' || $type === 'equipment') {
             $entity = $this->loadElement($id, [$iblocks[0]]);
-            return ['status' => 'ok', 'entityType' => $type, 'parent' => $entity, 'variants' => []];
+            return ['status' => 'ok', 'entityType' => $type, 'parent' => $entity, 'variants' => [], 'catalogOptions' => $catalogOptions];
         }
         $selected = $this->loadElement($id, $iblocks);
         $parentId = $selected['iblockId'] === $iblocks[0] ? $selected['id'] : $this->getParentId($id, $iblocks[1]);
@@ -31,7 +34,7 @@ final class CatalogMetaService
         $variants = [];
         $cursor = \CIBlockElement::GetList(['SORT' => 'ASC', 'ID' => 'ASC'], ['IBLOCK_ID' => $iblocks[1], 'PROPERTY_CML2_LINK' => $parentId], false, false, ['ID', 'IBLOCK_ID', 'IBLOCK_SECTION_ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'DETAIL_TEXT']);
         while ($row = $cursor->Fetch()) $variants[] = $this->normalize($row);
-        return ['status' => 'ok', 'entityType' => $type, 'parent' => $parent, 'variants' => $variants];
+        return ['status' => 'ok', 'entityType' => $type, 'parent' => $parent, 'variants' => $variants, 'catalogOptions' => $catalogOptions];
     }
 
     public function save(array $request): array
@@ -461,6 +464,20 @@ final class CatalogMetaService
             'width' => $product['WIDTH'] ?? null,
             'height' => $product['HEIGHT'] ?? null,
         ];
+    }
+
+    private function getCatalogOptions(): array
+    {
+        $vatRates = [];
+        $vatResult = \CCatalogVat::GetList(['SORT' => 'ASC'], ['ACTIVE' => 'Y']);
+        while ($vat = $vatResult->Fetch()) {
+            $vatRates[] = [
+                'id' => (int)$vat['ID'],
+                'name' => (string)$vat['NAME'],
+                'value' => isset($vat['RATE']) ? (float)$vat['RATE'] : null,
+            ];
+        }
+        return ['vatRates' => $vatRates];
     }
 
     private function saveCatalog(int $elementId, array $catalog): array

@@ -88,6 +88,8 @@ $checks = [
     [$catalogMetaService, "'CALC_MATERIALS_VARIANTS'", 'Material variants must use the canonical configured iblock code'],
     [$catalogMetaService, "'description' => trim", 'Catalog parameters must expose their human-readable descriptions'],
     [$catalogMetaService, "implode('|', [\$parameter['value'], \$parameter['title'], \$parameter['description']])", 'Catalog parameters must persist value, title and description in Bitrix DESCRIPTION'],
+    [$catalogMetaService, "\\CCatalogVat::GetList", 'Catalog card editor must load active named VAT rates'],
+    [$catalogMetaService, "'catalogOptions' => \$catalogOptions", 'Catalog metadata response must expose VAT options to the slider'],
     [$aiGatewayService, "private const DEFAULT_MODEL = 'openai/gpt-5.4-mini'", 'AI prompt templates must default to GPT-5.4 mini'],
     [$appBundle, 'btn-operation-card', 'Operation row must expose one unified parent and variants card'],
     [$appBundle, 'btn-material-card', 'Material row must expose one unified parent and variants card'],
