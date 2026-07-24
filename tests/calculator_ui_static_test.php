@@ -9,12 +9,13 @@ $initPayloadService = file_get_contents(__DIR__ . '/../lib/Calculator/InitPayloa
 $presetEnrichmentService = file_get_contents(__DIR__ . '/../lib/Services/PresetEnrichmentService.php');
 $catalogMetaService = file_get_contents(__DIR__ . '/../lib/Services/CatalogMetaService.php');
 $aiGatewayService = file_get_contents(__DIR__ . '/../lib/Services/AiGatewayService.php');
+$calculatorAjax = file_get_contents(__DIR__ . '/../tools/calculator_ajax.php');
 $installer = file_get_contents(__DIR__ . '/../install/step3.php');
 $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/index.js');
 $engineBundlePath = __DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js';
 $engineBundle = is_file($engineBundlePath) ? file_get_contents($engineBundlePath) : $appBundle;
 
-if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($aiGatewayService) || !is_string($installer) || !is_string($appBundle) || !is_string($engineBundle)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
@@ -24,6 +25,11 @@ $checks = [
     [$calculator, "this.expandCalculatorDialog(dialog);", 'Calculator dialog must request expanded mode after Show'],
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
     [$integration, "SAVE_SETTINGS_EQUIPMENT_RESPONSE", 'Equipment saves must report completion to the iframe'],
+    [$integration, "case 'SAVE_USER_THEME_REQUEST'", 'The iframe bridge must persist the editor theme for the current Bitrix user'],
+    [$integration, "this.initData.context.editorTheme = theme", 'Theme changes must survive later INIT refreshes'],
+    [$initPayloadService, "'editor_theme'", 'INIT must load the current Bitrix user editor theme'],
+    [$calculatorAjax, "case 'saveUserTheme':", 'The calculator endpoint must accept user theme changes'],
+    [$calculatorAjax, "\\CUserOptions::SetOption", 'Editor theme must be stored in Bitrix user options'],
     [$elementDataService, "['MAX_LENGTH', 'MAX_WIDTH', 'MIN_WIDTH', 'MIN_LENGTH', 'START_COST']", 'Equipment scalar properties must be allowlisted'],
     [$elementDataService, "count(\$fieldParts) !== 4", 'Equipment fields must contain four sides'],
     [$elementDataService, "\$value !== '' && !preg_match", 'Equipment fields must allow individually empty sides'],

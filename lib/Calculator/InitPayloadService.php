@@ -389,6 +389,15 @@ class InitPayloadService
         }
 
         $settingsManager = new \Prospektweb\Calc\Config\SettingsManager();
+        $editorTheme = \CUserOptions::GetOption(
+            self::MODULE_ID,
+            'editor_theme',
+            'dark',
+            (int)$userId
+        );
+        if (!in_array($editorTheme, ['dark', 'cream'], true)) {
+            $editorTheme = 'dark';
+        }
 
         return [
             'siteId' => (string)$resolvedSiteId,
@@ -399,6 +408,7 @@ class InitPayloadService
             'priceRounding' => (float)Option::get(self::MODULE_ID, 'PRICE_ROUNDING', 1),
             'defaultExtraValue' => $settingsManager->getDefaultExtraValue(),
             'defaultExtraCurrency' => $settingsManager->getDefaultExtraCurrency(),
+            'editorTheme' => $editorTheme,
         ];
     }
 

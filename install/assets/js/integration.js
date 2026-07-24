@@ -336,6 +336,9 @@
                 case 'SAVE_CALCULATION_REQUEST':
                     await this.handleSaveCalculationRequest(message, origin);
                     break;
+                case 'SAVE_USER_THEME_REQUEST':
+                    await this.handleSaveUserThemeRequest(message, origin);
+                    break;
                 case 'CLEAR_OPTIONS_OPERATION':
                     await this.handleClearOptionsOperation(message, origin);
                     break;
@@ -3968,6 +3971,43 @@
         /**
          * Обработка READY
          */
+        async handleSaveUserThemeRequest(message, origin) {
+            const theme = message.payload && message.payload.theme === 'cream' ? 'cream' : 'dark';
+            const formData = new FormData();
+            formData.append('action', 'saveUserTheme');
+            formData.append('theme', theme);
+            formData.append('sessid', this.config.sessid);
+
+            try {
+                const response = await fetch(this.config.ajaxEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: formData,
+                });
+                const data = await response.json();
+                if (!response.ok || !data || !data.success) {
+                    throw new Error((data && (data.message || data.error)) || ('HTTP error ' + response.status));
+                }
+
+                if (this.initData && this.initData.context) {
+                    this.initData.context.editorTheme = theme;
+                }
+                this.sendPwrtMessage('SAVE_USER_THEME_RESPONSE', {
+                    status: 'success',
+                    theme: theme,
+                }, message.requestId, origin);
+            } catch (error) {
+                console.error('[BitrixBridge] SAVE_USER_THEME_REQUEST error:', error);
+                this.sendPwrtMessage('ERROR', {
+                    code: 'SAVE_USER_THEME_FAILED',
+                    message: 'Не удалось сохранить тему редактора',
+                    details: error.message,
+                }, message.requestId, origin);
+            }
+        }
+
         async handleReady(message, event) {
             this.logDebug('[CalcIntegration] Iframe is ready, loading init data...');
 

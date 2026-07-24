@@ -172,6 +172,10 @@ try {
             handleGetInitData($request);
             break;
 
+        case 'saveUserTheme':
+            handleSaveUserTheme($request);
+            break;
+
         case 'checkPresets':
             handleCheckPresets($request);
             break;
@@ -229,6 +233,26 @@ try {
 /**
  * Обработка запроса getInitData
  */
+function handleSaveUserTheme($request): void
+{
+    global $USER;
+
+    $theme = (string)$request->get('theme');
+    if (!in_array($theme, ['dark', 'cream'], true)) {
+        sendJsonResponse(['success' => false, 'message' => 'Недопустимая тема редактора'], 400);
+    }
+
+    \CUserOptions::SetOption(
+        'prospektweb.calc',
+        'editor_theme',
+        $theme,
+        false,
+        (int)$USER->GetID()
+    );
+
+    sendJsonResponse(['success' => true, 'theme' => $theme]);
+}
+
 function handleGetInitData($request): void
 {
     $offerIdsRaw = $request->get('offerIds');
