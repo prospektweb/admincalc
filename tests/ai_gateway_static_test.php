@@ -18,7 +18,8 @@ $checks = [
     'AI actions are routed' => strpos($elementService, "case 'getAiSettings'") !== false
         && strpos($elementService, "case 'saveAiSettings'") !== false
         && strpos($elementService, "case 'generateStagePreview'") !== false
-        && strpos($elementService, "case 'generateAiText'") !== false,
+        && strpos($elementService, "case 'generateAiText'") !== false
+        && strpos($elementService, "case 'generateLogicProposal'") !== false,
     'AI zones are allowlisted' => strpos($service, 'ZONE_CONTEXT') !== false
         && strpos($service, 'material_variant_description') !== false,
     'equipment card uses structured response' => strpos($service, 'EQUIPMENT_RESPONSE_SCHEMA') !== false
@@ -30,6 +31,18 @@ $checks = [
         && strpos($service, 'mb_substr($override, 0, 12000)') !== false,
     'stage preview is persisted' => strpos($elementService, "'PREVIEW_TEXT' => \$previewText") !== false,
     'AI key is redacted from debug output' => strpos($integration, "[REDACTED]") !== false,
+    'logic request is routed with correlated response' => strpos($integration, "GENERATE_LOGIC_PROPOSAL_REQUEST") !== false
+        && strpos($integration, "AI_LOGIC_PROPOSAL_RESPONSE") !== false
+        && strpos($integration, "action: 'generateLogicProposal'") !== false,
+    'logic prompt and formula are redacted from debug output' => strpos($integration, "item.action === 'generateLogicProposal'") !== false
+        && strpos($integration, "intent: '[REDACTED]'") !== false
+        && strpos($integration, "formula: '[REDACTED]'") !== false,
+    'logic contract forbids internal paths and IDs' => strpos($service, "LOGIC_REQUEST_SCHEMA") !== false
+        && strpos($service, "LOGIC_PROPOSAL_SCHEMA") !== false
+        && strpos($service, "LOGIC_FORBIDDEN_KEYS") !== false
+        && strpos($service, "assertNoForbiddenLogicKeys") !== false,
+    'postMessage source and origin are checked' => strpos($integration, "event.source !== this.iframeWindow") !== false
+        && strpos($integration, "event.origin !== this.targetOrigin") !== false,
     'HTTP error body is surfaced to UI' => strpos($integration, 'await response.text()') !== false
         && strpos($integration, 'data.message || data.error || data.details') !== false,
     'AI service is registered' => strpos($include, 'AiGatewayService') !== false,

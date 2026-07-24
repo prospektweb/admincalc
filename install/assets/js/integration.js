@@ -120,6 +120,22 @@
                 return;
             }
 
+            if (event.source !== this.iframeWindow) {
+                this.logBridge('[BitrixBridge] ignored message from unexpected window', {
+                    origin: event.origin,
+                    type: message.type,
+                });
+                return;
+            }
+            if (this.targetOrigin !== '*' && event.origin !== this.targetOrigin) {
+                this.logBridge('[BitrixBridge] ignored message from unexpected origin', {
+                    origin: event.origin,
+                    expectedOrigin: this.targetOrigin,
+                    type: message.type,
+                });
+                return;
+            }
+
             if (message.protocol === MODULE_PROTOCOL) {
                 this.handlePwrtMessage(message, event);
                 return;
@@ -279,6 +295,9 @@
                 case 'GENERATE_AI_TEXT_REQUEST':
                     await this.handleGenerateAiTextRequest(message, origin);
                     break;
+                case 'GENERATE_LOGIC_PROPOSAL_REQUEST':
+                    await this.handleGenerateLogicProposalRequest(message, origin);
+                    break;
                 case 'GET_CATALOG_ENTITY_META_REQUEST':
                     await this.handleGetCatalogEntityMetaRequest(message, origin);
                     break;
@@ -364,7 +383,7 @@
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
-                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST',
+                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
@@ -1267,6 +1286,27 @@
                 this.sendPwrtMessage('AI_GENERATE_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
             } catch (error) {
                 this.sendPwrtMessage('AI_GENERATE_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сгенерировать описание' }, message.requestId, origin);
+            }
+        }
+
+        async handleGenerateLogicProposalRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'generateLogicProposal',
+                    request: payload,
+                }]);
+                this.sendPwrtMessage(
+                    'AI_LOGIC_PROPOSAL_RESPONSE',
+                    Array.isArray(result) ? result[0] : { status: 'error', message: 'AI не вернул предложение' },
+                    message.requestId,
+                    origin
+                );
+            } catch (error) {
+                this.sendPwrtMessage('AI_LOGIC_PROPOSAL_RESPONSE', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось сформировать предложение формулы',
+                }, message.requestId, origin);
             }
         }
 
@@ -3777,7 +3817,22 @@
 
         async fetchRefreshData(items) {
             const debugItems = Array.isArray(items) ? items.map(item => {
-                if (!item || typeof item !== 'object' || !Object.prototype.hasOwnProperty.call(item, 'apiKey')) return item;
+                if (!item || typeof item !== 'object') return item;
+                if (item.action === 'generateLogicProposal') {
+                    const request = item.request && typeof item.request === 'object' ? item.request : {};
+                    return {
+                        action: item.action,
+                        request: {
+                            schema: request.schema || '',
+                            baseFingerprint: request.baseFingerprint || '',
+                            variableCode: request.variable && request.variable.code ? request.variable.code : '',
+                            availableSymbolsCount: Array.isArray(request.availableSymbols) ? request.availableSymbols.length : 0,
+                            intent: '[REDACTED]',
+                            formula: '[REDACTED]',
+                        },
+                    };
+                }
+                if (!Object.prototype.hasOwnProperty.call(item, 'apiKey')) return item;
                 return Object.assign({}, item, { apiKey: item.apiKey ? '[REDACTED]' : '' });
             }) : items;
             console.log('[BitrixBridge][DEBUG] fetchRefreshData START', {
