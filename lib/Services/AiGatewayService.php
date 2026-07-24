@@ -266,8 +266,8 @@ final class AiGatewayService
                     'type' => 'number | string | bool | array | any | unknown',
                     'formula' => '',
                 ]],
-                'results' => [['key' => 'width', 'source' => '']],
-                'additionalResults' => [['code' => '', 'title' => '', 'source' => '']],
+                'results' => [],
+                'additionalResults' => [],
             ],
         ];
         $systemPrompt = trim((string)$template['prompt'])
@@ -276,6 +276,8 @@ final class AiGatewayService
             . "\nUse only these formula functions: if, round, ceil, floor, min, max, abs, trim, lower, upper, len, contains, replace, toNumber, toString, split, join, get, getPrice, regexMatch, regexExtract."
             . "\nVariables are evaluated in array order. A formula may reference inputs, globals, and only earlier variables."
             . "\nResult key must be one of width, length, height, weight, purchasingPrice, basePrice, operationPurchasingPrice, operationBasePrice, materialPurchasingPrice, materialBasePrice."
+            . "\nEvery results item must be {\"key\":\"...\",\"source\":\"declaredInputOrVariableCode\"}. Include only results that are actually bound; never emit an item with an empty or placeholder source."
+            . "\nEvery additionalResults item must be {\"code\":\"...\",\"title\":\"...\",\"source\":\"declaredInputOrVariableCode\"}. Use [] when there are no additional results."
             . "\nPrefer explicit intermediate variables and meaningful English ASCII codes. Preserve Russian titles and descriptions."
             . "\nIf essential production rules are missing, return needs-clarification with one to three precise questions and draft=null. Do not guess norms, spoilage, make-ready, pricing, dimensions, or unit conversions."
             . "\nFor status=proposal return questions=[] and a complete draft. Copy baseFingerprint exactly."
