@@ -106,6 +106,70 @@ final class CatalogMetaService
         ];
     }
 
+    public function moveToSection(array $request): array
+    {
+        $this->assertAdmin();
+        $type = (string)($request['entityType'] ?? '');
+        $entityId = (int)($request['entityId'] ?? 0);
+        $sectionId = (int)($request['sectionId'] ?? 0);
+        $iblocks = $this->getIblocks($type);
+        if ($entityId <= 0) throw new \InvalidArgumentException('Элемент не выбран');
+
+        $entity = $this->loadElement($entityId, $iblocks);
+        $parentId = (int)$entity['iblockId'] === (int)$iblocks[0]
+            ? $entityId
+            : $this->getParentId($entityId, (int)$iblocks[1]);
+        if ($parentId <= 0) throw new \RuntimeException('Не удалось определить родительский элемент');
+
+        if ($sectionId > 0 && !\CIBlockSection::GetList([], [
+            'ID' => $sectionId,
+            'IBLOCK_ID' => (int)$iblocks[0],
+        ], false, ['ID'])->Fetch()) {
+            throw new \InvalidArgumentException('Выбранный раздел не найден');
+        }
+
+        $element = new \CIBlockElement();
+        if (!$element->Update($parentId, [
+            'IBLOCK_SECTION_ID' => $sectionId > 0 ? $sectionId : false,
+        ])) {
+            throw new \RuntimeException($element->LAST_ERROR ?: 'Не удалось переместить элемент');
+        }
+
+        return ['status' => 'ok', 'entityId' => $parentId, 'sectionId' => $sectionId];
+    }
+
+    public function createSection(array $request): array
+    {
+        $this->assertAdmin();
+        $type = (string)($request['entityType'] ?? '');
+        $name = trim((string)($request['name'] ?? ''));
+        $parentSectionId = (int)($request['parentSectionId'] ?? 0);
+        $iblocks = $this->getIblocks($type);
+        $iblockId = (int)$iblocks[0];
+        if ($name === '') throw new \InvalidArgumentException('Введите название раздела');
+
+        if ($parentSectionId > 0 && !\CIBlockSection::GetList([], [
+            'ID' => $parentSectionId,
+            'IBLOCK_ID' => $iblockId,
+        ], false, ['ID'])->Fetch()) {
+            throw new \InvalidArgumentException('Родительский раздел не найден');
+        }
+
+        $section = new \CIBlockSection();
+        $sectionId = (int)$section->Add([
+            'IBLOCK_ID' => $iblockId,
+            'IBLOCK_SECTION_ID' => $parentSectionId > 0 ? $parentSectionId : false,
+            'ACTIVE' => 'Y',
+            'NAME' => $name,
+            'CODE' => $this->makeUniqueSectionCode($iblockId, $name),
+        ]);
+        if ($sectionId <= 0) {
+            throw new \RuntimeException($section->LAST_ERROR ?: 'Не удалось создать раздел');
+        }
+
+        return ['status' => 'ok', 'sectionId' => $sectionId, 'name' => $name];
+    }
+
     private function resolveAllowedEntityIds(string $type, array $iblocks, int $anchorId): array
     {
         if ($anchorId <= 0) return [];
@@ -311,6 +375,25 @@ final class CatalogMetaService
         $code = $base;
         $suffix = 2;
         while (\CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => $code], false, ['nTopCount' => 1], ['ID'])->Fetch()) {
+            $code = $base . '-' . $suffix++;
+        }
+        return $code;
+    }
+
+    private function makeUniqueSectionCode(int $iblockId, string $name): string
+    {
+        $base = trim((string)\CUtil::translit($name, 'ru', [
+            'replace_space' => '-',
+            'replace_other' => '-',
+            'change_case' => 'L',
+        ]), '-');
+        if ($base === '') $base = 'section';
+        $code = $base;
+        $suffix = 2;
+        while (\CIBlockSection::GetList([], [
+            'IBLOCK_ID' => $iblockId,
+            '=CODE' => $code,
+        ], false, ['ID'])->Fetch()) {
             $code = $base . '-' . $suffix++;
         }
         return $code;

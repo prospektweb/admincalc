@@ -59,6 +59,14 @@ class ElementDataService
                         $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->save($request);
                         continue 2;
 
+                    case 'moveCatalogEntitySection':
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->moveToSection($request);
+                        continue 2;
+
+                    case 'createCatalogSection':
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->createSection($request);
+                        continue 2;
+
                     case 'syncVariants':
                         $handler = new \Prospektweb\Calc\Services\SyncVariantsHandler();
                         $result[] = $handler->handle($request);

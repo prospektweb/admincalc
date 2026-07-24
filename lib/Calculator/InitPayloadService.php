@@ -902,7 +902,7 @@ class InitPayloadService
             ['SORT' => 'ASC', 'NAME' => 'ASC'],
             ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'],
             false,
-            ['ID', 'NAME', 'CODE', 'IBLOCK_SECTION_ID', 'IBLOCK_ID', 'SORT', 'DEPTH_LEVEL']
+            ['ID', 'NAME', 'CODE', 'DESCRIPTION', 'IBLOCK_SECTION_ID', 'IBLOCK_ID', 'SORT', 'DEPTH_LEVEL']
         );
 
         while ($section = $res->Fetch()) {
@@ -911,6 +911,7 @@ class InitPayloadService
                 'id' => (int)$section['ID'],
                 'name' => $section['NAME'] ?? '',
                 'code' => $section['CODE'] ?? '',
+                'description' => trim(strip_tags((string)($section['DESCRIPTION'] ?? ''))),
                 'iblockId' => (int)$section['IBLOCK_ID'],
                 'parentId' => !empty($section['IBLOCK_SECTION_ID']) ? (int)$section['IBLOCK_SECTION_ID'] : null,
                 'depth' => (int)($section['DEPTH_LEVEL'] ?? 1),
@@ -938,7 +939,7 @@ class InitPayloadService
             ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'],
             false,
             false,
-            ['ID', 'NAME', 'CODE', 'IBLOCK_SECTION_ID', 'IBLOCK_ID', 'TIMESTAMP_X', 'MODIFIED_BY']
+            ['ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'IBLOCK_SECTION_ID', 'IBLOCK_ID', 'TIMESTAMP_X', 'MODIFIED_BY']
         );
 
         while ($fields = $res->Fetch()) {
@@ -947,6 +948,7 @@ class InitPayloadService
                 'id' => (int)$fields['ID'],
                 'name' => $fields['NAME'] ?? '',
                 'code' => $fields['CODE'] ?? '',
+                'description' => trim(strip_tags((string)($fields['PREVIEW_TEXT'] ?? ''))),
                 'iblockId' => (int)$fields['IBLOCK_ID'],
                 'sectionId' => !empty($fields['IBLOCK_SECTION_ID']) ? (int)$fields['IBLOCK_SECTION_ID'] : 0,
                 'timestampX' => $fields['TIMESTAMP_X'] ?? null,
@@ -982,7 +984,7 @@ class InitPayloadService
             ],
             false,
             false,
-            ['ID', 'NAME', 'CODE', 'IBLOCK_ID', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_CML2_LINK']
+            ['ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'IBLOCK_ID', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_CML2_LINK']
         );
 
         while ($fields = $res->Fetch()) {
@@ -995,6 +997,7 @@ class InitPayloadService
                 'id' => (int)$fields['ID'],
                 'name' => $fields['NAME'] ?? '',
                 'code' => $fields['CODE'] ?? '',
+                'description' => trim(strip_tags((string)($fields['PREVIEW_TEXT'] ?? ''))),
                 'iblockId' => $variantsIblockId,
                 'parentId' => $parentId,
                 'timestampX' => $fields['TIMESTAMP_X'] ?? null,

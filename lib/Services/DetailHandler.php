@@ -317,8 +317,9 @@ class DetailHandler
             }
             
             // 1. Создать новый элемент в CALC_STAGES
-            $configName = date('dmY_His');
-            $configId = $this->createConfigElement($configName);
+            $configName = trim((string)($data['name'] ?? '')) ?: date('dmY_His');
+            $configPreviewText = trim((string)($data['previewText'] ?? ''));
+            $configId = $this->createConfigElement($configName, $configPreviewText);
             
             if (!$configId) {
                 return [
@@ -1074,7 +1075,7 @@ class DetailHandler
     /**
      * Создать элемент конфигурации
      */
-    private function createConfigElement(string $name): ?int
+    private function createConfigElement(string $name, string $previewText = ''): ?int
     {
         $el = new \CIBlockElement();
         
@@ -1083,6 +1084,8 @@ class DetailHandler
             'NAME' => $name,
             'CODE' => $this->generateUniqueElementCode($this->stagesIblockId, $name),
             'ACTIVE' => 'Y',
+            'PREVIEW_TEXT' => $previewText,
+            'PREVIEW_TEXT_TYPE' => 'text',
         ];
         
         $id = $el->Add($fields);

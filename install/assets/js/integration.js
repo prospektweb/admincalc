@@ -282,6 +282,12 @@
                 case 'SAVE_CATALOG_ENTITY_META_REQUEST':
                     await this.handleSaveCatalogEntityMetaRequest(message, origin);
                     break;
+                case 'MOVE_CATALOG_ENTITY_SECTION_REQUEST':
+                    await this.handleMoveCatalogEntitySectionRequest(message, origin);
+                    break;
+                case 'CREATE_CATALOG_SECTION_REQUEST':
+                    await this.handleCreateCatalogSectionRequest(message, origin);
+                    break;
                 case 'CLEAR_PRESET_REQUEST':
                     await this.handleClearPresetRequest(message, origin);
                     break;
@@ -1241,6 +1247,44 @@
             }
         }
 
+        async handleMoveCatalogEntitySectionRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'moveCatalogEntitySection',
+                    entityType: payload.entityType,
+                    entityId: Number(payload.entityId || 0),
+                    sectionId: Number(payload.sectionId || 0),
+                }]);
+                const response = Array.isArray(result) ? result[0] : { status: 'error' };
+                this.sendPwrtMessage('CATALOG_SECTION_RESPONSE', response, message.requestId, origin);
+                if (response && response.status === 'ok') {
+                    await this.handleRefreshRequest({ requestId: message.requestId, payload: {} }, origin);
+                }
+            } catch (error) {
+                this.sendPwrtMessage('CATALOG_SECTION_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось переместить элемент' }, message.requestId, origin);
+            }
+        }
+
+        async handleCreateCatalogSectionRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'createCatalogSection',
+                    entityType: payload.entityType,
+                    parentSectionId: Number(payload.parentSectionId || 0),
+                    name: String(payload.name || ''),
+                }]);
+                const response = Array.isArray(result) ? result[0] : { status: 'error' };
+                this.sendPwrtMessage('CATALOG_SECTION_RESPONSE', response, message.requestId, origin);
+                if (response && response.status === 'ok') {
+                    await this.handleRefreshRequest({ requestId: message.requestId, payload: {} }, origin);
+                }
+            } catch (error) {
+                this.sendPwrtMessage('CATALOG_SECTION_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось создать раздел' }, message.requestId, origin);
+            }
+        }
+
         /**
          * Обработка запроса ADD_STAGE_REQUEST
          * Payload: { detailId }
@@ -1280,6 +1324,8 @@
                     {
                         action: 'addStage',
                         detailId: detailId,
+                        name: String(payload.name || ''),
+                        previewText: String(payload.previewText || ''),
                         presetId: presetId,
                         offerIds: offerIds,
                         siteId: siteId,
