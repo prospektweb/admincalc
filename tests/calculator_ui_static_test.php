@@ -80,8 +80,6 @@ $checks = [
     [$aiGatewayService, "private const DEFAULT_MODEL = 'openai/gpt-5.4-mini'", 'AI prompt templates must default to GPT-5.4 mini'],
     [$appBundle, 'btn-operation-card', 'Operation row must expose one unified parent and variants card'],
     [$appBundle, 'btn-material-card', 'Material row must expose one unified parent and variants card'],
-    [$appBundle, 'btn-create-operation', 'Operation row must support creation in the current section'],
-    [$appBundle, 'btn-create-material', 'Material row must support creation in the current section'],
     [$catalogMetaService, "'DETAIL_TEXT_TYPE' => 'html'", 'Operation and material cards must persist full HTML descriptions'],
     [$catalogMetaService, "'SOURCE_LINKS' => \$sourceLinks", 'Operation and material cards must persist ordered source links'],
     [$catalogMetaService, "'createdVariantId' => \$createdVariantId", 'Catalog creation must return the new selectable variant'],
@@ -124,6 +122,12 @@ if (strpos($integration, 'saveCalculationForOffer') !== false) {
 
 if (strpos($appBundle, 'btn-generate-logic-prompt') !== false) {
     throw new RuntimeException('Deprecated calculator prompt generator must not remain in the published UI bundle');
+}
+
+foreach (['btn-create-calculator', 'btn-create-operation', 'btn-create-equipment', 'btn-create-material'] as $removedCreateAction) {
+    if (strpos($appBundle, $removedCreateAction) !== false) {
+        throw new RuntimeException('Stage resource rows must not expose inline element creation actions');
+    }
 }
 
 foreach ([$calculator, $integration] as $source) {
