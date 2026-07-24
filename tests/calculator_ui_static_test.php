@@ -49,6 +49,8 @@ $checks = [
     [$elementDataService, "\$value . '|' . (\$visible ? 'Y' : 'N')", 'Stage custom fields must persist their visibility marker'],
     [$initPayloadService, 'synchronizePresetCustomFields', 'INIT load must repair stale preset custom-field links'],
     [$presetEnrichmentService, "['CALC_DETAILS' => &\$rootIds, 'CALC_CUSTOM_FIELDS' => &\$actual]", 'Preset repair must inspect every linked root detail'],
+    [$presetEnrichmentService, 'public function getProductRootsFromPreset', 'Preset enrichment must expose the complete ordered product topology'],
+    [$elementDataService, 'enrichPresetFromProductRoots(', 'Final-stage creation must preserve every root of a complex product'],
     [$installer, "'GLOBAL_ASSIGNMENTS' => [", 'Installer must create stage-local global assignment storage'],
     [$installer, "'ACTIVATION_CONDITION' => [", 'Installer must create stage activation storage'],
     [$installer, "'OPTIONS_EQUIPMENT' => [", 'Installer must create equipment mapping storage'],

@@ -129,12 +129,17 @@ class ElementDataService
                             if ($presetId > 0 && $stageId > 0) {
                                 $detailHandler->addStageToPreset($presetId, $stageId);
                                 
-                                // Enrich preset based on first detail
-                                $firstDetailId = $detailHandler->getFirstDetailFromPreset($presetId);
-                                if ($firstDetailId) {
+                                // Preserve the complete ordered product topology. Rebuilding
+                                // from only the first root silently converted complex products
+                                // to simple products when a final stage was created.
+                                $rootDetailIds = $detailHandler->getProductRootsFromPreset($presetId);
+                                if (!empty($rootDetailIds)) {
                                     $offerIds = $request['offerIds'] ?? [];
-                                    $siteId = $request['siteId'] ?? SITE_ID;
-                                    $initPayload = $detailHandler->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                    $initPayload = $detailHandler->enrichPresetFromProductRoots(
+                                        $presetId,
+                                        $rootDetailIds,
+                                        $offerIds
+                                    );
                                     
                                     $addResult['initPayload'] = $initPayload;
                                 }

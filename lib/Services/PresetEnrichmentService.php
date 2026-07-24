@@ -634,22 +634,36 @@ class PresetEnrichmentService
      */
     public function getFirstDetailFromPreset(int $presetId): ?int
     {
+        $rootIds = $this->getProductRootsFromPreset($presetId);
+        return $rootIds[0] ?? null;
+    }
+
+    /**
+     * Return every root detail/binding in the exact product-column order.
+     *
+     * @return int[]
+     */
+    public function getProductRootsFromPreset(int $presetId): array
+    {
         if ($presetId <= 0) {
-            return null;
+            return [];
         }
 
-        // Получаем первую деталь из пресета
+        $rootIds = [];
         $rs = \CIBlockElement::GetProperty(
             $this->presetsIblockId,
             $presetId,
             ['sort' => 'asc'],
             ['CODE' => 'CALC_DETAILS']
         );
-        
-        if ($prop = $rs->Fetch()) {
-            return !empty($prop['VALUE']) ? (int)$prop['VALUE'] : null;
+
+        while ($prop = $rs->Fetch()) {
+            $rootId = (int)($prop['VALUE'] ?? 0);
+            if ($rootId > 0 && !in_array($rootId, $rootIds, true)) {
+                $rootIds[] = $rootId;
+            }
         }
 
-        return null;
+        return $rootIds;
     }
 }
