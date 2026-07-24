@@ -1869,6 +1869,152 @@ class DetailHandler
     }
 
     /**
+     * Преобразовать структуру пресета между простым и сложным продуктом.
+     * Простой продукт содержит один корневой холст. Сложный продукт хранит
+     * корневой холст финишных этапов, рабочие детали и резервирует место для
+     * последующего добавления деталей на клиенте.
+     */
+    public function changeProductType(array $data): array
+    {
+        $presetId = (int)($data['presetId'] ?? 0);
+        $mode = ($data['mode'] ?? '') === 'complex' ? 'complex' : 'simple';
+        $createdIds = [];
+
+        if ($presetId <= 0) {
+            return ['status' => 'error', 'message' => 'Не указан ID пресета'];
+        }
+
+        try {
+            $topLevelIds = $this->getPresetDetails($presetId);
+            if (empty($topLevelIds)) {
+                return ['status' => 'error', 'message' => 'У продукта нет основного холста'];
+            }
+
+            if ($mode === 'complex') {
+                if (count($topLevelIds) > 1) {
+                    return [
+                        'status' => 'ok',
+                        'mode' => 'complex',
+                        'rootDetailId' => (int)$topLevelIds[0],
+                        'rootDetailIds' => array_values(array_map('intval', $topLevelIds)),
+                    ];
+                }
+
+                $sourceId = (int)$topLevelIds[0];
+                $finishId = $this->createDetailElement('Финишные этапы', 'DETAIL');
+                if (!$finishId) {
+                    throw new \RuntimeException('Не удалось создать холст финишных этапов');
+                }
+                $createdIds[] = $finishId;
+
+                $secondId = $this->createDetailElement('Деталь #2', 'DETAIL');
+                if (!$secondId) {
+                    throw new \RuntimeException('Не удалось создать вторую деталь');
+                }
+                $createdIds[] = $secondId;
+
+                $this->setPresetDetails($presetId, [$finishId, $sourceId, $secondId]);
+
+                return [
+                    'status' => 'ok',
+                    'mode' => 'complex',
+                    'rootDetailId' => $finishId,
+                    'rootDetailIds' => [$finishId, $sourceId, $secondId],
+                    'createdDetailIds' => $createdIds,
+                ];
+            }
+
+            $basisId = (int)($data['basisDetailId'] ?? 0);
+            $allowedIds = $this->collectSimpleProductCandidates($topLevelIds);
+            if ($basisId <= 0 || !in_array($basisId, $allowedIds, true)) {
+                return ['status' => 'error', 'message' => 'Выбранная деталь не входит в продукт'];
+            }
+
+            // Сначала привязываем выбранный холст. Так при очистке остальных
+            // ветвей пресет всегда остаётся в корректном состоянии.
+            $this->setPresetDetails($presetId, [$basisId]);
+
+            if (!empty($data['deleteOthers'])) {
+                foreach ($topLevelIds as $topLevelId) {
+                    if ((int)$topLevelId !== $basisId) {
+                        $this->deleteDetailTreeExcept((int)$topLevelId, $basisId);
+                    }
+                }
+            }
+
+            return [
+                'status' => 'ok',
+                'mode' => 'simple',
+                'rootDetailId' => $basisId,
+                'rootDetailIds' => [$basisId],
+            ];
+        } catch (\Throwable $e) {
+            foreach (array_reverse($createdIds) as $createdId) {
+                $this->deleteDetailPhysically((int)$createdId);
+            }
+
+            return ['status' => 'error', 'message' => $e->getMessage()];
+        }
+    }
+
+    private function setPresetDetails(int $presetId, array $detailIds): void
+    {
+        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
+            'CALC_DETAILS' => false,
+        ]);
+        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
+            'CALC_DETAILS' => array_values(array_map('intval', $detailIds)),
+        ]);
+    }
+
+    private function collectSimpleProductCandidates(array $topLevelIds): array
+    {
+        $result = [];
+        foreach ($topLevelIds as $topLevelId) {
+            $id = (int)$topLevelId;
+            $detail = $this->getDetailById($id);
+            if (!$detail) {
+                continue;
+            }
+            if ($detail['TYPE'] === 'DETAIL') {
+                $result[] = $id;
+                continue;
+            }
+            foreach ($detail['DETAIL_IDS'] as $childId) {
+                $child = $this->getDetailById((int)$childId);
+                if ($child && $child['TYPE'] === 'DETAIL') {
+                    $result[] = (int)$childId;
+                }
+            }
+        }
+
+        return array_values(array_unique($result));
+    }
+
+    private function deleteDetailTreeExcept(int $detailId, int $exceptId): void
+    {
+        if ($detailId <= 0 || $detailId === $exceptId) {
+            return;
+        }
+
+        $detail = $this->getDetailById($detailId);
+        if (!$detail) {
+            return;
+        }
+
+        if ($detail['TYPE'] === 'BINDING') {
+            foreach ($detail['DETAIL_IDS'] as $childId) {
+                $this->deleteDetailTreeExcept((int)$childId, $exceptId);
+            }
+        }
+
+        foreach ($detail['CONFIGS'] as $configId) {
+            \CIBlockElement::Delete((int)$configId);
+        }
+        \CIBlockElement::Delete($detailId);
+    }
+
+    /**
      * Перенести этап между деталями и атомарно зафиксировать порядок с обеих сторон.
      */
     public function moveStage(

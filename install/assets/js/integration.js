@@ -237,6 +237,9 @@
                 case 'RENAME_DETAIL_REQUEST':
                     await this.handleRenameDetailRequest(message, origin);
                     break;
+                case 'CHANGE_PRODUCT_TYPE_REQUEST':
+                    await this.handleChangeProductTypeRequest(message, origin);
+                    break;
                 case 'CHANGE_SETTINGS_REQUEST':
                     await this.handleChangeSettingsRequest(message, origin);
                     break;
@@ -354,7 +357,7 @@
                         'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'SELECT_FIELDS_REQUEST', 'SELECT_DETAILS_TO_BINDING_REQUEST',
                         'ADD_DETAIL_REQUEST', 'ADD_DETAIL_TO_BINDING_REQUEST',
                         'ADD_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'SAVE_STAGE_ACTIVATION_REQUEST', 'REMOVE_DETAIL_REQUEST',
-                        'RENAME_DETAIL_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST', 
+                        'RENAME_DETAIL_REQUEST', 'CHANGE_PRODUCT_TYPE_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST',
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
@@ -1048,6 +1051,53 @@
                     status: 'error',
                     equipmentId: equipmentId,
                     message: error && error.message ? error.message : 'Не удалось сохранить оборудование',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleChangeProductTypeRequest(message, origin) {
+            const payload = message.payload || {};
+            const presetId = parseInt(payload.presetId, 10) || 0;
+            const mode = payload.mode === 'complex' ? 'complex' : 'simple';
+
+            if (!presetId) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось изменить тип продукта',
+                    details: 'Не указан ID пресета',
+                }, message.requestId, origin);
+                return;
+            }
+
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'changeProductType',
+                    presetId: presetId,
+                    mode: mode,
+                    basisDetailId: parseInt(payload.basisDetailId, 10) || 0,
+                    deleteOthers: payload.deleteOthers === true,
+                    offerIds: this.config.offerIds || [],
+                    siteId: this.config.siteId || SITE_ID,
+                }]);
+                const responsePayload = Array.isArray(result) ? result[0] : null;
+                if (!responsePayload || responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload && responsePayload.message
+                        ? responsePayload.message
+                        : 'Не удалось изменить тип продукта');
+                }
+
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                    this.sendPwrtMessage('INIT', responsePayload.initPayload, message.requestId, origin);
+                } else {
+                    this.sendPwrtMessage('RESPONSE', {
+                        requestType: message.type,
+                        success: true,
+                    }, message.requestId, origin);
+                }
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось изменить тип продукта',
+                    details: error && error.message ? error.message : 'Unknown error',
                 }, message.requestId, origin);
             }
         }

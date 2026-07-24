@@ -521,24 +521,28 @@ var ProspekwebCalc = {
      */
     expandCalculatorDialog: function(dialog) {
         var expand = function() {
-            var root = dialog && dialog.DIV && dialog.DIV.querySelector
-                ? dialog.DIV
-                : document;
-            var expandButton = root.querySelector('.bx-core-adm-icon-expand');
-
-            if (!expandButton && root !== document) {
-                var candidates = document.querySelectorAll('.bx-core-adm-icon-expand');
-                for (var index = candidates.length - 1; index >= 0; index--) {
-                    if (candidates[index].offsetParent !== null) {
-                        expandButton = candidates[index];
-                        break;
-                    }
-                }
+            if (!dialog || !dialog.DIV) {
+                return;
             }
 
-            if (expandButton) {
-                expandButton.click();
+            dialog.DIV.classList.add('prospektweb-calc-fullscreen-dialog');
+            dialog.DIV.style.left = '0';
+            dialog.DIV.style.top = '0';
+            dialog.DIV.style.width = '100vw';
+            dialog.DIV.style.height = '100vh';
+            dialog.DIV.style.maxWidth = 'none';
+            dialog.DIV.style.maxHeight = 'none';
+            dialog.DIV.style.margin = '0';
+            dialog.DIV.style.transform = 'none';
+
+            var content = dialog.DIV.querySelector('.bx-core-adm-dialog-content');
+            if (content) {
+                content.style.width = '100%';
+                content.style.height = '100%';
             }
+
+            document.documentElement.classList.add('prospektweb-calc-dialog-open');
+            document.body.classList.add('prospektweb-calc-dialog-open');
         };
 
         if (typeof window.requestAnimationFrame === 'function') {
@@ -768,6 +772,8 @@ var ProspekwebCalc = {
         }
 
         this.iframe = null;
+        document.documentElement.classList.remove('prospektweb-calc-dialog-open');
+        document.body.classList.remove('prospektweb-calc-dialog-open');
 
         this.isClosing = false;
     },

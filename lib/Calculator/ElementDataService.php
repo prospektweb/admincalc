@@ -81,6 +81,29 @@ class ElementDataService
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();
                         $result[] = $handler->cloneDetail($request);
                         continue 2;
+
+                    case 'changeProductType':
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $changeResult = $handler->changeProductType($request);
+
+                        if (($changeResult['status'] ?? 'error') === 'ok') {
+                            $rootDetailIds = array_values(array_filter(array_map(
+                                'intval',
+                                $changeResult['rootDetailIds'] ?? []
+                            )));
+                            $presetId = (int)($request['presetId'] ?? 0);
+                            if (!empty($rootDetailIds) && $presetId > 0) {
+                                $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                                $changeResult['initPayload'] = $enrichmentService->enrichPresetFromProductRoots(
+                                    $presetId,
+                                    $rootDetailIds,
+                                    $request['offerIds'] ?? []
+                                );
+                            }
+                        }
+
+                        $result[] = $changeResult;
+                        continue 2;
                         
                     case 'addNewGroup':
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();

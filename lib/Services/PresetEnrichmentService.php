@@ -77,6 +77,35 @@ class PresetEnrichmentService
         return $initPayloadService->prepareInitPayload($offerIds, SITE_ID, false);
     }
 
+    /**
+     * Rebuild linked preset properties for an ordered set of product roots while
+     * preserving that exact top-level order in CALC_DETAILS.
+     */
+    public function enrichPresetFromProductRoots(int $presetId, array $rootDetailIds, array $offerIds = []): array
+    {
+        $rootDetailIds = array_values(array_unique(array_filter(array_map('intval', $rootDetailIds))));
+        if ($presetId <= 0 || empty($rootDetailIds)) {
+            throw new \InvalidArgumentException('Некорректная структура продукта');
+        }
+
+        if (!$this->getPresetById($presetId)) {
+            throw new \RuntimeException('Пресет не найден');
+        }
+
+        $linkedElements = [];
+        foreach ($rootDetailIds as $rootDetailId) {
+            $this->collectLinkedElementsRecursive($rootDetailId, $linkedElements);
+        }
+        $linkedElements['details'] = $rootDetailIds;
+        $this->updatePresetProperties($presetId, $linkedElements);
+
+        if (empty($offerIds)) {
+            $offerIds = $this->getOffersForPreset($presetId);
+        }
+
+        return (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
+    }
+
     /** Synchronize preset custom-field links from all currently linked root details. */
     public function synchronizePresetCustomFields(int $presetId): array
     {

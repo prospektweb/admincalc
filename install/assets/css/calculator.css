@@ -10,6 +10,41 @@
     line-height: 1.5;
 }
 
+html.prospektweb-calc-dialog-open,
+body.prospektweb-calc-dialog-open {
+    overflow: hidden !important;
+}
+
+.prospektweb-calc-fullscreen-dialog {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    transform: none !important;
+}
+
+.prospektweb-calc-fullscreen-dialog .bx-core-adm-dialog-head,
+.prospektweb-calc-fullscreen-dialog .bx-core-adm-dialog-buttons {
+    display: none !important;
+}
+
+.prospektweb-calc-fullscreen-dialog .bx-core-adm-dialog-content-wrap,
+.prospektweb-calc-fullscreen-dialog .bx-core-adm-dialog-content,
+.prospektweb-calc-fullscreen-dialog .bx-core-adm-dialog-content > div {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
 .prospektweb-calc-header {
     display: flex;
     justify-content: space-between;
