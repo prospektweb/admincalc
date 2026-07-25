@@ -1356,9 +1356,6 @@
                 }]);
                 const response = Array.isArray(result) ? result[0] : { status: 'error' };
                 this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', response, message.requestId, origin);
-                if (response && response.status === 'ok') {
-                    await this.handleRefreshRequest({ requestId: message.requestId, payload: {} }, origin);
-                }
             } catch (error) {
                 this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сохранить данные' }, message.requestId, origin);
             }
@@ -1375,9 +1372,6 @@
                 }]);
                 const response = Array.isArray(result) ? result[0] : { status: 'error' };
                 this.sendPwrtMessage('CATALOG_SECTION_RESPONSE', response, message.requestId, origin);
-                if (response && response.status === 'ok') {
-                    await this.handleRefreshRequest({ requestId: message.requestId, payload: {} }, origin);
-                }
             } catch (error) {
                 this.sendPwrtMessage('CATALOG_SECTION_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось переместить элемент' }, message.requestId, origin);
             }
@@ -1394,9 +1388,6 @@
                 }]);
                 const response = Array.isArray(result) ? result[0] : { status: 'error' };
                 this.sendPwrtMessage('CATALOG_SECTION_RESPONSE', response, message.requestId, origin);
-                if (response && response.status === 'ok') {
-                    await this.handleRefreshRequest({ requestId: message.requestId, payload: {} }, origin);
-                }
             } catch (error) {
                 this.sendPwrtMessage('CATALOG_SECTION_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось создать раздел' }, message.requestId, origin);
             }

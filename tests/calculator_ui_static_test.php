@@ -136,6 +136,18 @@ foreach ($checks as [$source, $needle, $message]) {
     }
 }
 
+$catalogSaveStart = strpos($integration, 'async handleSaveCatalogEntityMetaRequest');
+$catalogSaveEnd = strpos($integration, 'async handleMoveCatalogEntitySectionRequest', $catalogSaveStart ?: 0);
+$catalogSaveHandler = $catalogSaveStart !== false && $catalogSaveEnd !== false
+    ? substr($integration, $catalogSaveStart, $catalogSaveEnd - $catalogSaveStart)
+    : '';
+if ($catalogSaveHandler === '' || strpos($catalogSaveHandler, 'handleRefreshRequest') !== false) {
+    throw new RuntimeException('Catalog metadata save must not emit a destructive empty refresh');
+}
+if (strpos($integration, "await this.handleRefreshRequest({ requestId: message.requestId, payload: {} }, origin);") !== false) {
+    throw new RuntimeException('Catalog mutations must not emit destructive empty refresh payloads');
+}
+
 if (strpos($integration, 'saveCalculationForOffer') !== false) {
     throw new RuntimeException('Save flow must not make one HTTP request per offer');
 }
