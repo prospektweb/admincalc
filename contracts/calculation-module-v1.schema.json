@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prospektprint.ru/contracts/prospektweb-calc/calculation-module-v1.schema.json",
+  "title": "Reusable calculation module version",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "familyId",
+    "version",
+    "kind",
+    "status",
+    "name",
+    "content",
+    "ports",
+    "entityRoles",
+    "dependencies",
+    "tests",
+    "contentHash",
+    "provenance"
+  ],
+  "properties": {
+    "schema": {
+      "const": "prospektweb.calc.module/v1"
+    },
+    "familyId": {
+      "$ref": "#/$defs/symbol"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "kind": {
+      "enum": ["stage", "detail", "binding-fragment"]
+    },
+    "status": {
+      "enum": ["draft", "published", "deprecated", "withdrawn"]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "applicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "productKinds": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/symbol"},
+          "uniqueItems": true
+        },
+        "tags": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rootNodeId", "nodes"],
+      "properties": {
+        "rootNodeId": {"$ref": "#/$defs/symbol"},
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/node"}
+        }
+      }
+    },
+    "ports": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/port"}
+    },
+    "entityRoles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "entityType", "cardinality"],
+        "properties": {
+          "code": {"$ref": "#/$defs/symbol"},
+          "entityType": {
+            "enum": ["material", "materialVariant", "operation", "operationVariant", "equipment", "customField"]
+          },
+          "cardinality": {"enum": ["one", "optional", "many"]},
+          "description": {"type": "string"}
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/dependency"}
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "inputs", "expectedOutputs"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "inputs": {"type": "object"},
+          "expectedOutputs": {"type": "object"}
+        }
+      }
+    },
+    "contentHash": {"$ref": "#/$defs/hash"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createdAt", "createdBy"],
+      "properties": {
+        "createdAt": {"type": "string", "format": "date-time"},
+        "createdBy": {"type": "string", "minLength": 1},
+        "source": {"type": "string"}
+      }
+    }
+  },
+  "$defs": {
+    "symbol": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "formulaDocument": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["version"],
+      "properties": {
+        "version": {"const": 1}
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "nodeType", "order"],
+      "properties": {
+        "nodeId": {"$ref": "#/$defs/symbol"},
+        "nodeType": {"enum": ["stage", "detail", "binding"]},
+        "order": {"type": "integer", "minimum": 0},
+        "name": {"type": "string"},
+        "logic": {"$ref": "#/$defs/formulaDocument"},
+        "parameters": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "childNodeIds": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/symbol"}
+        },
+        "dependencyRef": {"$ref": "#/$defs/symbol"}
+      }
+    },
+    "port": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "direction", "valueType", "required"],
+      "properties": {
+        "code": {"$ref": "#/$defs/symbol"},
+        "direction": {"enum": ["input", "output", "global-input", "global-output"]},
+        "valueType": {"enum": ["number", "string", "boolean"]},
+        "required": {"type": "boolean"},
+        "unit": {"type": "string"},
+        "title": {"type": "string"},
+        "description": {"type": "string"}
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "familyId", "versionRange"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/symbol"},
+        "familyId": {"$ref": "#/$defs/symbol"},
+        "versionRange": {"type": "string", "minLength": 1},
+        "optional": {"type": "boolean", "default": false}
+      }
+    }
+  }
+}
