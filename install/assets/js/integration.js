@@ -322,6 +322,18 @@
                 case 'CREATE_CATALOG_SECTION_REQUEST':
                     await this.handleCreateCatalogSectionRequest(message, origin);
                     break;
+                case 'GET_CATALOG_TREE_REQUEST':
+                    await this.handleGetCatalogTreeRequest(message, origin);
+                    break;
+                case 'SAVE_CATALOG_TREE_ELEMENT_REQUEST':
+                    await this.handleSaveCatalogTreeElementRequest(message, origin);
+                    break;
+                case 'SAVE_CATALOG_TREE_SECTION_REQUEST':
+                    await this.handleSaveCatalogTreeSectionRequest(message, origin);
+                    break;
+                case 'DELETE_CATALOG_TREE_NODE_REQUEST':
+                    await this.handleDeleteCatalogTreeNodeRequest(message, origin);
+                    break;
                 case 'CLEAR_PRESET_REQUEST':
                     await this.handleClearPresetRequest(message, origin);
                     break;
@@ -1465,6 +1477,42 @@
                 this.sendPwrtMessage('CATALOG_SECTION_RESPONSE', response, message.requestId, origin);
             } catch (error) {
                 this.sendPwrtMessage('CATALOG_SECTION_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось создать раздел' }, message.requestId, origin);
+            }
+        }
+
+        async handleGetCatalogTreeRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'getCatalogTree',
+                    iblockId: Number(payload.iblockId || 0),
+                    iblockCode: String(payload.iblockCode || ''),
+                }]);
+                this.sendPwrtMessage('CATALOG_TREE_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('CATALOG_TREE_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось загрузить дерево инфоблока' }, message.requestId, origin);
+            }
+        }
+
+        async handleSaveCatalogTreeElementRequest(message, origin) {
+            await this.handleCatalogTreeMutation(message, origin, 'saveCatalogTreeElement');
+        }
+
+        async handleSaveCatalogTreeSectionRequest(message, origin) {
+            await this.handleCatalogTreeMutation(message, origin, 'saveCatalogTreeSection');
+        }
+
+        async handleDeleteCatalogTreeNodeRequest(message, origin) {
+            await this.handleCatalogTreeMutation(message, origin, 'deleteCatalogTreeNode');
+        }
+
+        async handleCatalogTreeMutation(message, origin, action) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{ action, ...payload }]);
+                this.sendPwrtMessage('CATALOG_TREE_MUTATION_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('CATALOG_TREE_MUTATION_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось изменить структуру инфоблока' }, message.requestId, origin);
             }
         }
 
