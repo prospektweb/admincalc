@@ -105,6 +105,8 @@ final class AiCalculatorContextService
         return [
             'productId' => $productId,
             'iblockId' => $productIblockId,
+            'iblockType' => $this->iblockType($productIblockId),
+            'sectionId' => (int)($product['sectionId'] ?? 0),
             'name' => (string)($product['name'] ?? ''),
             'productProperties' => $this->propertyExamples((array)($product['properties'] ?? []), true),
             'offerProperties' => array_values(array_filter($offerProperties, static fn(array $property): bool =>
@@ -128,6 +130,13 @@ final class AiCalculatorContextService
             foreach ($rawValues as $index => $value) {
                 $normalized = trim(is_scalar($value) ? (string)$value : '');
                 $xmlId = trim(is_scalar($rawXmlIds[$index] ?? null) ? (string)$rawXmlIds[$index] : '');
+                if (($property['PROPERTY_TYPE'] ?? '') === 'L' && ctype_digit($normalized)) {
+                    $enum = \CIBlockPropertyEnum::GetByID((int)$normalized);
+                    if (is_array($enum)) {
+                        $normalized = trim((string)($enum['VALUE'] ?? $normalized));
+                        $xmlId = trim((string)($enum['XML_ID'] ?? $xmlId));
+                    }
+                }
                 if ($normalized !== '' || $xmlId !== '') {
                     $values[] = ['value' => $normalized, 'xmlId' => $xmlId];
                 }
@@ -147,6 +156,12 @@ final class AiCalculatorContextService
             ];
         }
         return $result;
+    }
+
+    private function iblockType(int $iblockId): string
+    {
+        $row = \CIBlock::GetByID($iblockId)->Fetch();
+        return trim((string)($row['IBLOCK_TYPE_ID'] ?? ''));
     }
 
     private function uniqueValues(array $values): array

@@ -38,7 +38,11 @@ $checks = [
     [$installer, 'AI_CONTEXT_JSON', 'installer schema'],
     [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'availableProductProperties', 'all product properties for manual selection'],
     [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'availableOfferProperties', 'all offer properties for manual selection'],
+    [$context, "'iblockType' => \$this->iblockType", 'actual product iblock type'],
+    [$context, "'sectionId' => (int)(\$product['sectionId']", 'actual product section'],
+    [$context, '\\CIBlockPropertyEnum::GetByID', 'human-readable enum value resolution'],
     [$navigation, '/bitrix/admin/iblock_list_admin.php', 'product list navigation'],
+    [file_get_contents($root . '/../calcconfig/src/lib/bitrix-utils.ts'), '/bitrix/admin/iblock_element_edit.php', 'direct product element navigation'],
 ];
 
 foreach ($checks as [$haystack, $needle, $label]) {
