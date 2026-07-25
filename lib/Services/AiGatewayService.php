@@ -566,7 +566,10 @@ final class AiGatewayService
 
     private function sanitizeStageLogicRequest(array $request): array
     {
-        $this->assertAllowedLogicKeys($request, 'request', ['schema', 'baseFingerprint', 'intent', 'stage', 'baseProducts', 'expectedResults', 'instructions', 'currentLogic', 'availableSources', 'globals']);
+        // compatibleModules existed briefly in a newer client build. It has no
+        // meaning in the v1 stage prompt and is intentionally ignored so a
+        // cached browser bundle cannot break prompt preview after a rollback.
+        $this->assertAllowedLogicKeys($request, 'request', ['schema', 'baseFingerprint', 'intent', 'stage', 'baseProducts', 'expectedResults', 'instructions', 'currentLogic', 'availableSources', 'globals', 'compatibleModules']);
         if (($request['schema'] ?? null) !== self::STAGE_LOGIC_REQUEST_SCHEMA) {
             throw new \InvalidArgumentException('Неподдерживаемая схема AI-запроса этапа');
         }
