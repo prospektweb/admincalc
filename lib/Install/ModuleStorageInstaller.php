@@ -100,6 +100,7 @@ final class ModuleStorageInstaller
         $nullableColumns = [
             ModuleAuditTable::getTableName() => ['FAMILY_ID', 'VERSION_ID', 'INSTANCE_ID', 'SNAPSHOT_ID'],
             ModuleInstanceTable::getTableName() => ['SNAPSHOT_ID'],
+            ModuleSnapshotTable::getTableName() => ['LEGACY_SNAPSHOT_JSON'],
         ];
         foreach ($nullableColumns as $table => $columns) {
             foreach ($columns as $column) {

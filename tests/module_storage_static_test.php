@@ -63,6 +63,13 @@ $assert(
         && strpos($installer, "ModuleInstanceTable::getTableName() => ['SNAPSHOT_ID']") !== false,
     'new instances must be insertable before their immutable snapshot is appended'
 );
+$snapshotTable = file_get_contents($root . '/lib/Modules/Storage/ModuleSnapshotTable.php');
+$assert(
+    $snapshotTable !== false
+        && strpos($snapshotTable, "(new TextField('LEGACY_SNAPSHOT_JSON'))->configureLong()->configureNullable(true)") !== false
+        && strpos($installer, "ModuleSnapshotTable::getTableName() => ['LEGACY_SNAPSHOT_JSON']") !== false,
+    'new reusable snapshots must not require a legacy v1 payload'
+);
 $assert(strpos($moduleInstaller, "'reference_id' => ['D', 'R', 'W', 'P']") !== false, 'module declares publication right');
 $assert(strpos($installStep, 'ModuleStorageInstaller') !== false, 'fresh install provisions module storage');
 $assert(strpos($include, "'Prospektweb\\\\Calc\\\\Modules\\\\ModuleMaterializer'") !== false, 'materializer autoload is registered');

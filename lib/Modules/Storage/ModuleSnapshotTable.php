@@ -28,7 +28,7 @@ final class ModuleSnapshotTable extends DataManager
             (new IntegerField('PRESET_ID'))->configureRequired(),
             (new TextField('SNAPSHOT_JSON'))->configureRequired()->configureLong(),
             (new StringField('SNAPSHOT_HASH'))->configureRequired()->configureSize(64),
-            (new TextField('LEGACY_SNAPSHOT_JSON'))->configureLong(),
+            (new TextField('LEGACY_SNAPSHOT_JSON'))->configureLong()->configureNullable(true),
             (new DatetimeField('CREATED_AT'))->configureRequired()->configureDefaultValue(static fn() => new DateTime()),
             (new IntegerField('CREATED_BY'))->configureRequired(),
         ];
