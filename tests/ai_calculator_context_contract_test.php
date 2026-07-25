@@ -38,6 +38,8 @@ $checks = [
     [$installer, 'AI_CONTEXT_JSON', 'installer schema'],
     [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'availableProductProperties', 'all product properties for manual selection'],
     [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'availableOfferProperties', 'all offer properties for manual selection'],
+    [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'CIBlockProperty::GetList', 'full iblock property definitions'],
+    [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'bool $includeEmpty = false', 'empty properties can remain selectable'],
     [$context, "'iblockType' => \$this->iblockType", 'actual product iblock type'],
     [$context, "'sectionId' => (int)(\$product['sectionId']", 'actual product section'],
     [$context, '\\CIBlockPropertyEnum::GetByID', 'human-readable enum value resolution'],

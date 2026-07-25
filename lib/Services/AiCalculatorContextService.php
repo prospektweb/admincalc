@@ -79,6 +79,9 @@ final class AiCalculatorContextService
             throw new \RuntimeException('Базисный продукт #' . $productId . ' не найден');
         }
         $offerProperties = [];
+        $availableOfferProperties = $offersIblockId > 0
+            ? $this->indexProperties($this->propertyExamples($this->propertyDefinitions($offersIblockId), false, true))
+            : [];
         if ($offersIblockId > 0) {
             $cursor = \CIBlockElement::GetList(
                 ['ID' => 'ASC'],
@@ -99,9 +102,21 @@ final class AiCalculatorContextService
                             $property['values']
                         ));
                     }
+                    if (!isset($availableOfferProperties[$code])) {
+                        $availableOfferProperties[$code] = $property;
+                    } else {
+                        $availableOfferProperties[$code]['values'] = $this->uniqueValues(array_merge(
+                            $availableOfferProperties[$code]['values'],
+                            $property['values']
+                        ));
+                    }
                 }
             }
         }
+        $availableProductProperties = $this->mergePropertyDefinitions(
+            $this->propertyDefinitions($productIblockId),
+            (array)($product['properties'] ?? [])
+        );
         return [
             'productId' => $productId,
             'iblockId' => $productIblockId,
@@ -112,12 +127,12 @@ final class AiCalculatorContextService
             'offerProperties' => array_values(array_filter($offerProperties, static fn(array $property): bool =>
                 stripos((string)($property['code'] ?? ''), 'CALC_') === 0
             )),
-            'availableProductProperties' => $this->propertyExamples((array)($product['properties'] ?? []), false),
-            'availableOfferProperties' => array_values($offerProperties),
+            'availableProductProperties' => $this->propertyExamples($availableProductProperties, false, true),
+            'availableOfferProperties' => array_values($availableOfferProperties),
         ];
     }
 
-    private function propertyExamples(array $properties, bool $onlyCalc): array
+    private function propertyExamples(array $properties, bool $onlyCalc, bool $includeEmpty = false): array
     {
         $result = [];
         foreach ($properties as $code => $property) {
@@ -141,7 +156,7 @@ final class AiCalculatorContextService
                     $values[] = ['value' => $normalized, 'xmlId' => $xmlId];
                 }
             }
-            if ($values === []) {
+            if ($values === [] && !$includeEmpty) {
                 continue;
             }
             $result[] = [
@@ -154,6 +169,52 @@ final class AiCalculatorContextService
                 'xmlIdContract' => '',
                 'description' => '',
             ];
+        }
+        return $result;
+    }
+
+    private function propertyDefinitions(int $iblockId): array
+    {
+        $definitions = [];
+        $cursor = \CIBlockProperty::GetList(
+            ['SORT' => 'ASC', 'NAME' => 'ASC'],
+            ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y']
+        );
+        while ($property = $cursor->Fetch()) {
+            $code = trim((string)($property['CODE'] ?? ''));
+            if ($code === '') {
+                continue;
+            }
+            $definitions[$code] = [
+                'NAME' => (string)($property['NAME'] ?? $code),
+                'PROPERTY_TYPE' => (string)($property['PROPERTY_TYPE'] ?? 'S'),
+                'MULTIPLE' => (string)($property['MULTIPLE'] ?? 'N'),
+                'VALUE' => null,
+                'VALUE_XML_ID' => null,
+            ];
+        }
+        return $definitions;
+    }
+
+    private function mergePropertyDefinitions(array $definitions, array $values): array
+    {
+        foreach ($values as $code => $property) {
+            if (!is_array($property)) {
+                continue;
+            }
+            $definitions[(string)$code] = array_replace($definitions[(string)$code] ?? [], $property);
+        }
+        return $definitions;
+    }
+
+    private function indexProperties(array $properties): array
+    {
+        $result = [];
+        foreach ($properties as $property) {
+            $code = (string)($property['code'] ?? '');
+            if ($code !== '') {
+                $result[$code] = $property;
+            }
         }
         return $result;
     }
