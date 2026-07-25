@@ -94,14 +94,6 @@ final class AiCalculatorContextService
                 $offer = $loader->loadSingleElement($offersIblockId, (int)$row['ID'], null, true);
                 foreach ($this->propertyExamples((array)($offer['properties'] ?? []), false) as $property) {
                     $code = $property['code'];
-                    if (!isset($offerProperties[$code])) {
-                        $offerProperties[$code] = $property;
-                    } else {
-                        $offerProperties[$code]['values'] = $this->uniqueValues(array_merge(
-                            $offerProperties[$code]['values'],
-                            $property['values']
-                        ));
-                    }
                     if (!isset($availableOfferProperties[$code])) {
                         $availableOfferProperties[$code] = $property;
                     } else {
@@ -109,6 +101,16 @@ final class AiCalculatorContextService
                             $availableOfferProperties[$code]['values'],
                             $property['values']
                         ));
+                    }
+                    if ($this->isAutomaticChoiceProperty($code, (array)($offer['properties'][$code] ?? []))) {
+                        if (!isset($offerProperties[$code])) {
+                            $offerProperties[$code] = $property;
+                        } else {
+                            $offerProperties[$code]['values'] = $this->uniqueValues(array_merge(
+                                $offerProperties[$code]['values'],
+                                $property['values']
+                            ));
+                        }
                     }
                 }
             }
@@ -123,10 +125,11 @@ final class AiCalculatorContextService
             'iblockType' => $this->iblockType($productIblockId),
             'sectionId' => (int)($product['sectionId'] ?? 0),
             'name' => (string)($product['name'] ?? ''),
-            'productProperties' => $this->propertyExamples((array)($product['properties'] ?? []), true),
-            'offerProperties' => array_values(array_filter($offerProperties, static fn(array $property): bool =>
-                stripos((string)($property['code'] ?? ''), 'CALC_') === 0
-            )),
+            'productProperties' => $this->propertyExamples(
+                $this->automaticChoiceProperties((array)($product['properties'] ?? [])),
+                false
+            ),
+            'offerProperties' => array_values($offerProperties),
             'availableProductProperties' => $this->propertyExamples($availableProductProperties, false, true),
             'availableOfferProperties' => array_values($availableOfferProperties),
         ];
@@ -194,6 +197,25 @@ final class AiCalculatorContextService
             ];
         }
         return $definitions;
+    }
+
+    private function automaticChoiceProperties(array $properties): array
+    {
+        return array_filter(
+            $properties,
+            fn($property, $code): bool => is_array($property)
+                && $this->isAutomaticChoiceProperty((string)$code, $property),
+            ARRAY_FILTER_USE_BOTH
+        );
+    }
+
+    private function isAutomaticChoiceProperty(string $code, array $property): bool
+    {
+        if (stripos($code, 'CALC_') !== 0) {
+            return false;
+        }
+        return (string)($property['PROPERTY_TYPE'] ?? '') === 'L'
+            || strtolower((string)($property['USER_TYPE'] ?? '')) === 'directory';
     }
 
     private function mergePropertyDefinitions(array $definitions, array $values): array

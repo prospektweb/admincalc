@@ -40,6 +40,8 @@ $checks = [
     [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'availableOfferProperties', 'all offer properties for manual selection'],
     [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'CIBlockProperty::GetList', 'full iblock property definitions'],
     [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'bool $includeEmpty = false', 'empty properties can remain selectable'],
+    [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), "['PROPERTY_TYPE'] ?? '') === 'L'", 'list-only automatic base property rule'],
+    [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), "['USER_TYPE'] ?? '')) === 'directory'", 'directory automatic base property rule'],
     [$context, "'iblockType' => \$this->iblockType", 'actual product iblock type'],
     [$context, "'sectionId' => (int)(\$product['sectionId']", 'actual product section'],
     [$context, '\\CIBlockPropertyEnum::GetByID', 'human-readable enum value resolution'],
