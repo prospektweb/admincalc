@@ -486,6 +486,70 @@ final class ModuleLifecycleService
         return $families;
     }
 
+    public function listAiCatalog(?string $kind = null): array
+    {
+        ModuleAccess::assertCurrentUser('view');
+        $modules = [];
+        foreach ($this->listCatalog(false) as $family) {
+            foreach ((array)($family['VERSIONS'] ?? []) as $version) {
+                if (($version['STATUS'] ?? null) !== 'published') {
+                    continue;
+                }
+                $content = (array)($version['CONTENT'] ?? []);
+                if ($kind !== null && ($content['kind'] ?? null) !== $kind) {
+                    continue;
+                }
+                $modules[] = [
+                    'familyId' => (string)($content['familyId'] ?? ''),
+                    'version' => (string)($content['version'] ?? ''),
+                    'kind' => (string)($content['kind'] ?? ''),
+                    'name' => (string)($content['name'] ?? ''),
+                    'description' => (string)($content['description'] ?? ''),
+                    'contentHash' => (string)($content['contentHash'] ?? ''),
+                    'ports' => array_values(array_map(
+                        static fn(array $port): array => array_filter([
+                            'code' => (string)($port['code'] ?? ''),
+                            'direction' => (string)($port['direction'] ?? ''),
+                            'valueType' => (string)($port['valueType'] ?? ''),
+                            'required' => (bool)($port['required'] ?? false),
+                            'unit' => isset($port['unit']) ? (string)$port['unit'] : null,
+                        ], static fn(mixed $value): bool => $value !== null),
+                        (array)($content['ports'] ?? [])
+                    )),
+                    'entityRoles' => array_values(array_map(
+                        static fn(array $role): array => [
+                            'code' => (string)($role['code'] ?? ''),
+                            'entityType' => (string)($role['entityType'] ?? ''),
+                            'cardinality' => (string)($role['cardinality'] ?? ''),
+                            'description' => (string)($role['description'] ?? ''),
+                        ],
+                        (array)($content['entityRoles'] ?? [])
+                    )),
+                    'constraints' => array_values((array)($content['constraints'] ?? [])),
+                    'tests' => array_values(array_map(
+                        static fn(array $test): array => [
+                            'name' => (string)($test['name'] ?? ''),
+                            'inputs' => (array)($test['inputs'] ?? []),
+                            'expectedOutputs' => (array)($test['expectedOutputs'] ?? []),
+                        ],
+                        (array)($content['tests'] ?? [])
+                    )),
+                ];
+            }
+        }
+        usort(
+            $modules,
+            static fn(array $left, array $right): int => strcmp(
+                $left['familyId'] . '@' . $left['version'],
+                $right['familyId'] . '@' . $right['version']
+            )
+        );
+        return [
+            'schema' => 'prospektweb.calc.ai-module-catalog/v1',
+            'modules' => $modules,
+        ];
+    }
+
     public function listPresetInstances(int $presetId): array
     {
         ModuleAccess::assertCurrentUser('view');

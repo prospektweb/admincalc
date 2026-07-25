@@ -46,6 +46,8 @@ $checks = [
     [$context, "'sectionId' => (int)(\$product['sectionId']", 'actual product section'],
     [$context, '\\CIBlockPropertyEnum::GetByID', 'human-readable enum value resolution'],
     [$navigation, '/bitrix/admin/iblock_list_admin.php', 'product list navigation'],
+    [file_get_contents($root . '/lib/Calculator/InitPayloadService.php'), "'moduleCatalog' => \$moduleCatalog", 'published module catalog in init payload'],
+    [file_get_contents($root . '/lib/Modules/ModuleLifecycleService.php'), 'prospektweb.calc.ai-module-catalog/v1', 'compact AI module catalog schema'],
     [file_get_contents($root . '/../calcconfig/src/lib/bitrix-utils.ts'), '/bitrix/admin/iblock_element_edit.php', 'direct product element navigation'],
 ];
 

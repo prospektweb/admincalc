@@ -36,6 +36,8 @@ $assert(strpos($service, 'FOR UPDATE') !== false, 'lifecycle locks revisions tra
 $assert(strpos($service, 'startTransaction') !== false, 'lifecycle uses transactions');
 $assert(strpos($service, 'ModuleAuditTable::add') !== false, 'lifecycle appends audit records');
 $assert(strpos($service, 'listVersionUsage') !== false, 'lifecycle exposes usage inventory');
+$assert(strpos($service, 'prospektweb.calc.ai-module-catalog/v1') !== false, 'lifecycle exposes a compact AI module catalog');
+$assert(strpos($service, "['STATUS'] ?? null) !== 'published'") !== false, 'AI catalog contains published versions only');
 $assert(strpos($service, 'applyInstance') !== false, 'lifecycle atomically applies instances and snapshots');
 $assert(strpos($service, 'installPilotStage') !== false, 'lifecycle can idempotently publish the reviewed pilot fixture');
 $assert(strpos($service, 'ModuleMaterializer::materialize') !== false, 'lifecycle validates before persistence');

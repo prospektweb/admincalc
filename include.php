@@ -41,6 +41,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Modules\\ModuleAccess' => 'lib/Modules/ModuleAccess.php',
     'Prospektweb\\Calc\\Modules\\ModuleLifecycleService' => 'lib/Modules/ModuleLifecycleService.php',
     'Prospektweb\\Calc\\Modules\\LegacyV1MigrationAssistant' => 'lib/Modules/LegacyV1MigrationAssistant.php',
+    'Prospektweb\\Calc\\Modules\\AiModuleContract' => 'lib/Modules/AiModuleContract.php',
     'Prospektweb\\Calc\\Modules\\Storage\\ModuleFamilyTable' => 'lib/Modules/Storage/ModuleFamilyTable.php',
     'Prospektweb\\Calc\\Modules\\Storage\\ModuleVersionTable' => 'lib/Modules/Storage/ModuleVersionTable.php',
     'Prospektweb\\Calc\\Modules\\Storage\\ModuleInstanceTable' => 'lib/Modules/Storage/ModuleInstanceTable.php',
