@@ -309,10 +309,48 @@ final class ModuleLifecycleService
             if ((int)$snapshot['INSTANCE_ID'] !== $instanceId) {
                 throw new \DomainException('Snapshot does not belong to the module instance');
             }
+            $snapshotContract = json_decode(
+                (string)$snapshot['SNAPSHOT_JSON'],
+                true,
+                512,
+                JSON_THROW_ON_ERROR
+            );
+            $family = ModuleFamilyTable::getList([
+                'filter' => ['=CODE' => (string)($snapshotContract['familyId'] ?? '')],
+                'limit' => 1,
+            ])->fetch();
+            $snapshotVersion = $family
+                ? ModuleVersionTable::getList([
+                    'filter' => [
+                        '=FAMILY_ID' => (int)$family['ID'],
+                        '=VERSION' => (string)($snapshotContract['version'] ?? ''),
+                        '=CONTENT_HASH' => (string)($snapshotContract['contentHash'] ?? ''),
+                    ],
+                    'limit' => 1,
+                ])->fetch()
+                : false;
+            if (!$snapshotVersion) {
+                throw new \DomainException('Exact module version for snapshot rollback was not found');
+            }
+            $materialization = (array)($snapshotContract['materialization'] ?? []);
+            $currentContext = ($instance['CONTEXT_JSON'] ?? '') === ''
+                ? []
+                : json_decode((string)$instance['CONTEXT_JSON'], true, 512, JSON_THROW_ON_ERROR);
+            $restoredContext = [
+                'activationCondition' => $materialization['activationCondition'] ?? null,
+                'globalAssignments' => (array)($materialization['globalAssignments'] ?? []),
+                'customFieldValues' => $materialization['customFieldValues'] ?? (object)[],
+                'provenance' => $currentContext['provenance'] ?? (object)[],
+            ];
             $nextRevision = $expectedRevision + 1;
             $result = ModuleInstanceTable::update($instanceId, [
+                'VERSION_ID' => (int)$snapshotVersion['ID'],
                 'SNAPSHOT_ID' => $snapshotId,
                 'REVISION' => $nextRevision,
+                'BINDINGS_JSON' => CanonicalJson::encode((array)($materialization['bindings'] ?? [])),
+                'ENTITY_BINDINGS_JSON' => CanonicalJson::encode((array)($materialization['entityBindings'] ?? [])),
+                'DEPENDENCY_LOCK_JSON' => CanonicalJson::encode((array)($snapshotContract['dependencyLock'] ?? [])),
+                'CONTEXT_JSON' => CanonicalJson::encode($restoredContext),
                 'UPDATED_AT' => new DateTime(),
                 'UPDATED_BY' => $actorId,
             ]);
@@ -320,14 +358,17 @@ final class ModuleLifecycleService
             $this->audit(
                 'snapshot.rollback',
                 $actorId,
-                null,
-                (int)$instance['VERSION_ID'],
+                (int)$snapshotVersion['FAMILY_ID'],
+                (int)$snapshotVersion['ID'],
                 $instanceId,
                 $snapshotId,
                 [
                     'fromRevision' => $expectedRevision,
                     'toRevision' => $nextRevision,
                     'snapshotHash' => $snapshot['SNAPSHOT_HASH'],
+                    'fromVersionId' => (int)$instance['VERSION_ID'],
+                    'toVersion' => (string)$snapshotContract['version'],
+                    'contentHash' => (string)$snapshotContract['contentHash'],
                 ]
             );
             return $nextRevision;
@@ -452,8 +493,34 @@ final class ModuleLifecycleService
             'filter' => ['=PRESET_ID' => $presetId],
             'order' => ['SORT' => 'ASC', 'ID' => 'ASC'],
         ])->fetchAll();
+        $versionIds = array_values(array_unique(array_map(
+            static fn(array $row): int => (int)$row['VERSION_ID'],
+            $rows
+        )));
+        $versions = [];
+        $familyIds = [];
+        if ($versionIds !== []) {
+            foreach (ModuleVersionTable::getList(['filter' => ['@ID' => $versionIds]])->fetchAll() as $version) {
+                $versions[(int)$version['ID']] = $version;
+                $familyIds[] = (int)$version['FAMILY_ID'];
+            }
+        }
+        $families = [];
+        if ($familyIds !== []) {
+            foreach (ModuleFamilyTable::getList([
+                'filter' => ['@ID' => array_values(array_unique($familyIds))],
+            ])->fetchAll() as $family) {
+                $families[(int)$family['ID']] = $family;
+            }
+        }
         foreach ($rows as &$row) {
             $row = $this->decodeInstanceRow($row);
+            $version = $versions[(int)$row['VERSION_ID']] ?? null;
+            $family = $version ? ($families[(int)$version['FAMILY_ID']] ?? null) : null;
+            $row['MODULE_VERSION'] = (string)($version['VERSION'] ?? '');
+            $row['MODULE_CONTENT_HASH'] = (string)($version['CONTENT_HASH'] ?? '');
+            $row['MODULE_FAMILY_CODE'] = (string)($family['CODE'] ?? '');
+            $row['MODULE_FAMILY_NAME'] = (string)($family['NAME'] ?? '');
         }
         unset($row);
         return $rows;

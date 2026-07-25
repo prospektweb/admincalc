@@ -20,6 +20,11 @@ $assert(strpos($page, 'Мастер подключения') !== false, 'UI expo
 $assert(strpos($page, "data-action=\"preview\"") !== false, 'UI requires preview before apply');
 $assert(strpos($page, "data-action=\"apply\"") !== false, 'UI can apply a validated snapshot');
 $assert(strpos($page, "data-action=\"rollback\"") !== false, 'UI exposes rollback from snapshot history');
+$assert(strpos($page, "data-action=\"edit-instance\"") !== false, 'UI exposes versioned instance updates');
+$assert(strpos($page, "data-action=\"migration-analyze\"") !== false, 'UI exposes read-only legacy migration analysis');
+$assert(strpos($page, "data-action=\"migration-extract\"") !== false, 'UI requires explicit reviewed extraction');
+$assert(strpos($page, "data-action=\"migration-create-draft\"") !== false, 'UI creates a draft only after differential review');
+$assert(strpos($page, '${esc(x.VERSION_ID)}') === false, 'UI does not display internal version IDs');
 $assert(strpos($page, 'data-role=') !== false, 'UI binds dynamic entity roles by visible names');
 $assert(strpos($page, 'crypto.randomUUID()') !== false, 'UI creates local instance identifiers without Bitrix IDs');
 $assert(strpos($api, "case 'instance.preview':") !== false, 'API exposes preview');
@@ -27,6 +32,10 @@ $assert(strpos($api, "case 'instance.apply':") !== false, 'API exposes atomic ap
 $assert(strpos($api, "case 'instance.rollback':") !== false, 'API exposes rollback');
 $assert(strpos($api, "case 'pilot.install':") !== false, 'API exposes idempotent pilot publication');
 $assert(strpos($api, "case 'vertical.install':") !== false, 'API exposes vertical fixture publication');
+$assert(strpos($api, "case 'migration.analyze':") !== false, 'API exposes read-only legacy analysis');
+$assert(strpos($api, "case 'migration.extract':") !== false, 'API exposes reviewed draft preview');
+$assert(strpos($api, "case 'migration.compare':") !== false, 'API exposes differential comparison');
+$assert(strpos($api, "case 'migration.draft.create':") !== false, 'API creates reviewed migration drafts without publishing');
 $assert(strpos($api, 'check_bitrix_sessid()') !== false, 'API enforces CSRF protection');
 $assert(strpos($installer, 'prospektweb_calc_modules.php') !== false, 'installer owns the admin page');
 $assert(strpos($menu, 'menu_prospektweb_calc_modules') !== false, 'admin menu exposes the library');

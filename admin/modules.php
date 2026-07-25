@@ -35,6 +35,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
   <div class="pwm-toolbar">
     <div class="pwm-toolbar__title">Библиотека модулей калькуляции</div>
     <button class="pwm-btn" data-action="refresh">Обновить</button>
+    <button class="pwm-btn" data-action="migration-open">Миграция v1</button>
     <button class="pwm-btn pwm-btn--primary" data-action="install-pilot">Опубликовать вертикальные пилоты</button>
   </div>
   <div class="pwm-grid">
@@ -57,7 +58,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
   'use strict';
   const endpoint='/bitrix/tools/prospektweb.calc/modules.php';
   const sessid='<?= CUtil::JSEscape(bitrix_sessid()) ?>';
-  const state={catalog:[],options:null,family:null,version:null,presetId:0,instances:[],preview:null};
+  const state={catalog:[],options:null,family:null,version:null,presetId:0,instances:[],preview:null,previewDiff:null,currentSnapshot:null,editingInstance:null,migrationMode:false,migrationAnalysis:null,migrationDraft:null};
   const q=(s,r=document)=>r.querySelector(s);
   const esc=(v)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function api(action,payload={}){
@@ -116,6 +117,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
   function optionRows(items){return (items||[]).map(x=>`<option value="${x.id}">${esc(x.name)}${x.active?'':' (неактивно)'}</option>`).join('');}
   function renderWorkspace(){
     const root=q('#pwm-workspace'),v=state.version,m=v?.CONTENT;
+    if(state.migrationMode){renderMigration(root);return;}
     if(!v||!m||!['published','deprecated'].includes(v.STATUS)){root.innerHTML='<div class="pwm-empty">Для подключения выберите опубликованную версию</div>';return;}
     const presets=state.options?.presets||[];
     if(!state.presetId&&presets.length)state.presetId=Number(presets[0].id);
@@ -125,22 +127,22 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
       <div class="pwm-card"><div class="pwm-card__head">Мастер подключения</div><div class="pwm-card__body">
         <div class="pwm-form"><label>Пресет</label><select id="pwm-preset">${presets.map(x=>`<option value="${x.id}" ${Number(x.id)===Number(state.presetId)?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
         <h4>Сопоставление портов</h4>
-        <div id="pwm-ports">${bindPorts.map(p=>`<div class="pwm-port" data-port="${esc(p.code)}">
+        <div id="pwm-ports">${bindPorts.map(p=>{const existing=(state.editingInstance?.BINDINGS||[]).find(b=>b.portCode===p.code)?.target;const kind=existing?.kind||(p.direction==='global-input'?'global':'source-path');const value=existing?.value??((p.direction==='global-input'?'preset.global.':'product.')+p.code);return `<div class="pwm-port" data-port="${esc(p.code)}">
           <div class="pwm-port__name"><code>${esc(p.code)}</code>${p.required?' *':''}<br><span class="pwm-muted">${esc(p.direction)} · ${esc(p.valueType)}</span></div>
-          <select data-field="kind">${['input','global-input'].includes(p.direction)?'<option value="source-path">Источник</option><option value="global" '+(p.direction==='global-input'?'selected':'')+'>Глобальное</option>':'<option value="global">Глобальное</option><option value="module-port">Порт модуля</option>'}<option value="literal">Литерал</option></select>
-          <input data-field="value" value="${esc((p.direction==='global-input'?'preset.global.':'product.')+p.code)}" aria-label="Значение ${esc(p.code)}">
-        </div>`).join('')}</div>
+          <select data-field="kind">${['source-path','global','module-port','literal'].map(x=>`<option value="${x}" ${x===kind?'selected':''}>${esc(x)}</option>`).join('')}</select>
+          <input data-field="value" value="${esc(typeof value==='string'?value:JSON.stringify(value))}" aria-label="Значение ${esc(p.code)}">
+        </div>`;}).join('')}</div>
         <h4>Динамические роли</h4>
-        <div class="pwm-form" id="pwm-roles">${m.entityRoles.map(r=>`<label>${esc(r.code)} *</label><select data-role="${esc(r.code)}" data-type="${esc(r.entityType)}"><option value="">— выбрать —</option>${optionRows(state.options?.[roleGroup(r.entityType)])}</select>`).join('')}</div>
-        <div class="pwm-row-actions" style="margin-top:10px"><button class="pwm-btn" data-action="preview">Preview</button><button class="pwm-btn pwm-btn--primary" data-action="apply" ${state.preview?'':'disabled'}>Apply snapshot</button></div>
+        <div class="pwm-form" id="pwm-roles">${m.entityRoles.map(r=>{const selected=(state.editingInstance?.ENTITY_BINDINGS||[]).find(b=>b.roleCode===r.code)?.localElementIds?.[0]||'';return `<label>${esc(r.code)} *</label><select data-role="${esc(r.code)}" data-type="${esc(r.entityType)}"><option value="">— выбрать —</option>${(state.options?.[roleGroup(r.entityType)]||[]).map(x=>`<option value="${x.id}" ${Number(x.id)===Number(selected)?'selected':''}>${esc(x.name)}${x.active?'':' (неактивно)'}</option>`).join('')}</select>`;}).join('')}</div>
+        <div class="pwm-row-actions" style="margin-top:10px"><button class="pwm-btn" data-action="preview">Preview</button><button class="pwm-btn pwm-btn--primary" data-action="apply" ${state.preview?'':'disabled'}>${state.editingInstance?'Update snapshot':'Apply snapshot'}</button>${state.editingInstance?'<button class="pwm-btn" data-action="edit-cancel">Отменить обновление</button>':''}</div>
       </div></div>
-      <div id="pwm-preview">${state.preview?`<div class="pwm-card"><div class="pwm-card__head">Resolved snapshot</div><div class="pwm-card__body"><div class="pwm-kv"><span class="pwm-muted">Hash</span><code>${esc(state.preview.snapshotHash)}</code><span class="pwm-muted">Версия</span><span>${esc(state.preview.familyId)}@${esc(state.preview.version)}</span><span class="pwm-muted">Узлы</span><span>${state.preview.resolvedGraph.nodes.length}</span></div></div></div>`:''}</div>
+      <div id="pwm-preview">${state.preview?`<div class="pwm-card"><div class="pwm-card__head">Resolved snapshot</div><div class="pwm-card__body"><div class="pwm-kv"><span class="pwm-muted">Hash</span><code>${esc(state.preview.snapshotHash)}</code><span class="pwm-muted">Версия</span><span>${esc(state.preview.familyId)}@${esc(state.preview.version)}</span><span class="pwm-muted">Узлы</span><span>${state.preview.resolvedGraph.nodes.length}</span></div>${state.previewDiff?`<pre class="pwm-json">${esc(JSON.stringify(state.previewDiff,null,2))}</pre>`:''}</div></div>`:''}</div>
       <div class="pwm-card"><div class="pwm-card__head">Экземпляры выбранного пресета <button class="pwm-btn" data-action="load-instances">Обновить</button></div><div id="pwm-instances">${instancesHtml()}</div></div>`;
   }
   function roleGroup(type){return ({material:'materials',materialVariant:'materialVariants',operation:'operations',operationVariant:'operationVariants',equipment:'equipment'})[type]||'equipment';}
   function instancesHtml(){
     if(!state.instances.length)return '<div class="pwm-empty">Подключённых экземпляров нет</div>';
-    return `<table class="pwm-table"><thead><tr><th>Экземпляр</th><th>Версия</th><th>Rev</th><th>Snapshot</th><th></th></tr></thead><tbody>${state.instances.map(x=>`<tr><td>${esc(x.INSTANCE_UID)}</td><td>${esc(x.VERSION_ID)}</td><td>${esc(x.REVISION)}</td><td>${esc(x.SNAPSHOT_ID||'—')}</td><td><button class="pwm-btn" data-action="history" data-instance="${x.ID}">История</button></td></tr>`).join('')}</tbody></table>`;
+    return `<table class="pwm-table"><thead><tr><th>Экземпляр</th><th>Версия</th><th>Rev</th><th>Snapshot</th><th></th></tr></thead><tbody>${state.instances.map(x=>`<tr><td>${esc(x.INSTANCE_UID)}</td><td>${esc(x.MODULE_FAMILY_NAME||x.MODULE_FAMILY_CODE)}<br><code>${esc(x.MODULE_VERSION)}</code></td><td>${esc(x.REVISION)}</td><td>${x.SNAPSHOT_ID?'активен':'—'}</td><td><div class="pwm-row-actions"><button class="pwm-btn" data-action="edit-instance" data-instance="${x.ID}">Обновить</button><button class="pwm-btn" data-action="history" data-instance="${x.ID}">История</button></div></td></tr>`).join('')}</tbody></table>`;
   }
   function collectInstance(){
     const bindings=[...document.querySelectorAll('#pwm-ports [data-port]')].map(row=>{
@@ -152,36 +154,78 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
     const entityBindings=[...document.querySelectorAll('#pwm-roles [data-role]')].map(select=>({
       roleCode:select.dataset.role,entityType:select.dataset.type,localElementIds:select.value?[Number(select.value)]:[]
     }));
-    return {schema:'prospektweb.calc.module-instance/v1',instanceId:'preview-'+Date.now(),presetId:state.presetId,familyId:state.version.CONTENT.familyId,version:state.version.CONTENT.version,contentHash:state.version.CONTENT.contentHash,revision:1,bindings,entityBindings,dependencyLock:[],provenance:{createdAt:new Date().toISOString(),createdBy:'admin-ui',legacyElementIds:{}}};
+    return {schema:'prospektweb.calc.module-instance/v1',instanceId:state.editingInstance?.INSTANCE_UID||'preview-'+Date.now(),presetId:state.presetId,familyId:state.version.CONTENT.familyId,version:state.version.CONTENT.version,contentHash:state.version.CONTENT.contentHash,revision:state.editingInstance?Number(state.editingInstance.REVISION)+1:1,bindings,entityBindings,dependencyLock:state.editingInstance?.DEPENDENCY_LOCK||[],provenance:state.editingInstance?.CONTEXT?.provenance||{createdAt:new Date().toISOString(),createdBy:'admin-ui',legacyElementIds:{}}};
+  }
+  function renderMigration(root){
+    const presets=state.options?.presets||[];
+    if(!state.presetId&&presets.length)state.presetId=Number(presets[0].id);
+    root.innerHTML=`<div id="pwm-notice" class="pwm-alert">Анализ только читает legacy v1. Мастер не угадывает порты, роли, пути или ID и никогда не публикует автоматически.</div>
+      <div class="pwm-card"><div class="pwm-card__head">Миграционный помощник v1</div><div class="pwm-card__body">
+        <div class="pwm-form"><label>Пресет</label><select id="pwm-preset">${presets.map(x=>`<option value="${x.id}" ${Number(x.id)===Number(state.presetId)?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
+        <div class="pwm-row-actions" style="margin-top:8px"><button class="pwm-btn pwm-btn--primary" data-action="migration-analyze">Анализировать</button><button class="pwm-btn" data-action="migration-close">Вернуться к библиотеке</button></div>
+      </div></div>
+      ${state.migrationAnalysis?`<div class="pwm-card"><div class="pwm-card__head">Инвентаризация: ${esc(state.migrationAnalysis.preset.name)}</div><div class="pwm-card__body">
+        <table class="pwm-table"><thead><tr><th>Элемент</th><th>Тип</th><th>Этапы</th><th>Настройки</th></tr></thead><tbody>${state.migrationAnalysis.inventory.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.kind)}</td><td>${x.stages.map(s=>esc(s.name)).join('<br>')}</td><td>${x.stages.flatMap(s=>s.settingsLegacyIds).join(', ')||'—'}</td></tr>`).join('')}</tbody></table>
+        ${state.migrationAnalysis.blockers.length?`<div class="pwm-alert pwm-alert--error">${state.migrationAnalysis.blockers.map(x=>esc(x.message)).join('<br>')}</div>`:'<div class="pwm-alert">Структура считана. Для извлечения внесите проверенный контракт ниже.</div>'}
+        <label>Явно проверенный contract review JSON</label><textarea id="pwm-migration-review" style="box-sizing:border-box;width:100%;min-height:220px" placeholder='{"familyId":"...","version":"1.0.0","kind":"stage","name":"...","content":{},"ports":[],"entityRoles":[],"tests":[]}'></textarea>
+        <div class="pwm-row-actions" style="margin-top:8px"><button class="pwm-btn" data-action="migration-extract">Проверить portable draft</button></div>
+      </div></div>`:''}
+      ${state.migrationDraft?`<div class="pwm-card"><div class="pwm-card__head">Portable draft preview — публикация запрещена</div><div class="pwm-card__body"><pre class="pwm-json">${esc(JSON.stringify(state.migrationDraft,null,2))}</pre>
+        <div class="pwm-form" style="margin-top:8px"><label>Legacy expected JSON</label><textarea id="pwm-migration-expected"></textarea><label>Module actual JSON</label><textarea id="pwm-migration-actual"></textarea><label>Допуск</label><input id="pwm-migration-tolerance" type="number" min="0" step="any" value="0"></div>
+        <div class="pwm-row-actions" style="margin-top:8px"><button class="pwm-btn pwm-btn--primary" data-action="migration-create-draft">Сравнить и создать черновик</button></div>
+      </div></div>`:''}`;
   }
   async function loadInstances(){
     state.instances=await api('instances',{presetId:state.presetId});renderWorkspace();
   }
   document.addEventListener('change',async e=>{
-    if(e.target.id==='pwm-version'){state.version=state.family.VERSIONS.find(v=>Number(v.ID)===Number(e.target.value));state.preview=null;renderModule();renderWorkspace();}
-    if(e.target.id==='pwm-preset'){state.presetId=Number(e.target.value);state.preview=null;await loadInstances();}
-    if(e.target.closest('#pwm-ports,#pwm-roles')){state.preview=null;const apply=q('[data-action="apply"]');if(apply)apply.disabled=true;}
+    if(e.target.id==='pwm-version'){state.version=state.family.VERSIONS.find(v=>Number(v.ID)===Number(e.target.value));state.preview=null;state.previewDiff=null;renderModule();renderWorkspace();}
+    if(e.target.id==='pwm-preset'){state.presetId=Number(e.target.value);state.preview=null;if(!state.migrationMode)await loadInstances();}
+    if(e.target.closest('#pwm-ports,#pwm-roles')){state.preview=null;state.previewDiff=null;const apply=q('[data-action="apply"]');if(apply)apply.disabled=true;}
   });
   document.addEventListener('click',async e=>{
     const familyButton=e.target.closest('[data-family]');
-    if(familyButton){state.family=state.catalog.find(f=>Number(f.ID)===Number(familyButton.dataset.family));state.version=state.family.VERSIONS[0]||null;state.preview=null;renderFamilies();renderModule();renderWorkspace();return;}
+    if(familyButton){state.migrationMode=false;state.family=state.catalog.find(f=>Number(f.ID)===Number(familyButton.dataset.family));state.version=state.family.VERSIONS[0]||null;state.preview=null;state.previewDiff=null;renderFamilies();renderModule();renderWorkspace();return;}
     const button=e.target.closest('[data-action]');if(!button)return;
     button.disabled=true;
     try{
       const action=button.dataset.action;
       if(action==='refresh')await load();
+      if(action==='migration-open'){state.migrationMode=true;state.migrationAnalysis=null;state.migrationDraft=null;renderWorkspace();}
+      if(action==='migration-close'){state.migrationMode=false;renderWorkspace();}
+      if(action==='migration-analyze'){state.migrationAnalysis=await api('migration.analyze',{presetId:state.presetId});state.migrationDraft=null;renderWorkspace();}
+      if(action==='migration-extract'){
+        const review=JSON.parse(q('#pwm-migration-review').value);
+        state.migrationDraft=await api('migration.extract',{legacySelection:{presetLegacyId:state.presetId,detailLegacyIds:state.migrationAnalysis.inventory.map(x=>x.legacyId),stageLegacyIds:state.migrationAnalysis.inventory.flatMap(x=>x.stages.map(s=>s.legacyId)),settingsLegacyIds:state.migrationAnalysis.sharedSettings.map(x=>x.settingsLegacyId)},review});
+        renderWorkspace();notice('Portable draft валиден. Сначала выполните differential tests; публикация остаётся отдельным действием.');
+      }
+      if(action==='migration-create-draft'){
+        const result=await api('migration.draft.create',{module:state.migrationDraft.module,expected:JSON.parse(q('#pwm-migration-expected').value),actual:JSON.parse(q('#pwm-migration-actual').value),absoluteTolerance:Number(q('#pwm-migration-tolerance').value||0)});
+        await load();state.migrationMode=false;notice(`Черновик ${result.familyCode}@${result.version} создан после успешного differential test. Публикация не выполнялась.`);
+      }
       if(action==='install-pilot'){await api('vertical.install');await load();notice('Этап, деталь и многосоставной фрагмент опубликованы.');}
       if(action==='load-instances')await loadInstances();
       if(action==='preview'){
         const instance=collectInstance();
-        state.preview=(await api('instance.preview',{versionId:Number(state.version.ID),instance,options:{snapshotId:'preview-'+Date.now(),presetRevision:1,createdAt:new Date().toISOString(),resolvedBy:'admin-ui',resolverVersion:'1.0.0'}})).snapshot;
+        const result=await api('instance.preview',{versionId:Number(state.version.ID),instance,currentSnapshot:state.currentSnapshot?.SNAPSHOT,options:{snapshotId:'preview-'+Date.now(),presetRevision:state.editingInstance?Number(state.editingInstance.REVISION)+1:1,createdAt:new Date().toISOString(),resolvedBy:'admin-ui',resolverVersion:'1.0.0'}});
+        state.preview=result.snapshot;state.previewDiff=result.diff||null;
         renderWorkspace();notice('Preview прошёл validate. Можно применить snapshot.');
       }
       if(action==='apply'){
         if(!state.preview)throw new Error('Сначала выполните Preview');
-        const instance=collectInstance();instance.instanceId='instance-'+crypto.randomUUID();
-        const result=await api('instance.apply',{presetId:state.presetId,versionId:Number(state.version.ID),instance,options:{snapshotId:'snapshot-'+crypto.randomUUID(),presetRevision:1,createdAt:new Date().toISOString(),resolvedBy:'admin-ui',resolverVersion:'1.0.0'}});
-        state.preview=null;await loadInstances();notice('Экземпляр применён. Snapshot '+result.snapshotHash);
+        const instance=collectInstance();if(!state.editingInstance)instance.instanceId='instance-'+crypto.randomUUID();
+        const result=await api('instance.apply',{presetId:state.presetId,versionId:Number(state.version.ID),instance,options:{snapshotId:'snapshot-'+crypto.randomUUID(),presetRevision:state.editingInstance?Number(state.editingInstance.REVISION)+1:1,createdAt:new Date().toISOString(),resolvedBy:'admin-ui',resolverVersion:'1.0.0'},instanceRowId:state.editingInstance?.ID,expectedRevision:state.editingInstance?.REVISION});
+        state.preview=null;state.previewDiff=null;state.editingInstance=null;state.currentSnapshot=null;await loadInstances();notice('Экземпляр применён. Snapshot '+result.snapshotHash);
+      }
+      if(action==='edit-cancel'){state.editingInstance=null;state.currentSnapshot=null;state.preview=null;state.previewDiff=null;renderWorkspace();}
+      if(action==='edit-instance'){
+        const instance=state.instances.find(x=>Number(x.ID)===Number(button.dataset.instance));
+        const family=state.catalog.find(f=>f.CODE===instance.MODULE_FAMILY_CODE);
+        if(!family)throw new Error('Семейство экземпляра не найдено');
+        state.family=family;state.version=family.VERSIONS.find(v=>v.VERSION===instance.MODULE_VERSION)||family.VERSIONS[0];
+        state.editingInstance=instance;const snapshots=await api('snapshots',{instanceId:Number(instance.ID)});
+        state.currentSnapshot=snapshots.find(s=>Number(s.ID)===Number(instance.SNAPSHOT_ID))||null;
+        state.preview=null;state.previewDiff=null;renderFamilies();renderModule();renderWorkspace();notice('Режим обновления: выберите точную версию, проверьте mapping и выполните Preview.');
       }
       if(action==='deprecate'||action==='archive'){
         await api('version.status',{versionId:Number(state.version.ID),status:action==='deprecate'?'deprecated':'archived',expectedRevision:Number(state.version.REVISION)});
@@ -190,7 +234,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
       if(action==='history'){
         const snapshots=await api('snapshots',{instanceId:Number(button.dataset.instance)});
         const current=state.instances.find(x=>Number(x.ID)===Number(button.dataset.instance));
-        q('#pwm-preview').innerHTML=`<div class="pwm-card"><div class="pwm-card__head">История snapshot</div><table class="pwm-table"><tbody>${snapshots.map(s=>`<tr><td>${esc(s.SNAPSHOT_UID)}<br><code>${esc(s.SNAPSHOT_HASH)}</code></td><td>rev ${esc(s.INSTANCE_REVISION)}</td><td>${Number(current.SNAPSHOT_ID)===Number(s.ID)?'<span class="pwm-badge pwm-badge--published">текущий</span>':`<button class="pwm-btn" data-action="rollback" data-instance="${current.ID}" data-snapshot="${s.ID}" data-revision="${current.REVISION}">Rollback</button>`}</td></tr>`).join('')}</tbody></table></div>`;
+        q('#pwm-preview').innerHTML=`<div class="pwm-card"><div class="pwm-card__head">История snapshot</div><table class="pwm-table"><tbody>${snapshots.map(s=>`<tr><td>${esc(s.SNAPSHOT.familyId)}@${esc(s.SNAPSHOT.version)}<br><code>${esc(s.SNAPSHOT_HASH.slice(0,20))}…</code></td><td>rev ${esc(s.INSTANCE_REVISION)}</td><td>${Number(current.SNAPSHOT_ID)===Number(s.ID)?'<span class="pwm-badge pwm-badge--published">текущий</span>':`<button class="pwm-btn" data-action="rollback" data-instance="${current.ID}" data-snapshot="${s.ID}" data-revision="${current.REVISION}">Rollback</button>`}</td></tr>`).join('')}</tbody></table></div>`;
       }
       if(action==='rollback'){
         await api('instance.rollback',{instanceId:Number(button.dataset.instance),snapshotId:Number(button.dataset.snapshot),expectedRevision:Number(button.dataset.revision)});

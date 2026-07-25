@@ -10,7 +10,10 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_be
 use Bitrix\Main\Application;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
+use Prospektweb\Calc\Calculator\ElementDataService;
+use Prospektweb\Calc\Config\ConfigManager;
 use Prospektweb\Calc\Modules\ModuleLifecycleService;
+use Prospektweb\Calc\Modules\LegacyV1MigrationAssistant;
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -86,6 +89,79 @@ function moduleCatalogOptions(): array
     return $result;
 }
 
+function moduleLegacyReferences(mixed $value): array
+{
+    if (is_array($value) && array_key_exists('VALUE', $value)) {
+        return moduleLegacyReferences($value['VALUE']);
+    }
+    $values = is_array($value) ? $value : [$value];
+    $result = [];
+    foreach ($values as $item) {
+        if (is_scalar($item) && ctype_digit(trim((string)$item)) && (int)$item > 0) {
+            $result[] = (int)$item;
+        }
+    }
+    return array_values(array_unique($result));
+}
+
+function moduleLoadLegacyPreset(int $presetId): array
+{
+    if ($presetId <= 0) {
+        throw new InvalidArgumentException('presetId is required');
+    }
+    $config = new ConfigManager();
+    $iblocks = [
+        'CALC_PRESETS' => $config->getIblockId('CALC_PRESETS'),
+        'CALC_DETAILS' => $config->getIblockId('CALC_DETAILS'),
+        'CALC_STAGES' => $config->getIblockId('CALC_STAGES'),
+    ];
+    foreach ($iblocks as $code => $iblockId) {
+        if ($iblockId <= 0) {
+            throw new RuntimeException("Legacy iblock {$code} is not configured");
+        }
+    }
+    $loader = new ElementDataService();
+    $preset = $loader->loadSingleElement($iblocks['CALC_PRESETS'], $presetId, null, true);
+    if (!$preset) {
+        throw new RuntimeException("Legacy preset {$presetId} was not found");
+    }
+    $details = [];
+    $stages = [];
+    $pendingDetails = moduleLegacyReferences($preset['properties']['CALC_DETAILS'] ?? []);
+    while ($pendingDetails !== []) {
+        $detailId = array_shift($pendingDetails);
+        if (isset($details[$detailId])) {
+            continue;
+        }
+        $detail = $loader->loadSingleElement($iblocks['CALC_DETAILS'], $detailId, null, true);
+        if (!$detail) {
+            continue;
+        }
+        $details[$detailId] = $detail;
+        foreach (moduleLegacyReferences($detail['properties']['DETAILS'] ?? []) as $childId) {
+            if (!isset($details[$childId])) {
+                $pendingDetails[] = $childId;
+            }
+        }
+        foreach (moduleLegacyReferences($detail['properties']['CALC_STAGES'] ?? []) as $stageId) {
+            if (isset($stages[$stageId])) {
+                continue;
+            }
+            $stage = $loader->loadSingleElement($iblocks['CALC_STAGES'], $stageId, null, true);
+            if ($stage) {
+                $stages[$stageId] = $stage;
+            }
+        }
+    }
+    return [
+        'preset' => $preset,
+        'elementsStore' => [
+            'CALC_DETAILS' => array_values($details),
+            'CALC_STAGES' => array_values($stages),
+        ],
+    ];
+}
+
 global $USER;
 if (!$USER || !$USER->IsAuthorized()) {
     moduleJson(['success' => false, 'error' => 'Требуется авторизация'], 401);
@@ -132,6 +208,64 @@ try {
             break;
         case 'vertical.install':
             $result = $service->installVerticalFixtures($actorId);
+            break;
+        case 'migration.analyze':
+            $legacy = isset($payload['presetId'])
+                ? moduleLoadLegacyPreset((int)$payload['presetId'])
+                : [
+                    'preset' => (array)($payload['preset'] ?? []),
+                    'elementsStore' => (array)($payload['elementsStore'] ?? []),
+                ];
+            $result = LegacyV1MigrationAssistant::analyzePreset(
+                $legacy['preset'],
+                $legacy['elementsStore']
+            );
+            break;
+        case 'migration.extract':
+            $result = LegacyV1MigrationAssistant::buildDraft(
+                (array)($payload['legacySelection'] ?? []),
+                (array)($payload['review'] ?? [])
+            );
+            break;
+        case 'migration.compare':
+            $result = LegacyV1MigrationAssistant::compareResults(
+                (array)($payload['expected'] ?? []),
+                (array)($payload['actual'] ?? []),
+                (float)($payload['absoluteTolerance'] ?? 0.0)
+            );
+            break;
+        case 'migration.draft.create':
+            $module = (array)($payload['module'] ?? []);
+            $comparison = LegacyV1MigrationAssistant::compareResults(
+                (array)($payload['expected'] ?? []),
+                (array)($payload['actual'] ?? []),
+                (float)($payload['absoluteTolerance'] ?? 0.0)
+            );
+            if ($comparison['blocksPublication']) {
+                throw new DomainException('Differential comparison failed; migrated draft was not created');
+            }
+            $family = null;
+            foreach ($service->listCatalog(true) as $candidate) {
+                if (($candidate['CODE'] ?? null) === ($module['familyId'] ?? null)) {
+                    $family = $candidate;
+                    break;
+                }
+            }
+            $familyId = $family
+                ? (int)$family['ID']
+                : $service->createFamily(
+                    (string)($module['familyId'] ?? ''),
+                    (string)($module['name'] ?? ''),
+                    (string)($module['description'] ?? ''),
+                    $actorId
+                );
+            $result = [
+                'familyCode' => (string)$module['familyId'],
+                'version' => (string)$module['version'],
+                'versionId' => $service->createDraft($familyId, $module, $actorId),
+                'comparison' => $comparison,
+                'published' => false,
+            ];
             break;
         case 'family.create':
             $result = [

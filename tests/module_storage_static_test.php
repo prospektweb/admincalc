@@ -40,8 +40,11 @@ $assert(strpos($service, 'applyInstance') !== false, 'lifecycle atomically appli
 $assert(strpos($service, 'installPilotStage') !== false, 'lifecycle can idempotently publish the reviewed pilot fixture');
 $assert(strpos($service, 'ModuleMaterializer::materialize') !== false, 'lifecycle validates before persistence');
 $assert(strpos($service, "'instance.update.apply'") !== false, 'lifecycle audits applied updates');
+$assert(strpos($service, "'VERSION_ID' => (int)\$snapshotVersion['ID']") !== false, 'rollback restores the exact snapshot version');
+$assert(strpos($service, "'BINDINGS_JSON' => CanonicalJson::encode") !== false, 'rollback restores materialized bindings');
 $assert(strpos($moduleInstaller, "'reference_id' => ['D', 'R', 'W', 'P']") !== false, 'module declares publication right');
 $assert(strpos($installStep, 'ModuleStorageInstaller') !== false, 'fresh install provisions module storage');
 $assert(strpos($include, "'Prospektweb\\\\Calc\\\\Modules\\\\ModuleMaterializer'") !== false, 'materializer autoload is registered');
+$assert(strpos($include, "'Prospektweb\\\\Calc\\\\Modules\\\\LegacyV1MigrationAssistant'") !== false, 'migration assistant autoload is registered');
 
 echo "Calculation module storage static checks passed\n";
