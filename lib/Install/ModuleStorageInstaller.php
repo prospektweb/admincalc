@@ -51,7 +51,7 @@ final class ModuleStorageInstaller
             $createdTables[] = $table;
         }
 
-        $alteredColumns = $this->ensureNullableAuditColumns();
+        $alteredColumns = $this->ensureNullableColumns();
 
         foreach (self::INDEXES as [$table, $index, $columns, $unique]) {
             if ($this->hasIndex($table, $index)) {
@@ -93,22 +93,27 @@ final class ModuleStorageInstaller
         return is_array($row);
     }
 
-    private function ensureNullableAuditColumns(): array
+    private function ensureNullableColumns(): array
     {
         $connection = Application::getConnection();
-        $table = ModuleAuditTable::getTableName();
         $altered = [];
-        foreach (['FAMILY_ID', 'VERSION_ID', 'INSTANCE_ID', 'SNAPSHOT_ID'] as $column) {
-            $row = $connection->query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'")->fetch();
-            if (!is_array($row) || strtoupper((string)($row['Null'] ?? '')) === 'YES') {
-                continue;
+        $nullableColumns = [
+            ModuleAuditTable::getTableName() => ['FAMILY_ID', 'VERSION_ID', 'INSTANCE_ID', 'SNAPSHOT_ID'],
+            ModuleInstanceTable::getTableName() => ['SNAPSHOT_ID'],
+        ];
+        foreach ($nullableColumns as $table => $columns) {
+            foreach ($columns as $column) {
+                $row = $connection->query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'")->fetch();
+                if (!is_array($row) || strtoupper((string)($row['Null'] ?? '')) === 'YES') {
+                    continue;
+                }
+                $type = strtolower(trim((string)($row['Type'] ?? '')));
+                if (!preg_match('/^[a-z0-9]+(?:\([0-9,]+\))?(?: unsigned)?$/D', $type)) {
+                    throw new \RuntimeException("Unexpected SQL type for {$table}.{$column}");
+                }
+                $connection->queryExecute("ALTER TABLE `{$table}` MODIFY `{$column}` {$type} NULL");
+                $altered[] = "{$table}.{$column}";
             }
-            $type = strtolower(trim((string)($row['Type'] ?? '')));
-            if (!preg_match('/^[a-z0-9]+(?:\([0-9,]+\))?(?: unsigned)?$/D', $type)) {
-                throw new \RuntimeException("Unexpected SQL type for {$table}.{$column}");
-            }
-            $connection->queryExecute("ALTER TABLE `{$table}` MODIFY `{$column}` {$type} NULL");
-            $altered[] = "{$table}.{$column}";
         }
         return $altered;
     }

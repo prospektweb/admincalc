@@ -52,9 +52,16 @@ $assert(
 );
 $assert(
     $installer !== false
-        && strpos($installer, 'ensureNullableAuditColumns') !== false
+        && strpos($installer, 'ensureNullableColumns') !== false
         && strpos($installer, 'ALTER TABLE `{$table}` MODIFY `{$column}` {$type} NULL') !== false,
-    'schema repair must normalize nullable audit references in already-created tables'
+    'schema repair must normalize nullable references in already-created tables'
+);
+$instanceTable = file_get_contents($root . '/lib/Modules/Storage/ModuleInstanceTable.php');
+$assert(
+    $instanceTable !== false
+        && strpos($instanceTable, "(new IntegerField('SNAPSHOT_ID'))->configureNullable(true)") !== false
+        && strpos($installer, "ModuleInstanceTable::getTableName() => ['SNAPSHOT_ID']") !== false,
+    'new instances must be insertable before their immutable snapshot is appended'
 );
 $assert(strpos($moduleInstaller, "'reference_id' => ['D', 'R', 'W', 'P']") !== false, 'module declares publication right');
 $assert(strpos($installStep, 'ModuleStorageInstaller') !== false, 'fresh install provisions module storage');

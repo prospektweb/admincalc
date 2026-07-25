@@ -32,7 +32,7 @@ final class ModuleInstanceTable extends DataManager
             (new TextField('ENTITY_BINDINGS_JSON'))->configureRequired()->configureLong(),
             (new TextField('DEPENDENCY_LOCK_JSON'))->configureRequired()->configureLong(),
             (new TextField('CONTEXT_JSON'))->configureLong(),
-            (new IntegerField('SNAPSHOT_ID')),
+            (new IntegerField('SNAPSHOT_ID'))->configureNullable(true),
             (new DatetimeField('CREATED_AT'))->configureRequired()->configureDefaultValue(static fn() => new DateTime()),
             (new IntegerField('CREATED_BY'))->configureRequired(),
             (new DatetimeField('UPDATED_AT'))->configureRequired()->configureDefaultValue(static fn() => new DateTime()),
