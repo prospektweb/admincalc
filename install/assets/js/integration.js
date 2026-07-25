@@ -240,6 +240,14 @@
                 case 'ADD_STAGE_REQUEST':
                     await this.handleAddStageRequest(message, origin);
                     break;
+                case 'MODULE_CATALOG_REQUEST':
+                case 'MODULE_INSTANCES_REQUEST':
+                case 'MODULE_SNAPSHOTS_REQUEST':
+                case 'MODULE_PREVIEW_REQUEST':
+                case 'MODULE_APPLY_REQUEST':
+                case 'MODULE_ROLLBACK_REQUEST':
+                    await this.handleModuleOperationRequest(message, origin);
+                    break;
                 case 'DELETE_STAGE_REQUEST':
                     await this.handleDeleteStageRequest(message, origin);
                     break;
@@ -403,6 +411,8 @@
                         'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'SELECT_FIELDS_REQUEST', 'SELECT_DETAILS_TO_BINDING_REQUEST',
                         'ADD_DETAIL_REQUEST', 'ADD_DETAIL_TO_BINDING_REQUEST',
                         'ADD_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'SAVE_STAGE_ACTIVATION_REQUEST', 'REMOVE_DETAIL_REQUEST',
+                        'MODULE_CATALOG_REQUEST', 'MODULE_INSTANCES_REQUEST', 'MODULE_SNAPSHOTS_REQUEST',
+                        'MODULE_PREVIEW_REQUEST', 'MODULE_APPLY_REQUEST', 'MODULE_ROLLBACK_REQUEST',
                         'RENAME_DETAIL_REQUEST', 'CHANGE_PRODUCT_TYPE_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST',
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
@@ -1526,6 +1536,51 @@
          * 4. Обогатить пресет на основе первого элемента CALC_DETAILS
          * 5. Отправить INIT
          */
+        async handleModuleOperationRequest(message, origin) {
+            const actionByType = {
+                MODULE_CATALOG_REQUEST: 'moduleCatalog',
+                MODULE_INSTANCES_REQUEST: 'moduleInstances',
+                MODULE_SNAPSHOTS_REQUEST: 'moduleSnapshots',
+                MODULE_PREVIEW_REQUEST: 'modulePreview',
+                MODULE_APPLY_REQUEST: 'moduleApply',
+                MODULE_ROLLBACK_REQUEST: 'moduleRollback',
+            };
+            const action = actionByType[message.type];
+            const payload = Object.assign({}, message.payload || {}, {
+                action: action,
+                offerIds: this.config.offerIds || [],
+                siteId: this.config.siteId || SITE_ID,
+            });
+
+            try {
+                const result = await this.fetchRefreshData([payload]);
+                const response = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Сервер не вернул результат операции' };
+                if (response.status !== 'ok') {
+                    throw new Error(response.message || 'Операция с модулем не выполнена');
+                }
+                const data = response.data || {};
+                if (data.initPayload) {
+                    this.initData = data.initPayload;
+                }
+                this.sendPwrtMessage('MODULE_OPERATION_RESPONSE', {
+                    operation: action,
+                    status: 'ok',
+                    data: data,
+                }, message.requestId, origin);
+                if (data.initPayload) {
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                }
+            } catch (error) {
+                this.sendPwrtMessage('MODULE_OPERATION_RESPONSE', {
+                    operation: action,
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Операция с модулем не выполнена',
+                }, message.requestId, origin);
+            }
+        }
+
         async handleAddStageRequest(message, origin) {
             console.log('[BitrixBridge][DEBUG] handleAddStageRequest START', {
                 messageType: message.type,
@@ -1557,6 +1612,9 @@
                         detailId: detailId,
                         name: String(payload.name || ''),
                         previewText: String(payload.previewText || ''),
+                        insertionIndex: Number.isInteger(payload.insertionIndex) ? payload.insertionIndex : undefined,
+                        beforeStageId: payload.beforeStageId == null ? null : Number(payload.beforeStageId),
+                        afterStageId: payload.afterStageId == null ? null : Number(payload.afterStageId),
                         presetId: presetId,
                         offerIds: offerIds,
                         siteId: siteId,

@@ -329,8 +329,32 @@ class DetailHandler
             }
 
             // 2. Добавить его ID в свойство CALC_STAGES детали
-            $existingConfigs = $detail['CONFIGS'];
-            $existingConfigs[] = $configId;
+            $existingConfigs = array_values(array_map('intval', $detail['CONFIGS']));
+            $insertionIndex = array_key_exists('insertionIndex', $data)
+                ? (int)$data['insertionIndex']
+                : count($existingConfigs);
+            if ($insertionIndex < 0 || $insertionIndex > count($existingConfigs)) {
+                \CIBlockElement::Delete($configId);
+                return [
+                    'status' => 'error',
+                    'message' => 'STAGE_POSITION_STALE: позиция вставки больше не существует',
+                ];
+            }
+            $beforeStageId = $insertionIndex > 0 ? $existingConfigs[$insertionIndex - 1] : null;
+            $afterStageId = $insertionIndex < count($existingConfigs) ? $existingConfigs[$insertionIndex] : null;
+            $requestedBefore = (int)($data['beforeStageId'] ?? 0) ?: null;
+            $requestedAfter = (int)($data['afterStageId'] ?? 0) ?: null;
+            if (
+                (array_key_exists('beforeStageId', $data) && $requestedBefore !== $beforeStageId)
+                || (array_key_exists('afterStageId', $data) && $requestedAfter !== $afterStageId)
+            ) {
+                \CIBlockElement::Delete($configId);
+                return [
+                    'status' => 'error',
+                    'message' => 'STAGE_POSITION_STALE: соседние этапы изменились, обновите состояние',
+                ];
+            }
+            array_splice($existingConfigs, $insertionIndex, 0, [$configId]);
             
             \CIBlockElement:: SetPropertyValuesEx($detailId, $this->detailsIblockId, [
                 'CALC_STAGES' => $existingConfigs,
@@ -341,6 +365,7 @@ class DetailHandler
                 'config' => [
                     'id' => $configId,
                     'detailId' => $detailId,
+                    'insertionIndex' => $insertionIndex,
                 ],
             ];
             

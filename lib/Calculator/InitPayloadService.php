@@ -70,8 +70,11 @@ class InitPayloadService
 
         // Формируем payload
         $moduleCatalog = ['schema' => 'prospektweb.calc.ai-module-catalog/v1', 'modules' => []];
+        $moduleInstances = [];
         try {
-            $moduleCatalog = (new \Prospektweb\Calc\Modules\ModuleLifecycleService())->listAiCatalog();
+            $moduleService = new \Prospektweb\Calc\Modules\ModuleLifecycleService();
+            $moduleCatalog = $moduleService->listAiCatalog();
+            $moduleInstances = $moduleService->listPresetInstances((int)$presetId);
         } catch (\Throwable $error) {
             // Fresh installs and partially upgraded production remain usable until module storage repair runs.
         }
@@ -86,6 +89,7 @@ class InitPayloadService
             'elementsStore' => $this->elementsStore ?? [],
             'elementsSiblings' => $this->buildElementsSiblings($preset),
             'moduleCatalog' => $moduleCatalog,
+            'moduleInstances' => $moduleInstances,
         ];
     }
 

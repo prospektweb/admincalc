@@ -17,7 +17,7 @@ final class ModuleAccess
         'version.deprecate' => 'P',
         'version.archive' => 'P',
         'migration.apply' => 'P',
-        'snapshot.rollback' => 'P',
+        'snapshot.rollback' => 'W',
     ];
 
     public static function canByRights(

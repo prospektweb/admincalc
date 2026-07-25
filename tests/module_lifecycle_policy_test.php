@@ -82,6 +82,8 @@ $assert(ModuleAccess::canByRights('draft.edit', true, 'W', false), 'catalog edit
 $assert(!ModuleAccess::canByRights('draft.edit', false, 'W', false), 'W cannot bypass edit_catalog');
 $assert(!ModuleAccess::canByRights('version.publish', true, 'W', false), 'W cannot publish');
 $assert(ModuleAccess::canByRights('version.publish', true, 'P', false), 'P can publish');
+$assert(ModuleAccess::canByRights('snapshot.rollback', true, 'W', false), 'catalog editor with W can rollback an instance');
+$assert(!ModuleAccess::canByRights('snapshot.rollback', false, 'W', false), 'rollback cannot bypass edit_catalog');
 $assert(ModuleAccess::canByRights('snapshot.rollback', false, 'D', true), 'administrator can rollback');
 
 echo "Calculation module lifecycle policy tests passed\n";

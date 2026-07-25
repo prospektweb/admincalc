@@ -341,7 +341,25 @@ final class ModuleLifecycleService
                 'globalAssignments' => (array)($materialization['globalAssignments'] ?? []),
                 'customFieldValues' => $materialization['customFieldValues'] ?? (object)[],
                 'provenance' => $currentContext['provenance'] ?? (object)[],
+                'stageTarget' => $currentContext['stageTarget'] ?? null,
             ];
+            if (is_array($restoredContext['stageTarget'])) {
+                $snapshotModule = json_decode(
+                    (string)$snapshotVersion['CONTENT_JSON'],
+                    true,
+                    512,
+                    JSON_THROW_ON_ERROR
+                );
+                $restoredContext['stageTarget'] = (new StageInsertionService())->synchronize(
+                    $restoredContext['stageTarget'],
+                    $snapshotContract,
+                    $snapshotModule,
+                    [
+                        'bindings' => (array)($materialization['bindings'] ?? []),
+                        'entityBindings' => (array)($materialization['entityBindings'] ?? []),
+                    ]
+                );
+            }
             $nextRevision = $expectedRevision + 1;
             $result = ModuleInstanceTable::update($instanceId, [
                 'VERSION_ID' => (int)$snapshotVersion['ID'],
@@ -636,8 +654,48 @@ final class ModuleLifecycleService
             throw new \RuntimeException("Module version not found: {$versionId}");
         }
         $module = json_decode((string)$version['CONTENT_JSON'], true, 512, JSON_THROW_ON_ERROR);
+        $resolution = $this->resolveDependencies($module);
+        $instance['dependencyLock'] = $resolution['dependencyLock'];
+        $options['executionOrder'] = $resolution['executionOrder'];
         $instance = $this->normalizeInstanceContract($module, $instance, (int)($instance['revision'] ?? 1));
         return ModuleMaterializer::materialize($module, $instance, $options);
+    }
+
+    public function previewStageInsertion(
+        int $versionId,
+        array $instance,
+        array $options,
+        array $target
+    ): array {
+        ModuleAccess::assertCurrentUser('view');
+        $version = ModuleVersionTable::getByPrimary($versionId)->fetch();
+        if (!$version) {
+            throw new \RuntimeException("Module version not found: {$versionId}");
+        }
+        if ($version['STATUS'] !== 'published') {
+            throw new \DomainException('MODULE_VERSION_UNAVAILABLE: Для вставки выберите точную опубликованную версию');
+        }
+        $module = json_decode((string)$version['CONTENT_JSON'], true, 512, JSON_THROW_ON_ERROR);
+        $snapshot = $this->previewMaterialization($versionId, $instance, $options);
+        $position = (new StageInsertionService())->preview($target);
+
+        return [
+            'snapshot' => $snapshot,
+            'target' => $position,
+            'stagePreview' => [
+                'name' => (string)($module['name'] ?? ''),
+                'description' => (string)($module['description'] ?? ''),
+                'nextOrder' => isset($position['stageId'])
+                    ? $position['currentOrder']
+                    : array_merge(
+                        array_slice($position['currentOrder'], 0, $position['insertionIndex']),
+                        ['__new_stage__'],
+                        array_slice($position['currentOrder'], $position['insertionIndex'])
+                    ),
+            ],
+            'issues' => [],
+            'warnings' => [],
+        ];
     }
 
     public function applyInstance(
@@ -648,7 +706,9 @@ final class ModuleLifecycleService
         ?int $instanceRowId,
         ?int $expectedRevision,
         ?array $legacySnapshot,
-        int $actorId
+        int $actorId,
+        ?array $target = null,
+        array $offerIds = []
     ): array {
         ModuleAccess::assertCurrentUser('instance.bind');
         return $this->transaction(function () use (
@@ -659,7 +719,9 @@ final class ModuleLifecycleService
             $instanceRowId,
             $expectedRevision,
             $legacySnapshot,
-            $actorId
+            $actorId,
+            $target,
+            $offerIds
         ): array {
             $version = $this->lockRow(ModuleVersionTable::getTableName(), $versionId);
             if ($version['STATUS'] !== 'published') {
@@ -672,6 +734,7 @@ final class ModuleLifecycleService
                 $instanceUid = bin2hex(random_bytes(16));
             }
             $existing = null;
+            $existingContext = [];
             if ($instanceRowId !== null) {
                 $existing = $this->lockRow(ModuleInstanceTable::getTableName(), $instanceRowId);
                 ModuleLifecyclePolicy::assertRevision((int)$existing['REVISION'], (int)$expectedRevision);
@@ -680,9 +743,15 @@ final class ModuleLifecycleService
                 }
                 $revision = (int)$existing['REVISION'] + 1;
                 $instanceUid = (string)$existing['INSTANCE_UID'];
+                $existingContext = ($existing['CONTEXT_JSON'] ?? '') === ''
+                    ? []
+                    : json_decode((string)$existing['CONTEXT_JSON'], true, 512, JSON_THROW_ON_ERROR);
             }
             $instance['instanceId'] = $instanceUid;
             $instance['presetId'] = $presetId;
+            $resolution = $this->resolveDependencies($module);
+            $instance['dependencyLock'] = $resolution['dependencyLock'];
+            $options['executionOrder'] = $resolution['executionOrder'];
             $instance = $this->normalizeInstanceContract($module, $instance, $revision);
             $snapshotUid = trim((string)($options['snapshotId'] ?? ''));
             if ($snapshotUid === '') {
@@ -697,11 +766,39 @@ final class ModuleLifecycleService
                 $options['legacySnapshotHash'] = CanonicalJson::hash($legacySnapshot);
             }
             $snapshot = ModuleMaterializer::materialize($module, $instance, $options);
+            $stageMaterialization = null;
+            if ($target !== null) {
+                $stageService = new StageInsertionService();
+                if ($existing === null) {
+                    $stageMaterialization = $stageService->insert(
+                        $target,
+                        $module,
+                        $snapshot,
+                        $instance,
+                        $presetId,
+                        $actorId
+                    );
+                } else {
+                    $stageService->preview($target);
+                    $storedTarget = is_array($existingContext['stageTarget'] ?? null)
+                        ? $existingContext['stageTarget']
+                        : $target;
+                    $stageMaterialization = [
+                        'target' => $stageService->synchronize($storedTarget, $snapshot, $module, $instance),
+                        'stageId' => (int)($storedTarget['stageId'] ?? 0),
+                        'settingsId' => isset($storedTarget['settingsId'])
+                            ? (int)$storedTarget['settingsId']
+                            : null,
+                    ];
+                }
+            }
             $context = [
                 'activationCondition' => $instance['activationCondition'] ?? null,
                 'globalAssignments' => $instance['globalAssignments'] ?? [],
                 'customFieldValues' => $instance['customFieldValues'] ?? (object)[],
                 'provenance' => $instance['provenance'] ?? (object)[],
+                'stageTarget' => $stageMaterialization['target']
+                    ?? ($existingContext['stageTarget'] ?? null),
             ];
             $instanceFields = [
                 'VERSION_ID' => $versionId,
@@ -747,7 +844,9 @@ final class ModuleLifecycleService
             ]);
             $this->assertResult($linkResult->isSuccess(), $linkResult->getErrorMessages());
             $this->audit(
-                $existing === null ? 'instance.apply' : 'instance.update.apply',
+                $existing === null && $stageMaterialization !== null
+                    ? 'operator_insert'
+                    : ($existing === null ? 'instance.apply' : 'instance.update.apply'),
                 $actorId,
                 (int)$version['FAMILY_ID'],
                 $versionId,
@@ -758,8 +857,18 @@ final class ModuleLifecycleService
                     'revision' => $revision,
                     'contentHash' => $version['CONTENT_HASH'],
                     'snapshotHash' => $snapshot['snapshotHash'],
+                    'stageTarget' => $context['stageTarget'],
                 ]
             );
+            $initPayload = null;
+            if ($stageMaterialization !== null) {
+                $enrichment = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                $roots = $enrichment->getProductRootsFromPreset($presetId);
+                if ($roots === []) {
+                    throw new \RuntimeException('STAGE_INSERT_FAILED: Не удалось построить authoritative refresh целевого пресета');
+                }
+                $initPayload = $enrichment->enrichPresetFromProductRoots($presetId, $roots, $offerIds);
+            }
             return [
                 'instanceId' => $instanceRowId,
                 'instanceUid' => $instanceUid,
@@ -768,6 +877,10 @@ final class ModuleLifecycleService
                 'snapshotUid' => $snapshotUid,
                 'snapshotHash' => $snapshot['snapshotHash'],
                 'snapshot' => $snapshot,
+                'stageId' => $stageMaterialization['stageId'] ?? null,
+                'settingsId' => $stageMaterialization['settingsId'] ?? null,
+                'target' => $stageMaterialization['target'] ?? null,
+                'initPayload' => $initPayload,
             ];
         });
     }
@@ -827,6 +940,22 @@ final class ModuleLifecycleService
             $connection->rollbackTransaction();
             throw $error;
         }
+    }
+
+    private function resolveDependencies(array $module): array
+    {
+        $catalog = [];
+        $rows = ModuleVersionTable::getList([
+            'filter' => ['=STATUS' => 'published'],
+            'select' => ['CONTENT_JSON'],
+        ]);
+        while ($row = $rows->fetch()) {
+            $content = json_decode((string)($row['CONTENT_JSON'] ?? ''), true, 512, JSON_THROW_ON_ERROR);
+            if (is_array($content)) {
+                $catalog[] = $content;
+            }
+        }
+        return DependencyResolver::resolve($module, $catalog);
     }
 
     private function audit(

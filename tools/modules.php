@@ -317,16 +317,23 @@ try {
             ];
             break;
         case 'instance.preview':
-            $snapshot = $service->previewMaterialization(
-                (int)($payload['versionId'] ?? 0),
-                (array)($payload['instance'] ?? []),
-                (array)($payload['options'] ?? [])
-            );
-            $result = ['snapshot' => $snapshot];
+            $target = is_array($payload['target'] ?? null) ? $payload['target'] : null;
+            $result = $target !== null
+                ? $service->previewStageInsertion(
+                    (int)($payload['versionId'] ?? 0),
+                    (array)($payload['instance'] ?? []),
+                    (array)($payload['options'] ?? []),
+                    $target
+                )
+                : ['snapshot' => $service->previewMaterialization(
+                    (int)($payload['versionId'] ?? 0),
+                    (array)($payload['instance'] ?? []),
+                    (array)($payload['options'] ?? [])
+                )];
             if (is_array($payload['currentSnapshot'] ?? null)) {
                 $result['diff'] = \Prospektweb\Calc\Modules\ModuleMaterializer::preview(
                     $payload['currentSnapshot'],
-                    $snapshot
+                    $result['snapshot']
                 );
             }
             break;
@@ -339,7 +346,9 @@ try {
                 isset($payload['instanceRowId']) ? (int)$payload['instanceRowId'] : null,
                 isset($payload['expectedRevision']) ? (int)$payload['expectedRevision'] : null,
                 is_array($payload['legacySnapshot'] ?? null) ? $payload['legacySnapshot'] : null,
-                $actorId
+                $actorId,
+                is_array($payload['target'] ?? null) ? $payload['target'] : null,
+                (array)($payload['offerIds'] ?? [])
             );
             break;
         case 'instance.rollback':
