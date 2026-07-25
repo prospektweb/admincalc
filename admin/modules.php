@@ -58,7 +58,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
   'use strict';
   const endpoint='/bitrix/tools/prospektweb.calc/modules.php';
   const sessid='<?= CUtil::JSEscape(bitrix_sessid()) ?>';
-  const state={catalog:[],options:null,family:null,version:null,presetId:0,instances:[],preview:null,previewDiff:null,currentSnapshot:null,editingInstance:null,migrationMode:false,migrationAnalysis:null,migrationDraft:null};
+  const state={catalog:[],options:null,family:null,version:null,presetId:0,instances:[],preview:null,previewDiff:null,currentSnapshot:null,editingInstance:null,draftInstance:null,migrationMode:false,migrationAnalysis:null,migrationDraft:null};
   const q=(s,r=document)=>r.querySelector(s);
   const esc=(v)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function api(action,payload={}){
@@ -122,18 +122,19 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
     const presets=state.options?.presets||[];
     if(!state.presetId&&presets.length)state.presetId=Number(presets[0].id);
     const bindPorts=m.ports.filter(p=>p.direction!=='output');
+    const draft=state.draftInstance||state.editingInstance;
     root.innerHTML=`
       <div id="pwm-notice" class="pwm-alert">Preview не изменяет пресет. Apply создаёт новый immutable snapshot; старые snapshot остаются доступны для rollback.</div>
       <div class="pwm-card"><div class="pwm-card__head">Мастер подключения</div><div class="pwm-card__body">
         <div class="pwm-form"><label>Пресет</label><select id="pwm-preset">${presets.map(x=>`<option value="${x.id}" ${Number(x.id)===Number(state.presetId)?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
         <h4>Сопоставление портов</h4>
-        <div id="pwm-ports">${bindPorts.map(p=>{const existing=(state.editingInstance?.BINDINGS||[]).find(b=>b.portCode===p.code)?.target;const kind=existing?.kind||(p.direction==='global-input'?'global':'source-path');const value=existing?.value??((p.direction==='global-input'?'preset.global.':'product.')+p.code);return `<div class="pwm-port" data-port="${esc(p.code)}">
+        <div id="pwm-ports">${bindPorts.map(p=>{const existing=(draft?.bindings||draft?.BINDINGS||[]).find(b=>b.portCode===p.code)?.target;const kind=existing?.kind||(p.direction==='global-input'?'global':'source-path');const value=existing?.value??((p.direction==='global-input'?'preset.global.':'product.')+p.code);return `<div class="pwm-port" data-port="${esc(p.code)}">
           <div class="pwm-port__name"><code>${esc(p.code)}</code>${p.required?' *':''}<br><span class="pwm-muted">${esc(p.direction)} · ${esc(p.valueType)}</span></div>
           <select data-field="kind">${['source-path','global','module-port','literal'].map(x=>`<option value="${x}" ${x===kind?'selected':''}>${esc(x)}</option>`).join('')}</select>
           <input data-field="value" value="${esc(typeof value==='string'?value:JSON.stringify(value))}" aria-label="Значение ${esc(p.code)}">
         </div>`;}).join('')}</div>
         <h4>Динамические роли</h4>
-        <div class="pwm-form" id="pwm-roles">${m.entityRoles.map(r=>{const selected=(state.editingInstance?.ENTITY_BINDINGS||[]).find(b=>b.roleCode===r.code)?.localElementIds?.[0]||'';return `<label>${esc(r.code)} *</label><select data-role="${esc(r.code)}" data-type="${esc(r.entityType)}"><option value="">— выбрать —</option>${(state.options?.[roleGroup(r.entityType)]||[]).map(x=>`<option value="${x.id}" ${Number(x.id)===Number(selected)?'selected':''}>${esc(x.name)}${x.active?'':' (неактивно)'}</option>`).join('')}</select>`;}).join('')}</div>
+        <div class="pwm-form" id="pwm-roles">${m.entityRoles.map(r=>{const selected=(draft?.entityBindings||draft?.ENTITY_BINDINGS||[]).find(b=>b.roleCode===r.code)?.localElementIds?.[0]||'';return `<label>${esc(r.code)} *</label><select data-role="${esc(r.code)}" data-type="${esc(r.entityType)}"><option value="">— выбрать —</option>${(state.options?.[roleGroup(r.entityType)]||[]).map(x=>`<option value="${x.id}" ${Number(x.id)===Number(selected)?'selected':''}>${esc(x.name)}${x.active?'':' (неактивно)'}</option>`).join('')}</select>`;}).join('')}</div>
         <div class="pwm-row-actions" style="margin-top:10px"><button class="pwm-btn" data-action="preview">Preview</button><button class="pwm-btn pwm-btn--primary" data-action="apply" ${state.preview?'':'disabled'}>${state.editingInstance?'Update snapshot':'Apply snapshot'}</button>${state.editingInstance?'<button class="pwm-btn" data-action="edit-cancel">Отменить обновление</button>':''}</div>
       </div></div>
       <div id="pwm-preview">${state.preview?`<div class="pwm-card"><div class="pwm-card__head">Resolved snapshot</div><div class="pwm-card__body"><div class="pwm-kv"><span class="pwm-muted">Hash</span><code>${esc(state.preview.snapshotHash)}</code><span class="pwm-muted">Версия</span><span>${esc(state.preview.familyId)}@${esc(state.preview.version)}</span><span class="pwm-muted">Узлы</span><span>${state.preview.resolvedGraph.nodes.length}</span></div>${state.previewDiff?`<pre class="pwm-json">${esc(JSON.stringify(state.previewDiff,null,2))}</pre>`:''}</div></div>`:''}</div>
@@ -154,7 +155,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
     const entityBindings=[...document.querySelectorAll('#pwm-roles [data-role]')].map(select=>({
       roleCode:select.dataset.role,entityType:select.dataset.type,localElementIds:select.value?[Number(select.value)]:[]
     }));
-    return {schema:'prospektweb.calc.module-instance/v1',instanceId:state.editingInstance?.INSTANCE_UID||'preview-'+Date.now(),presetId:state.presetId,familyId:state.version.CONTENT.familyId,version:state.version.CONTENT.version,contentHash:state.version.CONTENT.contentHash,revision:state.editingInstance?Number(state.editingInstance.REVISION)+1:1,bindings,entityBindings,dependencyLock:state.editingInstance?.DEPENDENCY_LOCK||[],provenance:state.editingInstance?.CONTEXT?.provenance||{createdAt:new Date().toISOString(),createdBy:'admin-ui',legacyElementIds:{}}};
+    return {schema:'prospektweb.calc.module-instance/v1',instanceId:state.editingInstance?.INSTANCE_UID||state.draftInstance?.instanceId||'instance-'+crypto.randomUUID(),presetId:state.presetId,familyId:state.version.CONTENT.familyId,version:state.version.CONTENT.version,contentHash:state.version.CONTENT.contentHash,revision:state.editingInstance?Number(state.editingInstance.REVISION)+1:1,bindings,entityBindings,dependencyLock:state.editingInstance?.DEPENDENCY_LOCK||[],provenance:state.editingInstance?.CONTEXT?.provenance||{createdAt:new Date().toISOString(),createdBy:'admin-ui',legacyElementIds:{}}};
   }
   function renderMigration(root){
     const presets=state.options?.presets||[];
@@ -179,13 +180,13 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
     state.instances=await api('instances',{presetId:state.presetId});renderWorkspace();
   }
   document.addEventListener('change',async e=>{
-    if(e.target.id==='pwm-version'){state.version=state.family.VERSIONS.find(v=>Number(v.ID)===Number(e.target.value));state.preview=null;state.previewDiff=null;renderModule();renderWorkspace();}
-    if(e.target.id==='pwm-preset'){state.presetId=Number(e.target.value);state.preview=null;if(!state.migrationMode)await loadInstances();}
-    if(e.target.closest('#pwm-ports,#pwm-roles')){state.preview=null;state.previewDiff=null;const apply=q('[data-action="apply"]');if(apply)apply.disabled=true;}
+    if(e.target.id==='pwm-version'){state.version=state.family.VERSIONS.find(v=>Number(v.ID)===Number(e.target.value));state.preview=null;state.previewDiff=null;state.draftInstance=null;renderModule();renderWorkspace();}
+    if(e.target.id==='pwm-preset'){state.presetId=Number(e.target.value);state.preview=null;state.draftInstance=null;if(!state.migrationMode)await loadInstances();}
+    if(e.target.closest('#pwm-ports,#pwm-roles')){state.preview=null;state.previewDiff=null;state.draftInstance=null;const apply=q('[data-action="apply"]');if(apply)apply.disabled=true;}
   });
   document.addEventListener('click',async e=>{
     const familyButton=e.target.closest('[data-family]');
-    if(familyButton){state.migrationMode=false;state.family=state.catalog.find(f=>Number(f.ID)===Number(familyButton.dataset.family));state.version=state.family.VERSIONS[0]||null;state.preview=null;state.previewDiff=null;renderFamilies();renderModule();renderWorkspace();return;}
+    if(familyButton){state.migrationMode=false;state.family=state.catalog.find(f=>Number(f.ID)===Number(familyButton.dataset.family));state.version=state.family.VERSIONS[0]||null;state.preview=null;state.previewDiff=null;state.draftInstance=null;renderFamilies();renderModule();renderWorkspace();return;}
     const button=e.target.closest('[data-action]');if(!button)return;
     button.disabled=true;
     try{
@@ -207,17 +208,18 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
       if(action==='load-instances')await loadInstances();
       if(action==='preview'){
         const instance=collectInstance();
+        state.draftInstance=instance;
         const result=await api('instance.preview',{versionId:Number(state.version.ID),instance,currentSnapshot:state.currentSnapshot?.SNAPSHOT,options:{snapshotId:'preview-'+Date.now(),presetRevision:state.editingInstance?Number(state.editingInstance.REVISION)+1:1,createdAt:new Date().toISOString(),resolvedBy:'admin-ui',resolverVersion:'1.0.0'}});
         state.preview=result.snapshot;state.previewDiff=result.diff||null;
         renderWorkspace();notice('Preview прошёл validate. Можно применить snapshot.');
       }
       if(action==='apply'){
-        if(!state.preview)throw new Error('Сначала выполните Preview');
-        const instance=collectInstance();if(!state.editingInstance)instance.instanceId='instance-'+crypto.randomUUID();
+        if(!state.preview||!state.draftInstance)throw new Error('Сначала выполните Preview');
+        const instance=state.draftInstance;
         const result=await api('instance.apply',{presetId:state.presetId,versionId:Number(state.version.ID),instance,options:{snapshotId:'snapshot-'+crypto.randomUUID(),presetRevision:state.editingInstance?Number(state.editingInstance.REVISION)+1:1,createdAt:new Date().toISOString(),resolvedBy:'admin-ui',resolverVersion:'1.0.0'},instanceRowId:state.editingInstance?.ID,expectedRevision:state.editingInstance?.REVISION});
-        state.preview=null;state.previewDiff=null;state.editingInstance=null;state.currentSnapshot=null;await loadInstances();notice('Экземпляр применён. Snapshot '+result.snapshotHash);
+        state.preview=null;state.previewDiff=null;state.editingInstance=null;state.currentSnapshot=null;state.draftInstance=null;await loadInstances();notice('Экземпляр применён. Snapshot '+result.snapshotHash);
       }
-      if(action==='edit-cancel'){state.editingInstance=null;state.currentSnapshot=null;state.preview=null;state.previewDiff=null;renderWorkspace();}
+      if(action==='edit-cancel'){state.editingInstance=null;state.currentSnapshot=null;state.preview=null;state.previewDiff=null;state.draftInstance=null;renderWorkspace();}
       if(action==='edit-instance'){
         const instance=state.instances.find(x=>Number(x.ID)===Number(button.dataset.instance));
         const family=state.catalog.find(f=>f.CODE===instance.MODULE_FAMILY_CODE);
@@ -225,7 +227,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
         state.family=family;state.version=family.VERSIONS.find(v=>v.VERSION===instance.MODULE_VERSION)||family.VERSIONS[0];
         state.editingInstance=instance;const snapshots=await api('snapshots',{instanceId:Number(instance.ID)});
         state.currentSnapshot=snapshots.find(s=>Number(s.ID)===Number(instance.SNAPSHOT_ID))||null;
-        state.preview=null;state.previewDiff=null;renderFamilies();renderModule();renderWorkspace();notice('Режим обновления: выберите точную версию, проверьте mapping и выполните Preview.');
+        state.preview=null;state.previewDiff=null;state.draftInstance=null;renderFamilies();renderModule();renderWorkspace();notice('Режим обновления: выберите точную версию, проверьте mapping и выполните Preview.');
       }
       if(action==='deprecate'||action==='archive'){
         await api('version.status',{versionId:Number(state.version.ID),status:action==='deprecate'?'deprecated':'archived',expectedRevision:Number(state.version.REVISION)});

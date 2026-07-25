@@ -27,6 +27,14 @@ $assert(strpos($page, "data-action=\"migration-create-draft\"") !== false, 'UI c
 $assert(strpos($page, '${esc(x.VERSION_ID)}') === false, 'UI does not display internal version IDs');
 $assert(strpos($page, 'data-role=') !== false, 'UI binds dynamic entity roles by visible names');
 $assert(strpos($page, 'crypto.randomUUID()') !== false, 'UI creates local instance identifiers without Bitrix IDs');
+$assert(strpos($page, 'state.draftInstance=instance') !== false, 'successful preview retains the exact reviewed draft for apply');
+$assert(strpos($page, 'const instance=state.draftInstance') !== false, 'apply sends the exact reviewed draft instead of recollecting a changed form');
+$assert(
+    strpos($page, 'const draft=state.draftInstance||state.editingInstance') !== false
+        && strpos($page, 'draft?.bindings||draft?.BINDINGS') !== false
+        && strpos($page, 'draft?.entityBindings||draft?.ENTITY_BINDINGS') !== false,
+    'preview rerender restores reviewed mappings and entity roles'
+);
 $assert(strpos($api, "case 'instance.preview':") !== false, 'API exposes preview');
 $assert(strpos($api, "case 'instance.apply':") !== false, 'API exposes atomic apply');
 $assert(strpos($api, "case 'instance.rollback':") !== false, 'API exposes rollback');
