@@ -63,6 +63,12 @@ class ElementDataService
                         );
                         continue 2;
 
+                    case 'previewStageLogicPrompt':
+                        $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->previewStageLogicPrompt(
+                            is_array($request['request'] ?? null) ? $request['request'] : []
+                        );
+                        continue 2;
+
                     case 'getAiBaseProducts':
                         $result[] = (new \Prospektweb\Calc\Services\AiCalculatorContextService())->getBaseProducts($request);
                         continue 2;

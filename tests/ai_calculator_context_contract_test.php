@@ -25,13 +25,18 @@ $checks = [
     [$context, "'xmlIdContract' => ''", 'non-hardcoded XML_ID contract'],
     [$context, 'PROPERTY_CML2_LINK', 'linked offer analysis'],
     [$service, "case 'getAiBaseProducts'", 'base product route'],
+    [$service, "case 'previewStageLogicPrompt'", 'prompt preview route'],
     [$service, "case 'saveAiCalculatorContext'", 'save context route'],
     [$integration, 'GET_AI_BASE_PRODUCTS_REQUEST', 'base product postMessage request'],
     [$integration, 'AI_BASE_PRODUCTS_RESPONSE', 'base product postMessage response'],
+    [$integration, 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST', 'prompt preview postMessage request'],
+    [$integration, 'STAGE_LOGIC_PROMPT_PREVIEW_RESPONSE', 'prompt preview postMessage response'],
     [$integration, 'SAVE_AI_CALCULATOR_CONTEXT_REQUEST', 'context save request'],
     [$integration, 'AI_CONTEXT_JSON', 'calculator property update'],
     [$schema, 'AI_CONTEXT_JSON', 'repair schema'],
     [$installer, 'AI_CONTEXT_JSON', 'installer schema'],
+    [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'availableProductProperties', 'all product properties for manual selection'],
+    [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'availableOfferProperties', 'all offer properties for manual selection'],
     [$navigation, '/bitrix/admin/iblock_list_admin.php', 'product list navigation'],
 ];
 

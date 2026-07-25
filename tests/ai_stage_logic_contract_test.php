@@ -25,6 +25,8 @@ $checks = [
     [$gateway, "Never emit sourcePath or any ID", 'prompt safety boundary'],
     [$gateway, "role=mapped-candidate", 'dynamic entity selection contract'],
     [$gateway, "baseProducts", 'base product examples'],
+    [$gateway, 'previewStageLogicPrompt', 'exact final prompt preview'],
+    [$gateway, 'prepareStageLogicPrompt', 'shared generation and preview prompt builder'],
     [$gateway, "expectedResults", 'expected results contract'],
     [$gateway, "'results' => []", 'no invalid result placeholder'],
     [$gateway, "Include only results that are actually bound", 'result omission instruction'],

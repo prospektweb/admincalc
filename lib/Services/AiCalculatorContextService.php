@@ -89,7 +89,7 @@ final class AiCalculatorContextService
             );
             while ($row = $cursor->Fetch()) {
                 $offer = $loader->loadSingleElement($offersIblockId, (int)$row['ID'], null, true);
-                foreach ($this->propertyExamples((array)($offer['properties'] ?? [])) as $property) {
+                foreach ($this->propertyExamples((array)($offer['properties'] ?? []), false) as $property) {
                     $code = $property['code'];
                     if (!isset($offerProperties[$code])) {
                         $offerProperties[$code] = $property;
@@ -106,16 +106,20 @@ final class AiCalculatorContextService
             'productId' => $productId,
             'iblockId' => $productIblockId,
             'name' => (string)($product['name'] ?? ''),
-            'productProperties' => $this->propertyExamples((array)($product['properties'] ?? [])),
-            'offerProperties' => array_values($offerProperties),
+            'productProperties' => $this->propertyExamples((array)($product['properties'] ?? []), true),
+            'offerProperties' => array_values(array_filter($offerProperties, static fn(array $property): bool =>
+                stripos((string)($property['code'] ?? ''), 'CALC_') === 0
+            )),
+            'availableProductProperties' => $this->propertyExamples((array)($product['properties'] ?? []), false),
+            'availableOfferProperties' => array_values($offerProperties),
         ];
     }
 
-    private function propertyExamples(array $properties): array
+    private function propertyExamples(array $properties, bool $onlyCalc): array
     {
         $result = [];
         foreach ($properties as $code => $property) {
-            if (stripos((string)$code, 'CALC_') !== 0 || !is_array($property)) {
+            if (!is_array($property) || ($onlyCalc && stripos((string)$code, 'CALC_') !== 0)) {
                 continue;
             }
             $rawValues = is_array($property['VALUE'] ?? null) ? $property['VALUE'] : [$property['VALUE'] ?? null];

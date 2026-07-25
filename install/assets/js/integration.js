@@ -304,6 +304,9 @@
                 case 'GET_AI_BASE_PRODUCTS_REQUEST':
                     await this.handleGetAiBaseProductsRequest(message, origin);
                     break;
+                case 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST':
+                    await this.handlePreviewStageLogicPromptRequest(message, origin);
+                    break;
                 case 'SAVE_AI_CALCULATOR_CONTEXT_REQUEST':
                     await this.handleSaveAiCalculatorContextRequest(message, origin);
                     break;
@@ -392,7 +395,7 @@
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
-                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST',
+                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
@@ -1336,6 +1339,22 @@
                 this.sendPwrtMessage('AI_STAGE_LOGIC_PROPOSAL_RESPONSE', {
                     status: 'error',
                     message: error && error.message ? error.message : 'Не удалось сформировать проект логики этапа',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handlePreviewStageLogicPromptRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'previewStageLogicPrompt',
+                    request: payload,
+                }]);
+                this.sendPwrtMessage('STAGE_LOGIC_PROMPT_PREVIEW_RESPONSE', result, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('STAGE_LOGIC_PROMPT_PREVIEW_RESPONSE', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось подготовить итоговый промпт',
                 }, message.requestId, origin);
             }
         }

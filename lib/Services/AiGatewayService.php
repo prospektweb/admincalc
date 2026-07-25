@@ -230,9 +230,51 @@ final class AiGatewayService
     public function generateStageLogicProposal(array $request): array
     {
         $this->assertAdmin();
+        [$cleanRequest, $template, $systemPrompt] = $this->prepareStageLogicPrompt($request);
+        $startedAt = microtime(true);
+        $response = $this->request('POST', '/chat/completions', [
+            'model' => (string)$template['model'],
+            'messages' => [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user', 'content' => json_encode($cleanRequest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
+            ],
+        ]);
+        $latencyMs = (int)round((microtime(true) - $startedAt) * 1000);
+        $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
+        if ($content === '') throw new \RuntimeException('AI Gateway вернул пустой проект этапа');
+        $proposal = $this->parseStageLogicProposal($content, $cleanRequest);
+        $usage = is_array($response['usage'] ?? null) ? $response['usage'] : [];
+
+        return [
+            'status' => 'ok',
+            'proposal' => $proposal,
+            'usage' => [
+                'model' => (string)$template['model'],
+                'inputTokens' => (int)($usage['prompt_tokens'] ?? $usage['input_tokens'] ?? 0),
+                'outputTokens' => (int)($usage['completion_tokens'] ?? $usage['output_tokens'] ?? 0),
+                'latencyMs' => $latencyMs,
+            ],
+        ];
+    }
+
+    public function previewStageLogicPrompt(array $request): array
+    {
+        $this->assertAdmin();
+        [$cleanRequest, $template, $systemPrompt] = $this->prepareStageLogicPrompt($request);
+        return [
+            'status' => 'ok',
+            'model' => (string)$template['model'],
+            'templateId' => (string)$template['id'],
+            'templateName' => (string)$template['name'],
+            'systemPrompt' => $systemPrompt,
+            'userJson' => json_encode($cleanRequest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+        ];
+    }
+
+    private function prepareStageLogicPrompt(array $request): array
+    {
         $this->assertNoForbiddenLogicKeys($request);
         $cleanRequest = $this->sanitizeStageLogicRequest($request);
-
         $template = null;
         foreach ($this->getTemplates() as $candidate) {
             if ((string)($candidate['zone'] ?? '') === 'logic_stage') {
@@ -243,7 +285,6 @@ final class AiGatewayService
         if ($template === null || trim((string)($template['model'] ?? '')) === '') {
             throw new \RuntimeException('Для AI-конструктора этапа не настроен шаблон или модель');
         }
-
         $responseShape = [
             'schema' => self::STAGE_LOGIC_PROPOSAL_SCHEMA,
             'baseFingerprint' => $cleanRequest['baseFingerprint'],
@@ -288,31 +329,7 @@ final class AiGatewayService
             . "\nFor status=proposal return questions=[] and a complete draft. Copy baseFingerprint exactly."
             . "\nRequired response shape:\n"
             . json_encode($responseShape, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
-
-        $startedAt = microtime(true);
-        $response = $this->request('POST', '/chat/completions', [
-            'model' => (string)$template['model'],
-            'messages' => [
-                ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user', 'content' => json_encode($cleanRequest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
-            ],
-        ]);
-        $latencyMs = (int)round((microtime(true) - $startedAt) * 1000);
-        $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
-        if ($content === '') throw new \RuntimeException('AI Gateway вернул пустой проект этапа');
-        $proposal = $this->parseStageLogicProposal($content, $cleanRequest);
-        $usage = is_array($response['usage'] ?? null) ? $response['usage'] : [];
-
-        return [
-            'status' => 'ok',
-            'proposal' => $proposal,
-            'usage' => [
-                'model' => (string)$template['model'],
-                'inputTokens' => (int)($usage['prompt_tokens'] ?? $usage['input_tokens'] ?? 0),
-                'outputTokens' => (int)($usage['completion_tokens'] ?? $usage['output_tokens'] ?? 0),
-                'latencyMs' => $latencyMs,
-            ],
-        ];
+        return [$cleanRequest, $template, $systemPrompt];
     }
 
     public function getModels(bool $forceRefresh = false): array
