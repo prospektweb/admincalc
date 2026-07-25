@@ -72,13 +72,20 @@ final class CanonicalJson
             }
             return json_encode($value, self::FLAGS);
         }
+        if ($value instanceof \stdClass) {
+            return self::encodeObject(get_object_vars($value));
+        }
         if (!is_array($value)) {
             throw new \InvalidArgumentException('JCS supports only JSON-compatible values');
         }
         if (array_is_list($value)) {
             return '[' . implode(',', array_map([self::class, 'encodeValue'], $value)) . ']';
         }
+        return self::encodeObject($value);
+    }
 
+    private static function encodeObject(array $value): string
+    {
         $keys = array_keys($value);
         foreach ($keys as $key) {
             if (!is_string($key) || !mb_check_encoding($key, 'UTF-8')) {

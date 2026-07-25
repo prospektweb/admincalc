@@ -36,6 +36,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Modules\\CanonicalJson' => 'lib/Modules/CanonicalJson.php',
     'Prospektweb\\Calc\\Modules\\ModuleValidator' => 'lib/Modules/ModuleValidator.php',
     'Prospektweb\\Calc\\Modules\\DependencyResolver' => 'lib/Modules/DependencyResolver.php',
+    'Prospektweb\\Calc\\Modules\\ModuleMaterializer' => 'lib/Modules/ModuleMaterializer.php',
     'Prospektweb\\Calc\\Modules\\ModuleLifecyclePolicy' => 'lib/Modules/ModuleLifecyclePolicy.php',
     'Prospektweb\\Calc\\Modules\\ModuleAccess' => 'lib/Modules/ModuleAccess.php',
     'Prospektweb\\Calc\\Modules\\ModuleLifecycleService' => 'lib/Modules/ModuleLifecycleService.php',
