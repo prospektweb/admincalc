@@ -130,6 +130,9 @@ try {
         case 'pilot.install':
             $result = $service->installPilotStage($actorId);
             break;
+        case 'vertical.install':
+            $result = $service->installVerticalFixtures($actorId);
+            break;
         case 'family.create':
             $result = [
                 'familyId' => $service->createFamily(

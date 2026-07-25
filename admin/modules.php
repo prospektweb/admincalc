@@ -35,7 +35,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
   <div class="pwm-toolbar">
     <div class="pwm-toolbar__title">Библиотека модулей калькуляции</div>
     <button class="pwm-btn" data-action="refresh">Обновить</button>
-    <button class="pwm-btn pwm-btn--primary" data-action="install-pilot">Опубликовать пилот «Цифровая печать»</button>
+    <button class="pwm-btn pwm-btn--primary" data-action="install-pilot">Опубликовать вертикальные пилоты</button>
   </div>
   <div class="pwm-grid">
     <section class="pwm-pane">
@@ -170,7 +170,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
     try{
       const action=button.dataset.action;
       if(action==='refresh')await load();
-      if(action==='install-pilot'){await api('pilot.install');await load();notice('Пилотная версия опубликована.');}
+      if(action==='install-pilot'){await api('vertical.install');await load();notice('Этап, деталь и многосоставной фрагмент опубликованы.');}
       if(action==='load-instances')await loadInstances();
       if(action==='preview'){
         const instance=collectInstance();

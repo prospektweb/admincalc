@@ -26,6 +26,7 @@ $assert(strpos($api, "case 'instance.preview':") !== false, 'API exposes preview
 $assert(strpos($api, "case 'instance.apply':") !== false, 'API exposes atomic apply');
 $assert(strpos($api, "case 'instance.rollback':") !== false, 'API exposes rollback');
 $assert(strpos($api, "case 'pilot.install':") !== false, 'API exposes idempotent pilot publication');
+$assert(strpos($api, "case 'vertical.install':") !== false, 'API exposes vertical fixture publication');
 $assert(strpos($api, 'check_bitrix_sessid()') !== false, 'API enforces CSRF protection');
 $assert(strpos($installer, 'prospektweb_calc_modules.php') !== false, 'installer owns the admin page');
 $assert(strpos($menu, 'menu_prospektweb_calc_modules') !== false, 'admin menu exposes the library');

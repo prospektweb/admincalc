@@ -346,7 +346,22 @@ final class ModuleLifecycleService
     public function installPilotStage(int $actorId): array
     {
         ModuleAccess::assertCurrentUser('version.publish');
-        $fixturePath = dirname(__DIR__, 2) . '/contracts/fixtures/digital-sheet-print-stage-v1.json';
+        return $this->installFixture('digital-sheet-print-stage-v1.json', $actorId);
+    }
+
+    public function installVerticalFixtures(int $actorId): array
+    {
+        ModuleAccess::assertCurrentUser('version.publish');
+        return [
+            'stage' => $this->installFixture('digital-sheet-print-stage-v1.json', $actorId),
+            'detail' => $this->installFixture('printed-block-detail-v1.json', $actorId),
+            'fragment' => $this->installFixture('brochure-fragment-v1.json', $actorId),
+        ];
+    }
+
+    private function installFixture(string $fixtureName, int $actorId): array
+    {
+        $fixturePath = dirname(__DIR__, 2) . '/contracts/fixtures/' . $fixtureName;
         $publishedModule = json_decode(
             (string)file_get_contents($fixturePath),
             true,
@@ -370,7 +385,7 @@ final class ModuleLifecycleService
             'limit' => 1,
         ])->fetch();
         if ($version && $version['CONTENT_HASH'] !== $publishedModule['contentHash']) {
-            throw new \DomainException('Pilot module version already exists with different immutable content');
+            throw new \DomainException('Module version already exists with different immutable content');
         }
         if (!$version) {
             $draft = $publishedModule;

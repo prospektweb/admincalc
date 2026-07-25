@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/lib/Modules/CanonicalJson.php';
 require_once dirname(__DIR__) . '/lib/Modules/ModuleValidator.php';
+require_once dirname(__DIR__) . '/lib/Modules/DependencyResolver.php';
 require_once dirname(__DIR__) . '/lib/Modules/ModuleMaterializer.php';
 
 use Prospektweb\Calc\Modules\CanonicalJson;
+use Prospektweb\Calc\Modules\DependencyResolver;
 use Prospektweb\Calc\Modules\ModuleMaterializer;
 use Prospektweb\Calc\Modules\ModuleValidator;
 
@@ -116,5 +118,122 @@ $preview = ModuleMaterializer::preview($cardSnapshot, $candidate);
 $assert($preview['formulasChanged'] === ['digitalPrint'], 'preview must show changed formulas');
 $assert(in_array('sheetWidthMm', $preview['ports']['changed'], true), 'preview must show changed mappings');
 $assert($preview['expectedResultsChanged'] === true, 'preview must flag changed result contract');
+
+$printedBlock = json_decode(
+    (string)file_get_contents(dirname(__DIR__) . '/contracts/fixtures/printed-block-detail-v1.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$brochureFragment = json_decode(
+    (string)file_get_contents(dirname(__DIR__) . '/contracts/fixtures/brochure-fragment-v1.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$assert(ModuleValidator::validate($printedBlock) === [], 'printed block fixture rejected');
+$assert(ModuleValidator::validate($brochureFragment) === [], 'brochure fragment fixture rejected');
+$assert(CanonicalJson::moduleContentHash($printedBlock) === $printedBlock['contentHash'], 'detail hash differs');
+$assert(CanonicalJson::moduleContentHash($brochureFragment) === $brochureFragment['contentHash'], 'fragment hash differs');
+
+$detailGraph = DependencyResolver::resolve($printedBlock, [$module]);
+$assert(
+    $detailGraph['executionOrder'] === ['digital_sheet_print@1.0.0', 'printed_block@1.0.0'],
+    'detail dependency order differs'
+);
+$fragmentGraph = DependencyResolver::resolve($brochureFragment, [$module, $printedBlock]);
+$assert(
+    $fragmentGraph['executionOrder'] === [
+        'digital_sheet_print@1.0.0',
+        'printed_block@1.0.0',
+        'brochure_fragment@1.0.0',
+    ],
+    'fragment dependency order differs'
+);
+$printedBlockLocks = array_filter(
+    $fragmentGraph['dependencyLock'],
+    static fn(array $lock): bool => $lock['familyId'] === 'printed_block'
+);
+$assert(count($printedBlockLocks) === 2, 'block and cover must be independent dependency refs');
+
+$makeStructuralInstance = static function (
+    array $fixture,
+    string $instanceId,
+    int $presetId,
+    array $locks
+): array {
+    $bindings = [];
+    foreach ($fixture['ports'] as $port) {
+        if ($port['direction'] === 'output') {
+            continue;
+        }
+        $bindings[] = [
+            'portCode' => $port['code'],
+            'target' => [
+                'kind' => $port['direction'] === 'global-input' ? 'global' : 'source-path',
+                'value' => $instanceId . '.' . $port['code'],
+            ],
+        ];
+    }
+    $entityBindings = [];
+    foreach ($fixture['entityRoles'] as $index => $role) {
+        $entityBindings[] = [
+            'roleCode' => $role['code'],
+            'entityType' => $role['entityType'],
+            'localElementIds' => $role['cardinality'] === 'optional' ? [] : [$presetId * 100 + $index + 1],
+        ];
+    }
+    return [
+        'schema' => 'prospektweb.calc.module-instance/v1',
+        'instanceId' => $instanceId,
+        'presetId' => $presetId,
+        'familyId' => $fixture['familyId'],
+        'version' => $fixture['version'],
+        'contentHash' => $fixture['contentHash'],
+        'revision' => 1,
+        'bindings' => $bindings,
+        'entityBindings' => $entityBindings,
+        'dependencyLock' => array_map(
+            static fn(array $lock): array => [
+                'ref' => $lock['ref'],
+                'familyId' => $lock['familyId'],
+                'version' => $lock['version'],
+                'contentHash' => $lock['contentHash'],
+            ],
+            $locks
+        ),
+        'provenance' => ['createdAt' => '2026-07-25T00:00:00Z', 'createdBy' => 'test', 'legacyElementIds' => []],
+    ];
+};
+$detailInstance = $makeStructuralInstance($printedBlock, 'booklet-block', 7101, $detailGraph['dependencyLock']);
+$detailSnapshot = ModuleMaterializer::materialize($printedBlock, $detailInstance, [
+    'snapshotId' => 'snapshot-detail',
+    'presetRevision' => 1,
+    'createdAt' => '2026-07-25T00:00:00Z',
+    'resolvedBy' => 'admincalc',
+    'executionOrder' => $detailGraph['executionOrder'],
+]);
+$assert(count($detailSnapshot['resolvedGraph']['nodes']) === 2, 'detail snapshot nodes missing');
+$fragmentInstance = $makeStructuralInstance(
+    $brochureFragment,
+    'brochure-assembly',
+    7102,
+    $fragmentGraph['dependencyLock']
+);
+$fragmentSnapshot = ModuleMaterializer::materialize($brochureFragment, $fragmentInstance, [
+    'snapshotId' => 'snapshot-fragment',
+    'presetRevision' => 1,
+    'createdAt' => '2026-07-25T00:00:00Z',
+    'resolvedBy' => 'admincalc',
+    'executionOrder' => $fragmentGraph['executionOrder'],
+]);
+$assert(
+    array_column($fragmentSnapshot['resolvedGraph']['nodes'], 'nodeId') === ['brochure', 'block', 'cover', 'assembly'],
+    'fragment structure differs'
+);
+$assert(
+    !preg_match('/stage_[1-9][0-9]*|sourcePath|localElementIds/', json_encode([$printedBlock, $brochureFragment])),
+    'reusable structural content contains live preset identifiers'
+);
 
 echo "Module materializer tests passed\n";
