@@ -1350,7 +1350,12 @@
                     action: 'previewStageLogicPrompt',
                     request: payload,
                 }]);
-                this.sendPwrtMessage('STAGE_LOGIC_PROMPT_PREVIEW_RESPONSE', result, message.requestId, origin);
+                this.sendPwrtMessage(
+                    'STAGE_LOGIC_PROMPT_PREVIEW_RESPONSE',
+                    Array.isArray(result) ? result[0] : { status: 'error', message: 'Сервер не вернул итоговый промпт' },
+                    message.requestId,
+                    origin
+                );
             } catch (error) {
                 this.sendPwrtMessage('STAGE_LOGIC_PROMPT_PREVIEW_RESPONSE', {
                     status: 'error',

@@ -31,6 +31,7 @@ $checks = [
     [$integration, 'AI_BASE_PRODUCTS_RESPONSE', 'base product postMessage response'],
     [$integration, 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST', 'prompt preview postMessage request'],
     [$integration, 'STAGE_LOGIC_PROMPT_PREVIEW_RESPONSE', 'prompt preview postMessage response'],
+    [$integration, "Array.isArray(result) ? result[0]", 'prompt preview unwraps refresh response'],
     [$integration, 'SAVE_AI_CALCULATOR_CONTEXT_REQUEST', 'context save request'],
     [$integration, 'AI_CONTEXT_JSON', 'calculator property update'],
     [$schema, 'AI_CONTEXT_JSON', 'repair schema'],
