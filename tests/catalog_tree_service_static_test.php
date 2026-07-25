@@ -5,6 +5,7 @@ declare(strict_types=1);
 $service = file_get_contents(__DIR__ . '/../lib/Services/CatalogTreeService.php');
 $dispatcher = file_get_contents(__DIR__ . '/../lib/Calculator/ElementDataService.php');
 $bridge = file_get_contents(__DIR__ . '/../install/assets/js/integration.js');
+$autoload = file_get_contents(__DIR__ . '/../include.php');
 
 foreach ([
     'class CatalogTreeService',
@@ -22,6 +23,10 @@ foreach (['getCatalogTree', 'saveCatalogTreeElement', 'saveCatalogTreeSection', 
     if (!str_contains($dispatcher, $action) || !str_contains($bridge, $action)) {
         throw new RuntimeException("Catalog tree action is not wired end-to-end: {$action}");
     }
+}
+
+if (!str_contains($autoload, "CatalogTreeService' => 'lib/Services/CatalogTreeService.php")) {
+    throw new RuntimeException('CatalogTreeService is not registered in the module autoloader');
 }
 
 if (!str_contains($dispatcher, '$replaceCustomFields') || !str_contains($dispatcher, '? $customFieldIds')) {
