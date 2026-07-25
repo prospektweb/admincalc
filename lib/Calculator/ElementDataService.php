@@ -63,6 +63,14 @@ class ElementDataService
                         );
                         continue 2;
 
+                    case 'getAiBaseProducts':
+                        $result[] = (new \Prospektweb\Calc\Services\AiCalculatorContextService())->getBaseProducts($request);
+                        continue 2;
+
+                    case 'saveAiCalculatorContext':
+                        $result[] = (new \Prospektweb\Calc\Services\AiCalculatorContextService())->save($request);
+                        continue 2;
+
                     case 'getCatalogEntityMeta':
                         $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->get($request);
                         continue 2;

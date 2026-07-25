@@ -301,6 +301,12 @@
                 case 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST':
                     await this.handleGenerateStageLogicProposalRequest(message, origin);
                     break;
+                case 'GET_AI_BASE_PRODUCTS_REQUEST':
+                    await this.handleGetAiBaseProductsRequest(message, origin);
+                    break;
+                case 'SAVE_AI_CALCULATOR_CONTEXT_REQUEST':
+                    await this.handleSaveAiCalculatorContextRequest(message, origin);
+                    break;
                 case 'GET_CATALOG_ENTITY_META_REQUEST':
                     await this.handleGetCatalogEntityMetaRequest(message, origin);
                     break;
@@ -1330,6 +1336,51 @@
                 this.sendPwrtMessage('AI_STAGE_LOGIC_PROPOSAL_RESPONSE', {
                     status: 'error',
                     message: error && error.message ? error.message : 'Не удалось сформировать проект логики этапа',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleGetAiBaseProductsRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'getAiBaseProducts',
+                    mode: payload.mode === 'details' ? 'details' : 'tree',
+                    productIds: Array.isArray(payload.productIds) ? payload.productIds.map(Number) : [],
+                }]);
+                this.sendPwrtMessage(
+                    'AI_BASE_PRODUCTS_RESPONSE',
+                    Array.isArray(result) ? result[0] : { status: 'error' },
+                    message.requestId,
+                    origin
+                );
+            } catch (error) {
+                this.sendPwrtMessage('AI_BASE_PRODUCTS_RESPONSE', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось загрузить базисные продукты',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleSaveAiCalculatorContextRequest(message, origin) {
+            const payload = message.payload || {};
+            const settingsId = Number(payload.settingsId || 0);
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'saveAiCalculatorContext',
+                    settingsId: settingsId,
+                    context: payload.context || {},
+                }]);
+                const response = Array.isArray(result) ? result[0] : { status: 'error' };
+                if (response && response.status === 'ok') {
+                    const json = JSON.stringify(response.context || {});
+                    this.updateSettingsPropertyInInitDataWithRaw(settingsId, 'AI_CONTEXT_JSON', json, json);
+                }
+                this.sendPwrtMessage('AI_CALCULATOR_CONTEXT_RESPONSE', response, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('AI_CALCULATOR_CONTEXT_RESPONSE', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось сохранить контекст AI-конструктора',
                 }, message.requestId, origin);
             }
         }

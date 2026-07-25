@@ -941,6 +941,12 @@ switch ($currentStep) {
                 'WITH_DESCRIPTION' => 'Y',
                 'SORT' => 810,
             ],
+            'AI_CONTEXT_JSON' => [
+                'NAME' => 'Контекст AI-конструктора',
+                'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
+                'SORT' => 820,
+            ],
         ];
         
         $materialsProps = [

@@ -410,9 +410,9 @@ var ProspekwebCalc = {
             }
             
             // Формируем URL для редактирования ТП
-            var editUrl = '/bitrix/admin/cat_product_edit.php?IBLOCK_ID=' + iblockId + 
-                         '&type=catalog&ID=' + productId + 
-                         '&WF=Y&find_section_section=-1&SUB_ID=' + id;
+            var editUrl = '/bitrix/admin/iblock_list_admin.php?IBLOCK_ID=' + iblockId +
+                         '&type=catalog&lang=ru&find_section_section=0&find_id=' + productId +
+                         '&set_filter=Y&apply_filter=Y';
             
             offers.push({
                 id: id,

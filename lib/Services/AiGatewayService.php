@@ -273,6 +273,10 @@ final class AiGatewayService
         $systemPrompt = trim((string)$template['prompt'])
             . "\n\nReturn exactly one JSON object and no Markdown."
             . "\nBuild the complete calculation draft for exactly one stage. Inputs must bind only by sourceRef values from availableSources. Never emit sourcePath or any ID."
+            . "\nTreat baseProducts as supported product examples, not as one fixed current product. Their XML_ID samples and optional xmlIdContract describe storefront input values; never invent or hard-code a missing XML_ID contract."
+            . "\nEntities with role=mapped-candidate are only current candidates. Runtime mappings may select another operation, operation variant, equipment, material, or material variant. Keep formulas compatible with that replacement."
+            . "\nProduce the standard results explicitly listed in expectedResults. You may add useful additionalResults when they help downstream stages."
+            . "\nFollow the optional instructions array. An empty array is valid."
             . "\nUse only these formula functions: if, round, ceil, floor, min, max, abs, trim, lower, upper, len, contains, replace, toNumber, toString, split, join, get, getPrice, regexMatch, regexExtract."
             . "\nVariables are evaluated in array order. A formula may reference inputs, globals, and only earlier variables."
             . "\nResult key must be one of width, length, height, weight, purchasingPrice, basePrice, operationPurchasingPrice, operationBasePrice, materialPurchasingPrice, materialBasePrice."
@@ -544,7 +548,7 @@ final class AiGatewayService
 
     private function sanitizeStageLogicRequest(array $request): array
     {
-        $this->assertAllowedLogicKeys($request, 'request', ['schema', 'baseFingerprint', 'intent', 'stage', 'currentLogic', 'availableSources', 'globals']);
+        $this->assertAllowedLogicKeys($request, 'request', ['schema', 'baseFingerprint', 'intent', 'stage', 'baseProducts', 'expectedResults', 'instructions', 'currentLogic', 'availableSources', 'globals']);
         if (($request['schema'] ?? null) !== self::STAGE_LOGIC_REQUEST_SCHEMA) {
             throw new \InvalidArgumentException('Неподдерживаемая схема AI-запроса этапа');
         }
@@ -552,16 +556,75 @@ final class AiGatewayService
         if (!preg_match('/^sha256:[a-f0-9]{64}$/', $fingerprint)) throw new \InvalidArgumentException('Некорректный fingerprint логики этапа');
 
         $stage = is_array($request['stage'] ?? null) ? $request['stage'] : [];
-        $this->assertAllowedLogicKeys($stage, 'stage', ['name', 'calculatorName', 'productName', 'entities']);
+        $this->assertAllowedLogicKeys($stage, 'stage', ['name', 'calculatorName', 'entities', 'entitySelectionContract']);
         $entities = [];
         foreach (array_slice(is_array($stage['entities'] ?? null) ? $stage['entities'] : [], 0, 12) as $index => $entity) {
             if (!is_array($entity)) throw new \InvalidArgumentException('stage.entities должен содержать объекты');
-            $this->assertAllowedLogicKeys($entity, 'stage.entities[' . $index . ']', ['kind', 'name', 'description']);
+            $this->assertAllowedLogicKeys($entity, 'stage.entities[' . $index . ']', ['kind', 'name', 'description', 'role', 'selectionNote']);
+            $role = (string)($entity['role'] ?? '');
+            if (!in_array($role, ['fixed', 'mapped-candidate'], true)) {
+                throw new \InvalidArgumentException('Некорректная роль сущности этапа');
+            }
             $entities[] = [
                 'kind' => $this->logicOptionalText($entity['kind'] ?? '', 40),
                 'name' => $this->logicOptionalText($entity['name'] ?? '', 300),
                 'description' => $this->logicOptionalText($entity['description'] ?? '', 1000),
+                'role' => $role,
+                'selectionNote' => $this->logicOptionalText($entity['selectionNote'] ?? '', 500),
             ];
+        }
+
+        $baseProducts = [];
+        foreach (array_slice(is_array($request['baseProducts'] ?? null) ? $request['baseProducts'] : [], 0, 30) as $productIndex => $product) {
+            if (!is_array($product)) throw new \InvalidArgumentException('baseProducts должен содержать объекты');
+            $this->assertAllowedLogicKeys($product, 'baseProducts[' . $productIndex . ']', ['name', 'productProperties', 'offerProperties']);
+            $sanitizeProperties = function ($rows, string $label) {
+                $result = [];
+                foreach (array_slice(is_array($rows) ? $rows : [], 0, 100) as $index => $property) {
+                    if (!is_array($property)) throw new \InvalidArgumentException($label . ' должен содержать объекты');
+                    $this->assertAllowedLogicKeys($property, $label . '[' . $index . ']', ['code', 'title', 'valueType', 'values', 'xmlIdContract', 'description']);
+                    $values = [];
+                    foreach (array_slice(is_array($property['values'] ?? null) ? $property['values'] : [], 0, 100) as $valueIndex => $value) {
+                        if (!is_array($value)) throw new \InvalidArgumentException($label . '.values должен содержать объекты');
+                        $this->assertAllowedLogicKeys($value, $label . '[' . $index . '].values[' . $valueIndex . ']', ['value', 'xmlId']);
+                        $values[] = [
+                            'value' => $this->logicOptionalText($value['value'] ?? '', 300),
+                            'xmlId' => $this->logicOptionalText($value['xmlId'] ?? '', 300),
+                        ];
+                    }
+                    $result[] = [
+                        'code' => $this->logicOptionalText($property['code'] ?? '', 120),
+                        'title' => $this->logicOptionalText($property['title'] ?? '', 200),
+                        'valueType' => $this->logicOptionalText($property['valueType'] ?? 'unknown', 20),
+                        'values' => $values,
+                        'xmlIdContract' => $this->logicOptionalText($property['xmlIdContract'] ?? '', 500),
+                        'description' => $this->logicOptionalText($property['description'] ?? '', 500),
+                    ];
+                }
+                return $result;
+            };
+            $baseProducts[] = [
+                'name' => $this->logicOptionalText($product['name'] ?? '', 300),
+                'productProperties' => $sanitizeProperties($product['productProperties'] ?? [], 'baseProducts.productProperties'),
+                'offerProperties' => $sanitizeProperties($product['offerProperties'] ?? [], 'baseProducts.offerProperties'),
+            ];
+        }
+
+        $expectedResults = [];
+        foreach (array_slice(is_array($request['expectedResults'] ?? null) ? $request['expectedResults'] : [], 0, 30) as $index => $result) {
+            if (!is_array($result)) throw new \InvalidArgumentException('expectedResults должен содержать объекты');
+            $this->assertAllowedLogicKeys($result, 'expectedResults[' . $index . ']', ['code', 'title', 'purpose', 'format']);
+            $expectedResults[] = [
+                'code' => $this->logicCode($result['code'] ?? '', 'expectedResults[' . $index . '].code'),
+                'title' => $this->logicOptionalText($result['title'] ?? '', 200),
+                'purpose' => $this->logicOptionalText($result['purpose'] ?? '', 500),
+                'format' => $this->logicOptionalText($result['format'] ?? '', 200),
+            ];
+        }
+        $instructions = [];
+        foreach (array_slice(is_array($request['instructions'] ?? null) ? $request['instructions'] : [], 0, 30) as $instruction) {
+            $normalized = $this->logicOptionalText($instruction, 1000);
+            if ($normalized !== '') $instructions[] = $normalized;
         }
 
         $sources = [];
@@ -642,9 +705,12 @@ final class AiGatewayService
             'stage' => [
                 'name' => $this->logicOptionalText($stage['name'] ?? '', 300),
                 'calculatorName' => $this->logicOptionalText($stage['calculatorName'] ?? '', 300),
-                'productName' => $this->logicOptionalText($stage['productName'] ?? '', 300),
                 'entities' => $entities,
+                'entitySelectionContract' => $this->logicOptionalText($stage['entitySelectionContract'] ?? '', 1000),
             ],
+            'baseProducts' => $baseProducts,
+            'expectedResults' => $expectedResults,
+            'instructions' => $instructions,
             'currentLogic' => [
                 'inputs' => $sanitizeSymbols($current['inputs'] ?? [], 'currentLogic.inputs'),
                 'variables' => $sanitizeSymbols($current['variables'] ?? [], 'currentLogic.variables', true),

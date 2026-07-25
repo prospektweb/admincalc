@@ -20,6 +20,15 @@ class SchemaRepairService
     public static function getPropertySchema(): array
     {
         return [
+            'CALC_SETTINGS' => [
+                'AI_CONTEXT_JSON' => [
+                    'NAME' => 'Контекст AI-конструктора',
+                    'TYPE' => 'S',
+                    'USER_TYPE' => 'HTML',
+                    'SORT' => 820,
+                    'HINT' => 'Базисные продукты, описания источников, ожидаемые результаты и инструкции AI',
+                ],
+            ],
             'CALC_STAGES' => [
                 'GLOBAL_ASSIGNMENTS' => [
                     'NAME' => 'Определения глобальных значений этапа',
