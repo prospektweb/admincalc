@@ -20,13 +20,15 @@ if (!is_string($integration) || !is_string($calculator) || !is_string($calculato
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
+$integration = str_replace("\r\n", "\n", $integration);
+
 $checks = [
     [$integration, "offers: offers", 'Save request must submit every offer as one batch'],
     [$integration, "normalizeBatchSaveResults", 'Batch save response must be mapped back to individual offers'],
     [$calculator, "this.expandCalculatorDialog(dialog);", 'Calculator dialog must request expanded mode after Show'],
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
-    [$calculator, "index.html?v=fbca80ab6e0a", 'Embedded calculator must load the current frontend release without stale HTML cache'],
-    [$calculatorPage, "index.html?v=fbca80ab6e0a", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
+    [$calculator, "index.html?v=fcc147d", 'Embedded calculator must load the current frontend release without stale HTML cache'],
+    [$calculatorPage, "index.html?v=fcc147d", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
     [$integration, "SAVE_SETTINGS_EQUIPMENT_RESPONSE", 'Equipment saves must report completion to the iframe'],
     [$integration, "case 'SAVE_USER_THEME_REQUEST'", 'The iframe bridge must persist the editor theme for the current Bitrix user'],
     [$integration, "this.initData.context.editorTheme = theme", 'Theme changes must survive later INIT refreshes'],
@@ -46,7 +48,8 @@ $checks = [
     [$elementDataService, "explode('|', \$description, 2)", 'Equipment source links must persist title and description through the reserved separator'],
     [$elementDataService, "'IBLOCK_SECTION_ID' => \$sectionId > 0 ? \$sectionId : false", 'New equipment must be created in the selected section'],
     [$elementDataService, "'CODE' => \$this->makeUniqueElementCode", 'New equipment must receive a unique symbolic code'],
-    [$integration, "create,\n                    sectionId:", 'Equipment save bridge must support creation in a selected section'],
+    [$integration, 'create,', 'Equipment save bridge must support creation in a selected section'],
+    [$integration, 'sectionId:', 'Equipment save bridge must pass the selected section'],
     [$elementDataService, "'PREVIEW_TEXT', 'DETAIL_TEXT'", 'Calculator context must expose its announcement and full description'],
     [$elementDataService, "strpos(\$value, '|')", 'Custom field values must reject the reserved visibility separator'],
     [$elementDataService, "\$value . '|' . (\$visible ? 'Y' : 'N')", 'Stage custom fields must persist their visibility marker'],
