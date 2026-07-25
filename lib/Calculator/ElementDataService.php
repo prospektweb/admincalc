@@ -93,6 +93,22 @@ class ElementDataService
                         $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->createSection($request);
                         continue 2;
 
+                    case 'getCatalogTree':
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->tree($request);
+                        continue 2;
+
+                    case 'saveCatalogTreeElement':
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->saveElement($request);
+                        continue 2;
+
+                    case 'saveCatalogTreeSection':
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->saveSection($request);
+                        continue 2;
+
+                    case 'deleteCatalogTreeNode':
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->deleteNode($request);
+                        continue 2;
+
                     case 'syncVariants':
                         $handler = new \Prospektweb\Calc\Services\SyncVariantsHandler();
                         $result[] = $handler->handle($request);
@@ -568,8 +584,9 @@ class ElementDataService
                         $settingsId = (int)($request['settingsId'] ?? 0);
                         $stageId = (int)($request['stageId'] ?? 0);
                         $customFieldIds = $this->normalizeIds($request['customFieldIds'] ?? []);
+                        $replaceCustomFields = !empty($request['replace']);
 
-                        if ($settingsId > 0 && $stageId > 0 && !empty($customFieldIds)) {
+                        if ($settingsId > 0 && $stageId > 0 && ($replaceCustomFields || !empty($customFieldIds))) {
                             $settingsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_SETTINGS', 0);
                             $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
 
@@ -581,7 +598,9 @@ class ElementDataService
                                 }
                             }
 
-                            $mergedCustomFields = array_values(array_unique(array_merge($existingCustomFields, $customFieldIds)));
+                            $mergedCustomFields = $replaceCustomFields
+                                ? $customFieldIds
+                                : array_values(array_unique(array_merge($existingCustomFields, $customFieldIds)));
                             \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
                                 'CUSTOM_FIELDS' => $mergedCustomFields,
                             ]);
@@ -607,6 +626,16 @@ class ElementDataService
                                     'VALUE' => $fieldCode,
                                     'DESCRIPTION' => $existingDescription . '|' . $visibilityMarker,
                                 ];
+                            }
+                            if ($replaceCustomFields) {
+                                $selectedCodes = array_fill_keys(array_map(
+                                    static fn(array $fieldConfig): string => (string)($fieldConfig['code'] ?? ''),
+                                    $fieldsConfig
+                                ), true);
+                                $existingValuesMap = array_filter(
+                                    $existingValuesMap,
+                                    static fn(array $value): bool => isset($selectedCodes[(string)($value['VALUE'] ?? '')])
+                                );
                             }
 
                             foreach ($fieldsConfig as $fieldConfig) {
