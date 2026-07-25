@@ -1611,6 +1611,8 @@ class ElementDataService
             $measureInfo = $this->getMeasureInfo((int)($productData['MEASURE'] ?? 0));
             $measureRatio = $this->getMeasureRatio($elementId);
             $prices = $this->getPrices($elementId);
+            $vatInfo = $this->getVatInfo((int)($productData['VAT_ID'] ?? 0));
+            $extendedPriceMode = $this->hasExtendedPriceMode($prices);
             $basePrice = null;
             $baseCurrency = null;
             $baseGroup = \CCatalogGroup::GetBaseGroup();
@@ -1666,6 +1668,8 @@ class ElementDataService
                 'catalog' => [
                     'vatId' => (int)($productData['VAT_ID'] ?? 0),
                     'vatIncluded' => ($productData['VAT_INCLUDED'] ?? 'N') === 'Y',
+                    'vat' => $vatInfo,
+                    'extendedPriceMode' => $extendedPriceMode,
                     'purchasingPrice' => $purchasingPrice,
                     'purchasingCurrency' => $purchasingCurrency,
                     'basePrice' => $basePrice,
@@ -1890,5 +1894,33 @@ class ElementDataService
         }
 
         return $prices;
+    }
+
+    private function getVatInfo(int $vatId): ?array
+    {
+        if ($vatId <= 0 || !class_exists('\CCatalogVat')) {
+            return null;
+        }
+
+        $iterator = \CCatalogVat::GetByID($vatId);
+        if (!is_object($iterator) || !($vat = $iterator->Fetch())) {
+            return null;
+        }
+
+        return [
+            'id' => (int)($vat['ID'] ?? $vatId),
+            'name' => (string)($vat['NAME'] ?? ''),
+            'rate' => isset($vat['RATE']) ? (float)$vat['RATE'] : null,
+        ];
+    }
+
+    private function hasExtendedPriceMode(array $prices): bool
+    {
+        foreach ($prices as $price) {
+            if (($price['quantityFrom'] ?? null) !== null || ($price['quantityTo'] ?? null) !== null) {
+                return true;
+            }
+        }
+        return false;
     }
 }

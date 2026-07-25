@@ -119,7 +119,7 @@ class InitPayloadService
                 ['ID' => $offerId],
                 false,
                 false,
-                ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_*']
+                ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'DETAIL_TEXT', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_*']
             )->GetNextElement();
 
             if (!$elementObject) {
@@ -133,8 +133,22 @@ class InitPayloadService
             $measureInfo = $this->getMeasureInfo((int)($productData['MEASURE'] ?? 0));
             $measureRatio = $this->getMeasureRatio($offerId);
             $prices = $this->getPrices($offerId);
+            $vatInfo = $this->getVatInfo((int)($productData['VAT_ID'] ?? 0));
+            $extendedPriceMode = $this->hasExtendedPriceMode($prices);
             $purchasingPrice = isset($productData['PURCHASING_PRICE']) ? (float)$productData['PURCHASING_PRICE'] : null;
             $purchasingCurrency = $productData['PURCHASING_CURRENCY'] ?? null;
+            $basePrice = null;
+            $baseCurrency = null;
+            $baseGroup = \CCatalogGroup::GetBaseGroup();
+            if (!empty($baseGroup['ID'])) {
+                foreach ($prices as $priceRow) {
+                    if ((int)($priceRow['typeId'] ?? 0) === (int)$baseGroup['ID']) {
+                        $basePrice = isset($priceRow['price']) ? (float)$priceRow['price'] : null;
+                        $baseCurrency = $priceRow['currency'] ?? null;
+                        break;
+                    }
+                }
+            }
 
             $productId = (int)($element['PROPERTY_CML2_LINK_VALUE'] ?? 0);
             if ($productId <= 0) {
@@ -149,6 +163,8 @@ class InitPayloadService
                 'iblockId' => (int)$element['IBLOCK_ID'],
                 'name' => $element['NAME'] ?? '',
                 'code' => $element['CODE'] ?? null,
+                'previewText' => (string)($element['PREVIEW_TEXT'] ?? ''),
+                'detailText' => (string)($element['DETAIL_TEXT'] ?? ''),
                 'timestampX' => $element['TIMESTAMP_X'] ?? null,
                 'modifiedBy' => isset($element['MODIFIED_BY']) ? (int)$element['MODIFIED_BY'] : null,
                 'timestamp_x' => $element['TIMESTAMP_X'] ?? null,
@@ -164,6 +180,14 @@ class InitPayloadService
                 'prices' => $prices,
                 'purchasingPrice' => $purchasingPrice,
                 'purchasingCurrency' => $purchasingCurrency,
+                'catalog' => [
+                    'vatId' => (int)($productData['VAT_ID'] ?? 0),
+                    'vatIncluded' => ($productData['VAT_INCLUDED'] ?? 'N') === 'Y',
+                    'vat' => $vatInfo,
+                    'extendedPriceMode' => $extendedPriceMode,
+                    'basePrice' => $basePrice,
+                    'baseCurrency' => $baseCurrency,
+                ],
                 'properties' => $properties,
             ];
         }
@@ -245,6 +269,34 @@ class InitPayloadService
         }
 
         return $prices;
+    }
+
+    private function getVatInfo(int $vatId): ?array
+    {
+        if ($vatId <= 0 || !class_exists('\CCatalogVat')) {
+            return null;
+        }
+
+        $iterator = \CCatalogVat::GetByID($vatId);
+        if (!is_object($iterator) || !($vat = $iterator->Fetch())) {
+            return null;
+        }
+
+        return [
+            'id' => (int)($vat['ID'] ?? $vatId),
+            'name' => (string)($vat['NAME'] ?? ''),
+            'rate' => isset($vat['RATE']) ? (float)$vat['RATE'] : null,
+        ];
+    }
+
+    private function hasExtendedPriceMode(array $prices): bool
+    {
+        foreach ($prices as $price) {
+            if (($price['quantityFrom'] ?? null) !== null || ($price['quantityTo'] ?? null) !== null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

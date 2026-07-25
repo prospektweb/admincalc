@@ -273,6 +273,7 @@ final class AiGatewayService
         $systemPrompt = trim((string)$template['prompt'])
             . "\n\nReturn exactly one JSON object and no Markdown."
             . "\nBuild the complete calculation draft for exactly one stage. Inputs must bind only by sourceRef values from availableSources. Never emit sourcePath or any ID."
+            . "\nAn availableSources.example is a current verified value or compact sample, not a permanent constant. Use it to understand shape, units, currencies, VAT and price ranges without fixing the formula to that one value."
             . "\nTreat baseProducts as supported product examples, not as one fixed current product. Their XML_ID samples and optional xmlIdContract describe storefront input values; never invent or hard-code a missing XML_ID contract."
             . "\nEntities with role=mapped-candidate are only current candidates. Runtime mappings may select another operation, operation variant, equipment, material, or material variant. Keep formulas compatible with that replacement."
             . "\nProduce the standard results explicitly listed in expectedResults. You may add useful additionalResults when they help downstream stages."
@@ -630,10 +631,10 @@ final class AiGatewayService
         $sources = [];
         $sourceRefs = [];
         $rawSources = is_array($request['availableSources'] ?? null) ? $request['availableSources'] : [];
-        if (count($rawSources) > 120) throw new \InvalidArgumentException('Слишком много доступных источников этапа');
+        if (count($rawSources) > 180) throw new \InvalidArgumentException('Слишком много доступных источников этапа');
         foreach ($rawSources as $index => $source) {
             if (!is_array($source)) throw new \InvalidArgumentException('availableSources должен содержать объекты');
-            $this->assertAllowedLogicKeys($source, 'availableSources[' . $index . ']', ['ref', 'suggestedCode', 'title', 'description', 'type', 'group']);
+            $this->assertAllowedLogicKeys($source, 'availableSources[' . $index . ']', ['ref', 'suggestedCode', 'title', 'description', 'example', 'type', 'group']);
             $ref = trim((string)($source['ref'] ?? ''));
             if (!preg_match('/^source_[0-9]{3}$/', $ref) || isset($sourceRefs[$ref])) throw new \InvalidArgumentException('Некорректный или повторный sourceRef');
             $sourceRefs[$ref] = true;
@@ -643,7 +644,8 @@ final class AiGatewayService
                 'ref' => $ref,
                 'suggestedCode' => $this->logicCode($source['suggestedCode'] ?? '', 'availableSources[' . $index . '].suggestedCode'),
                 'title' => $this->logicOptionalText($source['title'] ?? '', 200),
-                'description' => $this->logicOptionalText($source['description'] ?? '', 500),
+                'description' => $this->logicOptionalText($source['description'] ?? '', 1500),
+                'example' => $this->logicOptionalText($source['example'] ?? '', 1500),
                 'type' => $type,
                 'group' => $this->logicOptionalText($source['group'] ?? '', 120),
             ];
