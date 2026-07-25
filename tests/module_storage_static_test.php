@@ -44,6 +44,18 @@ $assert(strpos($service, 'ModuleMaterializer::materialize') !== false, 'lifecycl
 $assert(strpos($service, "'instance.update.apply'") !== false, 'lifecycle audits applied updates');
 $assert(strpos($service, "'VERSION_ID' => (int)\$snapshotVersion['ID']") !== false, 'rollback restores the exact snapshot version');
 $assert(strpos($service, "'BINDINGS_JSON' => CanonicalJson::encode") !== false, 'rollback restores materialized bindings');
+$auditTable = file_get_contents($root . '/lib/Modules/Storage/ModuleAuditTable.php');
+$installer = file_get_contents($root . '/lib/Install/ModuleStorageInstaller.php');
+$assert(
+    $auditTable !== false && substr_count($auditTable, 'configureNullable(true)') === 4,
+    'audit ownership references must accept null for family-level and version-level events'
+);
+$assert(
+    $installer !== false
+        && strpos($installer, 'ensureNullableAuditColumns') !== false
+        && strpos($installer, 'ALTER TABLE `{$table}` MODIFY `{$column}` {$type} NULL') !== false,
+    'schema repair must normalize nullable audit references in already-created tables'
+);
 $assert(strpos($moduleInstaller, "'reference_id' => ['D', 'R', 'W', 'P']") !== false, 'module declares publication right');
 $assert(strpos($installStep, 'ModuleStorageInstaller') !== false, 'fresh install provisions module storage');
 $assert(strpos($include, "'Prospektweb\\\\Calc\\\\Modules\\\\ModuleMaterializer'") !== false, 'materializer autoload is registered');
