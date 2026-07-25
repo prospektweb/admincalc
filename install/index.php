@@ -131,19 +131,6 @@ class prospektweb_calc extends CModule
         return true;
     }
 
-    public function GetModuleRightList(): array
-    {
-        return [
-            'reference_id' => ['D', 'R', 'W', 'P'],
-            'reference' => [
-                'Доступ запрещён',
-                'Просмотр библиотеки модулей',
-                'Черновики и подключения',
-                'Публикация, миграция и rollback',
-            ],
-        ];
-    }
-
     public function installFiles(): bool
     {
         $docRoot = Application::getDocumentRoot();
@@ -253,14 +240,6 @@ class prospektweb_calc extends CModule
                     $success = false;
                 }
             }
-
-            $adminModulesFile = $sourceAdmin . '/modules.php';
-            if (file_exists($adminModulesFile)) {
-                if (!copy($adminModulesFile, $targetAdmin . '/prospektweb_calc_modules.php')) {
-                    $errors[] = "Не удалось скопировать страницу библиотеки модулей";
-                    $success = false;
-                }
-            }
         }
         
         // НОВОЕ: Копируем компоненты
@@ -319,7 +298,6 @@ class prospektweb_calc extends CModule
         $adminFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_calculator.php';
         $adminCustomFieldFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_custom_field.php';
         $adminRecalculateFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_recalculate.php';
-        $adminModulesFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_modules.php';
 
         if (is_dir($jsDir)) {
             DeleteDirFilesEx('/local/js/prospektweb.calc');
@@ -344,9 +322,6 @@ class prospektweb_calc extends CModule
         }
         if (file_exists($adminRecalculateFile)) {
             unlink($adminRecalculateFile);
-        }
-        if (file_exists($adminModulesFile)) {
-            unlink($adminModulesFile);
         }
     }
 
@@ -571,7 +546,6 @@ class prospektweb_calc extends CModule
         $toolsDir = $docRoot . '/bitrix/tools/prospektweb.calc';
         $appsDir = $docRoot . '/local/apps/prospektweb.calc';
         $adminFile = $docRoot . '/bitrix/admin/prospektweb_calc_calculator.php';
-        $adminModulesFile = $docRoot . '/bitrix/admin/prospektweb_calc_modules.php';
 
         if (!is_dir($jsDir)) {
             $result['warnings'][] = 'Директория JS не найдена';
@@ -587,9 +561,6 @@ class prospektweb_calc extends CModule
         }
         if (!file_exists($adminFile)) {
             $result['warnings'][] = 'Админский файл калькулятора не найден';
-        }
-        if (!file_exists($adminModulesFile)) {
-            $result['warnings'][] = 'Страница библиотеки модулей не найдена';
         }
 
         return $result;

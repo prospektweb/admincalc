@@ -116,12 +116,6 @@ class SchemaRepairService
             }
         }
 
-        try {
-            $result['moduleStorage'] = (new ModuleStorageInstaller())->ensureSchema();
-        } catch (\Throwable $error) {
-            $result['errors'][] = 'Module storage: ' . $error->getMessage();
-        }
-
         return $this->withCounts($result);
     }
 

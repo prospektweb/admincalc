@@ -507,15 +507,5 @@ class AdminHandler
             'more_url' => [],
             'items_id' => 'menu_prospektweb_calc_recalculate',
         ];
-        $aModuleMenu[] = [
-            'parent_menu' => 'global_menu_services',
-            'sort' => 490,
-            'text' => 'Модули калькуляции',
-            'title' => 'Версионируемая библиотека модулей калькуляции',
-            'url' => 'prospektweb_calc_modules.php',
-            'icon' => 'util_menu_icon',
-            'more_url' => [],
-            'items_id' => 'menu_prospektweb_calc_modules',
-        ];
     }
 }

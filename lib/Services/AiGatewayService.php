@@ -4,7 +4,6 @@ namespace Prospektweb\Calc\Services;
 
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Web\HttpClient;
-use Prospektweb\Calc\Modules\AiModuleContract;
 
 final class AiGatewayService
 {
@@ -311,31 +310,10 @@ final class AiGatewayService
                 'results' => [],
                 'additionalResults' => [],
             ],
-            'moduleAttachment' => [
-                'schema' => AiModuleContract::PROPOSAL_SCHEMA,
-                'familyId' => '',
-                'version' => '1.0.0',
-                'contentHash' => str_repeat('0', 64),
-                'summary' => '',
-                'mappings' => [
-                    'ports' => [[
-                        'portCode' => '',
-                        'target' => ['kind' => 'source-ref | global-ref | literal', 'ref' => 'source_001'],
-                    ]],
-                    'entityRoles' => [['roleCode' => '', 'selectorRef' => 'entity_001']],
-                ],
-                'previewRequired' => true,
-                'applyAllowed' => false,
-                'publishAllowed' => false,
-            ],
         ];
         $systemPrompt = trim((string)$template['prompt'])
             . "\n\nReturn exactly one JSON object and no Markdown."
             . "\nBuild the complete calculation draft for exactly one stage. Inputs must bind only by sourceRef values from availableSources. Never emit sourcePath or any ID."
-            . "\nIf one compatibleModules entry exactly fits the requested stage, prefer returning moduleAttachment with that exact familyId, version and contentHash, and draft=null. Otherwise return the normal draft and moduleAttachment=null."
-            . "\nA moduleAttachment is only a proposal. Set previewRequired=true, applyAllowed=false and publishAllowed=false. Never choose latest, never invent module versions, refs, IDs or paths, and map every required non-output port explicitly."
-            . "\nThe response shape documents both alternatives together; in the actual response exactly one of draft and moduleAttachment must be null."
-            . "\nFor a required global-input port use an explicit global-ref from globals or a reviewed literal. Entity roles use only entity ref values from stage.entities."
             . "\nAn availableSources.example is a current verified value or compact sample, not a permanent constant. Use it to understand shape, units, currencies, VAT and price ranges without fixing the formula to that one value."
             . "\nTreat baseProducts as supported product examples, not as one fixed current product. Their XML_ID samples and optional xmlIdContract describe storefront input values; never invent or hard-code a missing XML_ID contract."
             . "\nEntities with role=mapped-candidate are only current candidates. Runtime mappings may select another operation, operation variant, equipment, material, or material variant. Keep formulas compatible with that replacement."
@@ -588,7 +566,7 @@ final class AiGatewayService
 
     private function sanitizeStageLogicRequest(array $request): array
     {
-        $this->assertAllowedLogicKeys($request, 'request', ['schema', 'baseFingerprint', 'intent', 'stage', 'baseProducts', 'expectedResults', 'instructions', 'currentLogic', 'availableSources', 'globals', 'compatibleModules']);
+        $this->assertAllowedLogicKeys($request, 'request', ['schema', 'baseFingerprint', 'intent', 'stage', 'baseProducts', 'expectedResults', 'instructions', 'currentLogic', 'availableSources', 'globals']);
         if (($request['schema'] ?? null) !== self::STAGE_LOGIC_REQUEST_SCHEMA) {
             throw new \InvalidArgumentException('Неподдерживаемая схема AI-запроса этапа');
         }
@@ -598,24 +576,14 @@ final class AiGatewayService
         $stage = is_array($request['stage'] ?? null) ? $request['stage'] : [];
         $this->assertAllowedLogicKeys($stage, 'stage', ['name', 'calculatorName', 'entities', 'entitySelectionContract']);
         $entities = [];
-        $entityRefs = [];
         foreach (array_slice(is_array($stage['entities'] ?? null) ? $stage['entities'] : [], 0, 12) as $index => $entity) {
             if (!is_array($entity)) throw new \InvalidArgumentException('stage.entities должен содержать объекты');
-            $this->assertAllowedLogicKeys($entity, 'stage.entities[' . $index . ']', ['ref', 'kind', 'name', 'description', 'role', 'selectionNote']);
-            $ref = trim((string)($entity['ref'] ?? ''));
-            if (!preg_match('/^entity_[0-9]{3}$/', $ref)) {
-                throw new \InvalidArgumentException('Некорректный opaque ref сущности этапа');
-            }
-            if (isset($entityRefs[$ref])) {
-                throw new \InvalidArgumentException('Повторный opaque ref сущности этапа');
-            }
-            $entityRefs[$ref] = true;
+            $this->assertAllowedLogicKeys($entity, 'stage.entities[' . $index . ']', ['kind', 'name', 'description', 'role', 'selectionNote']);
             $role = (string)($entity['role'] ?? '');
             if (!in_array($role, ['fixed', 'mapped-candidate'], true)) {
                 throw new \InvalidArgumentException('Некорректная роль сущности этапа');
             }
             $entities[] = [
-                'ref' => $ref,
                 'kind' => $this->logicOptionalText($entity['kind'] ?? '', 40),
                 'name' => $this->logicOptionalText($entity['name'] ?? '', 300),
                 'description' => $this->logicOptionalText($entity['description'] ?? '', 1000),
@@ -676,10 +644,6 @@ final class AiGatewayService
             $normalized = $this->logicOptionalText($instruction, 1000);
             if ($normalized !== '') $instructions[] = $normalized;
         }
-        $compatibleModules = AiModuleContract::sanitizeCatalog(
-            is_array($request['compatibleModules'] ?? null) ? $request['compatibleModules'] : [],
-            'stage'
-        );
 
         $sources = [];
         $sourceRefs = [];
@@ -766,7 +730,6 @@ final class AiGatewayService
             'baseProducts' => $baseProducts,
             'expectedResults' => $expectedResults,
             'instructions' => $instructions,
-            'compatibleModules' => $compatibleModules,
             'currentLogic' => [
                 'inputs' => $sanitizeSymbols($current['inputs'] ?? [], 'currentLogic.inputs'),
                 'variables' => $sanitizeSymbols($current['variables'] ?? [], 'currentLogic.variables', true),
@@ -784,7 +747,7 @@ final class AiGatewayService
         $proposal = json_decode($json, true);
         if (!is_array($proposal) || array_values($proposal) === $proposal) throw new \RuntimeException('AI вернул невалидный JSON проекта этапа');
         $this->assertNoForbiddenLogicKeys($proposal);
-        $this->assertAllowedLogicKeys($proposal, 'proposal', ['schema', 'baseFingerprint', 'status', 'summary', 'assumptions', 'questions', 'draft', 'moduleAttachment']);
+        $this->assertAllowedLogicKeys($proposal, 'proposal', ['schema', 'baseFingerprint', 'status', 'summary', 'assumptions', 'questions', 'draft']);
         if (($proposal['schema'] ?? null) !== self::STAGE_LOGIC_PROPOSAL_SCHEMA) throw new \RuntimeException('AI вернул неподдерживаемую схему проекта этапа');
         if (($proposal['baseFingerprint'] ?? null) !== $request['baseFingerprint']) throw new \RuntimeException('AI-проект относится к другой версии этапа');
         $status = trim((string)($proposal['status'] ?? ''));
@@ -816,32 +779,9 @@ final class AiGatewayService
                 'assumptions' => $assumptions,
                 'questions' => $questions,
                 'draft' => null,
-                'moduleAttachment' => null,
             ];
         }
         if (count($questions) !== 0) throw new \RuntimeException('Готовый AI-проект не должен содержать вопросы');
-        if (is_array($proposal['moduleAttachment'] ?? null)) {
-            if (($proposal['draft'] ?? null) !== null) {
-                throw new \RuntimeException('AI должен вернуть либо draft, либо moduleAttachment');
-            }
-            $moduleAttachment = AiModuleContract::validateProposal(
-                $proposal['moduleAttachment'],
-                $request['compatibleModules'],
-                array_column($request['availableSources'], 'ref'),
-                array_column($request['globals'], 'code'),
-                array_column($request['stage']['entities'], 'ref')
-            );
-            return [
-                'schema' => self::STAGE_LOGIC_PROPOSAL_SCHEMA,
-                'baseFingerprint' => $request['baseFingerprint'],
-                'status' => 'proposal',
-                'summary' => $this->logicText($proposal['summary'] ?? '', 'summary', 1200),
-                'assumptions' => $assumptions,
-                'questions' => [],
-                'draft' => null,
-                'moduleAttachment' => $moduleAttachment,
-            ];
-        }
         $draft = is_array($proposal['draft'] ?? null) ? $proposal['draft'] : null;
         if ($draft === null) throw new \RuntimeException('AI не вернул draft этапа');
         $this->assertAllowedLogicKeys($draft, 'draft', ['inputs', 'variables', 'results', 'additionalResults']);
@@ -918,7 +858,6 @@ final class AiGatewayService
             'assumptions' => $assumptions,
             'questions' => [],
             'draft' => ['inputs' => $inputs, 'variables' => $variables, 'results' => $results, 'additionalResults' => $additional],
-            'moduleAttachment' => null,
         ];
     }
 

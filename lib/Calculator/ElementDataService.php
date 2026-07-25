@@ -35,89 +35,6 @@ class ElementDataService
             // Проверяем специальные actions
             if (isset($request['action'])) {
                 switch ($request['action']) {
-                    case 'moduleCatalog':
-                        $result[] = [
-                            'status' => 'ok',
-                            'data' => (new \Prospektweb\Calc\Modules\ModuleLifecycleService())->listCatalog(false),
-                        ];
-                        continue 2;
-
-                    case 'moduleInstances':
-                        $result[] = [
-                            'status' => 'ok',
-                            'data' => (new \Prospektweb\Calc\Modules\ModuleLifecycleService())->listPresetInstances(
-                                (int)($request['presetId'] ?? 0)
-                            ),
-                        ];
-                        continue 2;
-
-                    case 'moduleSnapshots':
-                        $result[] = [
-                            'status' => 'ok',
-                            'data' => (new \Prospektweb\Calc\Modules\ModuleLifecycleService())->listInstanceSnapshots(
-                                (int)($request['instanceId'] ?? 0)
-                            ),
-                        ];
-                        continue 2;
-
-                    case 'modulePreview':
-                        $service = new \Prospektweb\Calc\Modules\ModuleLifecycleService();
-                        $preview = $service->previewStageInsertion(
-                            (int)($request['versionId'] ?? 0),
-                            (array)($request['instance'] ?? []),
-                            (array)($request['options'] ?? []),
-                            (array)($request['target'] ?? [])
-                        );
-                        if (is_array($request['currentSnapshot'] ?? null)) {
-                            $preview['diff'] = \Prospektweb\Calc\Modules\ModuleMaterializer::preview(
-                                $request['currentSnapshot'],
-                                $preview['snapshot']
-                            );
-                        }
-                        $result[] = ['status' => 'ok', 'data' => $preview];
-                        continue 2;
-
-                    case 'moduleApply':
-                        global $USER;
-                        $service = new \Prospektweb\Calc\Modules\ModuleLifecycleService();
-                        $presetId = (int)($request['presetId'] ?? 0);
-                        $apply = $service->applyInstance(
-                            $presetId,
-                            (int)($request['versionId'] ?? 0),
-                            (array)($request['instance'] ?? []),
-                            (array)($request['options'] ?? []),
-                            isset($request['instanceRowId']) ? (int)$request['instanceRowId'] : null,
-                            isset($request['expectedRevision']) ? (int)$request['expectedRevision'] : null,
-                            is_array($request['legacySnapshot'] ?? null) ? $request['legacySnapshot'] : null,
-                            is_object($USER) ? (int)$USER->GetID() : 0,
-                            (array)($request['target'] ?? []),
-                            (array)($request['offerIds'] ?? [])
-                        );
-                        $result[] = ['status' => 'ok', 'data' => $apply];
-                        continue 2;
-
-                    case 'moduleRollback':
-                        global $USER;
-                        $presetId = (int)($request['presetId'] ?? 0);
-                        $revision = (new \Prospektweb\Calc\Modules\ModuleLifecycleService())->rollbackToSnapshot(
-                            (int)($request['instanceId'] ?? 0),
-                            (int)($request['snapshotId'] ?? 0),
-                            (int)($request['expectedRevision'] ?? 0),
-                            is_object($USER) ? (int)$USER->GetID() : 0
-                        );
-                        $rollback = ['revision' => $revision];
-                        $enrichment = new \Prospektweb\Calc\Services\PresetEnrichmentService();
-                        $roots = $enrichment->getProductRootsFromPreset($presetId);
-                        if ($roots !== []) {
-                            $rollback['initPayload'] = $enrichment->enrichPresetFromProductRoots(
-                                $presetId,
-                                $roots,
-                                (array)($request['offerIds'] ?? [])
-                            );
-                        }
-                        $result[] = ['status' => 'ok', 'data' => $rollback];
-                        continue 2;
-
                     case 'getAiSettings':
                         $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->getSettings();
                         continue 2;
@@ -174,22 +91,6 @@ class ElementDataService
 
                     case 'createCatalogSection':
                         $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->createSection($request);
-                        continue 2;
-
-                    case 'getCatalogTree':
-                        $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->tree($request);
-                        continue 2;
-
-                    case 'saveCatalogTreeElement':
-                        $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->saveElement($request);
-                        continue 2;
-
-                    case 'saveCatalogTreeSection':
-                        $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->saveSection($request);
-                        continue 2;
-
-                    case 'deleteCatalogTreeNode':
-                        $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->deleteNode($request);
                         continue 2;
 
                     case 'syncVariants':
@@ -667,9 +568,8 @@ class ElementDataService
                         $settingsId = (int)($request['settingsId'] ?? 0);
                         $stageId = (int)($request['stageId'] ?? 0);
                         $customFieldIds = $this->normalizeIds($request['customFieldIds'] ?? []);
-                        $replaceCustomFields = !empty($request['replace']);
 
-                        if ($settingsId > 0 && $stageId > 0 && ($replaceCustomFields || !empty($customFieldIds))) {
+                        if ($settingsId > 0 && $stageId > 0 && !empty($customFieldIds)) {
                             $settingsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_SETTINGS', 0);
                             $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
 
@@ -681,9 +581,7 @@ class ElementDataService
                                 }
                             }
 
-                            $mergedCustomFields = $replaceCustomFields
-                                ? $customFieldIds
-                                : array_values(array_unique(array_merge($existingCustomFields, $customFieldIds)));
+                            $mergedCustomFields = array_values(array_unique(array_merge($existingCustomFields, $customFieldIds)));
                             \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
                                 'CUSTOM_FIELDS' => $mergedCustomFields,
                             ]);
@@ -709,16 +607,6 @@ class ElementDataService
                                     'VALUE' => $fieldCode,
                                     'DESCRIPTION' => $existingDescription . '|' . $visibilityMarker,
                                 ];
-                            }
-                            if ($replaceCustomFields) {
-                                $selectedCodes = array_fill_keys(array_map(
-                                    static fn(array $fieldConfig): string => (string)($fieldConfig['code'] ?? ''),
-                                    $fieldsConfig
-                                ), true);
-                                $existingValuesMap = array_filter(
-                                    $existingValuesMap,
-                                    static fn(array $value): bool => isset($selectedCodes[(string)($value['VALUE'] ?? '')])
-                                );
                             }
 
                             foreach ($fieldsConfig as $fieldConfig) {
