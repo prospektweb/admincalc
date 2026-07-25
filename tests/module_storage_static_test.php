@@ -37,6 +37,7 @@ $assert(strpos($service, 'startTransaction') !== false, 'lifecycle uses transact
 $assert(strpos($service, 'ModuleAuditTable::add') !== false, 'lifecycle appends audit records');
 $assert(strpos($service, 'listVersionUsage') !== false, 'lifecycle exposes usage inventory');
 $assert(strpos($service, 'applyInstance') !== false, 'lifecycle atomically applies instances and snapshots');
+$assert(strpos($service, 'installPilotStage') !== false, 'lifecycle can idempotently publish the reviewed pilot fixture');
 $assert(strpos($service, 'ModuleMaterializer::materialize') !== false, 'lifecycle validates before persistence');
 $assert(strpos($service, "'instance.update.apply'") !== false, 'lifecycle audits applied updates');
 $assert(strpos($moduleInstaller, "'reference_id' => ['D', 'R', 'W', 'P']") !== false, 'module declares publication right');

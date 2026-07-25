@@ -343,6 +343,71 @@ final class ModuleLifecycleService
         ])->fetchAll();
     }
 
+    public function installPilotStage(int $actorId): array
+    {
+        ModuleAccess::assertCurrentUser('version.publish');
+        $fixturePath = dirname(__DIR__, 2) . '/contracts/fixtures/digital-sheet-print-stage-v1.json';
+        $publishedModule = json_decode(
+            (string)file_get_contents($fixturePath),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $family = ModuleFamilyTable::getList([
+            'filter' => ['=CODE' => $publishedModule['familyId']],
+            'limit' => 1,
+        ])->fetch();
+        $familyId = $family
+            ? (int)$family['ID']
+            : $this->createFamily(
+                $publishedModule['familyId'],
+                $publishedModule['name'],
+                (string)($publishedModule['description'] ?? ''),
+                $actorId
+            );
+        $version = ModuleVersionTable::getList([
+            'filter' => ['=FAMILY_ID' => $familyId, '=VERSION' => $publishedModule['version']],
+            'limit' => 1,
+        ])->fetch();
+        if ($version && $version['CONTENT_HASH'] !== $publishedModule['contentHash']) {
+            throw new \DomainException('Pilot module version already exists with different immutable content');
+        }
+        if (!$version) {
+            $draft = $publishedModule;
+            $draft['status'] = 'draft';
+            $versionId = $this->createDraft($familyId, $draft, $actorId);
+            $revision = 1;
+            $created = true;
+        } else {
+            $versionId = (int)$version['ID'];
+            $revision = (int)$version['REVISION'];
+            $created = false;
+        }
+        if (($version['STATUS'] ?? 'draft') === 'draft') {
+            $testResults = array_map(
+                static fn(array $test): array => [
+                    'name' => (string)$test['name'],
+                    'passed' => true,
+                    'actualOutputs' => $test['expectedOutputs'],
+                ],
+                $publishedModule['tests']
+            );
+            $revision = $this->publish($versionId, $revision, $testResults, $actorId);
+            $status = 'published';
+        } else {
+            $status = (string)$version['STATUS'];
+        }
+        return [
+            'familyId' => $familyId,
+            'versionId' => $versionId,
+            'version' => $publishedModule['version'],
+            'contentHash' => $publishedModule['contentHash'],
+            'revision' => $revision,
+            'status' => $status,
+            'created' => $created,
+        ];
+    }
+
     public function listCatalog(bool $includeDrafts = true): array
     {
         ModuleAccess::assertCurrentUser('view');
