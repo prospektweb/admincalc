@@ -2,6 +2,7 @@
 
 $integration = file_get_contents(__DIR__ . '/../install/assets/js/integration.js');
 $calculator = file_get_contents(__DIR__ . '/../install/assets/js/calculator.js');
+$calculatorPage = file_get_contents(__DIR__ . '/../admin/calculator.php');
 $elementDataService = file_get_contents(__DIR__ . '/../lib/Calculator/ElementDataService.php');
 $detailHandler = file_get_contents(__DIR__ . '/../lib/Services/DetailHandler.php');
 $customFieldsService = file_get_contents(__DIR__ . '/../lib/Services/CustomFieldsService.php');
@@ -15,7 +16,7 @@ $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/in
 $engineBundlePath = __DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js';
 $engineBundle = is_file($engineBundlePath) ? file_get_contents($engineBundlePath) : $appBundle;
 
-if (!is_string($integration) || !is_string($calculator) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($appBundle) || !is_string($engineBundle)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
@@ -24,6 +25,8 @@ $checks = [
     [$integration, "normalizeBatchSaveResults", 'Batch save response must be mapped back to individual offers'],
     [$calculator, "this.expandCalculatorDialog(dialog);", 'Calculator dialog must request expanded mode after Show'],
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
+    [$calculator, "index.html?v=0dd5c4d505e5", 'Embedded calculator must load the current frontend release without stale HTML cache'],
+    [$calculatorPage, "index.html?v=0dd5c4d505e5", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
     [$integration, "SAVE_SETTINGS_EQUIPMENT_RESPONSE", 'Equipment saves must report completion to the iframe'],
     [$integration, "case 'SAVE_USER_THEME_REQUEST'", 'The iframe bridge must persist the editor theme for the current Bitrix user'],
     [$integration, "this.initData.context.editorTheme = theme", 'Theme changes must survive later INIT refreshes'],
