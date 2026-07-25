@@ -17,7 +17,7 @@ final class ModuleValidator
         self::requirePattern($module, 'familyId', self::FAMILY_PATTERN, $errors);
         self::requirePattern($module, 'version', self::VERSION_PATTERN, $errors);
         self::requireEnum($module, 'kind', ['stage', 'detail', 'binding-fragment'], $errors);
-        self::requireEnum($module, 'status', ['draft', 'published', 'deprecated', 'withdrawn'], $errors);
+        self::requireEnum($module, 'status', ['draft', 'published', 'deprecated', 'archived', 'withdrawn'], $errors);
 
         foreach (['content', 'ports', 'entityRoles', 'dependencies', 'tests', 'contentHash', 'provenance'] as $field) {
             if (!array_key_exists($field, $module)) {

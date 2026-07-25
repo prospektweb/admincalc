@@ -1862,6 +1862,16 @@ switch ($currentStep) {
         // Регистрируем модуль ТОЛЬКО после успешного завершения всех шагов
         installLog("Регистрация модуля в системе.");
         $moduleClass->registerModule();
+        \Bitrix\Main\Loader::includeModule('prospektweb.calc');
+        $moduleStorage = new \Prospektweb\Calc\Install\ModuleStorageInstaller();
+        $moduleStorageResult = $moduleStorage->ensureSchema();
+        installLog(
+            'Module storage: created tables '
+            . count($moduleStorageResult['createdTables'])
+            . ', created indexes '
+            . count($moduleStorageResult['createdIndexes']),
+            'success'
+        );
         installLog("Модуль зарегистрирован", 'success');
         
         installLog("═══ УСТАНОВКА ЗАВЕРШЕНА! ═══", 'header');

@@ -131,6 +131,19 @@ class prospektweb_calc extends CModule
         return true;
     }
 
+    public function GetModuleRightList(): array
+    {
+        return [
+            'reference_id' => ['D', 'R', 'W', 'P'],
+            'reference' => [
+                'Доступ запрещён',
+                'Просмотр библиотеки модулей',
+                'Черновики и подключения',
+                'Публикация, миграция и rollback',
+            ],
+        ];
+    }
+
     public function installFiles(): bool
     {
         $docRoot = Application::getDocumentRoot();

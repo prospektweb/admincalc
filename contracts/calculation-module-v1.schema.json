@@ -34,7 +34,7 @@
       "enum": ["stage", "detail", "binding-fragment"]
     },
     "status": {
-      "enum": ["draft", "published", "deprecated", "withdrawn"]
+      "enum": ["draft", "published", "deprecated", "archived", "withdrawn"]
     },
     "name": {
       "type": "string",

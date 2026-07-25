@@ -25,5 +25,9 @@ $assert(strpos($diagnosticTool, "case 'fix_schema':") !== false, 'diagnostic end
 $assert(strpos($options, "pwCalcDiagFix('fix_schema'") !== false, 'module options expose schema repair button');
 $assert(strpos($include, 'SchemaRepairService') !== false, 'schema repair service is registered for autoload');
 $assert(strpos($diagnostic, 'SchemaRepairService::getPropertySchema()') !== false, 'diagnostic uses repair schema');
+$assert(
+    strpos($service, '(new ModuleStorageInstaller())->ensureSchema()') !== false,
+    'schema repair provisions module tables'
+);
 
 echo "OK\n";
