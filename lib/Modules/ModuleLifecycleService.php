@@ -495,6 +495,11 @@ final class ModuleLifecycleService
         foreach ($versions as $version) {
             $version['CONTENT'] = json_decode((string)$version['CONTENT_JSON'], true, 512, JSON_THROW_ON_ERROR);
             unset($version['CONTENT_JSON']);
+            foreach (['PUBLISHED_AT', 'CREATED_AT', 'UPDATED_AT'] as $dateField) {
+                if (($version[$dateField] ?? null) instanceof DateTime) {
+                    $version[$dateField] = $version[$dateField]->format(DATE_ATOM);
+                }
+            }
             $byFamily[(int)$version['FAMILY_ID']][] = $version;
         }
         foreach ($families as &$family) {

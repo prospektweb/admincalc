@@ -40,6 +40,8 @@ $assert(strpos($lifecycle, '$stageService->preview($target)') !== false, 'update
 $assert(strpos($lifecycle, 'resolveDependencies($module)') !== false, 'preview and apply resolve the authoritative dependency lock');
 $assert(strpos($lifecycle, 'authoritative refresh') !== false && strpos($lifecycle, "'initPayload' => \$initPayload") !== false, 'apply returns authoritative state before transaction commit');
 $assert(strpos($lifecycle, "'operator_insert'") !== false, 'operator insertion has a dedicated audit action');
+$assert(strpos($lifecycle, "['PUBLISHED_AT', 'CREATED_AT', 'UPDATED_AT']") !== false, 'catalog serializes lifecycle dates');
+$assert(strpos($lifecycle, '->format(DATE_ATOM)') !== false, 'catalog dates use an interoperable value');
 $assert(strpos($handler, 'STAGE_POSITION_STALE') !== false && strpos($handler, 'array_splice') !== false, 'manual creation preserves exact insertion boundary');
 $assert(strpos($bridge, 'MODULE_OPERATION_RESPONSE') !== false, 'operator module calls are correlated through the bridge');
 $assert(strpos($endpoint, "case 'instance.preview'") !== false && strpos($endpoint, 'previewStageInsertion') !== false, 'endpoint exposes authoritative position preview');
