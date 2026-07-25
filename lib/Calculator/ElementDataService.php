@@ -97,6 +97,10 @@ class ElementDataService
                         $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->tree($request);
                         continue 2;
 
+                    case 'getPresetLoadOptions':
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->presetLoadOptions($request);
+                        continue 2;
+
                     case 'saveCatalogTreeElement':
                         $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->saveElement($request);
                         continue 2;

@@ -325,6 +325,9 @@
                 case 'GET_CATALOG_TREE_REQUEST':
                     await this.handleGetCatalogTreeRequest(message, origin);
                     break;
+                case 'GET_PRESET_LOAD_OPTIONS_REQUEST':
+                    await this.handleGetPresetLoadOptionsRequest(message, origin);
+                    break;
                 case 'SAVE_CATALOG_TREE_ELEMENT_REQUEST':
                     await this.handleSaveCatalogTreeElementRequest(message, origin);
                     break;
@@ -1491,6 +1494,19 @@
                 this.sendPwrtMessage('CATALOG_TREE_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
             } catch (error) {
                 this.sendPwrtMessage('CATALOG_TREE_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось загрузить дерево инфоблока' }, message.requestId, origin);
+            }
+        }
+
+        async handleGetPresetLoadOptionsRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'getPresetLoadOptions',
+                    presetId: Number(payload.presetId || 0),
+                }]);
+                this.sendPwrtMessage('PRESET_LOAD_OPTIONS_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('PRESET_LOAD_OPTIONS_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось получить товары пресета' }, message.requestId, origin);
             }
         }
 

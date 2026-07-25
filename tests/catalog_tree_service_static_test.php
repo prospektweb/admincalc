@@ -24,6 +24,12 @@ foreach (['getCatalogTree', 'saveCatalogTreeElement', 'saveCatalogTreeSection', 
     }
 }
 
+foreach (['getPresetLoadOptions', 'PRESET_LOAD_OPTIONS_RESPONSE', 'presetLoadOptions'] as $action) {
+    if (!str_contains($dispatcher . $bridge . $service, $action)) {
+        throw new RuntimeException("Preset loading action is not wired end-to-end: {$action}");
+    }
+}
+
 if (!str_contains($dispatcher, '$replaceCustomFields') || !str_contains($dispatcher, '? $customFieldIds')) {
     throw new RuntimeException('Exact custom-field replacement contract is missing');
 }

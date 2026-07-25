@@ -6,6 +6,59 @@ namespace Prospektweb\Calc\Services;
 
 final class CatalogTreeService
 {
+    public function presetLoadOptions(array $request): array
+    {
+        $this->assertAdmin();
+        $presetId = (int)($request['presetId'] ?? 0);
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Не выбран пресет');
+        }
+
+        $config = new \Prospektweb\Calc\Config\ConfigManager();
+        $presetIblockId = (int)$config->getIblockId('CALC_PRESETS');
+        $preset = \CIBlockElement::GetList(
+            [],
+            ['ID' => $presetId, 'IBLOCK_ID' => $presetIblockId],
+            false,
+            false,
+            ['ID', 'NAME']
+        )->Fetch();
+        if (!$preset) {
+            throw new \InvalidArgumentException('Пресет не найден');
+        }
+
+        $batch = new BatchRecalculateService('');
+        $products = $batch->getProductsForPreset($presetId);
+        $skuIblockId = (int)$config->getSkuIblockId();
+        foreach ($products as &$product) {
+            $offers = [];
+            if ($skuIblockId > 0) {
+                $cursor = \CIBlockElement::GetList(
+                    ['SORT' => 'ASC', 'NAME' => 'ASC', 'ID' => 'ASC'],
+                    [
+                        'IBLOCK_ID' => $skuIblockId,
+                        'ACTIVE' => 'Y',
+                        'PROPERTY_CML2_LINK' => (int)$product['id'],
+                    ],
+                    false,
+                    false,
+                    ['ID', 'NAME']
+                );
+                while ($offer = $cursor->Fetch()) {
+                    $offers[] = ['id' => (int)$offer['ID'], 'name' => (string)$offer['NAME']];
+                }
+            }
+            $product['offers'] = $offers;
+        }
+        unset($product);
+
+        return [
+            'status' => 'ok',
+            'preset' => ['id' => $presetId, 'name' => (string)$preset['NAME']],
+            'products' => $products,
+        ];
+    }
+
     public function tree(array $request): array
     {
         $this->assertAdmin();

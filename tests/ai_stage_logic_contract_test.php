@@ -27,6 +27,7 @@ $checks = [
     [$gateway, "baseProducts", 'base product examples'],
     [$gateway, 'previewStageLogicPrompt', 'exact final prompt preview'],
     [$gateway, 'prepareStageLogicPrompt', 'shared generation and preview prompt builder'],
+    [$gateway, "'compatibleModules'", 'stale client field compatibility'],
     [$gateway, "expectedResults", 'expected results contract'],
     [$gateway, "'results' => []", 'no invalid result placeholder'],
     [$gateway, "Include only results that are actually bound", 'result omission instruction'],
