@@ -882,6 +882,13 @@ switch ($currentStep) {
                     ['VALUE' => 'Материал', 'XML_ID' => 'VARIANT_MATERIAL'],
                 ],
             ],
+            'USED_ENTITY_CODES' => [
+                'NAME' => 'Коды используемых сущностей этапа',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 3,
+                'SORT' => 605,
+            ],
             'CUSTOM_FIELDS' => [
                 'NAME' => 'Дополнительные поля этапа',
                 'TYPE' => 'E',

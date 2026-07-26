@@ -12,7 +12,7 @@ use Prospektweb\Calc\Config\ConfigManager;
  */
 class SchemaRepairService
 {
-    private const STAGE_OWNERSHIP_VERSION = 4;
+    private const STAGE_OWNERSHIP_VERSION = 5;
 
     /** @var array<int, array<string, int>> */
     private array $listEnumIdsByProperty = [];
@@ -59,6 +59,14 @@ class SchemaRepairService
                         ['VALUE' => 'Оборудование', 'XML_ID' => 'EQUIPMENT'],
                         ['VALUE' => 'Материал', 'XML_ID' => 'VARIANT_MATERIAL'],
                     ],
+                ],
+                'USED_ENTITY_CODES' => [
+                    'NAME' => 'Коды используемых сущностей этапа',
+                    'TYPE' => 'S',
+                    'MULTIPLE' => 'Y',
+                    'MULTIPLE_CNT' => 3,
+                    'SORT' => 605,
+                    'HINT' => 'Стабильные XML-коды типов сущностей; не зависят от ID значений списка Bitrix',
                 ],
                 'CUSTOM_FIELDS' => [
                     'NAME' => 'Дополнительные поля этапа',
@@ -166,16 +174,10 @@ class SchemaRepairService
             return 0;
         }
 
-        $stageEntityProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $stagesIblockId, '=CODE' => 'USED_ENTITYS'])->Fetch();
-        if (!$stageEntityProperty) {
+        $stageEntityCodesProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $stagesIblockId, '=CODE' => 'USED_ENTITY_CODES'])->Fetch();
+        if (!$stageEntityCodesProperty) {
             return 0;
         }
-        $stageEnumByXml = [];
-        $stageEnums = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => (int)$stageEntityProperty['ID']]);
-        while ($enum = $stageEnums->Fetch()) {
-            $stageEnumByXml[(string)$enum['XML_ID']] = (int)$enum['ID'];
-        }
-        $stageEnumByXml += $this->listEnumIdsByProperty[(int)$stageEntityProperty['ID']] ?? [];
 
         $migrated = 0;
         $stages = \CIBlockElement::GetList(['ID' => 'ASC'], ['IBLOCK_ID' => $stagesIblockId], false, false, ['ID', 'IBLOCK_ID']);
@@ -187,10 +189,16 @@ class SchemaRepairService
                 continue;
             }
             $settingsId = (int)($stageProps['CALC_SETTINGS']['VALUE'] ?? 0);
-            $usedEntityEnumIds = array_values(array_filter(array_map(
-                'intval',
-                (array)($stageProps['USED_ENTITYS']['VALUE'] ?? [])
-            )));
+            $usedEntityCodes = array_values(array_intersect(
+                array_map('strval', (array)($stageProps['USED_ENTITY_CODES']['VALUE'] ?? [])),
+                ['VARIANT_OPERATION', 'EQUIPMENT', 'VARIANT_MATERIAL']
+            ));
+            if (!$usedEntityCodes) {
+                $usedEntityCodes = array_values(array_intersect(
+                    array_map('strval', (array)($stageProps['USED_ENTITYS']['VALUE_XML_ID'] ?? [])),
+                    ['VARIANT_OPERATION', 'EQUIPMENT', 'VARIANT_MATERIAL']
+                ));
+            }
             $customFieldIds = array_values(array_filter(array_map(
                 'intval',
                 (array)($stageProps['CUSTOM_FIELDS']['VALUE'] ?? [])
@@ -202,13 +210,11 @@ class SchemaRepairService
                 ], false, false, ['ID', 'IBLOCK_ID'])->GetNextElement();
                 if ($settingsElement) {
                     $settingsProps = $settingsElement->GetProperties();
-                    if (!$usedEntityEnumIds) {
-                        $legacyXmlIds = $settingsProps['USED_ENTITYS']['VALUE_XML_ID'] ?? [];
-                        foreach ((array)$legacyXmlIds as $xmlId) {
-                            if (isset($stageEnumByXml[(string)$xmlId])) {
-                                $usedEntityEnumIds[] = $stageEnumByXml[(string)$xmlId];
-                            }
-                        }
+                    if (!$usedEntityCodes) {
+                        $usedEntityCodes = array_values(array_intersect(
+                            array_map('strval', (array)($settingsProps['USED_ENTITYS']['VALUE_XML_ID'] ?? [])),
+                            ['VARIANT_OPERATION', 'EQUIPMENT', 'VARIANT_MATERIAL']
+                        ));
                     }
                     if (!$customFieldIds) {
                         $customFieldIds = array_values(array_filter(array_map(
@@ -219,7 +225,7 @@ class SchemaRepairService
                 }
             }
             \CIBlockElement::SetPropertyValuesEx((int)$stageFields['ID'], $stagesIblockId, [
-                'USED_ENTITYS' => $usedEntityEnumIds ?: false,
+                'USED_ENTITY_CODES' => $usedEntityCodes ?: false,
                 'CUSTOM_FIELDS' => $customFieldIds ?: false,
                 'STAGE_OWNERSHIP_VERSION' => self::STAGE_OWNERSHIP_VERSION,
             ]);

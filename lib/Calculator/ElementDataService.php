@@ -1378,22 +1378,15 @@ class ElementDataService
                         }
                         $property = \CIBlockProperty::GetList([], [
                             'IBLOCK_ID' => $stagesIblockId,
-                            '=CODE' => 'USED_ENTITYS',
+                            '=CODE' => 'USED_ENTITY_CODES',
                         ])->Fetch();
                         if (!$property) {
-                            $result[] = ['status' => 'error', 'message' => 'Свойство USED_ENTITYS этапа не установлено'];
+                            $result[] = ['status' => 'error', 'message' => 'Свойство USED_ENTITY_CODES этапа не установлено'];
                             continue 2;
                         }
-                        $enumIds = [];
-                        $enumResult = \CIBlockPropertyEnum::GetList(['SORT' => 'ASC'], ['PROPERTY_ID' => (int)$property['ID']]);
-                        while ($enum = $enumResult->Fetch()) {
-                            if (in_array((string)$enum['XML_ID'], $requestedXmlIds, true)) {
-                                $enumIds[] = (int)$enum['ID'];
-                            }
-                        }
                         \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                            'USED_ENTITYS' => $enumIds ?: false,
-                            'STAGE_OWNERSHIP_VERSION' => 4,
+                            'USED_ENTITY_CODES' => $requestedXmlIds ?: false,
+                            'STAGE_OWNERSHIP_VERSION' => 5,
                         ]);
                         $response = ['status' => 'ok', 'stageId' => $stageId];
                         $offerIds = $this->normalizeIds($request['offerIds'] ?? []);

@@ -17,10 +17,11 @@ $assert = static function (bool $condition, string $message): void {
 $assert(strpos($service, "'CALC_STAGES'") !== false, 'CALC_STAGES is present in schema registry');
 $assert(strpos($service, "'ACTIVATION_CONDITION'") !== false, 'ACTIVATION_CONDITION is repairable');
 $assert(strpos($service, "'USED_ENTITYS'") !== false, 'stage-owned USED_ENTITYS is repairable');
+$assert(strpos($service, "'USED_ENTITY_CODES'") !== false, 'stable stage entity codes are repairable');
 $assert(strpos($service, "'CUSTOM_FIELDS'") !== false, 'stage-owned CUSTOM_FIELDS is repairable');
 $assert(strpos($service, 'migrateLegacyStageOwnership') !== false, 'legacy calculator ownership is migrated once');
 $assert(strpos($service, "'STAGE_OWNERSHIP_VERSION'") !== false, 'stage ownership migration is versioned');
-$assert(strpos($service, 'STAGE_OWNERSHIP_VERSION = 4') !== false, 'repair migration can recover incomplete earlier ownership versions');
+$assert(strpos($service, 'STAGE_OWNERSHIP_VERSION = 5') !== false, 'repair migration can recover incomplete earlier ownership versions');
 $assert(strpos($service, 'ensureListPropertyValues') !== false, 'list property enum values are repaired additively');
 $assert(strpos($service, '\\CIBlockPropertyEnum') !== false, 'missing list values are created through Bitrix enum API');
 $assert(strpos($service, 'listEnumIdsByProperty') !== false, 'new enum IDs are available to migration in the same request');

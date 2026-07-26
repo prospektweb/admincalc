@@ -24,7 +24,7 @@ $stagesPos = strpos($installer, '$stagesProps = [');
 $settingsPos = strpos($installer, '$settingsProps = [');
 $logicPos = strpos($installer, "'LOGIC_JSON'", $settingsPos);
 $assert($stagesPos !== false && $settingsPos !== false && $logicPos !== false, 'installer property sections are present');
-$assert(strpos(substr($installer, $stagesPos, $settingsPos - $stagesPos), "'USED_ENTITYS'") !== false, 'fresh installs put USED_ENTITYS on stages');
+$assert(strpos(substr($installer, $stagesPos, $settingsPos - $stagesPos), "'USED_ENTITY_CODES'") !== false, 'fresh installs put stable entity codes on stages');
 $assert(strpos(substr($installer, $settingsPos, $logicPos - $settingsPos), "'USED_ENTITYS'") === false, 'fresh installs do not put USED_ENTITYS on calculators');
 
 echo "OK\n";
