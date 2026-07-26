@@ -20,6 +20,9 @@ $assert(strpos($service, "'USED_ENTITYS'") !== false, 'stage-owned USED_ENTITYS 
 $assert(strpos($service, "'CUSTOM_FIELDS'") !== false, 'stage-owned CUSTOM_FIELDS is repairable');
 $assert(strpos($service, 'migrateLegacyStageOwnership') !== false, 'legacy calculator ownership is migrated once');
 $assert(strpos($service, "'STAGE_OWNERSHIP_VERSION'") !== false, 'stage ownership migration is versioned');
+$assert(strpos($service, 'STAGE_OWNERSHIP_VERSION = 2') !== false, 'repair migration can recover incomplete version 1 ownership');
+$assert(strpos($service, 'ensureListPropertyValues') !== false, 'list property enum values are repaired additively');
+$assert(strpos($service, '\\CIBlockPropertyEnum') !== false, 'missing list values are created through Bitrix enum API');
 $assert(substr_count($service, "'SOURCE_LINKS'") === 3, 'SOURCE_LINKS is registered for three iblocks');
 $assert(strpos($service, '\\CIBlockProperty::GetList') !== false, 'existing property is checked before creation');
 $assert(strpos($service, '$property->Add') !== false, 'missing property is created');

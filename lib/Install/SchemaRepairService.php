@@ -12,6 +12,8 @@ use Prospektweb\Calc\Config\ConfigManager;
  */
 class SchemaRepairService
 {
+    private const STAGE_OWNERSHIP_VERSION = 2;
+
     /**
      * Реестр свойств, добавленных в модуль после первых установок.
      *
@@ -120,6 +122,7 @@ class SchemaRepairService
                 )->Fetch();
 
                 if ($existing) {
+                    $this->ensureListPropertyValues((int)$existing['ID'], $definition);
                     $result['existing'][] = $propertyLabel;
                     continue;
                 }
@@ -132,6 +135,7 @@ class SchemaRepairService
                 ));
 
                 if ($propertyId) {
+                    $this->ensureListPropertyValues((int)$propertyId, $definition);
                     $result['created'][] = $propertyLabel;
                     continue;
                 }
@@ -174,12 +178,19 @@ class SchemaRepairService
         while ($stageElement = $stages->GetNextElement()) {
             $stageFields = $stageElement->GetFields();
             $stageProps = $stageElement->GetProperties();
-            if ((int)($stageProps['STAGE_OWNERSHIP_VERSION']['VALUE'] ?? 0) >= 1) {
+            $ownershipVersion = (int)($stageProps['STAGE_OWNERSHIP_VERSION']['VALUE'] ?? 0);
+            if ($ownershipVersion >= self::STAGE_OWNERSHIP_VERSION) {
                 continue;
             }
             $settingsId = (int)($stageProps['CALC_SETTINGS']['VALUE'] ?? 0);
-            $usedEntityEnumIds = [];
-            $customFieldIds = [];
+            $usedEntityEnumIds = array_values(array_filter(array_map(
+                'intval',
+                (array)($stageProps['USED_ENTITYS']['VALUE'] ?? [])
+            )));
+            $customFieldIds = array_values(array_filter(array_map(
+                'intval',
+                (array)($stageProps['CUSTOM_FIELDS']['VALUE'] ?? [])
+            )));
             if ($settingsId > 0) {
                 $settingsElement = \CIBlockElement::GetList([], [
                     'ID' => $settingsId,
@@ -187,27 +198,64 @@ class SchemaRepairService
                 ], false, false, ['ID', 'IBLOCK_ID'])->GetNextElement();
                 if ($settingsElement) {
                     $settingsProps = $settingsElement->GetProperties();
-                    $legacyXmlIds = $settingsProps['USED_ENTITYS']['VALUE_XML_ID'] ?? [];
-                    foreach ((array)$legacyXmlIds as $xmlId) {
-                        if (isset($stageEnumByXml[(string)$xmlId])) {
-                            $usedEntityEnumIds[] = $stageEnumByXml[(string)$xmlId];
+                    if (!$usedEntityEnumIds) {
+                        $legacyXmlIds = $settingsProps['USED_ENTITYS']['VALUE_XML_ID'] ?? [];
+                        foreach ((array)$legacyXmlIds as $xmlId) {
+                            if (isset($stageEnumByXml[(string)$xmlId])) {
+                                $usedEntityEnumIds[] = $stageEnumByXml[(string)$xmlId];
+                            }
                         }
                     }
-                    $customFieldIds = array_values(array_filter(array_map(
-                        'intval',
-                        (array)($settingsProps['CUSTOM_FIELDS']['VALUE'] ?? [])
-                    )));
+                    if (!$customFieldIds) {
+                        $customFieldIds = array_values(array_filter(array_map(
+                            'intval',
+                            (array)($settingsProps['CUSTOM_FIELDS']['VALUE'] ?? [])
+                        )));
+                    }
                 }
             }
             \CIBlockElement::SetPropertyValuesEx((int)$stageFields['ID'], $stagesIblockId, [
                 'USED_ENTITYS' => $usedEntityEnumIds ?: false,
                 'CUSTOM_FIELDS' => $customFieldIds ?: false,
-                'STAGE_OWNERSHIP_VERSION' => 1,
+                'STAGE_OWNERSHIP_VERSION' => self::STAGE_OWNERSHIP_VERSION,
             ]);
             $migrated++;
         }
 
         return $migrated;
+    }
+
+    /**
+     * Add only missing enum values. Existing values and element assignments stay untouched.
+     *
+     * @param array<string, mixed> $definition
+     */
+    private function ensureListPropertyValues(int $propertyId, array $definition): void
+    {
+        if (($definition['TYPE'] ?? null) !== 'L' || empty($definition['VALUES']) || !is_array($definition['VALUES'])) {
+            return;
+        }
+
+        $existingXmlIds = [];
+        $existing = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $propertyId]);
+        while ($enum = $existing->Fetch()) {
+            $existingXmlIds[(string)$enum['XML_ID']] = true;
+        }
+
+        $enumProperty = new \CIBlockPropertyEnum();
+        foreach ($definition['VALUES'] as $value) {
+            $xmlId = (string)($value['XML_ID'] ?? '');
+            if ($xmlId === '' || isset($existingXmlIds[$xmlId])) {
+                continue;
+            }
+            $enumProperty->Add([
+                'PROPERTY_ID' => $propertyId,
+                'VALUE' => (string)($value['VALUE'] ?? $xmlId),
+                'XML_ID' => $xmlId,
+                'SORT' => (int)($value['SORT'] ?? 500),
+                'DEF' => (string)($value['DEF'] ?? 'N'),
+            ]);
+        }
     }
 
     /**
