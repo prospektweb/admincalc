@@ -173,6 +173,12 @@ class ElementDataService
                             $stageId = $addResult['config']['id'] ?? 0;
 
                             if ($presetId > 0 && $stageId > 0) {
+                                $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
+                                if ($stagesIblockId > 0) {
+                                    \CIBlockElement::SetPropertyValuesEx((int)$stageId, $stagesIblockId, [
+                                        'STAGE_OWNERSHIP_VERSION' => 1,
+                                    ]);
+                                }
                                 $detailHandler->addStageToPreset($presetId, $stageId);
                                 
                                 // Preserve the complete ordered product topology. Rebuilding
@@ -585,18 +591,16 @@ class ElementDataService
                         continue 2;
                         
                     case 'selectFields':
-                        $settingsId = (int)($request['settingsId'] ?? 0);
                         $stageId = (int)($request['stageId'] ?? 0);
                         $customFieldIds = $this->normalizeIds($request['customFieldIds'] ?? []);
                         $replaceCustomFields = !empty($request['replace']);
 
-                        if ($settingsId > 0 && $stageId > 0 && ($replaceCustomFields || !empty($customFieldIds))) {
-                            $settingsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_SETTINGS', 0);
+                        if ($stageId > 0 && ($replaceCustomFields || !empty($customFieldIds))) {
                             $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
 
                             $existingCustomFields = [];
-                            $settingsProps = \CIBlockElement::GetProperty($settingsIblockId, $settingsId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS']);
-                            while ($prop = $settingsProps->Fetch()) {
+                            $stageCustomFieldProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS']);
+                            while ($prop = $stageCustomFieldProps->Fetch()) {
                                 if (!empty($prop['VALUE'])) {
                                     $existingCustomFields[] = (int)$prop['VALUE'];
                                 }
@@ -605,8 +609,9 @@ class ElementDataService
                             $mergedCustomFields = $replaceCustomFields
                                 ? $customFieldIds
                                 : array_values(array_unique(array_merge($existingCustomFields, $customFieldIds)));
-                            \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
+                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
                                 'CUSTOM_FIELDS' => $mergedCustomFields,
+                                'STAGE_OWNERSHIP_VERSION' => 1,
                             ]);
 
                             $customFieldsService = new \Prospektweb\Calc\Services\CustomFieldsService();
@@ -687,21 +692,19 @@ class ElementDataService
                         continue 2;
 
                     case 'createCustomField':
-                        $settingsId = (int)($request['settingsId'] ?? 0);
                         $stageId = (int)($request['stageId'] ?? 0);
                         $field = is_array($request['field'] ?? null) ? $request['field'] : [];
                         $name = trim((string)($field['name'] ?? ''));
                         $type = trim((string)($field['type'] ?? 'text'));
                         $allowedTypes = ['number', 'text', 'checkbox', 'select'];
-                        if ($settingsId <= 0 || $stageId <= 0 || $name === '' || !in_array($type, $allowedTypes, true)) {
+                        if ($stageId <= 0 || $name === '' || !in_array($type, $allowedTypes, true)) {
                             $result[] = ['status' => 'error', 'message' => 'Укажите название и корректный тип дополнительного параметра'];
                             continue 2;
                         }
 
                         $customFieldsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_CUSTOM_FIELDS', 0);
-                        $settingsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_SETTINGS', 0);
                         $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
-                        if ($customFieldsIblockId <= 0 || $settingsIblockId <= 0 || $stagesIblockId <= 0) {
+                        if ($customFieldsIblockId <= 0 || $stagesIblockId <= 0) {
                             $result[] = ['status' => 'error', 'message' => 'Инфоблок дополнительных параметров не настроен'];
                             continue 2;
                         }
@@ -762,15 +765,16 @@ class ElementDataService
                         }
 
                         $existingCustomFields = [];
-                        $settingsProps = \CIBlockElement::GetProperty($settingsIblockId, $settingsId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS']);
-                        while ($prop = $settingsProps->Fetch()) {
+                        $stageCustomFieldProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS']);
+                        while ($prop = $stageCustomFieldProps->Fetch()) {
                             if (!empty($prop['VALUE'])) {
                                 $existingCustomFields[] = (int)$prop['VALUE'];
                             }
                         }
                         $existingCustomFields[] = $fieldId;
-                        \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
+                        \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
                             'CUSTOM_FIELDS' => array_values(array_unique($existingCustomFields)),
+                            'STAGE_OWNERSHIP_VERSION' => 1,
                         ]);
 
                         $existingValues = [];
@@ -1359,6 +1363,44 @@ class ElementDataService
                             }
                         }
                         $result[] = ['status' => 'ok'];
+                        continue 2;
+
+                    case 'saveStageUsedEntities':
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        $requestedXmlIds = array_values(array_intersect(
+                            array_map('strval', is_array($request['usedEntities'] ?? null) ? $request['usedEntities'] : []),
+                            ['VARIANT_OPERATION', 'EQUIPMENT', 'VARIANT_MATERIAL']
+                        ));
+                        $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
+                        if ($stageId <= 0 || $stagesIblockId <= 0) {
+                            $result[] = ['status' => 'error', 'message' => 'Этап или инфоблок этапов не найден'];
+                            continue 2;
+                        }
+                        $property = \CIBlockProperty::GetList([], [
+                            'IBLOCK_ID' => $stagesIblockId,
+                            '=CODE' => 'USED_ENTITYS',
+                        ])->Fetch();
+                        if (!$property) {
+                            $result[] = ['status' => 'error', 'message' => 'Свойство USED_ENTITYS этапа не установлено'];
+                            continue 2;
+                        }
+                        $enumIds = [];
+                        $enumResult = \CIBlockPropertyEnum::GetList(['SORT' => 'ASC'], ['PROPERTY_ID' => (int)$property['ID']]);
+                        while ($enum = $enumResult->Fetch()) {
+                            if (in_array((string)$enum['XML_ID'], $requestedXmlIds, true)) {
+                                $enumIds[] = (int)$enum['ID'];
+                            }
+                        }
+                        \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                            'USED_ENTITYS' => $enumIds ?: false,
+                            'STAGE_OWNERSHIP_VERSION' => 1,
+                        ]);
+                        $response = ['status' => 'ok', 'stageId' => $stageId];
+                        $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
+                        if (!empty($offerIds)) {
+                            $response['initPayload'] = (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
+                        }
+                        $result[] = $response;
                         continue 2;
                         
                     case 'updateSettingsProperty':

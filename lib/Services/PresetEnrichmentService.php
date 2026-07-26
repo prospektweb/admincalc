@@ -196,6 +196,14 @@ class PresetEnrichmentService
             // Получаем этап и извлекаем связи
             $stage = $this->getStageById($stageId);
             if ($stage) {
+                $stageCustomFieldIds = $stage['CUSTOM_FIELDS'] ?? null;
+                if (is_array($stageCustomFieldIds)) {
+                    foreach ($stageCustomFieldIds as $customFieldId) {
+                        if ($customFieldId > 0 && !in_array($customFieldId, $linkedElements['customFields'])) {
+                            $linkedElements['customFields'][] = $customFieldId;
+                        }
+                    }
+                }
                 // CALC_SETTINGS (калькулятор)
                 if (!empty($stage['CALC_SETTINGS'])) {
                     $calcSettingsIds = is_array($stage['CALC_SETTINGS'])
@@ -211,7 +219,10 @@ class PresetEnrichmentService
                             $linkedElements['calcSettings'][] = $calcSettingsId;
                         }
 
-                        $customFieldIds = $this->getCalcSettingsCustomFields($calcSettingsId);
+                        // Legacy fallback for stages created before stage-owned custom fields.
+                        $customFieldIds = $stageCustomFieldIds === null
+                            ? $this->getCalcSettingsCustomFields($calcSettingsId)
+                            : [];
                         foreach ($customFieldIds as $customFieldId) {
                             if (!in_array($customFieldId, $linkedElements['customFields'])) {
                                 $linkedElements['customFields'][] = $customFieldId;
@@ -647,6 +658,12 @@ class PresetEnrichmentService
     {
         if ($presetId <= 0) {
             return [];
+        }
+        if ((int)($properties['STAGE_OWNERSHIP_VERSION']['VALUE'] ?? 0) >= 1 && isset($properties['CUSTOM_FIELDS'])) {
+            $values = is_array($properties['CUSTOM_FIELDS']['VALUE'])
+                ? $properties['CUSTOM_FIELDS']['VALUE']
+                : [$properties['CUSTOM_FIELDS']['VALUE']];
+            $result['CUSTOM_FIELDS'] = array_values(array_filter(array_map('intval', $values)));
         }
 
         $rootIds = [];

@@ -247,6 +247,9 @@
                 case 'SAVE_OPTIONAL_STAGE_REQUEST': // backward compatibility with an older bundle
                     await this.handleSaveStageActivationRequest(message, origin);
                     break;
+                case 'SAVE_STAGE_USED_ENTITIES_REQUEST':
+                    await this.handleSaveStageUsedEntitiesRequest(message, origin);
+                    break;
                 case 'REMOVE_DETAIL_REQUEST':
                     await this.handleRemoveDetailRequest(message, origin);
                     break;
@@ -751,23 +754,14 @@
 
         async handleSelectFieldsRequest(message, origin) {
             const payload = message.payload || {};
-            const settingsId = parseInt(payload.settingsId, 10) || 0;
             const stageId = parseInt(payload.stageId, 10) || 0;
             const presetId = parseInt(payload.presetId, 10) || 0;
 
             const selectedIds = Array.isArray(payload.customFieldIds)
                 ? payload.customFieldIds.map(Number).filter(id => id > 0)
                 : [];
-            if (!selectedIds || selectedIds.length === 0) {
-                this.sendPwrtMessage('ERROR', {
-                    message: 'Не выбраны дополнительные поля',
-                    details: 'Отметьте хотя бы одно поле во внутреннем списке',
-                }, message.requestId, origin);
-                return;
-            }
-
             try {
-                const selectResult = await this.fetchRefreshData([{ action: 'selectFields', settingsId, stageId, presetId, customFieldIds: selectedIds, offerIds: this.config.offerIds || [] }]);
+                const selectResult = await this.fetchRefreshData([{ action: 'selectFields', stageId, presetId, customFieldIds: selectedIds, replace: payload.replace === true, offerIds: this.config.offerIds || [] }]);
                 const selectPayload = Array.isArray(selectResult) ? selectResult[0] : null;
                 if (selectPayload?.initPayload) {
                     this.initData = selectPayload.initPayload;
@@ -1156,7 +1150,6 @@
             try {
                 const result = await this.fetchRefreshData([{
                     action: 'createCustomField',
-                    settingsId: parseInt(payload.settingsId, 10) || 0,
                     stageId: parseInt(payload.stageId, 10) || 0,
                     presetId: parseInt(payload.presetId, 10) || 0,
                     field: payload.field || {},
@@ -3071,6 +3064,35 @@
             } catch (error) {
                 this.sendPwrtMessage('ERROR', {
                     message: 'Не удалось сохранить условие активации этапа',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleSaveStageUsedEntitiesRequest(message, origin) {
+            const payload = message.payload || {};
+            const stageId = parseInt(payload.stageId, 10) || 0;
+            const usedEntities = Array.isArray(payload.usedEntities) ? payload.usedEntities : [];
+            if (!stageId) {
+                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для сохранения используемых сущностей' }, message.requestId, origin);
+                return;
+            }
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'saveStageUsedEntities',
+                    stageId,
+                    usedEntities,
+                    offerIds: this.config.offerIds || [],
+                }]);
+                const response = Array.isArray(result) ? result[0] : null;
+                if (!response || response.status !== 'ok') {
+                    throw new Error(response?.message || 'Не удалось сохранить используемые сущности этапа');
+                }
+                if (response.initPayload) this.initData = response.initPayload;
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось сохранить используемые сущности этапа',
                     details: error && error.message ? error.message : 'Unknown error',
                 }, message.requestId, origin);
             }

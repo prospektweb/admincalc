@@ -43,6 +43,31 @@ class SchemaRepairService
                     'SORT' => 190,
                     'HINT' => 'Версионированный JSON со ссылкой на глобальную переменную или константу',
                 ],
+                'USED_ENTITYS' => [
+                    'NAME' => 'Используемые сущности этапа',
+                    'TYPE' => 'L',
+                    'MULTIPLE' => 'Y',
+                    'MULTIPLE_CNT' => 3,
+                    'SORT' => 600,
+                    'VALUES' => [
+                        ['VALUE' => 'Операция', 'XML_ID' => 'VARIANT_OPERATION'],
+                        ['VALUE' => 'Оборудование', 'XML_ID' => 'EQUIPMENT'],
+                        ['VALUE' => 'Материал', 'XML_ID' => 'VARIANT_MATERIAL'],
+                    ],
+                ],
+                'CUSTOM_FIELDS' => [
+                    'NAME' => 'Дополнительные поля этапа',
+                    'TYPE' => 'E',
+                    'MULTIPLE' => 'Y',
+                    'MULTIPLE_CNT' => 3,
+                    'SORT' => 690,
+                    'LINK_IBLOCK_CODE' => 'CALC_CUSTOM_FIELDS',
+                ],
+                'STAGE_OWNERSHIP_VERSION' => [
+                    'NAME' => 'Версия владения конфигурацией этапа',
+                    'TYPE' => 'N',
+                    'SORT' => 695,
+                ],
             ],
             'CALC_MATERIALS' => [
                 'SOURCE_LINKS' => self::sourceLinksProperty(),
@@ -85,6 +110,9 @@ class SchemaRepairService
             }
 
             foreach ($properties as $propertyCode => $definition) {
+                if (!empty($definition['LINK_IBLOCK_CODE'])) {
+                    $definition['LINK_IBLOCK_ID'] = $configManager->getIblockId((string)$definition['LINK_IBLOCK_CODE']);
+                }
                 $propertyLabel = $iblockCode . '.' . $propertyCode;
                 $existing = \CIBlockProperty::GetList(
                     [],
@@ -116,7 +144,70 @@ class SchemaRepairService
             }
         }
 
+        $result['migratedStageCount'] = empty($result['errors'])
+            ? $this->migrateLegacyStageOwnership($configManager)
+            : 0;
+
         return $this->withCounts($result);
+    }
+
+    private function migrateLegacyStageOwnership(ConfigManager $configManager): int
+    {
+        $stagesIblockId = $configManager->getIblockId('CALC_STAGES');
+        $settingsIblockId = $configManager->getIblockId('CALC_SETTINGS');
+        if ($stagesIblockId <= 0 || $settingsIblockId <= 0) {
+            return 0;
+        }
+
+        $stageEntityProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $stagesIblockId, '=CODE' => 'USED_ENTITYS'])->Fetch();
+        if (!$stageEntityProperty) {
+            return 0;
+        }
+        $stageEnumByXml = [];
+        $stageEnums = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => (int)$stageEntityProperty['ID']]);
+        while ($enum = $stageEnums->Fetch()) {
+            $stageEnumByXml[(string)$enum['XML_ID']] = (int)$enum['ID'];
+        }
+
+        $migrated = 0;
+        $stages = \CIBlockElement::GetList(['ID' => 'ASC'], ['IBLOCK_ID' => $stagesIblockId], false, false, ['ID', 'IBLOCK_ID']);
+        while ($stageElement = $stages->GetNextElement()) {
+            $stageFields = $stageElement->GetFields();
+            $stageProps = $stageElement->GetProperties();
+            if ((int)($stageProps['STAGE_OWNERSHIP_VERSION']['VALUE'] ?? 0) >= 1) {
+                continue;
+            }
+            $settingsId = (int)($stageProps['CALC_SETTINGS']['VALUE'] ?? 0);
+            $usedEntityEnumIds = [];
+            $customFieldIds = [];
+            if ($settingsId > 0) {
+                $settingsElement = \CIBlockElement::GetList([], [
+                    'ID' => $settingsId,
+                    'IBLOCK_ID' => $settingsIblockId,
+                ], false, false, ['ID', 'IBLOCK_ID'])->GetNextElement();
+                if ($settingsElement) {
+                    $settingsProps = $settingsElement->GetProperties();
+                    $legacyXmlIds = $settingsProps['USED_ENTITYS']['VALUE_XML_ID'] ?? [];
+                    foreach ((array)$legacyXmlIds as $xmlId) {
+                        if (isset($stageEnumByXml[(string)$xmlId])) {
+                            $usedEntityEnumIds[] = $stageEnumByXml[(string)$xmlId];
+                        }
+                    }
+                    $customFieldIds = array_values(array_filter(array_map(
+                        'intval',
+                        (array)($settingsProps['CUSTOM_FIELDS']['VALUE'] ?? [])
+                    )));
+                }
+            }
+            \CIBlockElement::SetPropertyValuesEx((int)$stageFields['ID'], $stagesIblockId, [
+                'USED_ENTITYS' => $usedEntityEnumIds ?: false,
+                'CUSTOM_FIELDS' => $customFieldIds ?: false,
+                'STAGE_OWNERSHIP_VERSION' => 1,
+            ]);
+            $migrated++;
+        }
+
+        return $migrated;
     }
 
     /**
@@ -140,6 +231,9 @@ class SchemaRepairService
             if (array_key_exists($fieldName, $definition)) {
                 $fields[$fieldName] = $definition[$fieldName];
             }
+        }
+        if (!empty($definition['VALUES']) && is_array($definition['VALUES'])) {
+            $fields['VALUES'] = $definition['VALUES'];
         }
 
         return $fields;

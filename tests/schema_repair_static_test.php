@@ -16,6 +16,10 @@ $assert = static function (bool $condition, string $message): void {
 
 $assert(strpos($service, "'CALC_STAGES'") !== false, 'CALC_STAGES is present in schema registry');
 $assert(strpos($service, "'ACTIVATION_CONDITION'") !== false, 'ACTIVATION_CONDITION is repairable');
+$assert(strpos($service, "'USED_ENTITYS'") !== false, 'stage-owned USED_ENTITYS is repairable');
+$assert(strpos($service, "'CUSTOM_FIELDS'") !== false, 'stage-owned CUSTOM_FIELDS is repairable');
+$assert(strpos($service, 'migrateLegacyStageOwnership') !== false, 'legacy calculator ownership is migrated once');
+$assert(strpos($service, "'STAGE_OWNERSHIP_VERSION'") !== false, 'stage ownership migration is versioned');
 $assert(substr_count($service, "'SOURCE_LINKS'") === 3, 'SOURCE_LINKS is registered for three iblocks');
 $assert(strpos($service, '\\CIBlockProperty::GetList') !== false, 'existing property is checked before creation');
 $assert(strpos($service, '$property->Add') !== false, 'missing property is created');

@@ -870,6 +870,30 @@ switch ($currentStep) {
                 'IS_REQUIRED' => 'N',
                 'SORT' => 500,
             ],
+            'USED_ENTITYS' => [
+                'NAME' => 'Используемые сущности этапа',
+                'TYPE' => 'L',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 3,
+                'SORT' => 600,
+                'VALUES' => [
+                    ['VALUE' => 'Операция', 'XML_ID' => 'VARIANT_OPERATION'],
+                    ['VALUE' => 'Оборудование', 'XML_ID' => 'EQUIPMENT'],
+                    ['VALUE' => 'Материал', 'XML_ID' => 'VARIANT_MATERIAL'],
+                ],
+            ],
+            'CUSTOM_FIELDS' => [
+                'NAME' => 'Дополнительные поля этапа',
+                'TYPE' => 'E',
+                'SORT' => 690,
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 3,
+            ],
+            'STAGE_OWNERSHIP_VERSION' => [
+                'NAME' => 'Версия владения конфигурацией этапа',
+                'TYPE' => 'N',
+                'SORT' => 695,
+            ],
             'CUSTOM_FIELDS_VALUE' => [
                 'NAME' => 'Значения дополнительных полей',
                 'TYPE' => 'S',
@@ -897,26 +921,6 @@ switch ($currentStep) {
         ];
         
         $settingsProps = [
-            'USED_ENTITYS' => [
-                'NAME' => 'Используемые сущности',
-                'TYPE' => 'L',
-                'MULTIPLE' => 'Y',
-                'MULTIPLE_CNT' => 3,
-                'SORT' => 200,
-                'VALUES' => [
-                    ['VALUE' => 'Операция', 'XML_ID' => 'VARIANT_OPERATION'],
-                    ['VALUE' => 'Оборудование', 'XML_ID' => 'EQUIPMENT'],
-                    ['VALUE' => 'Материал', 'XML_ID' => 'VARIANT_MATERIAL'],
-                ],
-            ],
-            'CUSTOM_FIELDS' => [
-                'NAME' => 'Дополнительные поля',
-                'TYPE' => 'E',
-                'SORT' => 700,
-                'MULTIPLE' => 'Y',
-                'MULTIPLE_CNT' => 3,
-                // LINK_IBLOCK_ID будет установлен позже в секции обновления свойств
-            ],
             'LOGIC_JSON' => [
                 'NAME' => 'Логика калькулятора',
                 'TYPE' => 'S',
@@ -1199,12 +1203,12 @@ switch ($currentStep) {
         $expected = 10;
         installLog("Создано инфоблоков: {$created}/{$expected}", $created === $expected ? 'success' : 'warning');
         
-        // Обновление свойств CALC_SETTINGS с привязками к инфоблокам
-        if ($installData['iblock_ids']['CALC_SETTINGS'] > 0) {
+        // Обновление свойств CALC_STAGES с привязками к инфоблокам
+        if ($installData['iblock_ids']['CALC_STAGES'] > 0) {
             installLog("");
             installLog("Обновление свойств CALC_SETTINGS с привязками к инфоблокам...", 'header');
             
-            $settingsIblockId = $installData['iblock_ids']['CALC_SETTINGS'];
+            $settingsIblockId = $installData['iblock_ids']['CALC_STAGES'];
             $ibp = new \CIBlockProperty();
             
             // Обновляем CUSTOM_FIELDS
