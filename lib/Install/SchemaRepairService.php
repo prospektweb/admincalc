@@ -12,7 +12,10 @@ use Prospektweb\Calc\Config\ConfigManager;
  */
 class SchemaRepairService
 {
-    private const STAGE_OWNERSHIP_VERSION = 3;
+    private const STAGE_OWNERSHIP_VERSION = 4;
+
+    /** @var array<int, array<string, int>> */
+    private array $listEnumIdsByProperty = [];
 
     /**
      * Реестр свойств, добавленных в модуль после первых установок.
@@ -172,6 +175,7 @@ class SchemaRepairService
         while ($enum = $stageEnums->Fetch()) {
             $stageEnumByXml[(string)$enum['XML_ID']] = (int)$enum['ID'];
         }
+        $stageEnumByXml += $this->listEnumIdsByProperty[(int)$stageEntityProperty['ID']] ?? [];
 
         $migrated = 0;
         $stages = \CIBlockElement::GetList(['ID' => 'ASC'], ['IBLOCK_ID' => $stagesIblockId], false, false, ['ID', 'IBLOCK_ID']);
@@ -239,7 +243,7 @@ class SchemaRepairService
         $existingXmlIds = [];
         $existing = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => $propertyId]);
         while ($enum = $existing->Fetch()) {
-            $existingXmlIds[(string)$enum['XML_ID']] = true;
+            $existingXmlIds[(string)$enum['XML_ID']] = (int)$enum['ID'];
         }
 
         foreach ($definition['VALUES'] as $value) {
@@ -247,14 +251,18 @@ class SchemaRepairService
             if ($xmlId === '' || isset($existingXmlIds[$xmlId])) {
                 continue;
             }
-            \CIBlockPropertyEnum::Add([
+            $enumId = \CIBlockPropertyEnum::Add([
                 'PROPERTY_ID' => $propertyId,
                 'VALUE' => (string)($value['VALUE'] ?? $xmlId),
                 'XML_ID' => $xmlId,
                 'SORT' => (int)($value['SORT'] ?? 500),
                 'DEF' => (string)($value['DEF'] ?? 'N'),
             ]);
+            if ($enumId) {
+                $existingXmlIds[$xmlId] = (int)$enumId;
+            }
         }
+        $this->listEnumIdsByProperty[$propertyId] = $existingXmlIds;
     }
 
     /**

@@ -176,7 +176,7 @@ class ElementDataService
                                 $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
                                 if ($stagesIblockId > 0) {
                                     \CIBlockElement::SetPropertyValuesEx((int)$stageId, $stagesIblockId, [
-                                        'STAGE_OWNERSHIP_VERSION' => 3,
+                                        'STAGE_OWNERSHIP_VERSION' => 4,
                                     ]);
                                 }
                                 $detailHandler->addStageToPreset($presetId, $stageId);
@@ -611,7 +611,7 @@ class ElementDataService
                                 : array_values(array_unique(array_merge($existingCustomFields, $customFieldIds)));
                             \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
                                 'CUSTOM_FIELDS' => $mergedCustomFields,
-                                'STAGE_OWNERSHIP_VERSION' => 3,
+                                'STAGE_OWNERSHIP_VERSION' => 4,
                             ]);
 
                             $customFieldsService = new \Prospektweb\Calc\Services\CustomFieldsService();
@@ -774,7 +774,7 @@ class ElementDataService
                         $existingCustomFields[] = $fieldId;
                         \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
                             'CUSTOM_FIELDS' => array_values(array_unique($existingCustomFields)),
-                            'STAGE_OWNERSHIP_VERSION' => 3,
+                            'STAGE_OWNERSHIP_VERSION' => 4,
                         ]);
 
                         $existingValues = [];
@@ -1393,7 +1393,7 @@ class ElementDataService
                         }
                         \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
                             'USED_ENTITYS' => $enumIds ?: false,
-                            'STAGE_OWNERSHIP_VERSION' => 3,
+                            'STAGE_OWNERSHIP_VERSION' => 4,
                         ]);
                         $response = ['status' => 'ok', 'stageId' => $stageId];
                         $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
