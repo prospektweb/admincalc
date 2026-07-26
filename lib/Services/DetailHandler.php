@@ -139,6 +139,7 @@ class DetailHandler
 
             $newDetailId = $cloneResult['detail']['id'];
             $rootDetailId = $newDetailId;
+            $presetDetails = [];
 
             // Позиционные правила
             if ($presetId > 0) {
@@ -161,43 +162,24 @@ class DetailHandler
                     // rootDetailId для enrichPreset — корневой элемент пресета
                     $rootDetailId = !empty($presetDetails) ? (int)$presetDetails[0] : $newDetailId;
                 } else {
-                    // Деталь на верхнем уровне — создаём новое скрепление [оригинал, клон]
-                    $bindingName = 'Группа скрепления ' . $originalDetail['NAME'];
-                    $bindingId = $this->createDetailElement($bindingName, 'BINDING');
-                    if (!$bindingId) {
-                        $this->rollbackCreated($createdDetailIds, $createdConfigIds);
-                        return ['status' => 'error', 'message' => 'Не удалось создать группу скрепления'];
-                    }
-                    $createdDetailIds[] = $bindingId;
-
-                    $configId = $this->createConfigElement(date('dmY_His') . '_' . substr((string)microtime(true), -6));
-                    if (!$configId) {
-                        $this->rollbackCreated($createdDetailIds, $createdConfigIds);
-                        return ['status' => 'error', 'message' => 'Не удалось создать конфигурацию скрепления'];
-                    }
-                    $createdConfigIds[] = $configId;
-
-                    \CIBlockElement::SetPropertyValuesEx($bindingId, $this->detailsIblockId, [
-                        'CALC_STAGES' => [$configId],
-                        'DETAILS' => [$detailId, $newDetailId],
-                    ]);
-
-                    // Заменяем оригинальную деталь на скрепление в пресете
+                    // Верхнеуровневая деталь остаётся самостоятельной колонкой.
+                    // Клон вставляется непосредственно после оригинала, без создания
+                    // старой «группы скрепления».
                     $updatedPresetDetails = $presetDetails;
                     $origPos = array_search($detailId, array_map('intval', $updatedPresetDetails));
                     if ($origPos !== false) {
-                        $updatedPresetDetails[$origPos] = $bindingId;
+                        array_splice($updatedPresetDetails, $origPos + 1, 0, [$newDetailId]);
                     } else {
-                        $updatedPresetDetails[] = $bindingId;
+                        $updatedPresetDetails[] = $newDetailId;
                     }
 
-                    // Сначала очищаем свойство, затем записываем обновлённый список
                     \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, ['CALC_DETAILS' => false]);
                     \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
                         'CALC_DETAILS' => array_values($updatedPresetDetails),
                     ]);
 
-                    $rootDetailId = $bindingId;
+                    $rootDetailId = $newDetailId;
+                    $presetDetails = array_values($updatedPresetDetails);
                 }
             }
 
@@ -205,6 +187,7 @@ class DetailHandler
                 'status' => 'ok',
                 'detail' => $cloneResult['detail'],
                 'rootDetailId' => $rootDetailId,
+                'rootDetailIds' => $presetDetails,
                 'newDetailId' => $newDetailId,
                 'createdConfigIds' => $createdConfigIds,
                 'createdDetailIds' => $createdDetailIds,

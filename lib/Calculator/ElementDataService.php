@@ -1365,6 +1365,27 @@ class ElementDataService
                         $result[] = ['status' => 'ok'];
                         continue 2;
 
+                    case 'inspectCalculatorContract':
+                        $handler = new \Prospektweb\Calc\Services\CalculatorContractService();
+                        $result[] = $handler->inspect((int)($request['settingsId'] ?? 0));
+                        continue 2;
+
+                    case 'resolveCalculatorContract':
+                        $handler = new \Prospektweb\Calc\Services\CalculatorContractService();
+                        $response = $handler->resolve(
+                            (int)($request['settingsId'] ?? 0),
+                            (int)($request['stageId'] ?? 0),
+                            (int)($request['currentPresetId'] ?? 0),
+                            (string)($request['mode'] ?? ''),
+                            (string)($request['message'] ?? '')
+                        );
+                        $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
+                        if (($response['status'] ?? null) === 'ok' && !empty($offerIds)) {
+                            $response['initPayload'] = (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
+                        }
+                        $result[] = $response;
+                        continue 2;
+
                     case 'saveStageUsedEntities':
                         $stageId = (int)($request['stageId'] ?? 0);
                         $requestedXmlIds = array_values(array_intersect(
@@ -1405,6 +1426,33 @@ class ElementDataService
                         if ($settingsId > 0 && !empty($propertyCode)) {
                             $settingsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_SETTINGS', 0);
                             if ($settingsIblockId > 0) {
+                                if ($propertyCode === 'GLOBAL_DEPENDENCIES') {
+                                    $existingProperty = \CIBlockProperty::GetList([], [
+                                        'IBLOCK_ID' => $settingsIblockId,
+                                        '=CODE' => 'GLOBAL_DEPENDENCIES',
+                                    ])->Fetch();
+                                    if (!$existingProperty) {
+                                        $property = new \CIBlockProperty();
+                                        $propertyId = (int)$property->Add([
+                                            'IBLOCK_ID' => $settingsIblockId,
+                                            'ACTIVE' => 'Y',
+                                            'CODE' => 'GLOBAL_DEPENDENCIES',
+                                            'NAME' => 'Контракт глобальных значений',
+                                            'PROPERTY_TYPE' => 'S',
+                                            'MULTIPLE' => 'Y',
+                                            'MULTIPLE_CNT' => 1,
+                                            'SORT' => 830,
+                                        ]);
+                                        if ($propertyId <= 0) {
+                                            $result[] = [
+                                                'status' => 'error',
+                                                'message' => trim((string)$property->LAST_ERROR)
+                                                    ?: 'Не удалось создать контракт глобальных значений',
+                                            ];
+                                            continue 2;
+                                        }
+                                    }
+                                }
                                 \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
                                     $propertyCode => $value
                                 ]);

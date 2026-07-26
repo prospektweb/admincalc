@@ -51,6 +51,7 @@
             this.pendingRequests = {};
             this.initData = null;
             this.currentSelectionItems = null;
+            this.defaultDetailBootstrapPresetIds = new Set();
 
             // Сохраняем ссылку на обработчик для корректного removeEventListener
             this.boundHandleMessage = this.handleMessage.bind(this);
@@ -382,6 +383,12 @@
                 case 'SAVE_CALC_LOGIC_REQUEST':
                     await this.handleSaveCalcLogicRequest(message, origin);
                     break;
+                case 'CHECK_CALC_CONTRACT_REQUEST':
+                    await this.handleCheckCalcContractRequest(message, origin);
+                    break;
+                case 'RESOLVE_CALC_CONTRACT_REQUEST':
+                    await this.handleResolveCalcContractRequest(message, origin);
+                    break;
                 case 'SAVE_CALCULATION_REQUEST':
                     await this.handleSaveCalculationRequest(message, origin);
                     break;
@@ -418,6 +425,8 @@
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
                         'SAVE_CALC_LOGIC_REQUEST',
+                        'CHECK_CALC_CONTRACT_REQUEST',
+                        'RESOLVE_CALC_CONTRACT_REQUEST',
                         'SAVE_CALCULATION_REQUEST',
                         'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL', 'CLEAR_OPTIONS_EQUIPMENT',
                         'CLEAR_PRESET_REQUEST', 'SAVE_PRESET_GLOBALS_REQUEST', 'CLOSE_REQUEST'
@@ -736,11 +745,13 @@
             const iblockType = requestPayload.iblockType || null;
             const lang = requestPayload.lang || null;
 
-            const selectedIds = await this.openElementSelectionDialog({
-                iblockId: iblockId,
-                iblockType: iblockType,
-                lang: lang,
-            });
+            const selectedIds = Array.isArray(requestPayload.selectedIds)
+                ? requestPayload.selectedIds.map((id) => parseInt(id, 10)).filter((id) => id > 0)
+                : await this.openElementSelectionDialog({
+                    iblockId: iblockId,
+                    iblockType: iblockType,
+                    lang: lang,
+                });
 
             await this.sendSelectDone({
                 ids: selectedIds,
@@ -788,11 +799,13 @@
             const iblockType = calcDetails?.type || requestPayload.iblockType || null;
             const lang = requestPayload.lang || (this.initData?.lang) || null;
 
-            const selectedIds = await this.openElementSelectionDialog({
-                iblockId: iblockId,
-                iblockType: iblockType,
-                lang: lang,
-            });
+            const selectedIds = Array.isArray(requestPayload.selectedIds)
+                ? requestPayload.selectedIds.map((id) => parseInt(id, 10)).filter((id) => id > 0)
+                : await this.openElementSelectionDialog({
+                    iblockId: iblockId,
+                    iblockType: iblockType,
+                    lang: lang,
+                });
 
             // Режим тишины - 0 деталей выбрано
             if (!selectedIds || selectedIds.length === 0) {
@@ -803,8 +816,7 @@
             try {
                 // Получаем presetId и существующую деталь
                 const presetId = this.initData?.preset?.id;
-                const existingDetails = this.initData?.preset?.properties?.CALC_DETAILS || [];
-                const existingDetailId = existingDetails.length > 0 ? existingDetails[0] : 0;
+                const existingDetailId = 0;
 
                 if (!presetId) {
                     throw new Error('Preset ID не найден');
@@ -1002,7 +1014,9 @@
 
                 const enrichResult = await this.enrichPreset({
                     presetId,
-                    detailIds: [responsePayload.rootDetailId || detailId],
+                    detailIds: Array.isArray(responsePayload.rootDetailIds) && responsePayload.rootDetailIds.length
+                        ? responsePayload.rootDetailIds
+                        : [responsePayload.rootDetailId || detailId],
                     binding: false,
                     existingDetailId: 0,
                     offerIds: this.config.offerIds || [],
@@ -3098,6 +3112,87 @@
             }
         }
 
+        async handleCheckCalcContractRequest(message, origin) {
+            const payload = message.payload || {};
+            const settingsId = parseInt(payload.settingsId, 10) || 0;
+            const normalize = (values) => Array.from(new Set((Array.isArray(values) ? values : [])
+                .map((value) => String(value || '').trim())
+                .filter(Boolean)))
+                .sort();
+            const baselineInputCodes = normalize(payload.baselineInputCodes);
+            const currentInputCodes = normalize(payload.currentInputCodes);
+            const baselineGlobalCodes = normalize(payload.baselineGlobalCodes);
+            const currentGlobalCodes = normalize(payload.currentGlobalCodes);
+            const inputsChanged = JSON.stringify(baselineInputCodes) !== JSON.stringify(currentInputCodes);
+            const globalsChanged = JSON.stringify(baselineGlobalCodes) !== JSON.stringify(currentGlobalCodes);
+
+            try {
+                const result = inputsChanged || globalsChanged
+                    ? await this.fetchRefreshData([{ action: 'inspectCalculatorContract', settingsId }])
+                    : [];
+                const inspection = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'ok', presets: [], stageIds: [] };
+                if (inspection.status !== 'ok') {
+                    throw new Error(inspection.message || 'Не удалось проверить зависимости калькулятора');
+                }
+                this.sendPwrtMessage('CALC_CONTRACT_IMPACT_RESPONSE', {
+                    status: 'ok',
+                    settingsId,
+                    stageId: parseInt(payload.stageId, 10) || 0,
+                    currentPresetId: parseInt(payload.currentPresetId, 10) || 0,
+                    inputsChanged,
+                    globalsChanged,
+                    inputChanges: {
+                        removed: baselineInputCodes.filter((code) => !currentInputCodes.includes(code)),
+                        added: currentInputCodes.filter((code) => !baselineInputCodes.includes(code)),
+                    },
+                    globalChanges: {
+                        removed: baselineGlobalCodes.filter((code) => !currentGlobalCodes.includes(code)),
+                        added: currentGlobalCodes.filter((code) => !baselineGlobalCodes.includes(code)),
+                    },
+                    presets: Array.isArray(inspection.presets) ? inspection.presets : [],
+                }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('CALC_CONTRACT_IMPACT_RESPONSE', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось проверить зависимости калькулятора',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleResolveCalcContractRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'resolveCalculatorContract',
+                    settingsId: parseInt(payload.settingsId, 10) || 0,
+                    stageId: parseInt(payload.stageId, 10) || 0,
+                    currentPresetId: parseInt(payload.currentPresetId, 10) || 0,
+                    mode: String(payload.mode || ''),
+                    message: String(payload.message || ''),
+                    offerIds: this.config.offerIds || [],
+                }]);
+                const response = Array.isArray(result) ? result[0] : null;
+                if (!response || response.status !== 'ok') {
+                    throw new Error(response?.message || 'Не удалось разрешить конфликт контракта калькулятора');
+                }
+                if (response.initPayload) {
+                    this.initData = response.initPayload;
+                }
+                this.sendPwrtMessage('CALC_CONTRACT_RESOLVED', {
+                    status: 'ok',
+                    settingsId: parseInt(response.settingsId, 10) || 0,
+                    mode: response.mode,
+                }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('CALC_CONTRACT_RESOLVED', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось разрешить конфликт контракта калькулятора',
+                }, message.requestId, origin);
+            }
+        }
+
         async handleSaveCalcLogicRequest(message, origin) {
             const payload = message.payload || {};
             const settingsId = parseInt(payload.settingsId, 10);
@@ -3113,6 +3208,9 @@
 
             const rawLogicJson = calcSettings.logicJson || '';
             const params = Array.isArray(calcSettings.params) ? calcSettings.params : [];
+            const globalDependencies = Array.isArray(calcSettings.globalDependencies)
+                ? Array.from(new Set(calcSettings.globalDependencies.map((code) => String(code || '').trim()).filter(Boolean)))
+                : [];
             const inputs = Array.isArray(stageWiring.inputs) ? stageWiring.inputs : [];
             const outputs = Array.isArray(stageWiring.outputs) ? stageWiring.outputs : [];
             const globalAssignments = typeof stageWiring.globalAssignments === 'string'
@@ -3147,6 +3245,12 @@
                     settingsId: settingsId,
                     propertyCode: 'PARAMS',
                     value: toValueDescriptionList(params, 'name', 'type'),
+                });
+                refreshPayload.push({
+                    action: 'updateSettingsProperty',
+                    settingsId: settingsId,
+                    propertyCode: 'GLOBAL_DEPENDENCIES',
+                    value: globalDependencies.length ? globalDependencies : false,
                 });
             }
 
@@ -3187,6 +3291,12 @@
                         settingsId,
                         'PARAMS',
                         params.map((item) => ({ value: item?.name ?? '', description: item?.type ?? '' }))
+                    );
+                    this.updateSettingsPropertyInInitDataWithRaw(
+                        settingsId,
+                        'GLOBAL_DEPENDENCIES',
+                        globalDependencies,
+                        globalDependencies
                     );
                 }
 
@@ -4203,11 +4313,12 @@
                 // чтобы избежать зависимости от предварительных проверок пресетов
                 this.logDebug('[CalcIntegration] Fetching init data via AJAX');
                 const initData = await this.fetchInitData();
+                const readyData = await this.ensureDefaultPresetDetail(initData);
 
-                this.initData = initData;
+                this.initData = readyData;
 
                 // Отправляем INIT в iframe
-                this.sendMessageToIframe('INIT', initData, message.requestId);
+                this.sendMessageToIframe('INIT', readyData, message.requestId);
             } catch (error) {
                 console.error('[CalcIntegration] Error in handleReady:', error);
                 this.sendMessageToIframe('ERROR', {
@@ -4215,6 +4326,48 @@
                     details: error.message,
                 }, message.requestId);
             }
+        }
+
+        /**
+         * A preset is always edited through at least one root detail column.
+         * Bootstrap exactly once per loaded preset; addNewDetail also creates
+         * the default stage configuration required by the existing contract.
+         */
+        async ensureDefaultPresetDetail(initData) {
+            const presetId = parseInt(initData?.preset?.id, 10) || 0;
+            const rawDetails = initData?.preset?.properties?.CALC_DETAILS;
+            const detailIds = (Array.isArray(rawDetails) ? rawDetails : [rawDetails])
+                .map((value) => parseInt(value, 10) || 0)
+                .filter((value) => value > 0);
+            if (!presetId || detailIds.length > 0 || this.defaultDetailBootstrapPresetIds.has(presetId)) {
+                return initData;
+            }
+
+            this.defaultDetailBootstrapPresetIds.add(presetId);
+            const created = await this.fetchRefreshData([{
+                action: 'addNewDetail',
+                offerIds: this.config.offerIds || [],
+                name: 'Деталь #1',
+            }]);
+            const response = Array.isArray(created) ? created[0] : null;
+            const newDetailId = parseInt(response?.detail?.id, 10) || 0;
+            if (!response || response.status !== 'ok' || !newDetailId) {
+                throw new Error(response?.message || 'Не удалось создать деталь по умолчанию');
+            }
+
+            const enriched = await this.enrichPreset({
+                presetId,
+                detailIds: [newDetailId],
+                binding: false,
+                existingDetailId: 0,
+                offerIds: this.config.offerIds || [],
+                siteId: this.config.siteId,
+            });
+            if (!enriched.success || !enriched.data) {
+                throw new Error(enriched.message || 'Не удалось подключить деталь по умолчанию к пресету');
+            }
+
+            return enriched.data;
         }
 
         /**

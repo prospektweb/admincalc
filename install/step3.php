@@ -901,6 +901,14 @@ switch ($currentStep) {
                 'TYPE' => 'N',
                 'SORT' => 695,
             ],
+            'CONTRACT_ISSUE' => [
+                'NAME' => 'Нарушение контракта калькулятора',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'N',
+                'IS_REQUIRED' => 'N',
+                'SORT' => 700,
+                'HINT' => 'Причина блокировки расчёта после несовместимого изменения общего калькулятора',
+            ],
             'CUSTOM_FIELDS_VALUE' => [
                 'NAME' => 'Значения дополнительных полей',
                 'TYPE' => 'S',
@@ -947,6 +955,14 @@ switch ($currentStep) {
                 'TYPE' => 'S',
                 'USER_TYPE' => 'HTML',
                 'SORT' => 820,
+            ],
+            'GLOBAL_DEPENDENCIES' => [
+                'NAME' => 'Контракт глобальных значений',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 1,
+                'SORT' => 830,
+                'HINT' => 'Коды глобальных значений, на которые ссылаются формулы калькулятора',
             ],
         ];
         
