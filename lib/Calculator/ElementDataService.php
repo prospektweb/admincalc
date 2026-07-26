@@ -303,14 +303,20 @@ class ElementDataService
                             // Update CALC_SETTINGS property
                             $enrichmentService->updateStageProperty($stageId, 'CALC_SETTINGS', $settingsId);
                             
-                            // Enrich preset based on first detail
+                            // Rebuild the preset from every ordered product root.
+                            // Using only the first root silently converted a complex
+                            // product to a simple one whenever its calculator changed.
                             if ($presetId > 0) {
-                                $firstDetailId = $enrichmentService->getFirstDetailFromPreset($presetId);
+                                $rootDetailIds = $enrichmentService->getProductRootsFromPreset($presetId);
                                 
-                                if ($firstDetailId) {
+                                if (!empty($rootDetailIds)) {
                                     $offerIds = $request['offerIds'] ?? [];
                                     $siteId = $request['siteId'] ?? SITE_ID;
-                                    $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $firstDetailId, $offerIds);
+                                    $initPayload = $enrichmentService->enrichPresetFromProductRoots(
+                                        $presetId,
+                                        $rootDetailIds,
+                                        $offerIds
+                                    );
                                     
                                     $result[] = [
                                         'status' => 'ok',

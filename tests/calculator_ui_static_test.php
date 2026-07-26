@@ -28,10 +28,10 @@ $checks = [
     [$integration, "normalizeBatchSaveResults", 'Batch save response must be mapped back to individual offers'],
     [$calculator, "this.expandCalculatorDialog(dialog);", 'Calculator dialog must request expanded mode after Show'],
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
-    [$calculator, "index.html?v=9fa4836003e3", 'Embedded calculator must load the current frontend release without stale HTML cache'],
-    [$calculatorPage, "index.html?v=9fa4836003e3", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
-    [$appIndex, "assets/index.js?v=9fa4836003e3", 'Built application HTML must invalidate the stable JavaScript asset name'],
-    [$appIndex, "assets/style.css?v=9fa4836003e3", 'Built application HTML must invalidate the stable stylesheet asset name'],
+    [$calculator, "index.html?v=3b8958e4206c", 'Embedded calculator must load the current frontend release without stale HTML cache'],
+    [$calculatorPage, "index.html?v=3b8958e4206c", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
+    [$appIndex, "assets/index.js?v=3b8958e4206c", 'Built application HTML must invalidate the stable JavaScript asset name'],
+    [$appIndex, "assets/style.css?v=3b8958e4206c", 'Built application HTML must invalidate the stable stylesheet asset name'],
     [$integration, "SAVE_SETTINGS_EQUIPMENT_RESPONSE", 'Equipment saves must report completion to the iframe'],
     [$integration, "case 'SAVE_USER_THEME_REQUEST'", 'The iframe bridge must persist the editor theme for the current Bitrix user'],
     [$integration, "this.initData.context.editorTheme = theme", 'Theme changes must survive later INIT refreshes'],
@@ -168,6 +168,25 @@ if (strpos($integration, "await this.handleRefreshRequest({ requestId: message.r
 
 if (strpos($integration, 'saveCalculationForOffer') !== false) {
     throw new RuntimeException('Save flow must not make one HTTP request per offer');
+}
+
+$changeSettingsStart = strpos($elementDataService, "case 'changeSettings':");
+$changeSettingsEnd = strpos($elementDataService, "case 'changeOperationVariant':", $changeSettingsStart ?: 0);
+$changeSettingsHandler = $changeSettingsStart !== false && $changeSettingsEnd !== false
+    ? substr($elementDataService, $changeSettingsStart, $changeSettingsEnd - $changeSettingsStart)
+    : '';
+if (
+    $changeSettingsHandler === ''
+    || strpos($changeSettingsHandler, 'getProductRootsFromPreset') === false
+    || strpos($changeSettingsHandler, 'enrichPresetFromProductRoots') === false
+    || strpos($changeSettingsHandler, 'getFirstDetailFromPreset') !== false
+    || strpos($changeSettingsHandler, 'enrichPresetFromDetails') !== false
+) {
+    throw new RuntimeException('Changing a stage calculator must preserve every ordered root of a complex product');
+}
+
+if (strpos($presetEnrichmentService, "\$properties['STAGE_OWNERSHIP_VERSION']") !== false) {
+    throw new RuntimeException('Product-root lookup must not read undefined stage properties');
 }
 
 if (strpos($appBundle, 'btn-generate-logic-prompt') !== false) {

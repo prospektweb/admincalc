@@ -659,12 +659,6 @@ class PresetEnrichmentService
         if ($presetId <= 0) {
             return [];
         }
-        if ((int)($properties['STAGE_OWNERSHIP_VERSION']['VALUE'] ?? 0) >= 1 && isset($properties['CUSTOM_FIELDS'])) {
-            $values = is_array($properties['CUSTOM_FIELDS']['VALUE'])
-                ? $properties['CUSTOM_FIELDS']['VALUE']
-                : [$properties['CUSTOM_FIELDS']['VALUE']];
-            $result['CUSTOM_FIELDS'] = array_values(array_filter(array_map('intval', $values)));
-        }
 
         $rootIds = [];
         $rs = \CIBlockElement::GetProperty(
