@@ -1059,11 +1059,6 @@ class ElementDataService
                         }
                         continue 2;
                         
-                    case 'activatePricePanel':
-                        $handler = new \Prospektweb\Calc\Services\PricePanelHandler();
-                        $result[] = $handler->handleActivation($request);
-                        continue 2;
-                    
                     case 'addDetailToBinding':
                         // New handler for ADD_DETAIL_TO_BINDING_REQUEST
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();

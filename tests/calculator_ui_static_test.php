@@ -27,8 +27,8 @@ $checks = [
     [$integration, "normalizeBatchSaveResults", 'Batch save response must be mapped back to individual offers'],
     [$calculator, "this.expandCalculatorDialog(dialog);", 'Calculator dialog must request expanded mode after Show'],
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
-    [$calculator, "index.html?v=fcc147d", 'Embedded calculator must load the current frontend release without stale HTML cache'],
-    [$calculatorPage, "index.html?v=fcc147d", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
+    [$calculator, "index.html?v=b095a1c", 'Embedded calculator must load the current frontend release without stale HTML cache'],
+    [$calculatorPage, "index.html?v=b095a1c", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
     [$integration, "SAVE_SETTINGS_EQUIPMENT_RESPONSE", 'Equipment saves must report completion to the iframe'],
     [$integration, "case 'SAVE_USER_THEME_REQUEST'", 'The iframe bridge must persist the editor theme for the current Bitrix user'],
     [$integration, "this.initData.context.editorTheme = theme", 'Theme changes must survive later INIT refreshes'],
@@ -96,6 +96,9 @@ $checks = [
     [$catalogMetaService, "implode('|', [\$parameter['value'], \$parameter['title'], \$parameter['description']])", 'Catalog parameters must persist value, title and description in Bitrix DESCRIPTION'],
     [$catalogMetaService, "\\CCatalogVat::GetList", 'Catalog card editor must load active named VAT rates'],
     [$catalogMetaService, "'catalogOptions' => \$catalogOptions", 'Catalog metadata response must expose VAT options to the slider'],
+    [$catalogMetaService, "\$supportsExtendedMetadata = \$type !== 'calculator'", 'Calculator cards must not use technical catalog metadata'],
+    [$catalogMetaService, "\$supportsExtendedMetadata\n                    ? \$this->saveCatalog", 'Calculator saves must not register calculator elements as catalog products'],
+    [$catalogMetaService, "\\CIBlockElement::Delete(\$createdEntityId)", 'Failed parent creation must not leave an orphaned element'],
     [$aiGatewayService, "private const DEFAULT_MODEL = 'openai/gpt-5.4-mini'", 'AI prompt templates must default to GPT-5.4 mini'],
     [$appBundle, 'btn-open-selected-entity-settings', 'Selected entity labels must open their internal catalog card'],
     [$appBundle, 'btn-open-entity-selector', 'Entity rows must expose a separate selector action'],
@@ -135,6 +138,12 @@ $checks = [
     [$elementDataService, "case 'changeRootDetailSort':", 'Root detail-column order must be handled by the server'],
     [$elementDataService, "'CALC_DETAILS' => \$sorting", 'Root detail-column order must be written exactly'],
 ];
+
+foreach (['DEFAULT_OPERATION_VARIANT', 'DEFAULT_MATERIAL_VARIANT'] as $removedCalculatorProperty) {
+    if (strpos($installer, $removedCalculatorProperty) !== false) {
+        throw new RuntimeException('Removed calculator default-variant properties must not be recreated by the installer');
+    }
+}
 
 foreach ($checks as [$source, $needle, $message]) {
     if (strpos($source, $needle) === false) {

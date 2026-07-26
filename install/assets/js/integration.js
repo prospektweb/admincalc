@@ -3313,61 +3313,6 @@
             // Ничего не отправляем в ответ
         }
 
-        /**
-         * Обработка запроса активации панели цен (pricepanel)
-         * Вызывается при выборе калькулятора и заполнении значений по умолчанию
-         */
-        async handleActivatePricePanelRequest(message, origin) {
-            console.log('[BitrixBridge][DEBUG] handleActivatePricePanelRequest START', {
-                messageType: message.type,
-                payload: message.payload,
-                origin: origin,
-            });
-
-            const payload = message.payload || {};
-
-            try {
-                const result = await this.fetchRefreshData([
-                    {
-                        action: 'activatePricePanel',
-                        calculatorSettingsId: payload.calculatorSettingsId || 0,
-                        detailId: payload.detailId || 0,
-                        defaultOperationVariantId: payload.defaultOperationVariantId || null,
-                        defaultMaterialVariantId: payload.defaultMaterialVariantId || null,
-                    }
-                ]);
-
-                const responsePayload = (Array.isArray(result) && result[0])
-                    ? result[0]
-                    : { status: 'error', message: 'Empty response' };
-
-                console.log('[BitrixBridge][DEBUG] Sending ACTIVATE_PRICE_PANEL_RESPONSE', {
-                    requestId: message.requestId,
-                    status: responsePayload.status,
-                });
-
-                this.sendPwrtMessage('ACTIVATE_PRICE_PANEL_RESPONSE', responsePayload, message.requestId, origin);
-
-                console.log('[BitrixBridge][DEBUG] handleActivatePricePanelRequest END - success');
-
-            } catch (error) {
-                console.error('[BitrixBridge][DEBUG] handleActivatePricePanelRequest ERROR', {
-                    error: error,
-                    message: error.message,
-                });
-
-                this.sendPwrtMessage(
-                    'ACTIVATE_PRICE_PANEL_RESPONSE',
-                    {
-                        status: 'error',
-                        message: error && error.message ? error.message : 'Unknown error',
-                    },
-                    message.requestId,
-                    origin
-                );
-            }
-        }
-
         async sendSelectDone({ ids, iblockId, iblockType, lang, requestId, origin }) {
             const normalizedIds = this.normalizeSelectedIds(ids);
             let items = [];

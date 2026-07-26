@@ -1,0 +1,64 @@
+{
+  "capturedAt": "2026-07-26",
+  "source": {
+    "site": "https://prospektprint.ru",
+    "iblockId": 43,
+    "iblockCode": "CALC_SETTINGS"
+  },
+  "properties": [
+    {
+      "id": 666,
+      "code": "DEFAULT_OPERATION_VARIANT",
+      "name": "Вариант операции по умолчанию",
+      "type": "E",
+      "sort": 250
+    },
+    {
+      "id": 667,
+      "code": "DEFAULT_MATERIAL_VARIANT",
+      "name": "Вариант материала по умолчанию",
+      "type": "E",
+      "sort": 450
+    }
+  ],
+  "nonEmptyValues": [
+    {
+      "calculatorId": 1014,
+      "calculatorName": "Цифровая лазерная печать",
+      "defaultOperationVariantId": 1058,
+      "defaultOperationVariantName": "Цифровая печать 4+0 на бумагах до 170 г/м2",
+      "defaultMaterialVariantId": null,
+      "defaultMaterialVariantName": null
+    },
+    {
+      "calculatorId": 12567,
+      "calculatorName": "Подготовка бумаги в печатный формат",
+      "defaultOperationVariantId": 1050,
+      "defaultOperationVariantName": "Резка гильотинная",
+      "defaultMaterialVariantId": 1028,
+      "defaultMaterialVariantName": "Мелованная бумага в упаковках"
+    },
+    {
+      "calculatorId": 12569,
+      "calculatorName": "Листовая цифровая печать",
+      "defaultOperationVariantId": 1049,
+      "defaultOperationVariantName": "Цифровая лазерная печать",
+      "defaultMaterialVariantId": null,
+      "defaultMaterialVariantName": null
+    }
+  ],
+  "orphanCandidatesObservedSeparately": [
+    {
+      "id": 12669,
+      "name": "Калькулятор вместимости"
+    },
+    {
+      "id": 12670,
+      "name": "Калькулятор вместимости"
+    },
+    {
+      "id": 12671,
+      "name": "Калькулятор вместимости"
+    }
+  ]
+}

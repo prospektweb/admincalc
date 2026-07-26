@@ -14,10 +14,8 @@ Updated the CALC_SETTINGS infoblock to include 9 properties with proper configur
 |--------------|------|------|------|----------------|
 | PATH_TO_SCRIPT | 100 | Путь к скрипту расчёта | FileMan | Default: /bitrix/modules/prospektweb.calc/lib/Calculator/Calculators/ |
 | USE_OPERATION_VARIANT | 200 | Активировать выбор варианта Операции | List | Values: Да/Нет (Y/N) |
-| DEFAULT_OPERATION_VARIANT | 250 | Вариант операции по умолчанию | Element Binding | → CALC_OPERATIONS |
 | SUPPORTED_EQUIPMENT_LIST | 300 | Поддерживаемое оборудование | Element Binding (Multiple) | → CALC_EQUIPMENT |
 | USE_MATERIAL_VARIANT | 400 | Активировать выбор варианта Материала | List | Values: Да/Нет (Y/N) |
-| DEFAULT_MATERIAL_VARIANT | 450 | Вариант материала по умолчанию | Element Binding | → CALC_MATERIALS |
 | CAN_BE_FIRST | 500 | Может быть добавлен на первом этапе | List | Values: Да/Нет (Y/N) |
 | REQUIRES_BEFORE | 550 | Используется после калькулятора | Element Binding | → CALC_SETTINGS |
 | OTHER_OPTIONS | 600 | Прочие опции | HTML/Text | - |
@@ -61,7 +59,7 @@ Added CODE (symbolic code) field support throughout the system:
 
 **install/step3.php:**
 - Added property linking logic after infoblock creation
-- Updates DEFAULT_OPERATION_VARIANT, SUPPORTED_EQUIPMENT_LIST, DEFAULT_MATERIAL_VARIANT, and REQUIRES_BEFORE properties with correct LINK_IBLOCK_ID values
+- Updates SUPPORTED_EQUIPMENT_LIST and REQUIRES_BEFORE properties with correct LINK_IBLOCK_ID values
 
 ## Files Modified
 

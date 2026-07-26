@@ -909,16 +909,6 @@ switch ($currentStep) {
                     ['VALUE' => 'Материал', 'XML_ID' => 'VARIANT_MATERIAL'],
                 ],
             ],
-            'DEFAULT_OPERATION_VARIANT' => [
-                'NAME' => 'Вариант операции по умолчанию',
-                'TYPE' => 'E',
-                'SORT' => 250,
-            ],
-            'DEFAULT_MATERIAL_VARIANT' => [
-                'NAME' => 'Вариант материала по умолчанию',
-                'TYPE' => 'E',
-                'SORT' => 450,
-            ],
             'CUSTOM_FIELDS' => [
                 'NAME' => 'Дополнительные поля',
                 'TYPE' => 'E',
@@ -1216,24 +1206,6 @@ switch ($currentStep) {
             
             $settingsIblockId = $installData['iblock_ids']['CALC_SETTINGS'];
             $ibp = new \CIBlockProperty();
-            
-            // Обновляем DEFAULT_OPERATION_VARIANT
-            if ($installData['iblock_ids']['CALC_OPERATIONS'] > 0) {
-                $rsProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $settingsIblockId, 'CODE' => 'DEFAULT_OPERATION_VARIANT']);
-                if ($arProperty = $rsProperty->Fetch()) {
-                    $ibp->Update($arProperty['ID'], ['LINK_IBLOCK_ID' => $installData['iblock_ids']['CALC_OPERATIONS']]);
-                    installLog("  → Обновлено свойство DEFAULT_OPERATION_VARIANT", 'success');
-                }
-            }
-            
-            // Обновляем DEFAULT_MATERIAL_VARIANT
-            if ($installData['iblock_ids']['CALC_MATERIALS'] > 0) {
-                $rsProperty = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $settingsIblockId, 'CODE' => 'DEFAULT_MATERIAL_VARIANT']);
-                if ($arProperty = $rsProperty->Fetch()) {
-                    $ibp->Update($arProperty['ID'], ['LINK_IBLOCK_ID' => $installData['iblock_ids']['CALC_MATERIALS']]);
-                    installLog("  → Обновлено свойство DEFAULT_MATERIAL_VARIANT", 'success');
-                }
-            }
             
             // Обновляем CUSTOM_FIELDS
             if ($installData['iblock_ids']['CALC_CUSTOM_FIELDS'] > 0) {

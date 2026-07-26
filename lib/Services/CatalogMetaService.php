@@ -19,21 +19,22 @@ final class CatalogMetaService
         $type = (string)($request['entityType'] ?? '');
         $id = (int)($request['entityId'] ?? 0);
         $iblocks = $this->getIblocks($type);
-        $catalogOptions = $this->getCatalogOptions();
+        $supportsExtendedMetadata = $type !== 'calculator';
+        $catalogOptions = $supportsExtendedMetadata ? $this->getCatalogOptions() : ['vatRates' => []];
         if ($id <= 0) {
             return ['status' => 'ok', 'entityType' => $type, 'parent' => null, 'variants' => [], 'catalogOptions' => $catalogOptions];
         }
         if ($type === 'calculator' || $type === 'equipment') {
-            $entity = $this->loadElement($id, [$iblocks[0]]);
+            $entity = $this->loadElement($id, [$iblocks[0]], $supportsExtendedMetadata);
             return ['status' => 'ok', 'entityType' => $type, 'parent' => $entity, 'variants' => [], 'catalogOptions' => $catalogOptions];
         }
-        $selected = $this->loadElement($id, $iblocks);
+        $selected = $this->loadElement($id, $iblocks, true);
         $parentId = $selected['iblockId'] === $iblocks[0] ? $selected['id'] : $this->getParentId($id, $iblocks[1]);
         if ($parentId <= 0) throw new \RuntimeException('Не удалось определить родительский элемент');
-        $parent = $this->loadElement($parentId, [$iblocks[0]]);
+        $parent = $this->loadElement($parentId, [$iblocks[0]], true);
         $variants = [];
         $cursor = \CIBlockElement::GetList(['SORT' => 'ASC', 'ID' => 'ASC'], ['IBLOCK_ID' => $iblocks[1], 'PROPERTY_CML2_LINK' => $parentId], false, false, ['ID', 'IBLOCK_ID', 'IBLOCK_SECTION_ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'DETAIL_TEXT']);
-        while ($row = $cursor->Fetch()) $variants[] = $this->normalize($row);
+        while ($row = $cursor->Fetch()) $variants[] = $this->normalize($row, true);
         return ['status' => 'ok', 'entityType' => $type, 'parent' => $parent, 'variants' => $variants, 'catalogOptions' => $catalogOptions];
     }
 
@@ -42,6 +43,7 @@ final class CatalogMetaService
         $this->assertAdmin();
         $type = (string)($request['entityType'] ?? '');
         $iblocks = $this->getIblocks($type);
+        $supportsExtendedMetadata = $type !== 'calculator';
         $entities = is_array($request['entities'] ?? null) ? $request['entities'] : [];
         if ($entities === []) throw new \InvalidArgumentException('Не переданы элементы для сохранения');
         $createdVariantId = 0;
@@ -57,48 +59,63 @@ final class CatalogMetaService
         }
         $allowedEntityIds = $this->resolveAllowedEntityIds($type, $iblocks, (int)($entities[0]['id'] ?? 0));
         $updated = [];
-        foreach ($entities as $entity) {
-            $id = (int)($entity['id'] ?? 0);
-            $name = trim((string)($entity['name'] ?? ''));
-            if ($id <= 0 || $name === '') throw new \InvalidArgumentException('Название технического элемента не может быть пустым');
-            if (!isset($allowedEntityIds[$id])) throw new \InvalidArgumentException('Элемент не относится к выбранному родителю или его вариантам');
-            $loaded = $this->loadElement($id, $iblocks);
-            $element = new \CIBlockElement();
-            $preview = trim((string)($entity['previewText'] ?? ''));
-            $detail = (string)($entity['detailText'] ?? '');
-            if (!$element->Update($id, [
-                'NAME' => $name,
-                'PREVIEW_TEXT' => $preview,
-                'PREVIEW_TEXT_TYPE' => 'text',
-                'DETAIL_TEXT' => $detail,
-                'DETAIL_TEXT_TYPE' => 'html',
-            ])) throw new \RuntimeException($element->LAST_ERROR ?: 'Не удалось сохранить технический элемент');
-            $parameters = $this->normalizeParameters((array)($entity['parameters'] ?? []));
-            $sourceLinks = $this->normalizeSourceLinks((array)($entity['sourceLinks'] ?? []));
-            \CIBlockElement::SetPropertyValuesEx($id, (int)$loaded['iblockId'], [
-                'PARAMETRS' => $parameters ? array_map(static function (array $parameter): array {
-                    return [
-                        'VALUE' => $parameter['code'],
-                        'DESCRIPTION' => implode('|', [$parameter['value'], $parameter['title'], $parameter['description']]),
-                    ];
-                }, $parameters) : false,
-                'SOURCE_LINKS' => $sourceLinks ? array_map(static function (array $source): array {
-                    return [
-                        'VALUE' => $source['url'],
-                        'DESCRIPTION' => implode('|', [$source['title'], $source['description']]),
-                    ];
-                }, $sourceLinks) : false,
-            ]);
-            $catalog = $this->saveCatalog($id, (array)($entity['catalog'] ?? []));
-            $updated[] = [
-                'id' => $id,
-                'name' => $name,
-                'previewText' => $preview,
-                'detailText' => $detail,
-                'parameters' => $parameters,
-                'sourceLinks' => $sourceLinks,
-                'catalog' => $catalog,
-            ];
+        try {
+            foreach ($entities as $entity) {
+                $id = (int)($entity['id'] ?? 0);
+                $name = trim((string)($entity['name'] ?? ''));
+                if ($id <= 0 || $name === '') throw new \InvalidArgumentException('Название технического элемента не может быть пустым');
+                if (!isset($allowedEntityIds[$id])) throw new \InvalidArgumentException('Элемент не относится к выбранному родителю или его вариантам');
+                $loaded = $this->loadElement($id, $iblocks, $supportsExtendedMetadata);
+                $element = new \CIBlockElement();
+                $preview = trim((string)($entity['previewText'] ?? ''));
+                $detail = (string)($entity['detailText'] ?? '');
+                if (!$element->Update($id, [
+                    'NAME' => $name,
+                    'PREVIEW_TEXT' => $preview,
+                    'PREVIEW_TEXT_TYPE' => 'text',
+                    'DETAIL_TEXT' => $detail,
+                    'DETAIL_TEXT_TYPE' => 'html',
+                ])) throw new \RuntimeException($element->LAST_ERROR ?: 'Не удалось сохранить технический элемент');
+                $parameters = $supportsExtendedMetadata
+                    ? $this->normalizeParameters((array)($entity['parameters'] ?? []))
+                    : [];
+                $sourceLinks = $supportsExtendedMetadata
+                    ? $this->normalizeSourceLinks((array)($entity['sourceLinks'] ?? []))
+                    : [];
+                if ($supportsExtendedMetadata) {
+                    \CIBlockElement::SetPropertyValuesEx($id, (int)$loaded['iblockId'], [
+                        'PARAMETRS' => $parameters ? array_map(static function (array $parameter): array {
+                            return [
+                                'VALUE' => $parameter['code'],
+                                'DESCRIPTION' => implode('|', [$parameter['value'], $parameter['title'], $parameter['description']]),
+                            ];
+                        }, $parameters) : false,
+                        'SOURCE_LINKS' => $sourceLinks ? array_map(static function (array $source): array {
+                            return [
+                                'VALUE' => $source['url'],
+                                'DESCRIPTION' => implode('|', [$source['title'], $source['description']]),
+                            ];
+                        }, $sourceLinks) : false,
+                    ]);
+                }
+                $catalog = $supportsExtendedMetadata
+                    ? $this->saveCatalog($id, (array)($entity['catalog'] ?? []))
+                    : [];
+                $updated[] = [
+                    'id' => $id,
+                    'name' => $name,
+                    'previewText' => $preview,
+                    'detailText' => $detail,
+                    'parameters' => $parameters,
+                    'sourceLinks' => $sourceLinks,
+                    'catalog' => $catalog,
+                ];
+            }
+        } catch (\Throwable $exception) {
+            if ($createdEntityId > 0) {
+                \CIBlockElement::Delete($createdEntityId);
+            }
+            throw $exception;
         }
         return [
             'status' => 'ok',
@@ -199,15 +216,15 @@ final class CatalogMetaService
         return $ids;
     }
 
-    private function loadElement(int $id, array $allowedIblocks): array
+    private function loadElement(int $id, array $allowedIblocks, bool $supportsExtendedMetadata = true): array
     {
         $cursor = \CIBlockElement::GetList([], ['ID' => $id, 'IBLOCK_ID' => $allowedIblocks], false, false, ['ID', 'IBLOCK_ID', 'IBLOCK_SECTION_ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'DETAIL_TEXT']);
         $row = $cursor->Fetch();
         if (!$row) throw new \RuntimeException('Технический элемент не найден или относится к другому инфоблоку');
-        return $this->normalize($row);
+        return $this->normalize($row, $supportsExtendedMetadata);
     }
 
-    private function normalize(array $row): array
+    private function normalize(array $row, bool $supportsExtendedMetadata = true): array
     {
         return [
             'id' => (int)$row['ID'],
@@ -218,9 +235,9 @@ final class CatalogMetaService
             'sectionPath' => $this->buildSectionPath((int)$row['IBLOCK_ID'], (int)($row['IBLOCK_SECTION_ID'] ?? 0)),
             'previewText' => trim(strip_tags((string)($row['PREVIEW_TEXT'] ?? ''))),
             'detailText' => (string)($row['DETAIL_TEXT'] ?? ''),
-            'parameters' => $this->loadParameters((int)$row['ID'], (int)$row['IBLOCK_ID']),
-            'sourceLinks' => $this->loadSourceLinks((int)$row['ID'], (int)$row['IBLOCK_ID']),
-            'catalog' => $this->loadCatalog((int)$row['ID']),
+            'parameters' => $supportsExtendedMetadata ? $this->loadParameters((int)$row['ID'], (int)$row['IBLOCK_ID']) : [],
+            'sourceLinks' => $supportsExtendedMetadata ? $this->loadSourceLinks((int)$row['ID'], (int)$row['IBLOCK_ID']) : [],
+            'catalog' => $supportsExtendedMetadata ? $this->loadCatalog((int)$row['ID']) : [],
         ];
     }
 

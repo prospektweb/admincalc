@@ -33,9 +33,7 @@ class ModuleDiagnostic
         'CALC_SETTINGS' => [
             'CALCULATOR_NAME',
             'DESCRIPTION',
-            'DEFAULT_OPERATION_VARIANT',
             'SUPPORTED_EQUIPMENT_LIST',
-            'DEFAULT_MATERIAL_VARIANT',
             'REQUIRES_BEFORE',
             'MIN_QUANTITY',
             'FILE_PREVIEW',
