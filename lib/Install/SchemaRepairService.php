@@ -12,7 +12,7 @@ use Prospektweb\Calc\Config\ConfigManager;
  */
 class SchemaRepairService
 {
-    private const STAGE_OWNERSHIP_VERSION = 2;
+    private const STAGE_OWNERSHIP_VERSION = 3;
 
     /**
      * Реестр свойств, добавленных в модуль после первых установок.
@@ -242,13 +242,12 @@ class SchemaRepairService
             $existingXmlIds[(string)$enum['XML_ID']] = true;
         }
 
-        $enumProperty = new \CIBlockPropertyEnum();
         foreach ($definition['VALUES'] as $value) {
             $xmlId = (string)($value['XML_ID'] ?? '');
             if ($xmlId === '' || isset($existingXmlIds[$xmlId])) {
                 continue;
             }
-            $enumProperty->Add([
+            \CIBlockPropertyEnum::Add([
                 'PROPERTY_ID' => $propertyId,
                 'VALUE' => (string)($value['VALUE'] ?? $xmlId),
                 'XML_ID' => $xmlId,
