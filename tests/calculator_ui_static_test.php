@@ -12,11 +12,12 @@ $catalogMetaService = file_get_contents(__DIR__ . '/../lib/Services/CatalogMetaS
 $aiGatewayService = file_get_contents(__DIR__ . '/../lib/Services/AiGatewayService.php');
 $calculatorAjax = file_get_contents(__DIR__ . '/../tools/calculator_ajax.php');
 $installer = file_get_contents(__DIR__ . '/../install/step3.php');
+$appIndex = file_get_contents(__DIR__ . '/../install/assets/apps_dist/index.html');
 $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/index.js');
 $engineBundlePath = __DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js';
 $engineBundle = is_file($engineBundlePath) ? file_get_contents($engineBundlePath) : $appBundle;
 
-if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($appBundle) || !is_string($engineBundle)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($appIndex) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
@@ -29,6 +30,8 @@ $checks = [
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
     [$calculator, "index.html?v=132b1e0", 'Embedded calculator must load the current frontend release without stale HTML cache'],
     [$calculatorPage, "index.html?v=132b1e0", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
+    [$appIndex, "assets/index.js?v=132b1e035ef5", 'Built application HTML must invalidate the stable JavaScript asset name'],
+    [$appIndex, "assets/style.css?v=132b1e035ef5", 'Built application HTML must invalidate the stable stylesheet asset name'],
     [$integration, "SAVE_SETTINGS_EQUIPMENT_RESPONSE", 'Equipment saves must report completion to the iframe'],
     [$integration, "case 'SAVE_USER_THEME_REQUEST'", 'The iframe bridge must persist the editor theme for the current Bitrix user'],
     [$integration, "this.initData.context.editorTheme = theme", 'Theme changes must survive later INIT refreshes'],
