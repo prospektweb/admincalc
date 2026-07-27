@@ -1555,9 +1555,10 @@ class DetailHandler
      * Добавить новую деталь в скрепление
      * 
      * @param int $parentId ID родительского скрепления
+     * @param string $name Пользовательское имя новой детали
      * @return array Ответ с данными новой детали
      */
-    public function addDetailToBinding(int $parentId): array
+    public function addDetailToBinding(int $parentId, string $name = ''): array
     {
         try {
             if ($parentId <= 0) {
@@ -1584,7 +1585,7 @@ class DetailHandler
             }
 
             // 1. Создать новую пустую деталь с TYPE = DETAIL.
-            $name = $this->generateDetailName();
+            $name = trim($name) !== '' ? trim($name) : $this->generateDetailName();
             $detailId = $this->createDetailElement($name, 'DETAIL');
             
             if (!$detailId) {

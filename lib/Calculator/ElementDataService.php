@@ -1109,8 +1109,9 @@ class ElementDataService
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();
                         $parentId = (int)($request['parentId'] ?? 0);
                         $presetId = (int)($request['presetId'] ?? 0);
+                        $name = trim((string)($request['name'] ?? ''));
                         
-                        $addResult = $handler->addDetailToBinding($parentId);
+                        $addResult = $handler->addDetailToBinding($parentId, $name);
                         
                         if ($addResult['status'] === 'ok' && $presetId > 0) {
                             // Enrich preset based on CALC_DETAILS[0]

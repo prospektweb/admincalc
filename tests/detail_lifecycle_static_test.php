@@ -36,7 +36,7 @@ if (
 
 $addDetailToBinding = $slice(
     $detailHandler,
-    'public function addDetailToBinding(int $parentId): array',
+    "public function addDetailToBinding(int \$parentId, string \$name = ''): array",
     'public function addDetailsToBinding('
 );
 if (

@@ -1713,6 +1713,7 @@
 
             const payload = message.payload || {};
             const parentId = payload.parentId || 0;
+            const name = typeof payload.name === 'string' ? payload.name.trim() : '';
             const detailId = payload.detailId || 0;
 
             try {
@@ -2275,6 +2276,7 @@
                         action: 'addDetailToBinding',
                         parentId: parentId,
                         presetId: presetId,
+                        name: name,
                         offerIds: offerIds,
                         siteId: siteId,
                     }
@@ -2346,12 +2348,15 @@
                 const iblockType = calcDetails?.type || null;
                 const lang = this.initData?.lang || null;
 
-                // 1. Показать окно выбора деталей
-                const selectedIds = await this.openElementSelectionDialog({
-                    iblockId: iblockId,
-                    iblockType: iblockType,
-                    lang: lang,
-                });
+                // 1. Использовать выбор из нового iframe-каталога либо открыть
+                //    штатный Bitrix-диалог для старых клиентов.
+                const selectedIds = Array.isArray(payload.selectedIds)
+                    ? payload.selectedIds.map((id) => parseInt(id, 10)).filter((id) => id > 0)
+                    : await this.openElementSelectionDialog({
+                        iblockId: iblockId,
+                        iblockType: iblockType,
+                        lang: lang,
+                    });
 
                 // Режим тишины - 0 деталей выбрано
                 if (!selectedIds || selectedIds.length === 0) {
