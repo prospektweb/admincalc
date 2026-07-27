@@ -84,6 +84,20 @@ if (
     throw new RuntimeException('Cloning must not publish an intermediate empty topology before INIT');
 }
 
+$cloneRecursive = $slice(
+    $detailHandler,
+    'private function cloneDetailRecursive(',
+    'private function cloneConfig('
+);
+if (
+    $cloneRecursive === ''
+    || strpos($cloneRecursive, "unset(\$propertyValues['TYPE'], \$propertyValues['CALC_STAGES'], \$propertyValues['DETAILS'])") === false
+    || strpos($cloneRecursive, "\$propertyValues['TYPE'] = \$this->resolveDetailTypePropertyValue") === false
+    || strpos($cloneRecursive, "\$propertyValues['TYPE'] = ['VALUE'") !== false
+) {
+    throw new RuntimeException('A clone must rebuild topology fields using native Bitrix property value shapes');
+}
+
 $cloneBridge = $slice(
     $integration,
     'async handleCloneDetailRequest',

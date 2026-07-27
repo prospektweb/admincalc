@@ -1370,13 +1370,15 @@ class DetailHandler
 
         // Копируем все свойства оригинала 1:1, перезаписываем только CALC_STAGES и DETAILS
         $propertyValues = $originalDetail['PROPERTY_VALUES'] ?? [];
-        $propertyValues['TYPE'] = ['VALUE' => $this->resolveDetailTypePropertyValue($originalDetail['TYPE']), 'DESCRIPTION' => ''];
-        $propertyValues['CALC_STAGES'] = array_map(static function ($id) {
-            return ['VALUE' => $id, 'DESCRIPTION' => ''];
-        }, $newConfigIds);
-        $propertyValues['DETAILS'] = array_map(static function ($id) {
-            return ['VALUE' => $id, 'DESCRIPTION' => ''];
-        }, $newDetailIds);
+
+        // These three properties describe topology, not ordinary metadata.
+        // Rebuild them using Bitrix's native value shapes. Wrapping the enum
+        // and element-link IDs into VALUE/DESCRIPTION records leaves clones
+        // without a readable TYPE and makes them disappear from INIT.
+        unset($propertyValues['TYPE'], $propertyValues['CALC_STAGES'], $propertyValues['DETAILS']);
+        $propertyValues['TYPE'] = $this->resolveDetailTypePropertyValue($originalDetail['TYPE']);
+        $propertyValues['CALC_STAGES'] = array_values($newConfigIds);
+        $propertyValues['DETAILS'] = array_values($newDetailIds);
 
         \CIBlockElement::SetPropertyValuesEx($newDetailId, $this->detailsIblockId, $propertyValues);
 
