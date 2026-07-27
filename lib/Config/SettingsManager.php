@@ -81,36 +81,6 @@ class SettingsManager
     }
 
     /**
-     * Получает настройки округления цен.
-     *
-     * @return array
-     */
-    public function getPriceRoundingSettings(): array
-    {
-        $raw = $this->configManager->getOption('PRICE_ROUNDING', '');
-        if (!$raw) {
-            return [
-                'enabled' => true,
-                'precision' => 10, // округление до 10
-                'method' => 'ceil', // ceil, floor, round
-            ];
-        }
-
-        $decoded = json_decode($raw, true);
-        return is_array($decoded) ? $decoded : [];
-    }
-
-    /**
-     * Устанавливает настройки округления цен.
-     *
-     * @param array $settings Настройки.
-     */
-    public function setPriceRoundingSettings(array $settings): void
-    {
-        $this->configManager->setOption('PRICE_ROUNDING', json_encode($settings));
-    }
-
-    /**
      * Получает настройки маркетинговых цен.
      *
      * @return array
@@ -150,7 +120,6 @@ class SettingsManager
             'priceTypeId' => $this->getDefaultPriceTypeId(),
             'currency' => $this->getDefaultCurrency(),
             'loggingEnabled' => $this->isLoggingEnabled(),
-            'priceRounding' => $this->getPriceRoundingSettings(),
             'marketingPrice' => $this->getMarketingPriceSettings(),
         ];
     }
@@ -172,10 +141,6 @@ class SettingsManager
 
         if (isset($settings['loggingEnabled'])) {
             $this->setLoggingEnabled((bool)$settings['loggingEnabled']);
-        }
-
-        if (isset($settings['priceRounding']) && is_array($settings['priceRounding'])) {
-            $this->setPriceRoundingSettings($settings['priceRounding']);
         }
 
         if (isset($settings['marketingPrice']) && is_array($settings['marketingPrice'])) {

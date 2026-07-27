@@ -379,14 +379,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         Option::set($module_id, 'ASPRO_AI_TIMEWEB_BASE_URL', rtrim($timewebBaseUrl, '/'));
     }
 
-    // Сохраняем настройки округления цен
-    $rounding = (float)($_POST['PRICE_ROUNDING'] ?? 1);
-    $allowedRounding = [0.1, 0.5, 1.0, 5.0, 10.0, 50.0, 100.0];
-    if (!in_array($rounding, $allowedRounding, true)) {
-        $rounding = 1.0;
-    }
-    Option::set($module_id, 'PRICE_ROUNDING', $rounding);
-
     // Сохраняем настройки истории расчётов
     Option::set($module_id, 'SAVE_CALC_HISTORY', (($_POST['SAVE_CALC_HISTORY'] ?? 'N') === 'Y') ? 'Y' : 'N');
     Option::set($module_id, 'CALC_HISTORY_LIMIT', max(1, min(100, (int)($_POST['CALC_HISTORY_LIMIT'] ?? 10))));
@@ -567,26 +559,8 @@ $tabControl->Begin();
     </tr>
 
     <tr>
-        <td width="40%"><?= Loc::getMessage('PROSPEKTWEB_CALC_PRICE_ROUNDING') ?></td>
+        <td width="40%"><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE') ?></td>
         <td width="60%">
-            <select name="PRICE_ROUNDING">
-                <?php
-                $roundingOptions = [0.1, 0.5, 1, 5, 10, 50, 100];
-                $currentRounding = (float)Option::get($module_id, 'PRICE_ROUNDING', 1);
-                foreach ($roundingOptions as $value):
-                ?>
-                <option value="<?= $value ?>" <?= abs($currentRounding - $value) < 0.001 ? 'selected' : '' ?>>
-                    <?= $value ?>
-                </option>
-                <?php endforeach; ?>
-            </select>
-            <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_PRICE_ROUNDING_HINT') ?></div>
-        </td>
-    </tr>
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE') ?></td>
-        <td>
             <input type="number" name="DEFAULT_EXTRA_VALUE" value="<?= htmlspecialcharsbx($settingsManager->getDefaultExtraValue()) ?>" min="0" step="1" style="width: 100px;">
             <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE_HINT') ?></div>
         </td>

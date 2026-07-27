@@ -34,8 +34,20 @@ foreach ($removedFields as $field) {
     }
 }
 
-$activeFields = [
+$dialogOwnedFields = [
     'PRICE_ROUNDING',
+];
+
+foreach ($dialogOwnedFields as $field) {
+    if (strpos($options, 'name="' . $field . '"') !== false) {
+        throw new RuntimeException("Dialog-owned setting {$field} must not be rendered on the module settings page");
+    }
+    if (strpos($options, "Option::set(\$module_id, '{$field}'") !== false) {
+        throw new RuntimeException("Dialog-owned setting {$field} must not be persisted by the module settings page");
+    }
+}
+
+$activeFields = [
     'DEFAULT_EXTRA_VALUE',
     'DEFAULT_EXTRA_CURRENCY_VALUE',
     'SAVE_CALC_HISTORY',

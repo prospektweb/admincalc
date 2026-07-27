@@ -457,7 +457,6 @@ class InitPayloadService
             'lang' => $languageId,
             'timestamp' => time(),
             'url' => $siteUrl,
-            'priceRounding' => (float)Option::get(self::MODULE_ID, 'PRICE_ROUNDING', 1),
             'defaultExtraValue' => $settingsManager->getDefaultExtraValue(),
             'defaultExtraCurrency' => $settingsManager->getDefaultExtraCurrency(),
             'editorTheme' => $editorTheme,

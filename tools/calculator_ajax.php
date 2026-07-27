@@ -288,6 +288,7 @@ function handleGetInitData($request): void
 function handleGetMarkupSettings(): void
 {
     $moduleId = 'prospektweb.calc';
+    $allowedRounding = [0.1, 0.5, 1.0, 5.0, 10.0, 50.0, 100.0];
     $priceTypes = [];
 
     $priceTypeList = \CCatalogGroup::GetListArray();
@@ -311,6 +312,10 @@ function handleGetMarkupSettings(): void
 
     $settings['basePriceTypeId'] = (int)($settings['basePriceTypeId'] ?? 0);
     $settings['rates'] = is_array($settings['rates'] ?? null) ? $settings['rates'] : [];
+    $settings['rounding'] = (float)Option::get($moduleId, 'PRICE_ROUNDING', 1);
+    if (!in_array($settings['rounding'], $allowedRounding, true)) {
+        $settings['rounding'] = 1.0;
+    }
 
     if ($settings['basePriceTypeId'] <= 0 && !empty($priceTypes)) {
         $settings['basePriceTypeId'] = (int)$priceTypes[0]['id'];
@@ -333,8 +338,9 @@ function handleApplyMarkups($request): void
     $offerIdsRaw = (string)$request->get('offerIds');
     $basePriceTypeId = (int)$request->get('basePriceTypeId');
     $ratesRaw = (string)$request->get('rates');
+    $roundingRaw = str_replace(',', '.', (string)$request->get('rounding'));
 
-    if ($offerIdsRaw === '' || $basePriceTypeId <= 0 || $ratesRaw === '') {
+    if ($offerIdsRaw === '' || $basePriceTypeId <= 0 || $ratesRaw === '' || $roundingRaw === '') {
         sendJsonResponse(['error' => 'Missing parameter', 'message' => 'Недостаточно параметров для наценки'], 400);
     }
 
@@ -348,10 +354,13 @@ function handleApplyMarkups($request): void
         sendJsonResponse(['error' => 'Invalid parameter', 'message' => 'Некорректные настройки наценок'], 400);
     }
 
-    $rounding = (float)Option::get('prospektweb.calc', 'PRICE_ROUNDING', 1);
-    if ($rounding <= 0) {
-        $rounding = 1.0;
+    $rounding = (float)$roundingRaw;
+    $allowedRounding = [0.1, 0.5, 1.0, 5.0, 10.0, 50.0, 100.0];
+    if (!in_array($rounding, $allowedRounding, true)) {
+        sendJsonResponse(['error' => 'Invalid parameter', 'message' => 'Некорректный шаг округления'], 400);
     }
+
+    Option::set('prospektweb.calc', 'PRICE_ROUNDING', $rounding);
 
     $result = [
         'updated' => 0,

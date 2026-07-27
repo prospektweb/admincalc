@@ -1080,14 +1080,29 @@ var ProspekwebCalc = {
         var settings = data.settings || {};
         var rates = settings.rates || {};
         var basePriceTypeId = parseInt(settings.basePriceTypeId || 0, 10);
+        var rounding = parseFloat(settings.rounding || 1);
+        var roundingOptions = [0.1, 0.5, 1, 5, 10, 50, 100];
 
         if (!priceTypes.length) {
             this.showMessage('Типы цен не найдены', 'Настройка наценки');
             return;
         }
 
+        var roundingOptionsHtml = '';
+        for (var roundingIndex = 0; roundingIndex < roundingOptions.length; roundingIndex++) {
+            var roundingValue = roundingOptions[roundingIndex];
+            var roundingSelected = Math.abs(rounding - roundingValue) < 0.001 ? 'selected' : '';
+            roundingOptionsHtml += '<option value="' + roundingValue + '" ' + roundingSelected + '>' + roundingValue + '</option>';
+        }
+
         var html = '<div style="padding:12px;max-height:520px;overflow:auto;">' +
-            '<div style="margin-bottom:10px;color:#666;">Выбрано ТП: ' + offers.length + '</div>' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px;">' +
+                '<div style="color:#666;">Выбрано ТП: ' + offers.length + '</div>' +
+                '<label style="display:flex;align-items:center;gap:8px;">' +
+                    '<span>Шаг округления вверх</span>' +
+                    '<select data-role="pw-markup-rounding" style="min-width:90px;">' + roundingOptionsHtml + '</select>' +
+                '</label>' +
+            '</div>' +
             '<table class="adm-list-table" style="width:100%;">' +
                 '<thead><tr class="adm-list-table-header">' +
                     '<td>Тип цены</td><td style="width:210px;">Стартовая цена</td><td style="width:210px;">Наценка, %</td>' +
@@ -1142,6 +1157,11 @@ var ProspekwebCalc = {
                 container.querySelectorAll('[data-role="pw-markup-rate"]').forEach(function(input) {
                     requestRates[input.dataset.priceTypeId] = input.value || '0';
                 });
+                var roundingNode = container.querySelector('[data-role="pw-markup-rounding"]');
+                if (!roundingNode) {
+                    self.showMessage('Не удалось определить шаг округления', 'Настройка наценки');
+                    return;
+                }
 
                 BX.ajax({
                     method: 'POST',
@@ -1152,7 +1172,8 @@ var ProspekwebCalc = {
                         action: 'applyMarkups',
                         offerIds: offers.map(function(o) { return o.id; }).join(','),
                         basePriceTypeId: parseInt(baseNode.value, 10),
-                        rates: JSON.stringify(requestRates)
+                        rates: JSON.stringify(requestRates),
+                        rounding: roundingNode.value
                     },
                     onsuccess: function(response) {
                         if (!response || !response.success) {
