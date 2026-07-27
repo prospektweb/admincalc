@@ -56,10 +56,26 @@ $removeFromBinding = $slice(
 if (
     $removeFromBinding === ''
     || strpos($removeFromBinding, 'in_array($parentId, $presetDetails, true)') === false
+    || strpos($removeFromBinding, "'code' => 'product_type_change_required'") === false
+    || strpos($removeFromBinding, "'productDetailCount' => count(\$parent['DETAIL_IDS'])") === false
     || strpos($removeFromBinding, '$this->setPresetDetails($presetId, $updatedPresetDetails)') === false
     || strpos($removeFromBinding, '$this->deleteDetailPhysically($detailId)') === false
 ) {
     throw new RuntimeException('Bound detail deletion must remove its stages and repair every root position');
+}
+
+$removeTopLevel = $slice(
+    $detailHandler,
+    'public function removeTopLevelDetail(',
+    'public function changeName('
+);
+if (
+    $removeTopLevel === ''
+    || strpos($removeTopLevel, "\$workingDetailCount = max(0, count(\$rootDetailIds) - 1)") === false
+    || strpos($removeTopLevel, "'code' => 'product_type_change_required'") === false
+    || strpos($removeTopLevel, "'productDetailCount' => \$workingDetailCount") === false
+) {
+    throw new RuntimeException('Top-level detail deletion must protect a two-detail complex product');
 }
 
 $cloneAction = $slice($elementDataService, "case 'cloneDetail':", "case 'changeProductType':");

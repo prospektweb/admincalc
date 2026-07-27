@@ -491,6 +491,20 @@ class DetailHandler
                 ];
             }
 
+            // A complex product keeps its first root as the finishing canvas.
+            // With fewer than three working details, deleting one would leave a
+            // structurally ambiguous two-canvas topology. The user must first
+            // explicitly convert the product to simple mode and choose its basis.
+            $workingDetailCount = max(0, count($rootDetailIds) - 1);
+            if (count($rootDetailIds) > 1 && $workingDetailCount < 3) {
+                return [
+                    'status' => 'error',
+                    'code' => 'product_type_change_required',
+                    'message' => 'Сначала измените тип продукта на простой',
+                    'productDetailCount' => $workingDetailCount,
+                ];
+            }
+
             $remainingRootIds = array_values(array_filter(
                 $rootDetailIds,
                 static fn(int $id): bool => $id !== $detailId
@@ -656,6 +670,15 @@ class DetailHandler
                 return [
                     'status' => 'error',
                     'message' => 'Родитель не найден или не является скреплением',
+                ];
+            }
+
+            if ($isRootParent && count($parent['DETAIL_IDS']) < 3) {
+                return [
+                    'status' => 'error',
+                    'code' => 'product_type_change_required',
+                    'message' => 'Сначала измените тип продукта на простой',
+                    'productDetailCount' => count($parent['DETAIL_IDS']),
                 ];
             }
 
