@@ -359,21 +359,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_PO
 
 // Обработка сохранения
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
-    $settings = [
-        'priceTypeId' => (int)($_POST['DEFAULT_PRICE_TYPE_ID'] ?? 1),
-        'currency' => (string)($_POST['DEFAULT_CURRENCY'] ?? 'RUB'),
-        'loggingEnabled' => ($_POST['LOGGING_ENABLED'] ?? 'N') === 'Y',
-    ];
-
-    $settingsManager->saveAllSettings($settings);
-
-    // Сохраняем настройки интеграции
-    Option::set($module_id, 'IBLOCK_MATERIALS', (int)($_POST['IBLOCK_MATERIALS'] ?? 0));
-    Option::set($module_id, 'IBLOCK_OPERATIONS', (int)($_POST['IBLOCK_OPERATIONS'] ?? 0));
-    Option::set($module_id, 'IBLOCK_EQUIPMENT', (int)($_POST['IBLOCK_EQUIPMENT'] ?? 0));
-    Option::set($module_id, 'IBLOCK_DETAILS', (int)($_POST['IBLOCK_DETAILS'] ?? 0));
-    Option::set($module_id, 'IBLOCK_CALCULATORS', (int)($_POST['IBLOCK_CALCULATORS'] ?? 0));
-    Option::set($module_id, 'IBLOCK_CONFIGURATIONS', (int)($_POST['IBLOCK_CONFIGURATIONS'] ?? 0));
+    $settingsManager->setLoggingEnabled(($_POST['LOGGING_ENABLED'] ?? 'N') === 'Y');
     
     // Сохраняем URL calc-server
     Option::set($module_id, 'CALC_SERVER_URL', (string)($_POST['CALC_SERVER_URL'] ?? 'http://localhost:3100'));
@@ -393,16 +379,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         Option::set($module_id, 'ASPRO_AI_TIMEWEB_BASE_URL', rtrim($timewebBaseUrl, '/'));
     }
 
-    // Сохраняем настройки связей ТП
-    Option::set($module_id, 'FORMAT_FIELD_CODE', (string)($_POST['FORMAT_FIELD_CODE'] ?? 'FORMAT'));
-    Option::set($module_id, 'VOLUME_FIELD_CODE', (string)($_POST['VOLUME_FIELD_CODE'] ?? 'VOLUME'));
-
     // Сохраняем настройки округления цен
-    Option::set($module_id, 'PRICE_ROUNDING', (float)($_POST['PRICE_ROUNDING'] ?? 1));
+    $rounding = (float)($_POST['PRICE_ROUNDING'] ?? 1);
+    $allowedRounding = [0.1, 0.5, 1.0, 5.0, 10.0, 50.0, 100.0];
+    if (!in_array($rounding, $allowedRounding, true)) {
+        $rounding = 1.0;
+    }
+    Option::set($module_id, 'PRICE_ROUNDING', $rounding);
 
     // Сохраняем настройки истории расчётов
     Option::set($module_id, 'SAVE_CALC_HISTORY', (($_POST['SAVE_CALC_HISTORY'] ?? 'N') === 'Y') ? 'Y' : 'N');
-    Option::set($module_id, 'CALC_HISTORY_LIMIT', (int)($_POST['CALC_HISTORY_LIMIT'] ?? 10));
+    Option::set($module_id, 'CALC_HISTORY_LIMIT', max(1, min(100, (int)($_POST['CALC_HISTORY_LIMIT'] ?? 10))));
 
     // Сохраняем настройки наценки
     if (isset($_POST['DEFAULT_EXTRA_VALUE'])) {
@@ -434,9 +421,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     LocalRedirect($APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID . '&saved=Y');
 }
 
-// Получаем текущие настройки
-$currentSettings = $settingsManager->getAllSettings();
-
 // Получаем список типов цен
 $priceTypes = [];
 if (Loader::includeModule('catalog')) {
@@ -460,30 +444,6 @@ if ($markupBasePriceTypeId <= 0 && !empty($priceTypes)) {
     $markupBasePriceTypeId = $firstPriceTypeId > 0 ? $firstPriceTypeId : 0;
 }
 
-// Получаем список валют
-$currencies = [];
-if (Loader::includeModule('currency')) {
-    $currencyList = \Bitrix\Currency\CurrencyManager::getCurrencyList();
-    foreach ($currencyList as $code => $name) {
-        $currencies[$code] = $name;
-    }
-} else {
-    $currencies = ['RUB' => 'Рубль', 'USD' => 'Доллар США', 'EUR' => 'Евро'];
-}
-
-// Получаем список свойств типа "список" из инфоблока ТП
-$skuIblockId = $configManager->getSkuIblockId();
-$listProperties = [];
-if ($skuIblockId > 0 && Loader::includeModule('iblock')) {
-    $rsProperties = \CIBlockProperty::GetList(
-        ['SORT' => 'ASC', 'NAME' => 'ASC'],
-        ['IBLOCK_ID' => $skuIblockId, 'PROPERTY_TYPE' => 'L', 'ACTIVE' => 'Y']
-    );
-    while ($arProperty = $rsProperties->Fetch()) {
-        $listProperties[$arProperty['CODE']] = $arProperty['NAME'] . ' [' . $arProperty['CODE'] . ']';
-    }
-}
-
 $asproAiPatchStatus = [
     'state' => 'access_error',
     'message' => 'Не удалось получить состояние патча.',
@@ -498,6 +458,7 @@ try {
     $asproAiPatchStatus['message'] = $exception->getMessage();
 }
 
+$APPLICATION->SetTitle(Loc::getMessage('PROSPEKTWEB_CALC_OPTIONS_TITLE'));
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';
 
 // Вывод сообщения об успешном сохранении
@@ -561,21 +522,127 @@ if (($_GET['cleanupUnused'] ?? '') === 'Y') {
 
 // Создаём вкладки
 $tabControl = new CAdminTabControl('tabControl', [
-    ['DIV' => 'edit1', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MARKUPS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MARKUPS_TITLE')],
-    ['DIV' => 'edit2', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MAIN'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MAIN_TITLE')],
-    ['DIV' => 'edit3', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_OFFERS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_OFFERS_TITLE')],
-    ['DIV' => 'edit4', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS_TITLE')],
-    ['DIV' => 'edit5', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION_TITLE')],
-    ['DIV' => 'edit6', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC_TITLE')],
+    ['DIV' => 'edit1', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MAIN'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_MAIN_TITLE')],
+    ['DIV' => 'edit2', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_SERVICE'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_SERVICE_TITLE')],
+    ['DIV' => 'edit3', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_IBLOCKS_TITLE')],
+    ['DIV' => 'edit4', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_INTEGRATION_TITLE')],
+    ['DIV' => 'edit5', 'TAB' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC'), 'TITLE' => Loc::getMessage('PROSPEKTWEB_CALC_TAB_DIAGNOSTIC_TITLE')],
 ]);
 
 $tabControl->Begin();
 
 ?>
+<style>
+    .pwcalc-field-hint {
+        color: #777;
+        font-size: 11px;
+        line-height: 1.45;
+        margin-top: 5px;
+        max-width: 760px;
+    }
+
+    .pwcalc-patch-status {
+        background: #fff;
+        border: 1px solid #d5d9de;
+        border-radius: 4px;
+        max-width: 760px;
+        padding: 10px 12px;
+    }
+</style>
 <form method="post" action="<?= $APPLICATION->GetCurPage() ?>?mid=<?= urlencode($module_id) ?>&lang=<?= LANGUAGE_ID ?>">
     <?= bitrix_sessid_post() ?>
 
     <?php $tabControl->BeginNextTab(); ?>
+
+    <tr>
+        <td colspan="2">
+            <div class="adm-info-message">
+                <?= Loc::getMessage('PROSPEKTWEB_CALC_ACTIVE_SETTINGS_HINT') ?>
+            </div>
+        </td>
+    </tr>
+
+    <tr class="heading">
+        <td colspan="2"><?= Loc::getMessage('PROSPEKTWEB_CALC_CALCULATION_HEADING') ?></td>
+    </tr>
+
+    <tr>
+        <td width="40%"><?= Loc::getMessage('PROSPEKTWEB_CALC_PRICE_ROUNDING') ?></td>
+        <td width="60%">
+            <select name="PRICE_ROUNDING">
+                <?php
+                $roundingOptions = [0.1, 0.5, 1, 5, 10, 50, 100];
+                $currentRounding = (float)Option::get($module_id, 'PRICE_ROUNDING', 1);
+                foreach ($roundingOptions as $value):
+                ?>
+                <option value="<?= $value ?>" <?= abs($currentRounding - $value) < 0.001 ? 'selected' : '' ?>>
+                    <?= $value ?>
+                </option>
+                <?php endforeach; ?>
+            </select>
+            <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_PRICE_ROUNDING_HINT') ?></div>
+        </td>
+    </tr>
+
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE') ?></td>
+        <td>
+            <input type="number" name="DEFAULT_EXTRA_VALUE" value="<?= htmlspecialcharsbx($settingsManager->getDefaultExtraValue()) ?>" min="0" step="1" style="width: 100px;">
+            <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE_HINT') ?></div>
+        </td>
+    </tr>
+
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_CURRENCY') ?></td>
+        <td>
+            <select name="DEFAULT_EXTRA_CURRENCY_VALUE">
+                <option value="RUB" <?= $settingsManager->getDefaultExtraCurrency() === 'RUB' ? 'selected' : '' ?>>
+                    <?= Loc::getMessage('PROSPEKTWEB_CALC_CURRENCY_RUB') ?>
+                </option>
+                <option value="PRC" <?= $settingsManager->getDefaultExtraCurrency() === 'PRC' ? 'selected' : '' ?>>
+                    <?= Loc::getMessage('PROSPEKTWEB_CALC_CURRENCY_PRC') ?>
+                </option>
+            </select>
+            <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_CURRENCY_HINT') ?></div>
+        </td>
+    </tr>
+
+    <tr class="heading">
+        <td colspan="2"><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_HEADING') ?></td>
+    </tr>
+
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_SAVE_CALC_HISTORY') ?></td>
+        <td>
+            <label>
+                <input type="checkbox" id="SAVE_CALC_HISTORY" name="SAVE_CALC_HISTORY" value="Y" <?= Option::get($module_id, 'SAVE_CALC_HISTORY', 'N') === 'Y' ? 'checked' : '' ?>>
+                <?= Loc::getMessage('PROSPEKTWEB_CALC_SAVE_CALC_HISTORY_LABEL') ?>
+            </label>
+        </td>
+    </tr>
+
+    <tr id="pwcalc-history-limit-row">
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_LIMIT') ?></td>
+        <td>
+            <input type="number" name="CALC_HISTORY_LIMIT" value="<?= (int)Option::get($module_id, 'CALC_HISTORY_LIMIT', 10) ?>" min="1" max="100" size="5" style="width: 80px;">
+            <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_LIMIT_HINT') ?></div>
+        </td>
+    </tr>
+
+    <tr>
+        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_LOGGING_ENABLED') ?></td>
+        <td>
+            <label>
+                <input type="checkbox" name="LOGGING_ENABLED" value="Y" <?= $settingsManager->isLoggingEnabled() ? 'checked' : '' ?>>
+                <?= Loc::getMessage('PROSPEKTWEB_CALC_LOGGING_ENABLED_LABEL') ?>
+            </label>
+            <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_LOGGING_ENABLED_HINT') ?></div>
+        </td>
+    </tr>
+
+    <tr class="heading">
+        <td colspan="2"><?= Loc::getMessage('PROSPEKTWEB_CALC_MARKUPS_HEADING') ?></td>
+    </tr>
 
     <tr>
         <td colspan="2" class="adm-detail-content-cell-r">
@@ -631,99 +698,15 @@ $tabControl->Begin();
 
     <?php $tabControl->BeginNextTab(); ?>
 
-    <tr>
-        <td width="40%"><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_PRICE_TYPE') ?></td>
-        <td width="60%">
-            <select name="DEFAULT_PRICE_TYPE_ID">
-                <?php foreach ($priceTypes as $id => $name): ?>
-                <option value="<?= $id ?>" <?= $currentSettings['priceTypeId'] == $id ? 'selected' : '' ?>>
-                    <?= htmlspecialcharsbx($name) ?> [<?= $id ?>]
-                </option>
-                <?php endforeach; ?>
-            </select>
-        </td>
+    <tr class="heading">
+        <td colspan="2"><?= Loc::getMessage('PROSPEKTWEB_CALC_SNAPSHOT_HEADING') ?></td>
     </tr>
 
     <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_CURRENCY') ?></td>
+        <td width="40%"><?= Loc::getMessage('PROSPEKTWEB_CALC_SNAPSHOT_LABEL') ?></td>
         <td>
-            <select name="DEFAULT_CURRENCY">
-                <?php foreach ($currencies as $code => $name): ?>
-                <option value="<?= htmlspecialcharsbx($code) ?>" <?= $currentSettings['currency'] == $code ? 'selected' : '' ?>>
-                    <?= htmlspecialcharsbx($name) ?> (<?= $code ?>)
-                </option>
-                <?php endforeach; ?>
-            </select>
-        </td>
-    </tr>
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_LOGGING_ENABLED') ?></td>
-        <td>
-            <input type="checkbox" name="LOGGING_ENABLED" value="Y" <?= $currentSettings['loggingEnabled'] ? 'checked' : '' ?>>
-        </td>
-    </tr>
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_SAVE_CALC_HISTORY') ?></td>
-        <td>
-            <input type="checkbox" name="SAVE_CALC_HISTORY" value="Y" <?= Option::get($module_id, 'SAVE_CALC_HISTORY', 'N') === 'Y' ? 'checked' : '' ?>>
-        </td>
-    </tr>
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_PRICE_ROUNDING') ?></td>
-        <td>
-            <select name="PRICE_ROUNDING">
-                <?php 
-                $roundingOptions = [0.1, 0.5, 1, 5, 10, 50, 100];
-                $currentRounding = (float)Option::get($module_id, 'PRICE_ROUNDING', 1);
-                foreach ($roundingOptions as $value): 
-                ?>
-                <option value="<?= $value ?>" <?= abs($currentRounding - $value) < 0.001 ? 'selected' : '' ?>>
-                    <?= $value ?>
-                </option>
-                <?php endforeach; ?>
-            </select>
-        </td>
-    </tr>
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE') ?></td>
-        <td>
-            <input type="number" name="DEFAULT_EXTRA_VALUE" value="<?= htmlspecialcharsbx($settingsManager->getDefaultExtraValue()) ?>" min="0" step="1" style="width: 100px;">
-            <br><span style="color: #777; font-size: 11px;">Значение наценки по умолчанию (только положительные значения и 0)</span>
-        </td>
-    </tr>
-
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_LIMIT') ?></td>
-        <td>
-            <input type="number" name="CALC_HISTORY_LIMIT" value="<?= (int)Option::get($module_id, 'CALC_HISTORY_LIMIT', 10) ?>" min="1" max="100" size="5" style="width: 80px;">
-            <br><span style="color: #777; font-size: 11px;">Максимальное количество записей истории расчётов, хранящихся для одного ТП</span>
-        </td>
-    </tr>
-
-    <tr>
-        <td>Snapshot данных модуля</td>
-        <td>
-            <button type="submit" name="EXPORT_SNAPSHOT" value="Y" class="adm-btn">Скачать snapshot текущего сайта</button>
-            <div style="color:#777;font-size:11px;margin-top:6px;">Файл нужен для импорта данных при установке на другом сайте.</div>
-        </td>
-    </tr>
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_CURRENCY') ?></td>
-        <td>
-            <select name="DEFAULT_EXTRA_CURRENCY_VALUE">
-                <option value="RUB" <?= $settingsManager->getDefaultExtraCurrency() === 'RUB' ? 'selected' : '' ?>>
-                    Рубли (RUB)
-                </option>
-                <option value="PRC" <?= $settingsManager->getDefaultExtraCurrency() === 'PRC' ? 'selected' : '' ?>>
-                    Проценты (PRC)
-                </option>
-            </select>
-            <br><span style="color: #777; font-size: 11px;">Валюта наценки по умолчанию</span>
+            <button type="submit" name="EXPORT_SNAPSHOT" value="Y" class="adm-btn"><?= Loc::getMessage('PROSPEKTWEB_CALC_SNAPSHOT_BUTTON') ?></button>
+            <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_SNAPSHOT_HINT') ?></div>
         </td>
     </tr>
 
@@ -760,62 +743,6 @@ $tabControl->Begin();
 
     <?php $tabControl->BeginNextTab(); ?>
 
-    <tr class="heading">
-        <td colspan="2"><?= Loc::getMessage('PROSPEKTWEB_CALC_OFFERS_PROPERTIES_HEADING') ?></td>
-    </tr>
-
-    <tr>
-        <td width="40%" class="adm-detail-content-cell-l">
-            <?= Loc::getMessage('PROSPEKTWEB_CALC_FORMAT_FIELD_CODE') ?>:
-        </td>
-        <td width="60%" class="adm-detail-content-cell-r">
-            <?php if (!empty($listProperties)): ?>
-                <select name="FORMAT_FIELD_CODE" style="width: 300px;">
-                    <option value=""><?= Loc::getMessage('PROSPEKTWEB_CALC_SELECT_PROPERTY') ?></option>
-                    <?php 
-                    $currentFormatCode = Option::get($module_id, 'FORMAT_FIELD_CODE', 'FORMAT');
-                    foreach ($listProperties as $code => $name): 
-                    ?>
-                    <option value="<?= htmlspecialcharsbx($code) ?>" <?= $currentFormatCode === $code ? 'selected' : '' ?>>
-                        <?= htmlspecialcharsbx($name) ?>
-                    </option>
-                    <?php endforeach; ?>
-                </select>
-            <?php else: ?>
-                <input type="text" name="FORMAT_FIELD_CODE" value="<?= htmlspecialcharsbx(Option::get($module_id, 'FORMAT_FIELD_CODE', 'FORMAT')) ?>" size="30">
-                <br><span class="adm-info-message"><?= Loc::getMessage('PROSPEKTWEB_CALC_NO_LIST_PROPERTIES') ?></span>
-            <?php endif; ?>
-            <br><span style="color: #777; font-size: 11px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_FORMAT_FIELD_CODE_HINT') ?></span>
-        </td>
-    </tr>
-
-    <tr>
-        <td class="adm-detail-content-cell-l">
-            <?= Loc::getMessage('PROSPEKTWEB_CALC_VOLUME_FIELD_CODE') ?>:
-        </td>
-        <td class="adm-detail-content-cell-r">
-            <?php if (!empty($listProperties)): ?>
-                <select name="VOLUME_FIELD_CODE" style="width: 300px;">
-                    <option value=""><?= Loc::getMessage('PROSPEKTWEB_CALC_SELECT_PROPERTY') ?></option>
-                    <?php 
-                    $currentVolumeCode = Option::get($module_id, 'VOLUME_FIELD_CODE', 'VOLUME');
-                    foreach ($listProperties as $code => $name): 
-                    ?>
-                    <option value="<?= htmlspecialcharsbx($code) ?>" <?= $currentVolumeCode === $code ? 'selected' : '' ?>>
-                        <?= htmlspecialcharsbx($name) ?>
-                    </option>
-                    <?php endforeach; ?>
-                </select>
-            <?php else: ?>
-                <input type="text" name="VOLUME_FIELD_CODE" value="<?= htmlspecialcharsbx(Option::get($module_id, 'VOLUME_FIELD_CODE', 'VOLUME')) ?>" size="30">
-                <br><span class="adm-info-message"><?= Loc::getMessage('PROSPEKTWEB_CALC_NO_LIST_PROPERTIES') ?></span>
-            <?php endif; ?>
-            <br><span style="color: #777; font-size: 11px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_VOLUME_FIELD_CODE_HINT') ?></span>
-        </td>
-    </tr>
-
-    <?php $tabControl->BeginNextTab(); ?>
-
     <?php
     $iblockCodes = [
         'CALC_PRESETS' => Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_PRESETS'),
@@ -847,48 +774,6 @@ $tabControl->Begin();
     <?php endforeach; ?>
 
     <?php $tabControl->BeginNextTab(); ?>
-
-    <tr>
-        <td width="40%"><?= Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_MATERIALS_INTEGRATION') ?></td>
-        <td width="60%">
-            <input type="number" name="IBLOCK_MATERIALS" value="<?= (int)Option::get($module_id, 'IBLOCK_MATERIALS', 0) ?>" min="0" style="width: 100px;">
-        </td>
-    </tr>
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_OPERATIONS_INTEGRATION') ?></td>
-        <td>
-            <input type="number" name="IBLOCK_OPERATIONS" value="<?= (int)Option::get($module_id, 'IBLOCK_OPERATIONS', 0) ?>" min="0" style="width: 100px;">
-        </td>
-    </tr>
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_EQUIPMENT_INTEGRATION') ?></td>
-        <td>
-            <input type="number" name="IBLOCK_EQUIPMENT" value="<?= (int)Option::get($module_id, 'IBLOCK_EQUIPMENT', 0) ?>" min="0" style="width: 100px;">
-        </td>
-    </tr>
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_DETAILS_INTEGRATION') ?></td>
-        <td>
-            <input type="number" name="IBLOCK_DETAILS" value="<?= (int)Option::get($module_id, 'IBLOCK_DETAILS', 0) ?>" min="0" style="width: 100px;">
-        </td>
-    </tr>
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_CALCULATORS_INTEGRATION') ?></td>
-        <td>
-            <input type="number" name="IBLOCK_CALCULATORS" value="<?= (int)Option::get($module_id, 'IBLOCK_CALCULATORS', 0) ?>" min="0" style="width: 100px;">
-        </td>
-    </tr>
-
-    <tr>
-        <td><?= Loc::getMessage('PROSPEKTWEB_CALC_IBLOCK_CONFIGURATIONS_INTEGRATION') ?></td>
-        <td>
-            <input type="number" name="IBLOCK_CONFIGURATIONS" value="<?= (int)Option::get($module_id, 'IBLOCK_CONFIGURATIONS', 0) ?>" min="0" style="width: 100px;">
-        </td>
-    </tr>
 
     <tr class="heading">
         <td colspan="2"><?= Loc::getMessage('PROSPEKTWEB_CALC_CALC_SERVER_HEADING') ?></td>
@@ -939,7 +824,7 @@ $tabControl->Begin();
     <tr>
         <td>Состояние управляемого патча</td>
         <td>
-            <div style="max-width:760px;padding:12px 14px;border:1px solid #d5d9de;border-radius:4px;background:#fff;">
+            <div class="pwcalc-patch-status">
                 <div style="font-weight:600;margin-bottom:6px;"><?= htmlspecialcharsbx((string)$asproAiPatchStatus['message']) ?></div>
                 <div style="color:#666;font-size:12px;line-height:1.5;">
                     Состояние: <code><?= htmlspecialcharsbx((string)$asproAiPatchStatus['state']) ?></code>;
@@ -1008,6 +893,19 @@ $tabControl->Begin();
     (function() {
         var diagUrl = '/bitrix/tools/prospektweb.calc/diagnostic.php';
         var diagSessid = '<?= bitrix_sessid() ?>';
+        var historyEnabled = document.getElementById('SAVE_CALC_HISTORY');
+        var historyLimitRow = document.getElementById('pwcalc-history-limit-row');
+
+        function syncHistoryLimitVisibility() {
+            if (historyLimitRow && historyEnabled) {
+                historyLimitRow.style.display = historyEnabled.checked ? '' : 'none';
+            }
+        }
+
+        if (historyEnabled) {
+            historyEnabled.addEventListener('change', syncHistoryLimitVisibility);
+            syncHistoryLimitVisibility();
+        }
 
         function pwCalcDiagRun() {
             var loading = document.getElementById('pwcalc-diag-loading');

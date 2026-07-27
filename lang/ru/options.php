@@ -2,20 +2,34 @@
 
 $MESS['PROSPEKTWEB_CALC_MODULE_NOT_INSTALLED'] = 'Модуль "Калькулятор себестоимости" не установлен';
 $MESS['PROSPEKTWEB_CALC_SETTINGS_SAVED'] = 'Настройки успешно сохранены';
+$MESS['PROSPEKTWEB_CALC_OPTIONS_TITLE'] = 'Настройки калькулятора цен и параметров ТП';
 
-$MESS['PROSPEKTWEB_CALC_TAB_MAIN'] = 'Основные';
-$MESS['PROSPEKTWEB_CALC_TAB_MAIN_TITLE'] = 'Основные настройки модуля';
+$MESS['PROSPEKTWEB_CALC_TAB_MAIN'] = 'Расчёты';
+$MESS['PROSPEKTWEB_CALC_TAB_MAIN_TITLE'] = 'Рабочие настройки расчётов и цен';
+$MESS['PROSPEKTWEB_CALC_TAB_SERVICE'] = 'Сервис';
+$MESS['PROSPEKTWEB_CALC_TAB_SERVICE_TITLE'] = 'Экспорт и безопасное обслуживание данных модуля';
 $MESS['PROSPEKTWEB_CALC_TAB_IBLOCKS'] = 'Инфоблоки';
-$MESS['PROSPEKTWEB_CALC_TAB_IBLOCKS_TITLE'] = 'Инфоблоки модуля';
+$MESS['PROSPEKTWEB_CALC_TAB_IBLOCKS_TITLE'] = 'Инфоблоки модуля: состав и быстрый переход';
 
-$MESS['PROSPEKTWEB_CALC_DEFAULT_PRICE_TYPE'] = 'Тип цены по умолчанию';
-$MESS['PROSPEKTWEB_CALC_DEFAULT_CURRENCY'] = 'Валюта по умолчанию';
-$MESS['PROSPEKTWEB_CALC_LOGGING_ENABLED'] = 'Включить логирование';
+$MESS['PROSPEKTWEB_CALC_LOGGING_ENABLED'] = 'Техническое логирование';
+$MESS['PROSPEKTWEB_CALC_LOGGING_ENABLED_LABEL'] = 'Записывать расширенные сообщения калькулятора';
+$MESS['PROSPEKTWEB_CALC_LOGGING_ENABLED_HINT'] = 'Включайте временно для диагностики: постоянное подробное логирование увеличивает объём журнала.';
 $MESS['PROSPEKTWEB_CALC_SAVE_CALC_HISTORY'] = 'Сохранять историю расчетов';
+$MESS['PROSPEKTWEB_CALC_SAVE_CALC_HISTORY_LABEL'] = 'Хранить результаты расчётов для торговых предложений';
 $MESS['PROSPEKTWEB_CALC_PRICE_ROUNDING'] = 'Округление цен составляющих элементов';
+$MESS['PROSPEKTWEB_CALC_PRICE_ROUNDING_HINT'] = 'Шаг округления цен, которые формирует калькулятор.';
 $MESS['PROSPEKTWEB_CALC_HISTORY_LIMIT'] = 'Макс. количество записей истории расчётов на 1 ТП';
-$MESS['PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE'] = 'Значение наценки по умолчанию';
-$MESS['PROSPEKTWEB_CALC_DEFAULT_EXTRA_CURRENCY'] = 'Валюта наценки по умолчанию';
+$MESS['PROSPEKTWEB_CALC_HISTORY_LIMIT_HINT'] = 'Допустимо от 1 до 100 записей для одного торгового предложения.';
+$MESS['PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE'] = 'Наценка новой цены';
+$MESS['PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE_HINT'] = 'Подставляется при добавлении новой цены в редакторе калькулятора.';
+$MESS['PROSPEKTWEB_CALC_DEFAULT_EXTRA_CURRENCY'] = 'Тип наценки новой цены';
+$MESS['PROSPEKTWEB_CALC_DEFAULT_EXTRA_CURRENCY_HINT'] = 'Наценка может задаваться фиксированной суммой или процентом.';
+$MESS['PROSPEKTWEB_CALC_CURRENCY_RUB'] = 'Рубли (RUB)';
+$MESS['PROSPEKTWEB_CALC_CURRENCY_PRC'] = 'Проценты (PRC)';
+$MESS['PROSPEKTWEB_CALC_ACTIVE_SETTINGS_HINT'] = 'Здесь показаны только параметры, которые реально используются при расчёте или в редакторе калькулятора.';
+$MESS['PROSPEKTWEB_CALC_CALCULATION_HEADING'] = 'Расчёт и цены';
+$MESS['PROSPEKTWEB_CALC_HISTORY_HEADING'] = 'История и журналирование';
+$MESS['PROSPEKTWEB_CALC_MARKUPS_HEADING'] = 'Наценки для типов цен';
 
 $MESS['PROSPEKTWEB_CALC_IBLOCK_PRESETS'] = 'Пресеты калькуляции';
 $MESS['PROSPEKTWEB_CALC_IBLOCK_CALC_STAGES'] = 'Этапы';
@@ -30,15 +44,9 @@ $MESS['PROSPEKTWEB_CALC_IBLOCK_DETAILS'] = 'Детали';
 $MESS['PROSPEKTWEB_CALC_IBLOCK_DETAILS_VARIANTS'] = 'Варианты деталей';
 $MESS['PROSPEKTWEB_CALC_IBLOCK_NOT_CREATED'] = 'Не создан';
 
-// Настройки интеграции с React-калькулятором
-$MESS['PROSPEKTWEB_CALC_TAB_INTEGRATION'] = 'Интеграция';
-$MESS['PROSPEKTWEB_CALC_TAB_INTEGRATION_TITLE'] = 'Настройки интеграции с React-калькулятором';
-$MESS['PROSPEKTWEB_CALC_IBLOCK_MATERIALS_INTEGRATION'] = 'ID инфоблока материалов (для интеграции)';
-$MESS['PROSPEKTWEB_CALC_IBLOCK_OPERATIONS_INTEGRATION'] = 'ID инфоблока операций (для интеграции)';
-$MESS['PROSPEKTWEB_CALC_IBLOCK_EQUIPMENT_INTEGRATION'] = 'ID инфоблока оборудования (для интеграции)';
-$MESS['PROSPEKTWEB_CALC_IBLOCK_DETAILS_INTEGRATION'] = 'ID инфоблока деталей (для интеграции)';
-$MESS['PROSPEKTWEB_CALC_IBLOCK_CALCULATORS_INTEGRATION'] = 'ID инфоблока калькуляторов (для интеграции)';
-$MESS['PROSPEKTWEB_CALC_IBLOCK_CONFIGURATIONS_INTEGRATION'] = 'ID инфоблока конфигураций (для интеграции)';
+// Внешние сервисы
+$MESS['PROSPEKTWEB_CALC_TAB_INTEGRATION'] = 'Интеграции';
+$MESS['PROSPEKTWEB_CALC_TAB_INTEGRATION_TITLE'] = 'Подключения к внешним сервисам';
 
 // Настройки сервера расчётов
 $MESS['PROSPEKTWEB_CALC_CALC_SERVER_HEADING'] = 'Сервер расчётов (calc-server)';
@@ -46,19 +54,13 @@ $MESS['PROSPEKTWEB_CALC_CALC_SERVER_URL'] = 'URL сервера расчётов
 $MESS['PROSPEKTWEB_CALC_CALC_SERVER_URL_HINT'] = 'URL для обращения к calc-server (Node.js движок для серверных расчётов). Например: http://localhost:3100';
 
 
-// Настройки связей торговых предложений
-$MESS['PROSPEKTWEB_CALC_TAB_OFFERS'] = 'Связи ТП';
-$MESS['PROSPEKTWEB_CALC_TAB_OFFERS_TITLE'] = 'Настройки связей торговых предложений с калькуляцией';
-$MESS['PROSPEKTWEB_CALC_OFFERS_PROPERTIES_HEADING'] = 'Свойства торговых предложений для калькуляции';
-$MESS['PROSPEKTWEB_CALC_FORMAT_FIELD_CODE'] = 'Код свойства "Формат"';
-$MESS['PROSPEKTWEB_CALC_FORMAT_FIELD_CODE_HINT'] = 'Свойство типа "список" в ТП. XML_ID значений должен содержать WIDTH и LENGTH (например: "210x297")';
-$MESS['PROSPEKTWEB_CALC_VOLUME_FIELD_CODE'] = 'Код свойства "Объём/Тираж"';
-$MESS['PROSPEKTWEB_CALC_VOLUME_FIELD_CODE_HINT'] = 'Свойство типа "список" в ТП для определения тиража/объёма';
-$MESS['PROSPEKTWEB_CALC_SELECT_PROPERTY'] = '-- Выберите свойство --';
-$MESS['PROSPEKTWEB_CALC_NO_LIST_PROPERTIES'] = 'Свойства типа "список" не найдены в инфоблоке ТП. Укажите код вручную.';
 $MESS['PROSPEKTWEB_CALC_SAVE'] = 'Сохранить';
 $MESS['PROSPEKTWEB_CALC_RESET'] = 'Сбросить';
 
+$MESS['PROSPEKTWEB_CALC_SNAPSHOT_HEADING'] = 'Перенос данных';
+$MESS['PROSPEKTWEB_CALC_SNAPSHOT_LABEL'] = 'Snapshot данных модуля';
+$MESS['PROSPEKTWEB_CALC_SNAPSHOT_BUTTON'] = 'Скачать snapshot текущего сайта';
+$MESS['PROSPEKTWEB_CALC_SNAPSHOT_HINT'] = 'Файл используется для импорта данных при установке модуля на другом сайте.';
 
 $MESS['PROSPEKTWEB_CALC_HISTORY_SERVICE_TITLE'] = 'Сервис истории расчётов';
 $MESS['PROSPEKTWEB_CALC_HISTORY_SERVICE_ORPHANS'] = 'Очистка записей удалённых ТП';
@@ -83,8 +85,6 @@ $MESS['PROSPEKTWEB_CALC_TAB_DIAGNOSTIC'] = 'Диагностика';
 $MESS['PROSPEKTWEB_CALC_TAB_DIAGNOSTIC_TITLE'] = 'Проверка целостности модуля';
 
 
-$MESS['PROSPEKTWEB_CALC_TAB_MARKUPS'] = 'Наценки';
-$MESS['PROSPEKTWEB_CALC_TAB_MARKUPS_TITLE'] = 'Настройки наценок для типов цен';
 $MESS['PROSPEKTWEB_CALC_MARKUPS_EMPTY_PRICE_TYPES'] = 'Типы цен не найдены. Проверьте модуль catalog.';
 $MESS['PROSPEKTWEB_CALC_MARKUPS_COL_PRICE_TYPE'] = 'Тип цены';
 $MESS['PROSPEKTWEB_CALC_MARKUPS_COL_BASE'] = 'Стартовая цена';
