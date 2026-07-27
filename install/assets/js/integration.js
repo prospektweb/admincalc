@@ -911,7 +911,8 @@
                     throw new Error('Preset ID не найден');
                 }
 
-                // Шаг 1: Создаём новую деталь (с 1 этапом, который создаётся автоматически)
+                // Создаём новую пустую деталь. Этап появляется только после
+                // явного действия технолога в новой колонке.
                 const createResult = await this.fetchRefreshData([
                     {
                         action: 'addNewDetail',
@@ -981,26 +982,22 @@
             }
 
             try {
-                const result = await this.fetchRefreshData([{ action: 'cloneDetail', detailId, presetId }]);
+                const result = await this.fetchRefreshData([{
+                    action: 'cloneDetail',
+                    detailId,
+                    presetId,
+                    offerIds: this.config.offerIds || [],
+                }]);
                 const responsePayload = (Array.isArray(result) && result[0]) ? result[0] : null;
                 if (!responsePayload || responsePayload.status !== 'ok') {
                     throw new Error(responsePayload?.message || 'Не удалось клонировать деталь');
                 }
 
-                const enrichResult = await this.enrichPreset({
-                    presetId,
-                    detailIds: Array.isArray(responsePayload.rootDetailIds) && responsePayload.rootDetailIds.length
-                        ? responsePayload.rootDetailIds
-                        : [responsePayload.rootDetailId || detailId],
-                    binding: false,
-                    existingDetailId: 0,
-                    offerIds: this.config.offerIds || [],
-                    siteId: this.config.siteId || SITE_ID,
-                });
-
-                if (enrichResult.success && enrichResult.data) {
-                    this.initData = enrichResult.data;
-                    this.sendPwrtMessage('INIT', enrichResult.data, message.requestId, origin);
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                    this.sendPwrtMessage('INIT', responsePayload.initPayload, message.requestId, origin);
+                } else {
+                    throw new Error('Сервер не вернул обновлённую структуру пресета');
                 }
             } catch (error) {
                 console.error('[BitrixBridge] CLONE_DETAIL_REQUEST error:', error);
@@ -1728,8 +1725,8 @@
                     throw new Error('Preset ID не найден');
                 }
 
-                if (parentId <= 0 || detailId <= 0) {
-                    throw new Error('Parent ID и Detail ID обязательны');
+                if (detailId <= 0) {
+                    throw new Error('Detail ID обязателен');
                 }
 
                 // Вызываем удаление детали через AJAX
@@ -4305,8 +4302,8 @@
 
         /**
          * A preset is always edited through at least one root detail column.
-         * Bootstrap exactly once per loaded preset; addNewDetail also creates
-         * the default stage configuration required by the existing contract.
+         * Bootstrap exactly once per loaded preset. The default detail is
+         * intentionally empty; its first stage is created explicitly in UI.
          */
         async ensureDefaultPresetDetail(initData) {
             const presetId = parseInt(initData?.preset?.id, 10) || 0;
@@ -4321,6 +4318,7 @@
             this.defaultDetailBootstrapPresetIds.add(presetId);
             const created = await this.fetchRefreshData([{
                 action: 'addNewDetail',
+                presetId,
                 offerIds: this.config.offerIds || [],
                 name: 'Деталь #1',
             }]);
@@ -4330,19 +4328,11 @@
                 throw new Error(response?.message || 'Не удалось создать деталь по умолчанию');
             }
 
-            const enriched = await this.enrichPreset({
-                presetId,
-                detailIds: [newDetailId],
-                binding: false,
-                existingDetailId: 0,
-                offerIds: this.config.offerIds || [],
-                siteId: this.config.siteId,
-            });
-            if (!enriched.success || !enriched.data) {
-                throw new Error(enriched.message || 'Не удалось подключить деталь по умолчанию к пресету');
+            if (!response.initPayload) {
+                throw new Error('Сервер не вернул деталь по умолчанию в структуре пресета');
             }
 
-            return enriched.data;
+            return response.initPayload;
         }
 
         /**

@@ -141,7 +141,23 @@ class ElementDataService
                         
                     case 'cloneDetail':
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();
-                        $result[] = $handler->cloneDetail($request);
+                        $cloneResult = $handler->cloneDetail($request);
+                        if (($cloneResult['status'] ?? 'error') === 'ok') {
+                            $presetId = (int)($request['presetId'] ?? 0);
+                            $rootDetailIds = array_values(array_filter(array_map(
+                                'intval',
+                                $cloneResult['rootDetailIds'] ?? []
+                            )));
+                            if ($presetId > 0 && !empty($rootDetailIds)) {
+                                $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                                $cloneResult['initPayload'] = $enrichmentService->enrichPresetFromProductRoots(
+                                    $presetId,
+                                    $rootDetailIds,
+                                    $request['offerIds'] ?? []
+                                );
+                            }
+                        }
+                        $result[] = $cloneResult;
                         continue 2;
 
                     case 'changeProductType':
@@ -274,25 +290,28 @@ class ElementDataService
                         continue 2;
                     
                     case 'removeDetail':
-                        // New handler for REMOVE_DETAIL_REQUEST with recursive logic
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();
                         $parentId = (int)($request['parentId'] ?? 0);
                         $detailId = (int)($request['detailId'] ?? 0);
                         $presetId = (int)($request['presetId'] ?? 0);
                         
-                        $removeResult = $handler->removeDetailFromBinding($parentId, $detailId, $presetId);
-                        
-                        if ($removeResult['status'] === 'ok' && !empty($removeResult['needsEnrichment'])) {
-                            // Enrich preset
-                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
-                            $enrichDetailId = $removeResult['enrichmentDetailId'] ?? null;
-                            
-                            if ($enrichDetailId) {
+                        $removeResult = $parentId > 0
+                            ? $handler->removeDetailFromBinding($parentId, $detailId, $presetId)
+                            : $handler->removeTopLevelDetail($detailId, $presetId);
+
+                        if (($removeResult['status'] ?? 'error') === 'ok') {
+                            $rootDetailIds = $handler->getPresetRootDetailIds($presetId);
+                            $removeResult['rootDetailIds'] = $rootDetailIds;
+
+                            // Preserve the complete complex-product topology after deletion.
+                            if (!empty($rootDetailIds)) {
+                                $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
                                 $offerIds = $request['offerIds'] ?? [];
-                                $siteId = $request['siteId'] ?? SITE_ID;
-                                $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $enrichDetailId, $offerIds);
-                                
-                                $removeResult['initPayload'] = $initPayload;
+                                $removeResult['initPayload'] = $enrichmentService->enrichPresetFromProductRoots(
+                                    $presetId,
+                                    $rootDetailIds,
+                                    $offerIds
+                                );
                             }
                         }
                         

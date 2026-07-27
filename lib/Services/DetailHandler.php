@@ -72,21 +72,6 @@ class DetailHandler
                 ];
             }
             
-            // 2. Создать элемент в CALC_STAGES (пустой конфиг для первого этапа)
-            $configId = $this->createConfigElement(date('dmY_His'));
-            
-            if (!$configId) {
-                // Откатываем создание детали
-                \CIBlockElement:: Delete($detailId);
-                return [
-                    'status' => 'error',
-                    'message' => 'Не удалось создать конфигурацию',
-                ];
-            }
-            
-            // 3. Связать конфиг с деталью через свойство CALC_STAGES
-            $this->linkConfigToDetail($detailId, [$configId]);
-
             // A newly created top-level detail extends the current product
             // topology. Never replace the preset with this detail alone:
             // doing so silently changes a complex product back to simple.
@@ -107,9 +92,7 @@ class DetailHandler
                     'name' => $name,
                     'type' => 'DETAIL',
                 ],
-                'config' => [
-                    'id' => $configId,
-                ],
+                'config' => null,
                 'rootDetailIds' => $rootDetailIds,
             ];
             
@@ -469,6 +452,57 @@ class DetailHandler
     }
 
     /**
+     * Remove a root detail from one preset and delete the detail with its stages.
+     */
+    public function removeTopLevelDetail(int $detailId, int $presetId): array
+    {
+        try {
+            if ($detailId <= 0 || $presetId <= 0) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Некорректные параметры удаления детали',
+                ];
+            }
+
+            $rootDetailIds = $this->getPresetDetails($presetId);
+            if (!in_array($detailId, $rootDetailIds, true)) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Деталь не подключена к текущему пресету',
+                ];
+            }
+
+            $detail = $this->getDetailById($detailId);
+            if (!$detail) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Деталь не найдена',
+                ];
+            }
+
+            $remainingRootIds = array_values(array_filter(
+                $rootDetailIds,
+                static fn(int $id): bool => $id !== $detailId
+            ));
+            $this->setPresetDetails($presetId, $remainingRootIds);
+            $this->deleteDetailPhysically($detailId);
+
+            return [
+                'status' => 'ok',
+                'action' => 'top_level_detail_deleted',
+                'detailId' => $detailId,
+                'deletedConfigIds' => $detail['CONFIGS'],
+                'rootDetailIds' => $remainingRootIds,
+            ];
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * Изменить имя детали
      * 
      * @param array $data Данные запроса
@@ -592,7 +626,7 @@ class DetailHandler
             // Получаем пресет для определения isRootParent
             $presetDetails = $this->getPresetDetails($presetId);
             $firstDetailId = $presetDetails[0] ?? 0;
-            $isRootParent = ($parentId === $firstDetailId);
+            $isRootParent = in_array($parentId, $presetDetails, true);
 
             $this->logDebug('removeDetailFromBinding presetDetails', [
                 'presetDetails' => $presetDetails,
@@ -620,6 +654,13 @@ class DetailHandler
             });
             $remainingDetails = array_values($remainingDetails);
             $remainingCount = count($remainingDetails);
+
+            if (count($remainingDetails) === count($parent['DETAIL_IDS'])) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Деталь не подключена к указанному скреплению',
+                ];
+            }
 
             $this->logDebug('removeDetailFromBinding remaining', [
                 'originalDetailIds' => $parent['DETAIL_IDS'],
@@ -654,9 +695,16 @@ class DetailHandler
                 }
 
                 // ПОТОМ удаляем скрепление физически
+                $this->deleteDetailPhysically($detailId);
                 $this->deleteDetailPhysically($parentId);
 
                 if ($isRootParent) {
+                    $updatedPresetDetails = array_map(
+                        static fn(int $id): int => $id === $parentId ? (int)$survivorId : $id,
+                        $presetDetails
+                    );
+                    $this->setPresetDetails($presetId, $updatedPresetDetails);
+
                     // Обогатить пресет на основе survivorId
                     return [
                         'status' => 'ok',
@@ -721,9 +769,16 @@ class DetailHandler
                 }
 
                 // ПОТОМ удаляем скрепление физически
+                $this->deleteDetailPhysically($detailId);
                 $this->deleteDetailPhysically($parentId);
 
                 if ($isRootParent) {
+                    $updatedPresetDetails = array_values(array_filter(
+                        $presetDetails,
+                        static fn(int $id): bool => $id !== $parentId
+                    ));
+                    $this->setPresetDetails($presetId, $updatedPresetDetails);
+
                     // Если удалили корневое скрепление и оно пустое — нужно очистить пресет
                     return [
                         'status' => 'ok',
@@ -756,6 +811,7 @@ class DetailHandler
                 \CIBlockElement:: SetPropertyValuesEx($parentId, $this->detailsIblockId, [
                     'DETAILS' => $remainingDetails,
                 ]);
+                $this->deleteDetailPhysically($detailId);
 
                 return [
                     'status' => 'ok',
@@ -796,6 +852,16 @@ class DetailHandler
             // Удалить саму деталь
             \CIBlockElement::Delete($detailId);
         }
+    }
+
+    /**
+     * Return the ordered root topology currently attached to a preset.
+     *
+     * @return int[]
+     */
+    public function getPresetRootDetailIds(int $presetId): array
+    {
+        return $presetId > 0 ? $this->getPresetDetails($presetId) : [];
     }
 
     /**
@@ -1501,7 +1567,7 @@ class DetailHandler
                 ];
             }
 
-            // 1. Создать новую деталь с TYPE = DETAIL и 1 пустым этапом
+            // 1. Создать новую пустую деталь с TYPE = DETAIL.
             $name = $this->generateDetailName();
             $detailId = $this->createDetailElement($name, 'DETAIL');
             
@@ -1511,21 +1577,6 @@ class DetailHandler
                     'message' => 'Не удалось создать деталь',
                 ];
             }
-            
-            // Создать элемент в CALC_STAGES (пустой конфиг для первого этапа)
-            $configId = $this->createConfigElement(date('dmY_His'));
-            
-            if (!$configId) {
-                // Откатываем создание детали
-                \CIBlockElement::Delete($detailId);
-                return [
-                    'status' => 'error',
-                    'message' => 'Не удалось создать конфигурацию',
-                ];
-            }
-            
-            // Связать конфиг с деталью через свойство CALC_STAGES
-            $this->linkConfigToDetail($detailId, [$configId]);
             
             // 2. Добавить ID новой детали в свойство DETAILS родителя
             $existingDetails = $parent['DETAIL_IDS'];
@@ -1542,9 +1593,7 @@ class DetailHandler
                     'name' => $name,
                     'type' => 'DETAIL',
                 ],
-                'config' => [
-                    'id' => $configId,
-                ],
+                'config' => null,
             ];
             
         } catch (\Exception $e) {
