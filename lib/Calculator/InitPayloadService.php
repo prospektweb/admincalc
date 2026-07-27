@@ -695,6 +695,15 @@ class InitPayloadService
             return null;
         }
 
+        $publicElement = \CIBlockElement::GetList(
+            [],
+            ['ID' => $productId, 'IBLOCK_ID' => $iblockId],
+            false,
+            false,
+            ['ID', 'IBLOCK_ID', 'DETAIL_PAGE_URL']
+        )->GetNext();
+        $productElement['detailPageUrl'] = trim((string)($publicElement['DETAIL_PAGE_URL'] ?? ''));
+
         return $productElement;
     }
 
