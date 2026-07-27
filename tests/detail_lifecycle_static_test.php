@@ -92,7 +92,9 @@ $cloneRecursive = $slice(
 if (
     $cloneRecursive === ''
     || strpos($cloneRecursive, "unset(\$propertyValues['TYPE'], \$propertyValues['CALC_STAGES'], \$propertyValues['DETAILS'])") === false
-    || strpos($cloneRecursive, "\$propertyValues['TYPE'] = \$this->resolveDetailTypePropertyValue") === false
+    || strpos($cloneRecursive, "\$propertyValues['TYPE'] = \$this->resolveDetailTypePropertyValue") !== false
+    || strpos($cloneRecursive, "if (\$newConfigIds !== [])") === false
+    || strpos($cloneRecursive, "if (\$newDetailIds !== [])") === false
     || strpos($cloneRecursive, "\$propertyValues['TYPE'] = ['VALUE'") !== false
 ) {
     throw new RuntimeException('A clone must rebuild topology fields using native Bitrix property value shapes');

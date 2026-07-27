@@ -1372,13 +1372,16 @@ class DetailHandler
         $propertyValues = $originalDetail['PROPERTY_VALUES'] ?? [];
 
         // These three properties describe topology, not ordinary metadata.
-        // Rebuild them using Bitrix's native value shapes. Wrapping the enum
-        // and element-link IDs into VALUE/DESCRIPTION records leaves clones
-        // without a readable TYPE and makes them disappear from INIT.
+        // createDetailElement() has already written TYPE in the exact native
+        // enum shape. Do not overwrite it here: SetPropertyValuesEx with a
+        // second TYPE write can clear VALUE_XML_ID and hide the clone from INIT.
         unset($propertyValues['TYPE'], $propertyValues['CALC_STAGES'], $propertyValues['DETAILS']);
-        $propertyValues['TYPE'] = $this->resolveDetailTypePropertyValue($originalDetail['TYPE']);
-        $propertyValues['CALC_STAGES'] = array_values($newConfigIds);
-        $propertyValues['DETAILS'] = array_values($newDetailIds);
+        if ($newConfigIds !== []) {
+            $propertyValues['CALC_STAGES'] = array_values($newConfigIds);
+        }
+        if ($newDetailIds !== []) {
+            $propertyValues['DETAILS'] = array_values($newDetailIds);
+        }
 
         \CIBlockElement::SetPropertyValuesEx($newDetailId, $this->detailsIblockId, $propertyValues);
 
