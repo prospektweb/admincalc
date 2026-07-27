@@ -9,8 +9,8 @@ if (!is_string($bundle) || $bundle === '') {
 }
 
 $checks = [
-    'cS(v.id,v.type,"ru")' => 'Sidebar must pass the actual iblock type to the Bitrix edit page',
-    'if(!s)throw new Error(' => 'Iblock edit URL builder must reject a missing type',
+    'iblock_edit.php?type=${encodeURIComponent(s)}' => 'Iblock edit URL builder must preserve the actual iblock type',
+    'Тип инфоблока не указан' => 'Iblock edit URL builder must reject a missing type',
 ];
 
 foreach ($checks as $needle => $message) {
