@@ -152,8 +152,10 @@ class DetailHandler
                     }
                     array_splice($parentDetails, $pos + 1, 0, [$newDetailId]);
 
-                    // Сначала очищаем свойство, затем записываем новый порядок
-                    \CIBlockElement::SetPropertyValuesEx($parent['ID'], $this->detailsIblockId, ['DETAILS' => false]);
+                    // Записываем новый порядок одним обновлением. Последовательность
+                    // false -> array в рамках одного AJAX-запроса оставляла
+                    // GetProperties() с промежуточным пустым значением, поэтому
+                    // INIT после клонирования не содержал только что созданную деталь.
                     \CIBlockElement::SetPropertyValuesEx($parent['ID'], $this->detailsIblockId, ['DETAILS' => $parentDetails]);
 
                     // rootDetailId для enrichPreset — корневой элемент пресета
@@ -170,7 +172,6 @@ class DetailHandler
                         $updatedPresetDetails[] = $newDetailId;
                     }
 
-                    \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, ['CALC_DETAILS' => false]);
                     \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
                         'CALC_DETAILS' => array_values($updatedPresetDetails),
                     ]);

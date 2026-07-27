@@ -71,6 +71,19 @@ if (
     throw new RuntimeException('Cloning must atomically return the complete updated topology');
 }
 
+$cloneDetail = $slice(
+    $detailHandler,
+    'public function cloneDetail(array $data): array',
+    'public function addGroup(array $data): array'
+);
+if (
+    $cloneDetail === ''
+    || strpos($cloneDetail, "['DETAILS' => false]") !== false
+    || strpos($cloneDetail, "['CALC_DETAILS' => false]") !== false
+) {
+    throw new RuntimeException('Cloning must not publish an intermediate empty topology before INIT');
+}
+
 $cloneBridge = $slice(
     $integration,
     'async handleCloneDetailRequest',
