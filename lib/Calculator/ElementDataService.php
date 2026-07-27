@@ -120,7 +120,23 @@ class ElementDataService
                         
                     case 'addNewDetail':
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();
-                        $result[] = $handler->addDetail($request);
+                        $addResult = $handler->addDetail($request);
+                        if (($addResult['status'] ?? 'error') === 'ok') {
+                            $presetId = (int)($request['presetId'] ?? 0);
+                            $rootDetailIds = array_values(array_filter(array_map(
+                                'intval',
+                                $addResult['rootDetailIds'] ?? []
+                            )));
+                            if ($presetId > 0 && !empty($rootDetailIds)) {
+                                $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                                $addResult['initPayload'] = $enrichmentService->enrichPresetFromProductRoots(
+                                    $presetId,
+                                    $rootDetailIds,
+                                    $request['offerIds'] ?? []
+                                );
+                            }
+                        }
+                        $result[] = $addResult;
                         continue 2;
                         
                     case 'cloneDetail':

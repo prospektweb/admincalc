@@ -185,6 +185,41 @@ if (
     throw new RuntimeException('Changing a stage calculator must preserve every ordered root of a complex product');
 }
 
+$addDetailStart = strpos($elementDataService, "case 'addNewDetail':");
+$addDetailEnd = strpos($elementDataService, "case 'cloneDetail':", $addDetailStart ?: 0);
+$addDetailHandler = $addDetailStart !== false && $addDetailEnd !== false
+    ? substr($elementDataService, $addDetailStart, $addDetailEnd - $addDetailStart)
+    : '';
+if (
+    $addDetailHandler === ''
+    || strpos($addDetailHandler, "'rootDetailIds'") === false
+    || strpos($addDetailHandler, 'enrichPresetFromProductRoots') === false
+    || strpos($addDetailHandler, 'enrichPresetFromDetails') !== false
+) {
+    throw new RuntimeException('Creating a detail must append it without replacing the complex product topology');
+}
+
+$addDetailBridgeStart = strpos($integration, 'async handleAddNewDetailRequest');
+$addDetailBridgeEnd = strpos($integration, 'async handleCloneDetailRequest', $addDetailBridgeStart ?: 0);
+$addDetailBridge = $addDetailBridgeStart !== false && $addDetailBridgeEnd !== false
+    ? substr($integration, $addDetailBridgeStart, $addDetailBridgeEnd - $addDetailBridgeStart)
+    : '';
+if (
+    $addDetailBridge === ''
+    || strpos($addDetailBridge, 'presetId: presetId') === false
+    || strpos($addDetailBridge, 'createResponsePayload.initPayload') === false
+    || strpos($addDetailBridge, 'this.enrichPreset(') !== false
+) {
+    throw new RuntimeException('The browser must consume the atomic add-detail payload without legacy re-enrichment');
+}
+
+if (
+    strpos($detailHandler, '$rootDetailIds = $this->getPresetDetails($presetId);') === false
+    || strpos($detailHandler, '$this->setPresetDetails($presetId, $rootDetailIds);') === false
+) {
+    throw new RuntimeException('A new detail must be appended to the existing ordered preset roots');
+}
+
 if (strpos($presetEnrichmentService, "\$properties['STAGE_OWNERSHIP_VERSION']") !== false) {
     throw new RuntimeException('Product-root lookup must not read undefined stage properties');
 }

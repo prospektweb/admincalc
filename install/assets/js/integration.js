@@ -901,16 +901,12 @@
             });
 
             const payload = message.payload || {};
-            const binding = payload.binding || false;
             const name = payload.name || '';
             const offerIds = payload.offerIds || [];
 
             try {
                 // Получаем presetId и существующую деталь из initData
                 const presetId = this.initData?.preset?.id;
-                const existingDetails = this.initData?.preset?.properties?.CALC_DETAILS || [];
-                const existingDetailId = existingDetails.length > 0 ? existingDetails[0] : 0;
-
                 if (!presetId) {
                     throw new Error('Preset ID не найден');
                 }
@@ -919,6 +915,7 @@
                 const createResult = await this.fetchRefreshData([
                     {
                         action: 'addNewDetail',
+                        presetId: presetId,
                         offerIds: offerIds,
                         name: name,
                     }
@@ -943,40 +940,18 @@
                     throw new Error('ID новой детали не получен');
                 }
 
-                // Шаг 2: Определяем список деталей для обогащения
-                let detailIds = [newDetailId];
-                
-                if (binding && existingDetailId > 0) {
-                    // Если binding=true и есть существующая деталь, создаём скрепление
-                    detailIds = [newDetailId]; // Новая деталь будет в списке для создания скрепления
-                } else if (binding && existingDetailId === 0) {
-                    // Если binding=true но нет существующей детали, используем только новую
-                    detailIds = [newDetailId];
-                } else {
-                    // Если binding=false, используем только новую деталь
-                    detailIds = [newDetailId];
-                }
-
-                // Шаг 3: Вызываем обогащение пресета
-                const enrichResult = await this.enrichPreset({
-                    presetId: presetId,
-                    detailIds: detailIds,
-                    binding: binding,
-                    existingDetailId: existingDetailId,
-                    offerIds: this.config.offerIds,
-                    siteId: this.config.siteId,
-                });
-
-                if (enrichResult.success && enrichResult.data) {
-                    // Обновляем локальный initData
-                    this.initData = enrichResult.data;
+                const initPayload = createResponsePayload.initPayload;
+                if (initPayload) {
+                    // The create request already appended the new root and
+                    // rebuilt the complete ordered product topology.
+                    this.initData = initPayload;
                     
-                    // Шаг 4: Отправляем INIT message вместо ADD_DETAIL_RESPONSE
-                    this.sendPwrtMessage('INIT', enrichResult.data, message.requestId, origin);
+                    // Отправляем INIT message вместо ADD_DETAIL_RESPONSE
+                    this.sendPwrtMessage('INIT', initPayload, message.requestId, origin);
                     
                     console.log('[BitrixBridge][DEBUG] handleAddNewDetailRequest END - success, INIT sent');
                 } else {
-                    throw new Error(enrichResult.message || 'Ошибка обогащения пресета');
+                    throw new Error('Сервер не вернул обновлённую структуру пресета');
                 }
 
             } catch (error) {

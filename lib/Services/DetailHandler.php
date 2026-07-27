@@ -59,6 +59,7 @@ class DetailHandler
     {
         try {
             $offerIds = $data['offerIds'] ?? [];
+            $presetId = (int)($data['presetId'] ?? 0);
             $name = ! empty($data['name']) ? $data['name'] : $this->generateDetailName();
             
             // 1. Создать элемент в CALC_DETAILS с TYPE = DETAIL
@@ -85,6 +86,18 @@ class DetailHandler
             
             // 3. Связать конфиг с деталью через свойство CALC_STAGES
             $this->linkConfigToDetail($detailId, [$configId]);
+
+            // A newly created top-level detail extends the current product
+            // topology. Never replace the preset with this detail alone:
+            // doing so silently changes a complex product back to simple.
+            $rootDetailIds = [];
+            if ($presetId > 0) {
+                $rootDetailIds = $this->getPresetDetails($presetId);
+                if (!in_array($detailId, $rootDetailIds, true)) {
+                    $rootDetailIds[] = $detailId;
+                }
+                $this->setPresetDetails($presetId, $rootDetailIds);
+            }
             
             // 4. Вернуть данные
             return [
@@ -97,6 +110,7 @@ class DetailHandler
                 'config' => [
                     'id' => $configId,
                 ],
+                'rootDetailIds' => $rootDetailIds,
             ];
             
         } catch (\Exception $e) {
