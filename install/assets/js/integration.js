@@ -643,10 +643,17 @@
                     setting.properties[propertyCode].VALUE = value;
                     setting.properties[propertyCode]['~VALUE'] = rawValue;
 
+                    let debugValue = '';
+                    try {
+                        debugValue = typeof value === 'string' ? value : JSON.stringify(value);
+                    } catch (error) {
+                        debugValue = String(value ?? '');
+                    }
+
                     console.log('[BitrixBridge] updateSettingsPropertyInInitDataWithRaw: обновлены настройки', {
                         settingsId: settingsId,
                         propertyCode: propertyCode,
-                        value: value ? value.substring(0, 50) + '...' : '(пусто)'
+                        value: debugValue ? debugValue.substring(0, 50) + '...' : '(пусто)'
                     });
 
                     return;
