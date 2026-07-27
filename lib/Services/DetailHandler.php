@@ -179,6 +179,16 @@ class DetailHandler
                     $rootDetailId = $newDetailId;
                     $presetDetails = array_values($updatedPresetDetails);
                 }
+
+                // CALC_DETAILS also acts as the preload list for elementsStore.
+                // A clone linked only through DETAILS exists in Bitrix, but the
+                // editor cannot render it unless every newly created graph node
+                // is present in this flat list. UI topology is still determined
+                // by DETAILS, so adding these IDs does not make them top-level.
+                $presetDetails = array_values(array_unique(array_merge(
+                    array_map('intval', $presetDetails),
+                    array_map('intval', $createdDetailIds)
+                )));
             }
 
             return [

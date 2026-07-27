@@ -100,6 +100,13 @@ if (
     throw new RuntimeException('A clone must rebuild topology fields using native Bitrix property value shapes');
 }
 
+if (
+    strpos($cloneDetail, "array_merge(\n                    array_map('intval', \$presetDetails),\n                    array_map('intval', \$createdDetailIds)") === false
+    || strpos($cloneDetail, 'CALC_DETAILS also acts as the preload list for elementsStore') === false
+) {
+    throw new RuntimeException('Every cloned detail node must be included in the CALC_DETAILS preload list');
+}
+
 $cloneBridge = $slice(
     $integration,
     'async handleCloneDetailRequest',
