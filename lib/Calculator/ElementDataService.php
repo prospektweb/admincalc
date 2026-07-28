@@ -619,10 +619,15 @@ class ElementDataService
                                 'CUSTOM_FIELDS_VALUE' => $values ?: false,
                             ]);
                             
-                            $result[] = [
+                            $changeResponse = [
                                 'status' => 'ok',
                                 'stageId' => $stageId,
                             ];
+                            $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
+                            if (!empty($offerIds)) {
+                                $changeResponse['initPayload'] = (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
+                            }
+                            $result[] = $changeResponse;
                         } else {
                             $result[] = [
                                 'status' => 'error',
@@ -634,7 +639,17 @@ class ElementDataService
                     case 'selectFields':
                         $stageId = (int)($request['stageId'] ?? 0);
                         $customFieldIds = $this->normalizeIds($request['customFieldIds'] ?? []);
+                        $submittedValues = is_array($request['customFieldsValue'] ?? null)
+                            ? $request['customFieldsValue']
+                            : [];
                         $replaceCustomFields = !empty($request['replace']);
+
+                        foreach ($submittedValues as $field) {
+                            if (strpos((string)($field['VALUE'] ?? ''), '|') !== false) {
+                                $result[] = ['status' => 'error', 'message' => 'Значение дополнительного параметра не может содержать символ |'];
+                                continue 3;
+                            }
+                        }
 
                         if ($stageId > 0 && ($replaceCustomFields || !empty($customFieldIds))) {
                             $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
@@ -656,7 +671,7 @@ class ElementDataService
                             ]);
 
                             $customFieldsService = new \Prospektweb\Calc\Services\CustomFieldsService();
-                            $fieldsConfig = $customFieldsService->getFieldsConfig($customFieldIds);
+                            $fieldsConfig = $customFieldsService->getFieldsConfig($mergedCustomFields);
 
                             $existingValuesMap = [];
                             $stageProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS_VALUE']);
@@ -711,6 +726,24 @@ class ElementDataService
                                 $existingValuesMap[$fieldCode] = [
                                     'VALUE' => $fieldCode,
                                     'DESCRIPTION' => $description . '|Y',
+                                ];
+                            }
+
+                            $selectedCodes = array_fill_keys(array_filter(array_map(
+                                static fn(array $fieldConfig): string => (string)($fieldConfig['code'] ?? ''),
+                                $fieldsConfig
+                            )), true);
+                            foreach ($submittedValues as $field) {
+                                $fieldCode = trim((string)($field['CODE'] ?? ''));
+                                if ($fieldCode === '' || !isset($selectedCodes[$fieldCode])) {
+                                    continue;
+                                }
+                                $fieldValue = (string)($field['VALUE'] ?? '');
+                                $fieldVisible = !array_key_exists('VISIBLE', $field)
+                                    || filter_var($field['VISIBLE'], FILTER_VALIDATE_BOOLEAN);
+                                $existingValuesMap[$fieldCode] = [
+                                    'VALUE' => $fieldCode,
+                                    'DESCRIPTION' => $fieldValue . '|' . ($fieldVisible ? 'Y' : 'N'),
                                 ];
                             }
 

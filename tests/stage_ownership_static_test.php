@@ -16,7 +16,11 @@ $assert = static function (bool $condition, string $message): void {
 $assert(strpos($service, "case 'saveStageUsedEntities':") !== false, 'stage entity capabilities have a dedicated backend action');
 $assert(strpos($service, "SetPropertyValuesEx(\$stageId, \$stagesIblockId") !== false, 'custom fields are written to the stage');
 $assert(strpos($integration, "'SAVE_STAGE_USED_ENTITIES_REQUEST'") !== false, 'postMessage bridge handles stage entity capabilities');
-$assert(strpos($integration, "action: 'selectFields', stageId") !== false, 'custom field selection no longer requires calculator settings');
+$assert(
+    strpos($integration, "action: 'selectFields'") !== false
+    && strpos($integration, 'customFieldIds: selectedIds') !== false,
+    'custom field selection no longer requires calculator settings'
+);
 $assert(strpos($enrichment, "\$stage['CUSTOM_FIELDS']") !== false, 'preset enrichment reads stage custom fields first');
 $assert(strpos($enrichment, 'Legacy fallback') !== false, 'legacy calculator custom fields retain a fallback');
 

@@ -172,6 +172,9 @@
                 case 'CLOSE_REQUEST':
                     this.handleCloseRequest(message);
                     break;
+                case 'UNSAVED_CHANGES_CHANGED':
+                    this.hasUnsavedChanges = Boolean(message.payload && message.payload.hasChanges);
+                    break;
 
                 case 'ERROR':
                     this.handleError(message);
@@ -409,6 +412,9 @@
                     break;
                 case 'CLOSE_REQUEST':
                     this.handleCloseRequest(message);
+                    break;
+                case 'UNSAVED_CHANGES_CHANGED':
+                    this.hasUnsavedChanges = Boolean(message.payload && message.payload.hasChanges);
                     break;
                 default:
                     console.warn('[BitrixBridge][DEBUG] Unknown pwrt message type:', message.type);
@@ -779,7 +785,15 @@
                 ? payload.customFieldIds.map(Number).filter(id => id > 0)
                 : [];
             try {
-                const selectResult = await this.fetchRefreshData([{ action: 'selectFields', stageId, presetId, customFieldIds: selectedIds, replace: payload.replace === true, offerIds: this.config.offerIds || [] }]);
+                const selectResult = await this.fetchRefreshData([{
+                    action: 'selectFields',
+                    stageId,
+                    presetId,
+                    customFieldIds: selectedIds,
+                    customFieldsValue: Array.isArray(payload.customFieldsValue) ? payload.customFieldsValue : [],
+                    replace: payload.replace === true,
+                    offerIds: this.config.offerIds || [],
+                }]);
                 const selectPayload = Array.isArray(selectResult) ? selectResult[0] : null;
                 if (selectPayload?.initPayload) {
                     this.initData = selectPayload.initPayload;
@@ -2193,7 +2207,7 @@
          * Логика:
          * 1. Записать в множественное свойство CUSTOM_FIELDS_VALUE этапа stageId
          * 2. CODE → VALUE поля, VALUE → DESCRIPTION поля
-         * 3. Ничего не отправлять (режим тишины)
+         * 3. Вернуть INIT с подтверждённым состоянием либо коррелированную ошибку
          */
         async handleChangeCustomFieldsValue(message, origin) {
             console.log('[BitrixBridge][DEBUG] handleChangeCustomFieldsValue START', {
@@ -2205,12 +2219,11 @@
             const payload = message.payload || {};
             const stageId = payload.stageId || 0;
             const customFieldsValue = payload.customFieldsValue || [];
+            const offerIds = this.config.offerIds || [];
 
             try {
                 if (stageId <= 0 || !Array.isArray(customFieldsValue)) {
-                    console.error('[BitrixBridge] Stage ID и массив customFieldsValue обязательны');
-                    // В режиме тишины не отправляем ошибку
-                    return;
+                    throw new Error('Stage ID и массив customFieldsValue обязательны');
                 }
 
                 // Вызываем обновление через AJAX
@@ -2219,6 +2232,7 @@
                         action: 'changeCustomFieldsValue',
                         stageId: stageId,
                         customFieldsValue: customFieldsValue,
+                        offerIds: offerIds,
                     }
                 ]);
 
@@ -2227,20 +2241,29 @@
                     : { status: 'error', message: 'Empty response' };
 
                 if (responsePayload.status !== 'ok') {
-                    console.error('[BitrixBridge] changeCustomFieldsValue error:', responsePayload.message);
-                    // В режиме тишины не отправляем ошибку
-                    return;
+                    throw new Error(responsePayload.message || 'Change custom fields value failed');
                 }
 
+                if (responsePayload.initPayload) {
+                    this.initData = responsePayload.initPayload;
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                } else {
+                    this.sendPwrtMessage('PROCESS_MESSAGE', {
+                        status: 'success',
+                        message: 'Дополнительные параметры этапа сохранены',
+                    }, message.requestId, origin);
+                }
                 console.log('[BitrixBridge] changeCustomFieldsValue success for stageId:', stageId);
-                // В режиме тишины НЕ отправляем ответ обратно во фрейм
 
             } catch (error) {
                 console.error('[BitrixBridge][DEBUG] handleChangeCustomFieldsValue ERROR', {
                     error: error,
                     message: error.message,
                 });
-                // В режиме тишины не отправляем ошибку
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка сохранения дополнительных параметров этапа',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
@@ -4362,7 +4385,9 @@
         async handleCloseRequest(message) {
             this.logDebug('[CalcIntegration] Close request received');
 
-            if (this.hasUnsavedChanges) {
+            const hasUnsavedChanges = this.hasUnsavedChanges
+                || Boolean(message && message.payload && message.payload.hasChanges);
+            if (hasUnsavedChanges) {
                 const confirmed = window.ProspekwebCalc
                     ? await window.ProspekwebCalc.showConfirmation(
                         'Есть несохранённые изменения. Вы уверены, что хотите закрыть окно?',
