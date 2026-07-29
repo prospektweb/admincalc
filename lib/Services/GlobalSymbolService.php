@@ -54,6 +54,7 @@ final class GlobalSymbolService
             throw new \InvalidArgumentException('Слишком много глобальных значений');
         }
         $iblockId = $this->ensureStorage();
+        $reservedCodes = $this->collectCalculatorNamespaceCodes();
         $connection = Application::getConnection();
         $connection->startTransaction();
         try {
@@ -63,13 +64,12 @@ final class GlobalSymbolService
             }
             $id = (int)($row['id'] ?? 0);
             $title = trim((string)($row['title'] ?? ''));
-            $hint = trim((string)($row['hint'] ?? ''));
             $description = trim((string)($row['description'] ?? ''));
             $kind = (string)($row['kind'] ?? 'constant');
             $dataType = (string)($row['dataType'] ?? 'auto');
             $initialValue = (string)($row['initialValue'] ?? '');
-            if ($title === '' && $hint === '') {
-                throw new \InvalidArgumentException('Укажите название или наметку глобального значения');
+            if ($title === '') {
+                throw new \InvalidArgumentException('Укажите название глобального значения');
             }
             if (!in_array($kind, self::KINDS, true)) {
                 throw new \InvalidArgumentException('Некорректный вид глобального значения');
@@ -77,13 +77,13 @@ final class GlobalSymbolService
             if (!in_array($dataType, self::TYPES, true)) {
                 throw new \InvalidArgumentException('Некорректный тип глобального значения');
             }
-            if (mb_strlen($title) > 250 || mb_strlen($hint) > 250 || mb_strlen($description) > 4000 || mb_strlen($initialValue) > 4000) {
+            if (mb_strlen($title) > 250 || mb_strlen($description) > 4000 || mb_strlen($initialValue) > 4000) {
                 throw new \InvalidArgumentException('Превышена допустимая длина полей глобального значения');
             }
             $elementApi = new \CIBlockElement();
             $fields = [
                 'IBLOCK_ID' => $iblockId,
-                'NAME' => $title !== '' ? $title : $hint,
+                'NAME' => $title,
                 'PREVIEW_TEXT' => $description,
                 'PREVIEW_TEXT_TYPE' => 'text',
                 'ACTIVE' => 'Y',
@@ -94,11 +94,12 @@ final class GlobalSymbolService
                     throw new \RuntimeException('Не удалось обновить глобальное значение');
                 }
             } else {
-                $fields['CODE'] = $this->generateCode($hint !== '' ? $hint : $title, $iblockId);
+                $fields['CODE'] = $this->generateCode($title, $iblockId, $reservedCodes);
                 $id = (int)$elementApi->Add($fields);
                 if ($id <= 0) {
                     throw new \RuntimeException('Не удалось создать глобальное значение: ' . trim((string)$elementApi->LAST_ERROR));
                 }
+                $reservedCodes[strtolower($fields['CODE'])] = true;
             }
             \CIBlockElement::SetPropertyValuesEx($id, $iblockId, [
                 'KIND' => $kind,
@@ -172,7 +173,7 @@ final class GlobalSymbolService
         }
     }
 
-    private function generateCode(string $hint, int $iblockId): string
+    private function generateCode(string $hint, int $iblockId, array $reservedCodes = []): string
     {
         $transliterated = class_exists('\CUtil')
             ? \CUtil::translit($hint, 'ru', ['replace_space' => '_', 'replace_other' => '_', 'change_case' => 'L'])
@@ -191,9 +192,57 @@ final class GlobalSymbolService
         $code = $slug;
         $suffix = 2;
         do {
-            $exists = \CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => $code], false, ['nTopCount' => 1], ['ID'])->Fetch();
+            $exists = isset($reservedCodes[strtolower($code)])
+                || \CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => $code], false, ['nTopCount' => 1], ['ID'])->Fetch();
             if ($exists) $code = substr($slug, 0, 110) . '_' . $suffix++;
         } while ($exists);
         return $code;
+    }
+
+    /**
+     * Global identifiers share the formula namespace with every calculator
+     * input and local variable. Legacy preset declarations also reserve names.
+     */
+    private function collectCalculatorNamespaceCodes(): array
+    {
+        $used = [];
+        $config = new ConfigManager();
+        $settingsIblockId = $config->getIblockId('CALC_SETTINGS');
+        if ($settingsIblockId > 0) {
+            $iterator = \CIBlockElement::GetList([], ['IBLOCK_ID' => $settingsIblockId], false, false, ['ID']);
+            while ($element = $iterator->Fetch()) {
+                $elementId = (int)$element['ID'];
+                $params = \CIBlockElement::GetProperty($settingsIblockId, $elementId, [], ['CODE' => 'PARAMS']);
+                while ($property = $params->Fetch()) {
+                    $code = trim((string)($property['VALUE'] ?? ''));
+                    if ($code !== '') $used[strtolower($code)] = true;
+                }
+                $logicRows = \CIBlockElement::GetProperty($settingsIblockId, $elementId, [], ['CODE' => 'LOGIC_JSON']);
+                while ($property = $logicRows->Fetch()) {
+                    $raw = $property['~VALUE'] ?? $property['VALUE'] ?? '';
+                    $json = is_array($raw) ? (string)($raw['TEXT'] ?? '') : (string)$raw;
+                    $logic = json_decode($json, true);
+                    foreach (is_array($logic['vars'] ?? null) ? $logic['vars'] : [] as $variable) {
+                        if (($variable['scope'] ?? 'local') === 'global') continue;
+                        $code = trim((string)($variable['name'] ?? ''));
+                        if ($code !== '') $used[strtolower($code)] = true;
+                    }
+                }
+            }
+        }
+        $presetsIblockId = $config->getIblockId('CALC_PRESETS');
+        if ($presetsIblockId > 0) {
+            $iterator = \CIBlockElement::GetList([], ['IBLOCK_ID' => $presetsIblockId], false, false, ['ID']);
+            while ($element = $iterator->Fetch()) {
+                foreach (['GLOBAL_CONSTANTS', 'GLOBAL_VARIABLES'] as $propertyCode) {
+                    $rows = \CIBlockElement::GetProperty($presetsIblockId, (int)$element['ID'], [], ['CODE' => $propertyCode]);
+                    while ($property = $rows->Fetch()) {
+                        $code = trim((string)($property['VALUE'] ?? ''));
+                        if ($code !== '') $used[strtolower($code)] = true;
+                    }
+                }
+            }
+        }
+        return $used;
     }
 }

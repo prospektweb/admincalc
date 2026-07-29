@@ -325,7 +325,7 @@ final class AiGatewayService
         $systemPrompt = trim((string)$template['prompt'])
             . "\n\nReturn exactly one JSON object and no Markdown. Analyze all items as one calculation context."
             . "\nSuggest only material improvements. Each suggestion changes one existing targetId; never add or delete objects."
-            . "\nA code may be proposed only when codeMutable=true. Existing global codes are immutable."
+            . "\nA code may be proposed only when codeMutable=true. Global-code proposals are applied later through a separate impact-checked atomic refactoring workflow."
             . "\nWhen renaming a code or improving a formula, keep all references internally consistent. Use English ASCII identifiers and Russian user-facing titles and descriptions."
             . "\nNever emit sourcePath, Bitrix IDs, database IDs, preset IDs, stage IDs, or settings IDs. Copy baseFingerprint exactly."
             . "\nAllowed patch keys: code, title, description, type, formula. Omit unchanged keys."
@@ -515,7 +515,7 @@ final class AiGatewayService
             ],
             'logic_audit' => [
                 'AI-анализ логики и обозначений',
-                'Ты технический редактор полиграфических калькуляторов. По черновым наметкам и полному контексту предложи понятные названия, однозначные ASCII-коды, точные описания и типы. Проверь формулы, единицы измерения и согласованность результатов. Не меняй бизнес-правила без достаточных данных.',
+                'Ты технический редактор полиграфических калькуляторов. По исходным данным и полному контексту предложи понятные названия, однозначные ASCII-коды, точные описания и типы. Проверь формулы, единицы измерения и согласованность результатов. Не меняй бизнес-правила без достаточных данных.',
             ],
             'preset_description' => ['Описание пресета', 'Напиши краткий анонс пресета. Пресет: {название пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
             'detail_description' => ['Описание детали', 'Напиши краткий технический анонс детали. Деталь: {название детали}. Пресет: {название пресета}. Анонс пресета: {анонс пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],

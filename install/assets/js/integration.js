@@ -311,6 +311,12 @@
                 case 'GENERATE_LOGIC_AUDIT_REQUEST':
                     await this.handleGenerateLogicAuditRequest(message, origin);
                     break;
+                case 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST':
+                    await this.handlePreviewGlobalCodeRefactorRequest(message, origin);
+                    break;
+                case 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST':
+                    await this.handleApplyGlobalCodeRefactorRequest(message, origin);
+                    break;
                 case 'GET_AI_BASE_PRODUCTS_REQUEST':
                     await this.handleGetAiBaseProductsRequest(message, origin);
                     break;
@@ -435,7 +441,7 @@
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
-                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_LOGIC_AUDIT_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
+                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_LOGIC_AUDIT_REQUEST', 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST', 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
@@ -1384,6 +1390,50 @@
                 this.sendPwrtMessage('AI_LOGIC_AUDIT_RESPONSE', {
                     status: 'error',
                     message: error && error.message ? error.message : 'Не удалось выполнить AI-анализ',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handlePreviewGlobalCodeRefactorRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'previewGlobalCodeRefactor',
+                    renames: Array.isArray(payload.renames) ? payload.renames : [],
+                }]);
+                this.sendPwrtMessage(
+                    'GLOBAL_CODE_REFACTOR_PREVIEW_RESPONSE',
+                    Array.isArray(result) ? result[0] : { status: 'error', message: 'Сервер не вернул предварительную проверку' },
+                    message.requestId,
+                    origin
+                );
+            } catch (error) {
+                this.sendPwrtMessage('GLOBAL_CODE_REFACTOR_PREVIEW_RESPONSE', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось проверить влияние переименования',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleApplyGlobalCodeRefactorRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'applyGlobalCodeRefactor',
+                    renames: Array.isArray(payload.renames) ? payload.renames : [],
+                    fingerprint: String(payload.fingerprint || ''),
+                }]);
+                const response = Array.isArray(result) ? result[0] : null;
+                if (!response || response.status !== 'ok') {
+                    throw new Error(response?.message || 'Сервер не применил безопасное переименование');
+                }
+                this.initData = await this.fetchInitData();
+                this.sendPwrtMessage('GLOBAL_CODE_REFACTOR_APPLIED', response, message.requestId, origin);
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('GLOBAL_CODE_REFACTOR_APPLIED', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось применить безопасное переименование',
                 }, message.requestId, origin);
             }
         }

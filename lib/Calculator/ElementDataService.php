@@ -75,6 +75,14 @@ class ElementDataService
                         );
                         continue 2;
 
+                    case 'previewGlobalCodeRefactor':
+                        $result[] = (new \Prospektweb\Calc\Services\GlobalCodeRefactorService())->preview($request);
+                        continue 2;
+
+                    case 'applyGlobalCodeRefactor':
+                        $result[] = (new \Prospektweb\Calc\Services\GlobalCodeRefactorService())->apply($request);
+                        continue 2;
+
                     case 'saveStageGroups':
                         $result[] = (new \Prospektweb\Calc\Services\StageGroupService())->save($request);
                         continue 2;

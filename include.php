@@ -34,6 +34,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\AsproAiPatchManager' => 'lib/Services/AsproAiPatchManager.php',
     'Prospektweb\\Calc\\Services\\CatalogMetaService' => 'lib/Services/CatalogMetaService.php',
     'Prospektweb\\Calc\\Services\\GlobalSymbolService' => 'lib/Services/GlobalSymbolService.php',
+    'Prospektweb\\Calc\\Services\\GlobalCodeRefactorService' => 'lib/Services/GlobalCodeRefactorService.php',
     'Prospektweb\\Calc\\Services\\StageGroupService' => 'lib/Services/StageGroupService.php',
     'Prospektweb\\Calc\\Handlers\\AdminHandler' => 'lib/Handlers/AdminHandler.php',
     'Prospektweb\\Calc\\Handlers\\DependencyHandler' => 'lib/Handlers/DependencyHandler.php',

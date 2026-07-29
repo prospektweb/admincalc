@@ -30,8 +30,6 @@ $checks = [
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
     [$calculator, "index.html?v=7d063d8dd228", 'Embedded calculator must load the current frontend release without stale HTML cache'],
     [$calculatorPage, "index.html?v=7d063d8dd228", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
-    [$appIndex, "assets/index.js?v=7d063d8dd228", 'Built application HTML must invalidate the stable JavaScript asset name'],
-    [$appIndex, "assets/style.css?v=7d063d8dd228", 'Built application HTML must invalidate the stable stylesheet asset name'],
     [$integration, "SAVE_SETTINGS_EQUIPMENT_RESPONSE", 'Equipment saves must report completion to the iframe'],
     [$integration, "case 'SAVE_USER_THEME_REQUEST'", 'The iframe bridge must persist the editor theme for the current Bitrix user'],
     [$integration, "this.initData.context.editorTheme = theme", 'Theme changes must survive later INIT refreshes'],
@@ -157,6 +155,11 @@ foreach (['DEFAULT_OPERATION_VARIANT', 'DEFAULT_MATERIAL_VARIANT'] as $removedCa
     if (strpos($installer, $removedCalculatorProperty) !== false) {
         throw new RuntimeException('Removed calculator default-variant properties must not be recreated by the installer');
     }
+}
+
+if (!preg_match('~assets/index\.js\?v=[a-f0-9]{12}~', $appIndex)
+    || !preg_match('~assets/style\.css\?v=[a-f0-9]{12}~', $appIndex)) {
+    throw new RuntimeException('Built application assets must use a 12-character commit cache key');
 }
 
 foreach ($checks as [$source, $needle, $message]) {
