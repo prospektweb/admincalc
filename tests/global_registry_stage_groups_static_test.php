@@ -27,6 +27,8 @@ $checks = [
     'init exposes shared symbols' => strpos($init, "'globalSymbols'") !== false,
     'AI audit is a dedicated contract' => strpos($gateway, 'LOGIC_AUDIT_PROPOSAL_SCHEMA') !== false,
     'stage groups are stored on preset' => strpos($groups, "STAGE_GROUPS") !== false,
+    'init preserves the HTML stage-group property shape after any refresh' => strpos($init, "\$code === 'STAGE_GROUPS'") !== false
+        && strpos($init, "'~VALUE' => \$value") !== false,
     'server validates preset stage membership and topology' => strpos($groups, 'collectPresetStageTopology') !== false
         && strpos($groups, 'Все этапы группы должны находиться в одной колонке') !== false
         && strpos($groups, 'Этапы группы должны идти подряд') !== false,

@@ -660,6 +660,12 @@ class InitPayloadService
                     'VALUE' => $property['values'] ?? [],
                     'DESCRIPTION' => $property['descriptions'] ?? [],
                 ];
+            } elseif ($code === 'STAGE_GROUPS') {
+                $value = $property['values'][0] ?? null;
+                $presetElement['properties'][$code] = [
+                    'VALUE' => $value,
+                    '~VALUE' => $value,
+                ];
             } else {
                 $presetElement['properties'][$code] = $property['values'] ?? [];
             }
