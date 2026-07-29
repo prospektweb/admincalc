@@ -7,6 +7,7 @@ $groups = file_get_contents($root . '/lib/Services/StageGroupService.php');
 $service = file_get_contents($root . '/lib/Calculator/ElementDataService.php');
 $integration = file_get_contents($root . '/install/assets/js/integration.js');
 $init = file_get_contents($root . '/lib/Calculator/InitPayloadService.php');
+$autoload = file_get_contents($root . '/include.php');
 
 $checks = [
     'global registry has dedicated iblock' => strpos($globals, "CALC_GLOBAL_VALUES") !== false,
@@ -15,6 +16,8 @@ $checks = [
     'AI audit is a dedicated contract' => strpos($gateway, 'LOGIC_AUDIT_PROPOSAL_SCHEMA') !== false,
     'stage groups are stored on preset' => strpos($groups, "STAGE_GROUPS") !== false,
     'server validates preset stage membership' => strpos($groups, 'collectPresetStageIds') !== false,
+    'new services are registered in Bitrix autoload map' => strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalSymbolService'") !== false
+        && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\StageGroupService'") !== false,
     'actions are routed through PHP service' => strpos($service, "case 'saveGlobalSymbols'") !== false && strpos($service, "case 'saveStageGroups'") !== false,
     'browser bridge routes AI and both saves' => strpos($integration, 'GENERATE_LOGIC_AUDIT_REQUEST') !== false
         && strpos($integration, 'SAVE_GLOBAL_SYMBOLS_REQUEST') !== false
