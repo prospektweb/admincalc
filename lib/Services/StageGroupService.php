@@ -21,7 +21,7 @@ final class StageGroupService
             throw new \RuntimeException('Пресет не найден');
         }
         $this->ensureProperty($iblockId);
-        $allowedStageIds = $this->collectPresetStageIds($presetId, $iblockId);
+        $stageTopology = $this->collectPresetStageTopology($presetId, $iblockId);
         $used = [];
         $clean = [];
         foreach ($groups as $index => $group) {
@@ -36,11 +36,26 @@ final class StageGroupService
             foreach (is_array($group['stageIds'] ?? null) ? $group['stageIds'] : [] as $stageId) {
                 $stageId = (int)$stageId;
                 if ($stageId <= 0 || isset($used[$stageId])) throw new \InvalidArgumentException('Этап не может входить в две группы');
-                if (!isset($allowedStageIds[$stageId])) throw new \InvalidArgumentException('Группа содержит этап из другого пресета');
+                if (!isset($stageTopology[$stageId])) throw new \InvalidArgumentException('Группа содержит этап из другого пресета');
                 $used[$stageId] = true;
                 $stageIds[] = $stageId;
             }
             if (count($stageIds) < 2) throw new \InvalidArgumentException('Группа должна содержать как минимум два этапа');
+            $container = $stageTopology[$stageIds[0]]['container'];
+            foreach ($stageIds as $stageId) {
+                if ($stageTopology[$stageId]['container'] !== $container) {
+                    throw new \InvalidArgumentException('Все этапы группы должны находиться в одной колонке');
+                }
+            }
+            usort($stageIds, static fn(int $left, int $right): int =>
+                $stageTopology[$left]['position'] <=> $stageTopology[$right]['position']
+            );
+            foreach ($stageIds as $position => $stageId) {
+                if ($position > 0
+                    && $stageTopology[$stageId]['position'] !== $stageTopology[$stageIds[$position - 1]]['position'] + 1) {
+                    throw new \InvalidArgumentException('Этапы группы должны идти подряд');
+                }
+            }
             $clean[] = [
                 'id' => $id !== '' ? $id : 'group_' . ($index + 1) . '_' . bin2hex(random_bytes(4)),
                 'title' => $title,
@@ -71,26 +86,28 @@ final class StageGroupService
         }
     }
 
-    private function collectPresetStageIds(int $presetId, int $presetIblockId): array
+    private function collectPresetStageTopology(int $presetId, int $presetIblockId): array
     {
-        $stages = [];
-        foreach ($this->propertyIds($presetIblockId, $presetId, 'CALC_STAGES') as $stageId) {
-            $stages[(int)$stageId] = true;
+        $topology = [];
+        foreach ($this->propertyIds($presetIblockId, $presetId, 'CALC_STAGES') as $position => $stageId) {
+            $topology[(int)$stageId] = ['container' => 'preset:' . $presetId, 'position' => $position];
         }
         $detailsIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_DETAILS', 0);
-        if ($detailsIblockId <= 0) return $stages;
+        if ($detailsIblockId <= 0) return $topology;
         $queue = $this->propertyIds($presetIblockId, $presetId, 'CALC_DETAILS');
         $visited = [];
         while ($queue !== []) {
             $detailId = (int)array_shift($queue);
             if ($detailId <= 0 || isset($visited[$detailId])) continue;
             $visited[$detailId] = true;
-            foreach ($this->propertyIds($detailsIblockId, $detailId, 'CALC_STAGES') as $stageId) $stages[(int)$stageId] = true;
+            foreach ($this->propertyIds($detailsIblockId, $detailId, 'CALC_STAGES') as $position => $stageId) {
+                $topology[(int)$stageId] = ['container' => 'detail:' . $detailId, 'position' => $position];
+            }
             foreach ($this->propertyIds($detailsIblockId, $detailId, 'DETAILS') as $childId) {
                 if (!isset($visited[(int)$childId])) $queue[] = (int)$childId;
             }
         }
-        return $stages;
+        return $topology;
     }
 
     private function propertyIds(int $iblockId, int $elementId, string $code): array
