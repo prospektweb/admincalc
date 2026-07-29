@@ -18,6 +18,8 @@ final class AiGatewayService
     private const LOGIC_PROPOSAL_SCHEMA = 'prospektweb.calc.ai-logic-proposal/v1';
     private const STAGE_LOGIC_REQUEST_SCHEMA = 'prospektweb.calc.ai-stage-logic-request/v1';
     private const STAGE_LOGIC_PROPOSAL_SCHEMA = 'prospektweb.calc.ai-stage-logic-proposal/v1';
+    private const LOGIC_AUDIT_REQUEST_SCHEMA = 'prospektweb.calc.ai-logic-audit-request/v1';
+    private const LOGIC_AUDIT_PROPOSAL_SCHEMA = 'prospektweb.calc.ai-logic-audit-proposal/v1';
     private const LOGIC_SYMBOL_TYPES = ['number', 'string', 'bool', 'array', 'any', 'unknown'];
     private const LOGIC_SYMBOL_KINDS = ['input', 'variable', 'global-variable', 'global-constant'];
     private const LOGIC_FORBIDDEN_KEYS = [
@@ -42,6 +44,7 @@ final class AiGatewayService
         'material_variant_description' => ['{название варианта материала}' => 'materialVariantName', '{название материала}' => 'materialName', '{анонс материала}' => 'materialPreview', '{Источники данных}' => 'sourceLinks'],
         'logic_formula' => [],
         'logic_stage' => [],
+        'logic_audit' => [],
     ];
     private const STRUCTURED_ZONES = [
         'calculator_description',
@@ -257,6 +260,101 @@ final class AiGatewayService
         ];
     }
 
+    public function generateLogicAudit(array $request): array
+    {
+        $this->assertAdmin();
+        $this->assertNoForbiddenLogicKeys($request);
+        $this->assertAllowedLogicKeys($request, 'request', ['schema', 'baseFingerprint', 'intent', 'contextTitle', 'items']);
+        if (($request['schema'] ?? null) !== self::LOGIC_AUDIT_REQUEST_SCHEMA) {
+            throw new \InvalidArgumentException('Неподдерживаемая схема AI-анализа');
+        }
+        $fingerprint = trim((string)($request['baseFingerprint'] ?? ''));
+        if (!preg_match('/^sha256:[a-f0-9]{64}$/', $fingerprint)) {
+            throw new \InvalidArgumentException('Некорректный fingerprint AI-анализа');
+        }
+        $rawItems = is_array($request['items'] ?? null) ? $request['items'] : [];
+        if ($rawItems === [] || count($rawItems) > 300) {
+            throw new \InvalidArgumentException('AI-анализ должен содержать от 1 до 300 объектов');
+        }
+        $items = [];
+        $targets = [];
+        foreach ($rawItems as $index => $item) {
+            if (!is_array($item)) throw new \InvalidArgumentException('items должен содержать объекты');
+            $this->assertAllowedLogicKeys($item, 'items[' . $index . ']', ['id', 'kind', 'code', 'title', 'description', 'type', 'formula', 'codeMutable']);
+            $id = $this->logicText($item['id'] ?? '', 'items[' . $index . '].id', 180);
+            $kind = trim((string)($item['kind'] ?? ''));
+            if (!in_array($kind, ['input', 'variable', 'result', 'global'], true) || isset($targets[$id])) {
+                throw new \InvalidArgumentException('Некорректный или повторный объект AI-анализа');
+            }
+            $targets[$id] = ['kind' => $kind, 'codeMutable' => (bool)($item['codeMutable'] ?? false)];
+            $items[] = [
+                'id' => $id,
+                'kind' => $kind,
+                'code' => $this->logicOptionalText($item['code'] ?? '', 120),
+                'title' => $this->logicOptionalText($item['title'] ?? '', 250),
+                'description' => $this->logicOptionalText($item['description'] ?? '', 4000),
+                'type' => $this->logicOptionalText($item['type'] ?? 'unknown', 20),
+                'formula' => $this->logicOptionalText($item['formula'] ?? '', 12000),
+                'codeMutable' => (bool)($item['codeMutable'] ?? false),
+            ];
+        }
+        $cleanRequest = [
+            'schema' => self::LOGIC_AUDIT_REQUEST_SCHEMA,
+            'baseFingerprint' => $fingerprint,
+            'intent' => $this->logicOptionalText($request['intent'] ?? '', 12000),
+            'contextTitle' => $this->logicOptionalText($request['contextTitle'] ?? '', 500),
+            'items' => $items,
+        ];
+        $template = null;
+        foreach ($this->getTemplates() as $candidate) {
+            if (($candidate['zone'] ?? '') === 'logic_audit') { $template = $candidate; break; }
+        }
+        if ($template === null) throw new \RuntimeException('Для AI-анализа не настроен шаблон');
+        $shape = [
+            'schema' => self::LOGIC_AUDIT_PROPOSAL_SCHEMA,
+            'baseFingerprint' => $fingerprint,
+            'summary' => '',
+            'suggestions' => [[
+                'id' => 'suggestion_001',
+                'targetId' => 'exact item id',
+                'targetKind' => 'input | variable | result | global',
+                'patch' => ['code' => '', 'title' => '', 'description' => '', 'type' => '', 'formula' => ''],
+                'rationale' => '',
+            ]],
+        ];
+        $systemPrompt = trim((string)$template['prompt'])
+            . "\n\nReturn exactly one JSON object and no Markdown. Analyze all items as one calculation context."
+            . "\nSuggest only material improvements. Each suggestion changes one existing targetId; never add or delete objects."
+            . "\nA code may be proposed only when codeMutable=true. Existing global codes are immutable."
+            . "\nWhen renaming a code or improving a formula, keep all references internally consistent. Use English ASCII identifiers and Russian user-facing titles and descriptions."
+            . "\nNever emit sourcePath, Bitrix IDs, database IDs, preset IDs, stage IDs, or settings IDs. Copy baseFingerprint exactly."
+            . "\nAllowed patch keys: code, title, description, type, formula. Omit unchanged keys."
+            . "\nRequired response shape:\n"
+            . json_encode($shape, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+        $startedAt = microtime(true);
+        $response = $this->request('POST', '/chat/completions', [
+            'model' => (string)$template['model'],
+            'messages' => [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user', 'content' => json_encode($cleanRequest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
+            ],
+        ]);
+        $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
+        if ($content === '') throw new \RuntimeException('AI Gateway вернул пустой анализ');
+        $proposal = $this->parseLogicAuditProposal($content, $fingerprint, $targets);
+        $usage = is_array($response['usage'] ?? null) ? $response['usage'] : [];
+        return [
+            'status' => 'ok',
+            'proposal' => $proposal,
+            'usage' => [
+                'model' => (string)$template['model'],
+                'inputTokens' => (int)($usage['prompt_tokens'] ?? $usage['input_tokens'] ?? 0),
+                'outputTokens' => (int)($usage['completion_tokens'] ?? $usage['output_tokens'] ?? 0),
+                'latencyMs' => (int)round((microtime(true) - $startedAt) * 1000),
+            ],
+        ];
+    }
+
     public function previewStageLogicPrompt(array $request): array
     {
         $this->assertAdmin();
@@ -414,6 +512,10 @@ final class AiGatewayService
             'logic_stage' => [
                 'AI-конструктор логики этапа',
                 'Ты проектируешь полную расчётную логику одного этапа полиграфического изделия. Учитывай назначение этапа, выбранные калькулятор, операцию, оборудование и материал, доступные источники и глобальные значения. Построй связанные входы, упорядоченные переменные с формулами и результаты этапа. Не придумывай отсутствующие источники и не используй внутренние ID или пути.',
+            ],
+            'logic_audit' => [
+                'AI-анализ логики и обозначений',
+                'Ты технический редактор полиграфических калькуляторов. По черновым наметкам и полному контексту предложи понятные названия, однозначные ASCII-коды, точные описания и типы. Проверь формулы, единицы измерения и согласованность результатов. Не меняй бизнес-правила без достаточных данных.',
             ],
             'preset_description' => ['Описание пресета', 'Напиши краткий анонс пресета. Пресет: {название пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
             'detail_description' => ['Описание детали', 'Напиши краткий технический анонс детали. Деталь: {название детали}. Пресет: {название пресета}. Анонс пресета: {анонс пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
@@ -861,6 +963,63 @@ final class AiGatewayService
             'assumptions' => $assumptions,
             'questions' => [],
             'draft' => ['inputs' => $inputs, 'variables' => $variables, 'results' => $results, 'additionalResults' => $additional],
+        ];
+    }
+
+    private function parseLogicAuditProposal(string $content, string $fingerprint, array $targets): array
+    {
+        $json = trim($content);
+        if (preg_match('/^```(?:json)?\s*(.*?)\s*```$/si', $json, $matches)) $json = trim($matches[1]);
+        $proposal = json_decode($json, true);
+        if (!is_array($proposal) || array_values($proposal) === $proposal) {
+            throw new \RuntimeException('AI вернул невалидный JSON анализа');
+        }
+        $this->assertNoForbiddenLogicKeys($proposal);
+        $this->assertAllowedLogicKeys($proposal, 'proposal', ['schema', 'baseFingerprint', 'summary', 'suggestions']);
+        if (($proposal['schema'] ?? null) !== self::LOGIC_AUDIT_PROPOSAL_SCHEMA || ($proposal['baseFingerprint'] ?? null) !== $fingerprint) {
+            throw new \RuntimeException('AI-анализ относится к другой версии логики');
+        }
+        $rawSuggestions = is_array($proposal['suggestions'] ?? null) ? $proposal['suggestions'] : [];
+        if (count($rawSuggestions) > 300) throw new \RuntimeException('AI вернул слишком много предложений');
+        $suggestions = [];
+        $allowedTypes = ['auto', 'number', 'string', 'bool', 'boolean', 'array', 'object', 'any', 'unknown'];
+        foreach ($rawSuggestions as $index => $suggestion) {
+            if (!is_array($suggestion)) throw new \RuntimeException('Некорректное предложение AI');
+            $this->assertAllowedLogicKeys($suggestion, 'suggestions[' . $index . ']', ['id', 'targetId', 'targetKind', 'patch', 'rationale']);
+            $targetId = trim((string)($suggestion['targetId'] ?? ''));
+            $target = $targets[$targetId] ?? null;
+            if (!$target || ($suggestion['targetKind'] ?? null) !== $target['kind']) {
+                throw new \RuntimeException('AI сослался на неизвестный объект анализа');
+            }
+            $rawPatch = is_array($suggestion['patch'] ?? null) ? $suggestion['patch'] : [];
+            $this->assertAllowedLogicKeys($rawPatch, 'suggestions[' . $index . '].patch', ['code', 'title', 'description', 'type', 'formula']);
+            $patch = [];
+            if (array_key_exists('code', $rawPatch)) {
+                if (!$target['codeMutable']) throw new \RuntimeException('AI попытался изменить неизменяемый системный код');
+                $patch['code'] = $this->logicCode($rawPatch['code'], 'suggestions[' . $index . '].patch.code');
+            }
+            foreach (['title' => 250, 'description' => 4000, 'formula' => 12000] as $key => $maxLength) {
+                if (array_key_exists($key, $rawPatch)) $patch[$key] = $this->logicOptionalText($rawPatch[$key], $maxLength);
+            }
+            if (array_key_exists('type', $rawPatch)) {
+                $type = trim((string)$rawPatch['type']);
+                if (!in_array($type, $allowedTypes, true)) throw new \RuntimeException('AI предложил неизвестный тип');
+                $patch['type'] = $type;
+            }
+            if ($patch === []) continue;
+            $suggestions[] = [
+                'id' => $this->logicOptionalText($suggestion['id'] ?? ('suggestion_' . ($index + 1)), 120),
+                'targetId' => $targetId,
+                'targetKind' => $target['kind'],
+                'patch' => $patch,
+                'rationale' => $this->logicOptionalText($suggestion['rationale'] ?? '', 2000),
+            ];
+        }
+        return [
+            'schema' => self::LOGIC_AUDIT_PROPOSAL_SCHEMA,
+            'baseFingerprint' => $fingerprint,
+            'summary' => $this->logicOptionalText($proposal['summary'] ?? '', 4000),
+            'suggestions' => $suggestions,
         ];
     }
 

@@ -63,6 +63,22 @@ class ElementDataService
                         );
                         continue 2;
 
+                    case 'generateLogicAudit':
+                        $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->generateLogicAudit(
+                            is_array($request['request'] ?? null) ? $request['request'] : []
+                        );
+                        continue 2;
+
+                    case 'saveGlobalSymbols':
+                        $result[] = (new \Prospektweb\Calc\Services\GlobalSymbolService())->save(
+                            is_array($request['symbols'] ?? null) ? $request['symbols'] : []
+                        );
+                        continue 2;
+
+                    case 'saveStageGroups':
+                        $result[] = (new \Prospektweb\Calc\Services\StageGroupService())->save($request);
+                        continue 2;
+
                     case 'previewStageLogicPrompt':
                         $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->previewStageLogicPrompt(
                             is_array($request['request'] ?? null) ? $request['request'] : []

@@ -23,6 +23,7 @@ class ConfigManager
         'CALC_PRESETS' => 'calculator',
         'CALC_STAGES' => 'calculator_catalog',
         'CALC_SETTINGS' => 'calculator',
+        'CALC_GLOBAL_VALUES' => 'calculator',
         'CALC_CUSTOM_FIELDS' => 'calculator',
         'CALC_MATERIALS' => 'calculator_catalog',
         'CALC_MATERIALS_VARIANTS' => 'calculator_catalog',

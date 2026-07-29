@@ -308,6 +308,9 @@
                 case 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST':
                     await this.handleGenerateStageLogicProposalRequest(message, origin);
                     break;
+                case 'GENERATE_LOGIC_AUDIT_REQUEST':
+                    await this.handleGenerateLogicAuditRequest(message, origin);
+                    break;
                 case 'GET_AI_BASE_PRODUCTS_REQUEST':
                     await this.handleGetAiBaseProductsRequest(message, origin);
                     break;
@@ -349,6 +352,12 @@
                     break;
                 case 'SAVE_PRESET_GLOBALS_REQUEST':
                     await this.handleSavePresetGlobalsRequest(message, origin);
+                    break;
+                case 'SAVE_GLOBAL_SYMBOLS_REQUEST':
+                    await this.handleSaveGlobalSymbolsRequest(message, origin);
+                    break;
+                case 'SAVE_STAGE_GROUPS_REQUEST':
+                    await this.handleSaveStageGroupsRequest(message, origin);
                     break;
                 case 'ADD_DETAIL_TO_BINDING_REQUEST':
                     await this.handleAddDetailToBindingRequest(message, origin);
@@ -426,7 +435,7 @@
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
-                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
+                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_LOGIC_AUDIT_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
@@ -435,7 +444,7 @@
                         'RESOLVE_CALC_CONTRACT_REQUEST',
                         'SAVE_CALCULATION_REQUEST',
                         'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL', 'CLEAR_OPTIONS_EQUIPMENT',
-                        'CLEAR_PRESET_REQUEST', 'SAVE_PRESET_GLOBALS_REQUEST', 'CLOSE_REQUEST'
+                        'CLEAR_PRESET_REQUEST', 'SAVE_PRESET_GLOBALS_REQUEST', 'SAVE_GLOBAL_SYMBOLS_REQUEST', 'SAVE_STAGE_GROUPS_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
         }
@@ -1354,6 +1363,27 @@
                 this.sendPwrtMessage('AI_STAGE_LOGIC_PROPOSAL_RESPONSE', {
                     status: 'error',
                     message: error && error.message ? error.message : 'Не удалось сформировать проект логики этапа',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleGenerateLogicAuditRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'generateLogicAudit',
+                    request: payload,
+                }]);
+                this.sendPwrtMessage(
+                    'AI_LOGIC_AUDIT_RESPONSE',
+                    Array.isArray(result) ? result[0] : { status: 'error', message: 'AI не вернул анализ' },
+                    message.requestId,
+                    origin
+                );
+            } catch (error) {
+                this.sendPwrtMessage('AI_LOGIC_AUDIT_RESPONSE', {
+                    status: 'error',
+                    message: error && error.message ? error.message : 'Не удалось выполнить AI-анализ',
                 }, message.requestId, origin);
             }
         }
@@ -3119,6 +3149,58 @@
             }
         }
 
+        async handleSaveGlobalSymbolsRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'saveGlobalSymbols',
+                    symbols: Array.isArray(payload.symbols) ? payload.symbols : [],
+                }]);
+                const response = Array.isArray(result) && result[0] ? result[0] : { status: 'error', message: 'Пустой ответ сервера' };
+                if (response.status !== 'ok') throw new Error(response.message || 'Не удалось сохранить глобальный реестр');
+                if (this.initData) {
+                    this.initData.globalSymbols = Array.isArray(response.symbols) ? response.symbols : [];
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                } else {
+                    this.sendPwrtMessage('RESPONSE', response, message.requestId, origin);
+                }
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось сохранить глобальный реестр',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleSaveStageGroupsRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'saveStageGroups',
+                    presetId: Number(payload.presetId || 0),
+                    groups: Array.isArray(payload.groups) ? payload.groups : [],
+                }]);
+                const response = Array.isArray(result) && result[0] ? result[0] : { status: 'error', message: 'Пустой ответ сервера' };
+                if (response.status !== 'ok') throw new Error(response.message || 'Не удалось сохранить группы этапов');
+                if (this.initData && this.initData.preset) {
+                    const value = JSON.stringify({ version: 1, groups: Array.isArray(response.groups) ? response.groups : [] });
+                    this.initData.preset.properties = this.initData.preset.properties || {};
+                    this.initData.preset.properties.STAGE_GROUPS = {
+                        VALUE: { TEXT: value, TYPE: 'TEXT' },
+                        '~VALUE': { TEXT: value, TYPE: 'TEXT' },
+                    };
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                } else {
+                    this.sendPwrtMessage('RESPONSE', response, message.requestId, origin);
+                }
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось сохранить группы этапов',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
+            }
+        }
+
         async handleCheckCalcContractRequest(message, origin) {
             const payload = message.payload || {};
             const settingsId = parseInt(payload.settingsId, 10) || 0;
@@ -4056,7 +4138,7 @@
         async fetchRefreshData(items) {
             const debugItems = Array.isArray(items) ? items.map(item => {
                 if (!item || typeof item !== 'object') return item;
-                if (item.action === 'generateLogicProposal' || item.action === 'generateStageLogicProposal') {
+                if (item.action === 'generateLogicProposal' || item.action === 'generateStageLogicProposal' || item.action === 'generateLogicAudit') {
                     const request = item.request && typeof item.request === 'object' ? item.request : {};
                     return {
                         action: item.action,
@@ -4067,6 +4149,7 @@
                             availableSymbolsCount: Array.isArray(request.availableSymbols) ? request.availableSymbols.length : 0,
                             availableSourcesCount: Array.isArray(request.availableSources) ? request.availableSources.length : 0,
                             entitiesCount: request.stage && Array.isArray(request.stage.entities) ? request.stage.entities.length : 0,
+                            itemsCount: Array.isArray(request.items) ? request.items.length : 0,
                             intent: '[REDACTED]',
                             formula: '[REDACTED]',
                             currentLogic: '[REDACTED]',

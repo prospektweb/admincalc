@@ -79,6 +79,7 @@ class InitPayloadService
             'product' => $product,
             'elementsStore' => $this->elementsStore ?? [],
             'elementsSiblings' => $this->buildElementsSiblings($preset),
+            'globalSymbols' => (new \Prospektweb\Calc\Services\GlobalSymbolService())->list(),
         ];
     }
 
