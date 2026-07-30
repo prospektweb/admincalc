@@ -63,7 +63,7 @@ final class GlobalSymbolService
         $connection = Application::getConnection();
         $connection->startTransaction();
         try {
-        foreach ($rows as $row) {
+        foreach ($rows as $rowIndex => $row) {
             if (!is_array($row)) {
                 throw new \InvalidArgumentException('Глобальное значение должно быть объектом');
             }
@@ -92,6 +92,7 @@ final class GlobalSymbolService
                 'PREVIEW_TEXT' => $description,
                 'PREVIEW_TEXT_TYPE' => 'text',
                 'ACTIVE' => 'Y',
+                'SORT' => 100 + ((int)$rowIndex * 10),
             ];
             if ($id > 0) {
                 $existing = \CIBlockElement::GetList([], ['ID' => $id, 'IBLOCK_ID' => $iblockId], false, ['nTopCount' => 1], ['ID'])->Fetch();

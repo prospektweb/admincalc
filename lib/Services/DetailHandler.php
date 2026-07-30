@@ -320,8 +320,21 @@ class DetailHandler
             }
 
             // 2. Добавить его ID в свойство CALC_STAGES детали
-            $existingConfigs = $detail['CONFIGS'];
-            $existingConfigs[] = $configId;
+            $existingConfigs = array_values(array_filter(array_map('intval', $detail['CONFIGS'] ?? [])));
+            $afterStageId = (int)($data['afterStageId'] ?? 0);
+            $insertionIndex = count($existingConfigs);
+            if ($afterStageId > 0) {
+                $afterIndex = array_search($afterStageId, $existingConfigs, true);
+                if ($afterIndex === false) {
+                    \CIBlockElement::Delete($configId);
+                    return [
+                        'status' => 'error',
+                        'message' => 'Не удалось определить позицию нового этапа',
+                    ];
+                }
+                $insertionIndex = $afterIndex + 1;
+            }
+            array_splice($existingConfigs, $insertionIndex, 0, [$configId]);
             
             \CIBlockElement:: SetPropertyValuesEx($detailId, $this->detailsIblockId, [
                 'CALC_STAGES' => $existingConfigs,

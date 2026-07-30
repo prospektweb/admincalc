@@ -1656,6 +1656,7 @@
                         detailId: detailId,
                         name: String(payload.name || ''),
                         previewText: String(payload.previewText || ''),
+                        afterStageId: Number(payload.afterStageId || 0),
                         presetId: presetId,
                         offerIds: offerIds,
                         siteId: siteId,

@@ -29,6 +29,9 @@ $checks = [
     'global registry saves value and type by stable property ids and verifies the write' => strpos($globals, "'INITIAL_VALUE' => \$this->propertyId") !== false
         && strpos($globals, 'SetPropertyValues(') !== false
         && strpos($globals, "Глобальное значение не было полностью записано") !== false,
+    'global registry persists the exact submitted order through Bitrix SORT' => strpos($globals, 'foreach ($rows as $rowIndex => $row)') !== false
+        && strpos($globals, "'SORT' => 100 + ((int)\$rowIndex * 10)") !== false
+        && strpos($globals, "['SORT' => 'ASC', 'ID' => 'ASC']") !== false,
     'global registry resolves property codes with the supported legacy filter' => substr_count($globals, "'CODE' => \$code") >= 2
         && substr_count($globals, "'=CODE' => \$code") === 1,
     'AI audit is a dedicated contract' => strpos($gateway, 'LOGIC_AUDIT_PROPOSAL_SCHEMA') !== false,
