@@ -33,6 +33,7 @@ $checks = [
         && substr_count($globals, "'=CODE' => \$code") === 1,
     'AI audit is a dedicated contract' => strpos($gateway, 'LOGIC_AUDIT_PROPOSAL_SCHEMA') !== false,
     'stage groups are stored on preset' => strpos($groups, "STAGE_GROUPS") !== false,
+    'safe global refactor updates condition branch operands' => strpos($refactor, "'STAGE_GROUPS', \$map, 'condition'") !== false,
     'init preserves the HTML stage-group property shape after any refresh' => strpos($init, "\$code === 'STAGE_GROUPS'") !== false
         && strpos($init, "'~VALUE' => \$value") !== false,
     'server validates preset stage membership and topology' => strpos($groups, 'collectPresetStageTopology') !== false
@@ -44,6 +45,13 @@ $checks = [
         && strpos($groups, 'Группы этапов не были записаны в пресет') !== false,
     'stage-group property lookup uses the supported legacy code filter' => strpos($groups, "'CODE' => self::PROPERTY_CODE") !== false
         && strpos($groups, "'=CODE' => self::PROPERTY_CODE") === false,
+    'stage conditions persist ordered exclusive branches with mandatory else' => strpos($groups, "'kind' => \$kind") !== false
+        && strpos($groups, "'branches' => \$branches") !== false
+        && strpos($groups, "\$elseCount !== 1") !== false
+        && strpos($groups, "['version' => 3") !== false,
+    'stage activation bridge writes multiple AND OR operands' => strpos($integration, "version: 2") !== false
+        && strpos($integration, "mode: condition.mode === 'and' ? 'and' : 'or'") !== false
+        && strpos($integration, "operands: operands") !== false,
     'new services are registered in Bitrix autoload map' => strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalSymbolService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalCodeRefactorService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\StageGroupService'") !== false,

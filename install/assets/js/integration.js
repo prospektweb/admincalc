@@ -3141,17 +3141,22 @@
             const stageId = parseInt(payload.stageId, 10);
             const condition = payload.condition && typeof payload.condition === 'object'
                 ? payload.condition
-                : { version: 1, enabled: true, kind: null, code: '' };
+                : { version: 2, enabled: true, mode: 'or', operands: [] };
             if (!stageId) {
                 this.sendPwrtMessage('ERROR', { message: 'Не указан этап для сохранения условия' }, message.requestId, origin);
                 return;
             }
             try {
+                const operands = (Array.isArray(condition.operands)
+                    ? condition.operands
+                    : condition.kind && condition.code ? [{ kind: condition.kind, code: condition.code }] : [])
+                    .filter(item => item && (item.kind === 'variable' || item.kind === 'constant') && String(item.code || '').trim())
+                    .map(item => ({ kind: item.kind, code: String(item.code).trim() }));
                 const value = JSON.stringify({
-                    version: 1,
+                    version: 2,
                     enabled: condition.enabled === true,
-                    kind: condition.kind === 'variable' || condition.kind === 'constant' ? condition.kind : null,
-                    code: String(condition.code || '').trim(),
+                    mode: condition.mode === 'and' ? 'and' : 'or',
+                    operands: operands,
                 });
                 const result = await this.fetchRefreshData([{
                     action: 'updateStageProperty',

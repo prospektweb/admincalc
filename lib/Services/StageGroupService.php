@@ -34,6 +34,7 @@ final class StageGroupService
                 'source' => $group,
                 'id' => $id,
                 'parentId' => trim((string)($group['parentId'] ?? '')) ?: null,
+                'kind' => ($group['kind'] ?? null) === 'condition' ? 'condition' : 'group',
             ];
         }
         $normalizedById = [];
@@ -48,9 +49,10 @@ final class StageGroupService
             $description = trim((string)($group['description'] ?? ''));
             $id = $item['id'];
             $parentId = $item['parentId'];
+            $kind = $item['kind'];
             if ($parentId !== null) {
                 $parent = $normalizedById[$parentId] ?? null;
-                if (!$parent || $parent['parentId'] !== null || $parentId === $id) {
+                if (!$parent || $parentId === $id || $parent['kind'] === 'condition') {
                     throw new \InvalidArgumentException('Подгруппа должна принадлежать группе верхнего уровня');
                 }
             }
@@ -78,6 +80,7 @@ final class StageGroupService
             );
             foreach ($stageIds as $position => $stageId) {
                 if ($position > 0
+                    && $kind !== 'condition'
                     && $stageTopology[$stageId]['position'] !== $stageTopology[$stageIds[$position - 1]]['position'] + 1) {
                     throw new \InvalidArgumentException('Этапы группы должны идти подряд');
                 }
@@ -89,15 +92,66 @@ final class StageGroupService
                     throw new \InvalidArgumentException('Подгруппа может содержать только этапы родительской группы');
                 }
             }
+            $branches = [];
+            if ($kind === 'condition') {
+                $usedBranchIds = [];
+                $assignedStageIds = [];
+                $elseCount = 0;
+                foreach (is_array($group['branches'] ?? null) ? $group['branches'] : [] as $branchIndex => $branch) {
+                    if (!is_array($branch)) throw new \InvalidArgumentException('Ветка условия должна быть объектом');
+                    $branchId = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($branch['id'] ?? ''));
+                    $branchId = $branchId !== '' ? $branchId : 'branch_' . ($branchIndex + 1);
+                    if (isset($usedBranchIds[$branchId])) throw new \InvalidArgumentException('Коды веток не должны повторяться');
+                    $usedBranchIds[$branchId] = true;
+                    $isElse = ($branch['isElse'] ?? false) === true;
+                    if ($isElse) $elseCount++;
+                    $branchStageIds = [];
+                    foreach (is_array($branch['stageIds'] ?? null) ? $branch['stageIds'] : [] as $branchStageId) {
+                        $branchStageId = (int)$branchStageId;
+                        if (!in_array($branchStageId, $stageIds, true) || isset($assignedStageIds[$branchStageId])) {
+                            throw new \InvalidArgumentException('Этап должен входить ровно в одну ветку условия');
+                        }
+                        $assignedStageIds[$branchStageId] = true;
+                        $branchStageIds[] = $branchStageId;
+                    }
+                    if ($branchStageIds === []) throw new \InvalidArgumentException('Каждая ветка должна содержать хотя бы один этап');
+                    $operands = [];
+                    foreach (is_array($branch['operands'] ?? null) ? $branch['operands'] : [] as $operand) {
+                        $operandKind = ($operand['kind'] ?? null) === 'variable' ? 'variable' : (($operand['kind'] ?? null) === 'constant' ? 'constant' : null);
+                        $code = trim((string)($operand['code'] ?? ''));
+                        if (!$operandKind || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $code)) {
+                            throw new \InvalidArgumentException('Некорректное глобальное значение в условии ветки');
+                        }
+                        $operands[] = ['kind' => $operandKind, 'code' => $code];
+                    }
+                    if (!$isElse && $operands === []) throw new \InvalidArgumentException('Обычная ветка должна содержать условие');
+                    if ($isElse && $operands !== []) throw new \InvalidArgumentException('Ветка «Иначе» не должна содержать условие');
+                    $branchTitle = trim((string)($branch['title'] ?? ($isElse ? 'Иначе' : 'Ветка ' . ($branchIndex + 1))));
+                    if ($branchTitle === '' || mb_strlen($branchTitle) > 250) throw new \InvalidArgumentException('Укажите корректное название ветки');
+                    $branches[] = [
+                        'id' => $branchId,
+                        'title' => $branchTitle,
+                        'mode' => ($branch['mode'] ?? null) === 'and' ? 'and' : 'or',
+                        'operands' => $operands,
+                        'stageIds' => $branchStageIds,
+                        'isElse' => $isElse,
+                    ];
+                }
+                if (count($branches) < 2 || $elseCount !== 1 || count($assignedStageIds) !== count($stageIds)) {
+                    throw new \InvalidArgumentException('Условие должно иметь обычную ветку, одну ветку «Иначе» и распределять все этапы');
+                }
+            }
             $clean[] = [
                 'id' => $id,
+                'kind' => $kind,
                 'title' => $title,
                 'description' => $description,
                 'stageIds' => $stageIds,
                 'parentId' => $parentId,
+                'branches' => $branches,
             ];
         }
-        $json = json_encode(['version' => 2, 'groups' => $clean], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $json = json_encode(['version' => 3, 'groups' => $clean], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         $connection = \Bitrix\Main\Application::getConnection();
         $connection->startTransaction();
         try {

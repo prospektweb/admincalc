@@ -140,6 +140,7 @@ final class GlobalCodeRefactorService
             foreach (['GLOBAL_CONSTANTS', 'GLOBAL_VARIABLES'] as $propertyCode) {
                 $this->planDescribedGlobals($mutations, $presetId, $elementId, $propertyCode, $map);
             }
+            $this->planJsonProperty($mutations, 'presets', $presetId, $elementId, 'STAGE_GROUPS', $map, 'condition');
         }
         foreach ($this->elementIds($settingsId) as $elementId) {
             $this->planJsonProperty($mutations, 'calculators', $settingsId, $elementId, 'LOGIC_JSON', $map, 'logic');
