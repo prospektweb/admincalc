@@ -1528,7 +1528,19 @@
                     entities: Array.isArray(payload.entities) ? payload.entities : [],
                 }]);
                 const response = Array.isArray(result) ? result[0] : { status: 'error' };
+                let refreshedInitData = null;
+                if (response && response.status === 'ok') {
+                    try {
+                        refreshedInitData = await this.fetchInitData();
+                        this.initData = refreshedInitData;
+                    } catch (refreshError) {
+                        console.warn('[BitrixBridge] Catalog metadata saved, but INIT refresh failed', refreshError);
+                    }
+                }
                 this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', response, message.requestId, origin);
+                if (refreshedInitData) {
+                    this.sendPwrtMessage('INIT', refreshedInitData, message.requestId, origin);
+                }
             } catch (error) {
                 this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сохранить данные' }, message.requestId, origin);
             }
