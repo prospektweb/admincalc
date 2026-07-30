@@ -68,7 +68,11 @@ final class StageGroupService
                 $usedByParent[$scope][$stageId] = true;
                 $stageIds[] = $stageId;
             }
-            if (count($stageIds) < 2) throw new \InvalidArgumentException('Группа должна содержать как минимум два этапа');
+            if (($kind === 'condition' && count($stageIds) < 1) || ($kind !== 'condition' && count($stageIds) < 2)) {
+                throw new \InvalidArgumentException($kind === 'condition'
+                    ? 'Условие должно содержать хотя бы один этап в обычной ветке'
+                    : 'Группа должна содержать как минимум два этапа');
+            }
             $container = $stageTopology[$stageIds[0]]['container'];
             foreach ($stageIds as $stageId) {
                 if ($stageTopology[$stageId]['container'] !== $container) {
@@ -114,7 +118,9 @@ final class StageGroupService
                         $assignedStageIds[$branchStageId] = true;
                         $branchStageIds[] = $branchStageId;
                     }
-                    if ($branchStageIds === []) throw new \InvalidArgumentException('Каждая ветка должна содержать хотя бы один этап');
+                    if (!$isElse && $branchStageIds === []) {
+                        throw new \InvalidArgumentException('Каждая обычная ветка должна содержать хотя бы один этап');
+                    }
                     $operands = [];
                     foreach (is_array($branch['operands'] ?? null) ? $branch['operands'] : [] as $operand) {
                         $operandKind = ($operand['kind'] ?? null) === 'variable' ? 'variable' : (($operand['kind'] ?? null) === 'constant' ? 'constant' : null);

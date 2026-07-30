@@ -49,6 +49,8 @@ $checks = [
         && strpos($groups, "'branches' => \$branches") !== false
         && strpos($groups, "\$elseCount !== 1") !== false
         && strpos($groups, "['version' => 3") !== false,
+    'else branch may remain empty for free-flow fallback' => strpos($groups, "if (!\$isElse && \$branchStageIds === [])") !== false
+        && strpos($groups, "\$kind === 'condition' && count(\$stageIds) < 1") !== false,
     'stage activation bridge writes multiple AND OR operands' => strpos($integration, "version: 2") !== false
         && strpos($integration, "mode: condition.mode === 'and' ? 'and' : 'or'") !== false
         && strpos($integration, "operands: operands") !== false,
