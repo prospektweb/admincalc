@@ -87,6 +87,33 @@ class ElementDataService
                         $result[] = (new \Prospektweb\Calc\Services\StageGroupService())->save($request);
                         continue 2;
 
+                    case 'clonePreset':
+                        global $USER;
+                        if (!$USER || !$USER->IsAdmin()) {
+                            throw new \RuntimeException('Недостаточно прав для клонирования пресета');
+                        }
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $offerIds = array_values(array_filter(array_map(
+                            'intval',
+                            is_array($request['offerIds'] ?? null) ? $request['offerIds'] : []
+                        )));
+                        if ($presetId <= 0 || $offerIds === []) {
+                            throw new \InvalidArgumentException('Для клонирования нужны пресет и торговые предложения текущего товара');
+                        }
+                        $newPresetId = (new BundleHandler())->clonePreset($presetId, $offerIds);
+                        $siteId = (string)($request['siteId'] ?? (defined('SITE_ID') ? SITE_ID : 's1'));
+                        $initPayload = (new InitPayloadService())->prepareInitPayload($offerIds, $siteId, false);
+                        if ((int)($initPayload['preset']['id'] ?? 0) !== $newPresetId) {
+                            throw new \RuntimeException('После клонирования редактор не получил новый пресет');
+                        }
+                        $result[] = [
+                            'status' => 'ok',
+                            'sourcePresetId' => $presetId,
+                            'newPresetId' => $newPresetId,
+                            'initPayload' => $initPayload,
+                        ];
+                        continue 2;
+
                     case 'previewStageLogicPrompt':
                         $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->previewStageLogicPrompt(
                             is_array($request['request'] ?? null) ? $request['request'] : []

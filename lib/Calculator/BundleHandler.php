@@ -78,10 +78,12 @@ class BundleHandler
      * Клонировать пресет вместе со всеми деталями/этапами.
      *
      * @param int $presetId ID исходного пресета
+     * @param int[] $offerIds Торговые предложения текущего товара. Если переданы,
+     *                        клон атомарно привязывается к этому товару.
      * @return int ID нового пресета
      * @throws \Exception
      */
-    public function clonePreset(int $presetId): int
+    public function clonePreset(int $presetId, array $offerIds = []): int
     {
         if ($presetId <= 0) {
             throw new \Exception('presetId не указан');
@@ -105,26 +107,43 @@ class BundleHandler
             throw new \Exception('Пресет не найден');
         }
 
-        $newPresetName = sprintf('%s (копия %s)', $original['NAME'], date('d.m.Y H:i:s'));
-        $newPresetId = (new \CIBlockElement())->Add([
-            'IBLOCK_ID' => $presetsIblockId,
-            'NAME' => $newPresetName,
-            'CODE' => $this->generateUniqueElementCode($presetsIblockId, $newPresetName),
-            'ACTIVE' => $original['ACTIVE'] ?? 'Y',
-            'SORT' => (int)($original['SORT'] ?? 500),
-            'PREVIEW_TEXT' => $original['PREVIEW_TEXT'] ?? '',
-            'PREVIEW_TEXT_TYPE' => $original['PREVIEW_TEXT_TYPE'] ?? 'text',
-            'DETAIL_TEXT' => $original['DETAIL_TEXT'] ?? '',
-            'DETAIL_TEXT_TYPE' => $original['DETAIL_TEXT_TYPE'] ?? 'text',
-        ]);
-
-        if (!$newPresetId) {
-            throw new \Exception('Ошибка создания клона пресета');
+        $offerIds = array_values(array_unique(array_filter(array_map('intval', $offerIds), static function ($id) {
+            return $id > 0;
+        })));
+        $productId = $offerIds !== [] ? $this->resolveSingleProductIdFromOffers($offerIds) : 0;
+        $productIblockId = $productId > 0 ? $this->configManager->getProductIblockId() : 0;
+        if ($productId > 0 && $productIblockId <= 0) {
+            throw new \Exception('Инфоблок товаров не настроен');
+        }
+        if ($productId > 0
+            && $this->getElementLinkPropertyId($productIblockId, $productId, 'CALC_PRESET') !== $presetId) {
+            throw new \Exception('Текущий товар уже привязан к другому пресету. Обновите данные и повторите клонирование');
         }
 
-        $newPresetId = (int)$newPresetId;
+        $connection = \Bitrix\Main\Application::getConnection();
+        $newPresetId = 0;
+        $createdStageIds = [];
+        $createdDetailIds = [];
+        $connection->startTransaction();
 
         try {
+            $newPresetName = sprintf('%s (копия %s)', $original['NAME'], date('d.m.Y H:i:s'));
+            $newPresetId = (int)(new \CIBlockElement())->Add([
+                'IBLOCK_ID' => $presetsIblockId,
+                'NAME' => $newPresetName,
+                'CODE' => $this->generateUniqueElementCode($presetsIblockId, $newPresetName),
+                'ACTIVE' => $original['ACTIVE'] ?? 'Y',
+                'SORT' => (int)($original['SORT'] ?? 500),
+                'PREVIEW_TEXT' => $original['PREVIEW_TEXT'] ?? '',
+                'PREVIEW_TEXT_TYPE' => $original['PREVIEW_TEXT_TYPE'] ?? 'text',
+                'DETAIL_TEXT' => $original['DETAIL_TEXT'] ?? '',
+                'DETAIL_TEXT_TYPE' => $original['DETAIL_TEXT_TYPE'] ?? 'text',
+            ]);
+
+            if ($newPresetId <= 0) {
+                throw new \Exception('Ошибка создания клона пресета');
+            }
+
             $propertyValues = $this->getElementPropertyValuesForClone($presetId, $presetsIblockId);
             $rootDetailIds = $this->normalizeToIntArray($propertyValues['CALC_DETAILS'] ?? []);
 
@@ -137,6 +156,11 @@ class BundleHandler
             foreach ($this->normalizeToIntArray($propertyValues['CALC_STAGES'] ?? []) as $presetStageId) {
                 if (!in_array($presetStageId, $stageIdsToClone, true)) {
                     $stageIdsToClone[] = $presetStageId;
+                }
+            }
+            foreach ($this->extractStageIdsFromValue($propertyValues) as $referencedStageId) {
+                if (!in_array($referencedStageId, $stageIdsToClone, true)) {
+                    $stageIdsToClone[] = $referencedStageId;
                 }
             }
 
@@ -154,6 +178,7 @@ class BundleHandler
                     throw new \Exception('Не удалось клонировать этап ID=' . $stageId);
                 }
                 $stageMap[$stageId] = (int)$newStageId;
+                $createdStageIds[] = (int)$newStageId;
             }
 
             $this->remapStageInputDescriptions($stageMap);
@@ -166,6 +191,7 @@ class BundleHandler
                     continue;
                 }
                 $detailMap[$detailId] = $this->cloneDetailNodeRaw($node, $detailsIblockId);
+                $createdDetailIds[] = (int)$detailMap[$detailId];
             }
 
             // Шаг 3: remap связей в клонированном пресете (CALC_DETAILS/CALC_STAGES).
@@ -178,6 +204,7 @@ class BundleHandler
 
             $propertyValues['CALC_DETAILS'] = !empty($mappedRootDetailIds) ? $mappedRootDetailIds : false;
             $propertyValues['CALC_STAGES'] = !empty($mappedPresetStageIds) ? $mappedPresetStageIds : false;
+            $propertyValues = $this->remapPresetStageReferences($propertyValues, $stageMap);
             
             \CIBlockElement::SetPropertyValuesEx($newPresetId, $presetsIblockId, $propertyValues);
 
@@ -223,10 +250,206 @@ class BundleHandler
             // Шаг 7: копируем товарный каталог (НДС/закупочная/валюта/цены).
             $this->cloneCatalogData($presetId, $newPresetId);
 
+            if ($productId > 0) {
+                \CIBlockElement::SetPropertyValuesEx($productId, $productIblockId, [
+                    'CALC_PRESET' => $newPresetId,
+                ]);
+                $assignedPresetId = $this->getElementLinkPropertyId($productIblockId, $productId, 'CALC_PRESET');
+                if ($assignedPresetId !== $newPresetId) {
+                    throw new \Exception('Клонированный пресет не был привязан к текущему товару');
+                }
+            }
+
+            $connection->commitTransaction();
             return $newPresetId;
         } catch (\Throwable $e) {
-            \CIBlockElement::Delete($newPresetId);
+            $connection->rollbackTransaction();
+            $this->deleteCloneArtifactsAfterRollback($createdStageIds, $createdDetailIds, $newPresetId);
             throw $e;
+        }
+    }
+
+    /**
+     * Переназначить все ссылки на этапы, хранящиеся в свойствах пресета.
+     * Числовые ID меняются только в stageIds структуры STAGE_GROUPS, а ссылки
+     * вида stage_{id} — во всех строковых значениях (глобальные формулы и JSON).
+     *
+     * @param array<int, int> $stageMap
+     */
+    private function remapPresetStageReferences(array $propertyValues, array $stageMap): array
+    {
+        foreach ($propertyValues as $code => $value) {
+            if ($code === 'STAGE_GROUPS') {
+                $propertyValues[$code] = $this->remapStageGroupsValue($value, $stageMap);
+                continue;
+            }
+            $propertyValues[$code] = $this->replaceStageTokensRecursive($value, $stageMap);
+        }
+
+        return $propertyValues;
+    }
+
+    /**
+     * @param mixed $value
+     * @param array<int, int> $stageMap
+     * @return mixed
+     */
+    private function remapStageGroupsValue($value, array $stageMap)
+    {
+        $text = null;
+        $write = null;
+
+        if (is_string($value)) {
+            $text = $value;
+            $write = static function (string $next) {
+                return $next;
+            };
+        } elseif (is_array($value) && isset($value['TEXT'])) {
+            $text = (string)$value['TEXT'];
+            $write = static function (string $next) use ($value) {
+                $value['TEXT'] = $next;
+                return $value;
+            };
+        } elseif (is_array($value) && isset($value['VALUE']['TEXT'])) {
+            $text = (string)$value['VALUE']['TEXT'];
+            $write = static function (string $next) use ($value) {
+                $value['VALUE']['TEXT'] = $next;
+                return $value;
+            };
+        }
+
+        if ($text === null || trim($text) === '') {
+            return $value;
+        }
+
+        $decoded = json_decode($text, true);
+        if (!is_array($decoded)) {
+            throw new \Exception('STAGE_GROUPS исходного пресета содержит некорректный JSON');
+        }
+
+        $decoded = $this->remapStageGroupNode($decoded, $stageMap);
+        $encoded = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($encoded)) {
+            throw new \Exception('Не удалось сериализовать STAGE_GROUPS клонированного пресета');
+        }
+
+        return $write($encoded);
+    }
+
+    /**
+     * @param mixed $node
+     * @param array<int, int> $stageMap
+     * @return mixed
+     */
+    private function remapStageGroupNode($node, array $stageMap)
+    {
+        if (!is_array($node)) {
+            return $node;
+        }
+
+        foreach ($node as $key => $value) {
+            if ($key === 'stageIds' && is_array($value)) {
+                $node[$key] = $this->mapIdListOrFail(
+                    $this->normalizeToIntArray($value),
+                    $stageMap,
+                    'STAGE_GROUPS'
+                );
+                continue;
+            }
+            $node[$key] = $this->remapStageGroupNode($value, $stageMap);
+        }
+
+        return $node;
+    }
+
+    /**
+     * @param mixed $value
+     * @param array<int, int> $stageMap
+     * @return mixed
+     */
+    private function replaceStageTokensRecursive($value, array $stageMap)
+    {
+        if (is_string($value)) {
+            return $this->replaceStageIdsInString($value, $stageMap);
+        }
+        if (!is_array($value)) {
+            return $value;
+        }
+        foreach ($value as $key => $nestedValue) {
+            $value[$key] = $this->replaceStageTokensRecursive($nestedValue, $stageMap);
+        }
+        return $value;
+    }
+
+    /**
+     * @param mixed $value
+     * @return int[]
+     */
+    private function extractStageIdsFromValue($value): array
+    {
+        $result = [];
+        $walk = function ($item) use (&$walk, &$result): void {
+            if (is_array($item)) {
+                foreach ($item as $nested) {
+                    $walk($nested);
+                }
+                return;
+            }
+            if (!is_string($item) || !preg_match_all('/stage_(\d+)/u', $item, $matches)) {
+                return;
+            }
+            foreach (($matches[1] ?? []) as $stageIdRaw) {
+                $stageId = (int)$stageIdRaw;
+                if ($stageId > 0) {
+                    $result[$stageId] = true;
+                }
+            }
+        };
+        $walk($value);
+        return array_map('intval', array_keys($result));
+    }
+
+    private function resolveSingleProductIdFromOffers(array $offerIds): int
+    {
+        $productIds = [];
+        foreach ($offerIds as $offerId) {
+            $productId = $this->getProductIdFromOffer((int)$offerId);
+            if ($productId <= 0) {
+                throw new \Exception('Не удалось определить товар для торгового предложения ID=' . (int)$offerId);
+            }
+            $productIds[$productId] = true;
+        }
+        if (count($productIds) !== 1) {
+            throw new \Exception('Клонирование доступно только для торговых предложений одного товара');
+        }
+        return (int)array_key_first($productIds);
+    }
+
+    private function getElementLinkPropertyId(int $iblockId, int $elementId, string $propertyCode): int
+    {
+        $row = \CIBlockElement::GetProperty(
+            $iblockId,
+            $elementId,
+            ['sort' => 'asc', 'id' => 'asc'],
+            ['CODE' => $propertyCode]
+        )->Fetch();
+        return (int)($row['VALUE'] ?? 0);
+    }
+
+    private function deleteCloneArtifactsAfterRollback(array $stageIds, array $detailIds, int $presetId): void
+    {
+        foreach (array_reverse($detailIds) as $detailId) {
+            if ($detailId > 0) {
+                \CIBlockElement::Delete((int)$detailId);
+            }
+        }
+        foreach (array_reverse($stageIds) as $stageId) {
+            if ($stageId > 0) {
+                \CIBlockElement::Delete((int)$stageId);
+            }
+        }
+        if ($presetId > 0) {
+            \CIBlockElement::Delete($presetId);
         }
     }
 
