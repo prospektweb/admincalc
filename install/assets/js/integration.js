@@ -362,6 +362,9 @@
                 case 'SAVE_GLOBAL_SYMBOLS_REQUEST':
                     await this.handleSaveGlobalSymbolsRequest(message, origin);
                     break;
+                case 'SAVE_GLOBAL_VALUES_REQUEST':
+                    await this.handleSaveGlobalValuesRequest(message, origin);
+                    break;
                 case 'SAVE_STAGE_GROUPS_REQUEST':
                     await this.handleSaveStageGroupsRequest(message, origin);
                     break;
@@ -450,7 +453,7 @@
                         'RESOLVE_CALC_CONTRACT_REQUEST',
                         'SAVE_CALCULATION_REQUEST',
                         'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL', 'CLEAR_OPTIONS_EQUIPMENT',
-                        'CLEAR_PRESET_REQUEST', 'SAVE_PRESET_GLOBALS_REQUEST', 'SAVE_GLOBAL_SYMBOLS_REQUEST', 'SAVE_STAGE_GROUPS_REQUEST', 'CLOSE_REQUEST'
+                        'CLEAR_PRESET_REQUEST', 'SAVE_PRESET_GLOBALS_REQUEST', 'SAVE_GLOBAL_SYMBOLS_REQUEST', 'SAVE_GLOBAL_VALUES_REQUEST', 'SAVE_STAGE_GROUPS_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
         }
@@ -3222,6 +3225,49 @@
             }
         }
 
+        async handleSaveGlobalValuesRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const requests = [{
+                    action: 'saveGlobalSymbols',
+                    symbols: Array.isArray(payload.symbols) ? payload.symbols : [],
+                }];
+                const presetId = Number(payload.presetId || 0);
+                if (presetId > 0) {
+                    requests.push({
+                        action: 'savePresetGlobals',
+                        presetId: presetId,
+                        variables: Array.isArray(payload.variables) ? payload.variables : [],
+                        constants: Array.isArray(payload.constants) ? payload.constants : [],
+                        offerIds: this.config.offerIds || [],
+                    });
+                }
+                const result = await this.fetchRefreshData(requests);
+                const registryResponse = Array.isArray(result) ? result[0] : null;
+                const presetResponse = Array.isArray(result) && result.length > 1 ? result[1] : null;
+                if (!registryResponse || registryResponse.status !== 'ok') {
+                    throw new Error(registryResponse?.message || 'Не удалось сохранить глобальный реестр');
+                }
+                if (presetResponse && presetResponse.status !== 'ok') {
+                    throw new Error(presetResponse.message || 'Не удалось сохранить глобальные значения пресета');
+                }
+                if (presetResponse?.initPayload) {
+                    this.initData = presetResponse.initPayload;
+                }
+                if (this.initData) {
+                    this.initData.globalSymbols = Array.isArray(registryResponse.symbols) ? registryResponse.symbols : [];
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                } else {
+                    this.sendPwrtMessage('RESPONSE', registryResponse, message.requestId, origin);
+                }
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось сохранить глобальные значения',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
+            }
+        }
+
         async handleSaveStageGroupsRequest(message, origin) {
             const payload = message.payload || {};
             try {
@@ -3233,7 +3279,7 @@
                 const response = Array.isArray(result) && result[0] ? result[0] : { status: 'error', message: 'Пустой ответ сервера' };
                 if (response.status !== 'ok') throw new Error(response.message || 'Не удалось сохранить группы этапов');
                 if (this.initData && this.initData.preset) {
-                    const value = JSON.stringify({ version: 1, groups: Array.isArray(response.groups) ? response.groups : [] });
+                    const value = JSON.stringify({ version: 2, groups: Array.isArray(response.groups) ? response.groups : [] });
                     this.initData.preset.properties = this.initData.preset.properties || {};
                     this.initData.preset.properties.STAGE_GROUPS = {
                         VALUE: { TEXT: value, TYPE: 'TEXT' },

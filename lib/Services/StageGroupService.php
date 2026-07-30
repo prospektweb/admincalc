@@ -20,24 +20,46 @@ final class StageGroupService
         if ($iblockId <= 0 || !\CIBlockElement::GetList([], ['ID' => $presetId, 'IBLOCK_ID' => $iblockId], false, ['nTopCount' => 1], ['ID'])->Fetch()) {
             throw new \RuntimeException('Пресет не найден');
         }
-        $this->ensureProperty($iblockId);
+        $propertyId = $this->ensureProperty($iblockId);
         $stageTopology = $this->collectPresetStageTopology($presetId, $iblockId);
-        $used = [];
-        $clean = [];
+        $normalized = [];
+        $groupIds = [];
         foreach ($groups as $index => $group) {
             if (!is_array($group)) throw new \InvalidArgumentException('Группа этапов должна быть объектом');
+            $id = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($group['id'] ?? ''));
+            $id = $id !== '' ? $id : 'group_' . ($index + 1) . '_' . bin2hex(random_bytes(4));
+            if (isset($groupIds[$id])) throw new \InvalidArgumentException('Коды групп этапов не должны повторяться');
+            $groupIds[$id] = true;
+            $normalized[] = [
+                'source' => $group,
+                'id' => $id,
+                'parentId' => trim((string)($group['parentId'] ?? '')) ?: null,
+            ];
+        }
+        $usedByParent = [];
+        $clean = [];
+        foreach ($normalized as $item) {
+            $group = $item['source'];
             $title = trim((string)($group['title'] ?? ''));
             $description = trim((string)($group['description'] ?? ''));
-            $id = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($group['id'] ?? ''));
+            $id = $item['id'];
+            $parentId = $item['parentId'];
+            if ($parentId !== null) {
+                $parent = current(array_filter($normalized, static fn(array $candidate): bool => $candidate['id'] === $parentId));
+                if (!$parent || $parent['parentId'] !== null || $parentId === $id) {
+                    throw new \InvalidArgumentException('Подгруппа должна принадлежать группе верхнего уровня');
+                }
+            }
             if ($title === '' || mb_strlen($title) > 250 || mb_strlen($description) > 4000) {
                 throw new \InvalidArgumentException('Укажите корректное название и описание группы');
             }
             $stageIds = [];
             foreach (is_array($group['stageIds'] ?? null) ? $group['stageIds'] : [] as $stageId) {
                 $stageId = (int)$stageId;
-                if ($stageId <= 0 || isset($used[$stageId])) throw new \InvalidArgumentException('Этап не может входить в две группы');
+                $scope = $parentId ?? '__root__';
+                if ($stageId <= 0 || isset($usedByParent[$scope][$stageId])) throw new \InvalidArgumentException('Этап не может входить в две соседние группы');
                 if (!isset($stageTopology[$stageId])) throw new \InvalidArgumentException('Группа содержит этап из другого пресета');
-                $used[$stageId] = true;
+                $usedByParent[$scope][$stageId] = true;
                 $stageIds[] = $stageId;
             }
             if (count($stageIds) < 2) throw new \InvalidArgumentException('Группа должна содержать как минимум два этапа');
@@ -56,24 +78,38 @@ final class StageGroupService
                     throw new \InvalidArgumentException('Этапы группы должны идти подряд');
                 }
             }
+            if ($parentId !== null) {
+                $parent = current(array_filter($normalized, static fn(array $candidate): bool => $candidate['id'] === $parentId));
+                $parentStageIds = array_map('intval', is_array($parent['source']['stageIds'] ?? null) ? $parent['source']['stageIds'] : []);
+                if (array_diff($stageIds, $parentStageIds) !== []) {
+                    throw new \InvalidArgumentException('Подгруппа может содержать только этапы родительской группы');
+                }
+            }
             $clean[] = [
-                'id' => $id !== '' ? $id : 'group_' . ($index + 1) . '_' . bin2hex(random_bytes(4)),
+                'id' => $id,
                 'title' => $title,
                 'description' => $description,
                 'stageIds' => $stageIds,
+                'parentId' => $parentId,
             ];
         }
+        $json = json_encode(['version' => 2, 'groups' => $clean], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         \CIBlockElement::SetPropertyValuesEx($presetId, $iblockId, [
-            self::PROPERTY_CODE => ['VALUE' => ['TEXT' => json_encode(['version' => 1, 'groups' => $clean], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 'TYPE' => 'TEXT']],
+            $propertyId => ['VALUE' => ['TEXT' => $json, 'TYPE' => 'text']],
         ]);
+        $stored = \CIBlockElement::GetProperty($iblockId, $presetId, [], ['ID' => $propertyId])->Fetch();
+        $storedValue = $stored['VALUE'] ?? null;
+        $storedText = is_array($storedValue) ? (string)($storedValue['TEXT'] ?? '') : (string)$storedValue;
+        if ($storedText !== $json) throw new \RuntimeException('Группы этапов не были записаны в пресет');
         return ['status' => 'ok', 'groups' => $clean];
     }
 
-    private function ensureProperty(int $iblockId): void
+    private function ensureProperty(int $iblockId): int
     {
-        if (\CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => self::PROPERTY_CODE])->Fetch()) return;
+        $existing = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => self::PROPERTY_CODE])->Fetch();
+        if ($existing) return (int)$existing['ID'];
         $property = new \CIBlockProperty();
-        if (!$property->Add([
+        $propertyId = (int)$property->Add([
             'IBLOCK_ID' => $iblockId,
             'ACTIVE' => 'Y',
             'CODE' => self::PROPERTY_CODE,
@@ -81,9 +117,11 @@ final class StageGroupService
             'PROPERTY_TYPE' => 'S',
             'USER_TYPE' => 'HTML',
             'SORT' => 1120,
-        ])) {
+        ]);
+        if ($propertyId <= 0) {
             throw new \RuntimeException('Не удалось создать свойство групп этапов: ' . trim((string)$property->LAST_ERROR));
         }
+        return $propertyId;
     }
 
     private function collectPresetStageTopology(int $presetId, int $presetIblockId): array

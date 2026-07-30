@@ -54,6 +54,11 @@ final class GlobalSymbolService
             throw new \InvalidArgumentException('Слишком много глобальных значений');
         }
         $iblockId = $this->ensureStorage();
+        $propertyIds = [
+            'KIND' => $this->propertyId($iblockId, 'KIND'),
+            'DATA_TYPE' => $this->propertyId($iblockId, 'DATA_TYPE'),
+            'INITIAL_VALUE' => $this->propertyId($iblockId, 'INITIAL_VALUE'),
+        ];
         $reservedCodes = $this->collectCalculatorNamespaceCodes();
         $connection = Application::getConnection();
         $connection->startTransaction();
@@ -102,10 +107,21 @@ final class GlobalSymbolService
                 $reservedCodes[strtolower($fields['CODE'])] = true;
             }
             \CIBlockElement::SetPropertyValuesEx($id, $iblockId, [
-                'KIND' => $kind,
-                'DATA_TYPE' => $dataType,
-                'INITIAL_VALUE' => ['VALUE' => ['TEXT' => $initialValue, 'TYPE' => 'TEXT']],
+                $propertyIds['KIND'] => $kind,
+                $propertyIds['DATA_TYPE'] => $dataType,
+                $propertyIds['INITIAL_VALUE'] => ['VALUE' => ['TEXT' => $initialValue, 'TYPE' => 'text']],
             ]);
+            $stored = [];
+            foreach ($propertyIds as $propertyCode => $propertyId) {
+                $property = \CIBlockElement::GetProperty($iblockId, $id, [], ['ID' => $propertyId])->Fetch();
+                $value = $property['VALUE'] ?? '';
+                $stored[$propertyCode] = is_array($value) ? (string)($value['TEXT'] ?? '') : (string)$value;
+            }
+            if (($stored['KIND'] ?? '') !== $kind
+                || ($stored['DATA_TYPE'] ?? '') !== $dataType
+                || ($stored['INITIAL_VALUE'] ?? '') !== $initialValue) {
+                throw new \RuntimeException('Глобальное значение не было полностью записано');
+            }
         }
         $connection->commitTransaction();
         } catch (\Throwable $error) {
@@ -171,6 +187,14 @@ final class GlobalSymbolService
         if (!$property->Add($fields)) {
             throw new \RuntimeException('Не удалось создать свойство ' . $code . ': ' . trim((string)$property->LAST_ERROR));
         }
+    }
+
+    private function propertyId(int $iblockId, string $code): int
+    {
+        $property = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => $code])->Fetch();
+        $propertyId = (int)($property['ID'] ?? 0);
+        if ($propertyId <= 0) throw new \RuntimeException('Свойство ' . $code . ' не найдено');
+        return $propertyId;
     }
 
     private function generateCode(string $hint, int $iblockId, array $reservedCodes = []): string

@@ -25,6 +25,8 @@ $checks = [
         && strpos($refactor, 'startTransaction()') !== false
         && strpos($refactor, 'replaceIdentifiers(') !== false,
     'init exposes shared symbols' => strpos($init, "'globalSymbols'") !== false,
+    'global registry saves value and type by stable property ids and verifies the write' => strpos($globals, "'INITIAL_VALUE' => \$this->propertyId") !== false
+        && strpos($globals, "Глобальное значение не было полностью записано") !== false,
     'AI audit is a dedicated contract' => strpos($gateway, 'LOGIC_AUDIT_PROPOSAL_SCHEMA') !== false,
     'stage groups are stored on preset' => strpos($groups, "STAGE_GROUPS") !== false,
     'init preserves the HTML stage-group property shape after any refresh' => strpos($init, "\$code === 'STAGE_GROUPS'") !== false
@@ -32,6 +34,9 @@ $checks = [
     'server validates preset stage membership and topology' => strpos($groups, 'collectPresetStageTopology') !== false
         && strpos($groups, 'Все этапы группы должны находиться в одной колонке') !== false
         && strpos($groups, 'Этапы группы должны идти подряд') !== false,
+    'stage groups support one nested level and verify durable persistence' => strpos($groups, "'parentId' => \$parentId") !== false
+        && strpos($groups, 'Подгруппа должна принадлежать группе верхнего уровня') !== false
+        && strpos($groups, 'Группы этапов не были записаны в пресет') !== false,
     'new services are registered in Bitrix autoload map' => strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalSymbolService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalCodeRefactorService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\StageGroupService'") !== false,
@@ -41,6 +46,7 @@ $checks = [
         && strpos($service, "case 'saveStageGroups'") !== false,
     'browser bridge routes AI and both saves' => strpos($integration, 'GENERATE_LOGIC_AUDIT_REQUEST') !== false
         && strpos($integration, 'SAVE_GLOBAL_SYMBOLS_REQUEST') !== false
+        && strpos($integration, 'SAVE_GLOBAL_VALUES_REQUEST') !== false
         && strpos($integration, 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST') !== false
         && strpos($integration, 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST') !== false
         && strpos($integration, 'SAVE_STAGE_GROUPS_REQUEST') !== false,
