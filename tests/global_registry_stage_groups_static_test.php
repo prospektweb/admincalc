@@ -9,6 +9,7 @@ $service = file_get_contents($root . '/lib/Calculator/ElementDataService.php');
 $integration = file_get_contents($root . '/install/assets/js/integration.js');
 $init = file_get_contents($root . '/lib/Calculator/InitPayloadService.php');
 $autoload = file_get_contents($root . '/include.php');
+$ajax = file_get_contents($root . '/tools/calculator_ajax.php');
 
 $checks = [
     'global registry has dedicated iblock' => strpos($globals, "CALC_GLOBAL_VALUES") !== false,
@@ -26,7 +27,10 @@ $checks = [
         && strpos($refactor, 'replaceIdentifiers(') !== false,
     'init exposes shared symbols' => strpos($init, "'globalSymbols'") !== false,
     'global registry saves value and type by stable property ids and verifies the write' => strpos($globals, "'INITIAL_VALUE' => \$this->propertyId") !== false
+        && strpos($globals, 'SetPropertyValues(') !== false
         && strpos($globals, "Глобальное значение не было полностью записано") !== false,
+    'global registry resolves property codes with the supported legacy filter' => substr_count($globals, "'CODE' => \$code") >= 2
+        && substr_count($globals, "'=CODE' => \$code") === 1,
     'AI audit is a dedicated contract' => strpos($gateway, 'LOGIC_AUDIT_PROPOSAL_SCHEMA') !== false,
     'stage groups are stored on preset' => strpos($groups, "STAGE_GROUPS") !== false,
     'init preserves the HTML stage-group property shape after any refresh' => strpos($init, "\$code === 'STAGE_GROUPS'") !== false
@@ -36,7 +40,10 @@ $checks = [
         && strpos($groups, 'Этапы группы должны идти подряд') !== false,
     'stage groups support one nested level and verify durable persistence' => strpos($groups, "'parentId' => \$parentId") !== false
         && strpos($groups, 'Подгруппа должна принадлежать группе верхнего уровня') !== false
+        && strpos($groups, 'SetPropertyValues(') !== false
         && strpos($groups, 'Группы этапов не были записаны в пресет') !== false,
+    'stage-group property lookup uses the supported legacy code filter' => strpos($groups, "'CODE' => self::PROPERTY_CODE") !== false
+        && strpos($groups, "'=CODE' => self::PROPERTY_CODE") === false,
     'new services are registered in Bitrix autoload map' => strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalSymbolService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalCodeRefactorService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\StageGroupService'") !== false,
@@ -50,6 +57,7 @@ $checks = [
         && strpos($integration, 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST') !== false
         && strpos($integration, 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST') !== false
         && strpos($integration, 'SAVE_STAGE_GROUPS_REQUEST') !== false,
+    'ajax error mapper accepts every throwable without corrupting JSON errors' => strpos($ajax, 'function resolveErrorType(\\Throwable $e)') !== false,
 ];
 
 foreach ($checks as $label => $ok) {

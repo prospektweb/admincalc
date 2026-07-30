@@ -107,20 +107,44 @@ final class GlobalSymbolService
                 $reservedCodes[strtolower($fields['CODE'])] = true;
             }
             \CIBlockElement::SetPropertyValuesEx($id, $iblockId, [
-                $propertyIds['KIND'] => $kind,
-                $propertyIds['DATA_TYPE'] => $dataType,
-                $propertyIds['INITIAL_VALUE'] => ['VALUE' => ['TEXT' => $initialValue, 'TYPE' => 'text']],
+                'KIND' => $kind,
+                'DATA_TYPE' => $dataType,
             ]);
-            $stored = [];
-            foreach ($propertyIds as $propertyCode => $propertyId) {
-                $property = \CIBlockElement::GetProperty($iblockId, $id, [], ['ID' => $propertyId])->Fetch();
-                $value = $property['VALUE'] ?? '';
-                $stored[$propertyCode] = is_array($value) ? (string)($value['TEXT'] ?? '') : (string)$value;
-            }
+            // PHP 8 exposes a Bitrix comparison bug for an existing HTML user-type
+            // value (strcmp receives the converted array). Clear it first inside
+            // the transaction, then write the converted value into an empty slot.
+            \CIBlockElement::SetPropertyValues($id, $iblockId, [], 'INITIAL_VALUE');
+            \CIBlockElement::SetPropertyValuesEx($id, $iblockId, [
+                'INITIAL_VALUE' => ['VALUE' => ['TEXT' => $initialValue, 'TYPE' => 'TEXT']],
+            ]);
+            $storedElement = \CIBlockElement::GetList(
+                [],
+                ['ID' => $id, 'IBLOCK_ID' => $iblockId],
+                false,
+                ['nTopCount' => 1],
+                ['ID', 'IBLOCK_ID']
+            )->GetNextElement();
+            $storedProperties = $storedElement ? $storedElement->GetProperties() : [];
+            $stored = [
+                'KIND' => (string)($storedProperties['KIND']['VALUE'] ?? ''),
+                'DATA_TYPE' => (string)($storedProperties['DATA_TYPE']['VALUE'] ?? ''),
+                'INITIAL_VALUE' => (string)($storedProperties['INITIAL_VALUE']['~VALUE']['TEXT']
+                    ?? $storedProperties['INITIAL_VALUE']['VALUE']['TEXT']
+                    ?? $storedProperties['INITIAL_VALUE']['VALUE']
+                    ?? ''),
+            ];
             if (($stored['KIND'] ?? '') !== $kind
                 || ($stored['DATA_TYPE'] ?? '') !== $dataType
                 || ($stored['INITIAL_VALUE'] ?? '') !== $initialValue) {
-                throw new \RuntimeException('Глобальное значение не было полностью записано');
+                throw new \RuntimeException(sprintf(
+                    'Глобальное значение не было полностью записано (вид: %s/%s; тип: %s/%s; длина значения: %d/%d)',
+                    $stored['KIND'] ?? '',
+                    $kind,
+                    $stored['DATA_TYPE'] ?? '',
+                    $dataType,
+                    mb_strlen($stored['INITIAL_VALUE'] ?? ''),
+                    mb_strlen($initialValue)
+                ));
             }
         }
         $connection->commitTransaction();
@@ -169,7 +193,7 @@ final class GlobalSymbolService
 
     private function ensureProperty(int $iblockId, string $code, string $name, string $type, ?string $userType, int $sort): void
     {
-        if (\CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => $code])->Fetch()) {
+        if (\CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, 'CODE' => $code])->Fetch()) {
             return;
         }
         $property = new \CIBlockProperty();
@@ -191,7 +215,7 @@ final class GlobalSymbolService
 
     private function propertyId(int $iblockId, string $code): int
     {
-        $property = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => $code])->Fetch();
+        $property = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, 'CODE' => $code])->Fetch();
         $propertyId = (int)($property['ID'] ?? 0);
         if ($propertyId <= 0) throw new \RuntimeException('Свойство ' . $code . ' не найдено');
         return $propertyId;

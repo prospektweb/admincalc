@@ -20,7 +20,7 @@ final class StageGroupService
         if ($iblockId <= 0 || !\CIBlockElement::GetList([], ['ID' => $presetId, 'IBLOCK_ID' => $iblockId], false, ['nTopCount' => 1], ['ID'])->Fetch()) {
             throw new \RuntimeException('Пресет не найден');
         }
-        $propertyId = $this->ensureProperty($iblockId);
+        $this->ensureProperty($iblockId);
         $stageTopology = $this->collectPresetStageTopology($presetId, $iblockId);
         $normalized = [];
         $groupIds = [];
@@ -36,6 +36,10 @@ final class StageGroupService
                 'parentId' => trim((string)($group['parentId'] ?? '')) ?: null,
             ];
         }
+        $normalizedById = [];
+        foreach ($normalized as $item) {
+            $normalizedById[$item['id']] = $item;
+        }
         $usedByParent = [];
         $clean = [];
         foreach ($normalized as $item) {
@@ -45,7 +49,7 @@ final class StageGroupService
             $id = $item['id'];
             $parentId = $item['parentId'];
             if ($parentId !== null) {
-                $parent = current(array_filter($normalized, static fn(array $candidate): bool => $candidate['id'] === $parentId));
+                $parent = $normalizedById[$parentId] ?? null;
                 if (!$parent || $parent['parentId'] !== null || $parentId === $id) {
                     throw new \InvalidArgumentException('Подгруппа должна принадлежать группе верхнего уровня');
                 }
@@ -79,7 +83,7 @@ final class StageGroupService
                 }
             }
             if ($parentId !== null) {
-                $parent = current(array_filter($normalized, static fn(array $candidate): bool => $candidate['id'] === $parentId));
+                $parent = $normalizedById[$parentId];
                 $parentStageIds = array_map('intval', is_array($parent['source']['stageIds'] ?? null) ? $parent['source']['stageIds'] : []);
                 if (array_diff($stageIds, $parentStageIds) !== []) {
                     throw new \InvalidArgumentException('Подгруппа может содержать только этапы родительской группы');
@@ -94,19 +98,37 @@ final class StageGroupService
             ];
         }
         $json = json_encode(['version' => 2, 'groups' => $clean], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        \CIBlockElement::SetPropertyValuesEx($presetId, $iblockId, [
-            $propertyId => ['VALUE' => ['TEXT' => $json, 'TYPE' => 'text']],
-        ]);
-        $stored = \CIBlockElement::GetProperty($iblockId, $presetId, [], ['ID' => $propertyId])->Fetch();
-        $storedValue = $stored['VALUE'] ?? null;
-        $storedText = is_array($storedValue) ? (string)($storedValue['TEXT'] ?? '') : (string)$storedValue;
-        if ($storedText !== $json) throw new \RuntimeException('Группы этапов не были записаны в пресет');
+        $connection = \Bitrix\Main\Application::getConnection();
+        $connection->startTransaction();
+        try {
+            \CIBlockElement::SetPropertyValues($presetId, $iblockId, [], self::PROPERTY_CODE);
+            \CIBlockElement::SetPropertyValuesEx($presetId, $iblockId, [
+                self::PROPERTY_CODE => ['VALUE' => ['TEXT' => $json, 'TYPE' => 'TEXT']],
+            ]);
+            $storedElement = \CIBlockElement::GetList(
+                [],
+                ['ID' => $presetId, 'IBLOCK_ID' => $iblockId],
+                false,
+                ['nTopCount' => 1],
+                ['ID', 'IBLOCK_ID']
+            )->GetNextElement();
+            $storedProperties = $storedElement ? $storedElement->GetProperties() : [];
+            $storedText = (string)($storedProperties[self::PROPERTY_CODE]['~VALUE']['TEXT']
+                ?? $storedProperties[self::PROPERTY_CODE]['VALUE']['TEXT']
+                ?? $storedProperties[self::PROPERTY_CODE]['VALUE']
+                ?? '');
+            if ($storedText !== $json) throw new \RuntimeException('Группы этапов не были записаны в пресет');
+            $connection->commitTransaction();
+        } catch (\Throwable $error) {
+            $connection->rollbackTransaction();
+            throw $error;
+        }
         return ['status' => 'ok', 'groups' => $clean];
     }
 
     private function ensureProperty(int $iblockId): int
     {
-        $existing = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => self::PROPERTY_CODE])->Fetch();
+        $existing = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, 'CODE' => self::PROPERTY_CODE])->Fetch();
         if ($existing) return (int)$existing['ID'];
         $property = new \CIBlockProperty();
         $propertyId = (int)$property->Add([

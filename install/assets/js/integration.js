@@ -4317,10 +4317,7 @@
 
                 return data.data || [];
             } catch (error) {
-                console.error('[BitrixBridge][DEBUG] fetchRefreshData ERROR', {
-                    error: error,
-                    message: error.message,
-                });
+                console.error('[BitrixBridge][DEBUG] fetchRefreshData ERROR: ' + error.message);
                 throw error;
             }
         }

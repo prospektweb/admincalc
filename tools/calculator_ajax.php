@@ -880,7 +880,7 @@ function sendJsonResponse(array $data, int $statusCode = 200): void
 /**
  * Определить тип ошибки для JSON-ответа
  */
-function resolveErrorType(\Exception $e): string
+function resolveErrorType(\Throwable $e): string
 {
     $message = $e->getMessage();
 
