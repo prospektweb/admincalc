@@ -68,12 +68,10 @@ final class StageGroupService
                 $usedByParent[$scope][$stageId] = true;
                 $stageIds[] = $stageId;
             }
-            if (($kind === 'condition' && count($stageIds) < 1) || ($kind !== 'condition' && count($stageIds) < 2)) {
-                throw new \InvalidArgumentException($kind === 'condition'
-                    ? 'Условие должно содержать хотя бы один этап в обычной ветке'
-                    : 'Группа должна содержать как минимум два этапа');
+            if ($kind !== 'condition' && count($stageIds) < 2) {
+                throw new \InvalidArgumentException('Группа должна содержать как минимум два этапа');
             }
-            $container = $stageTopology[$stageIds[0]]['container'];
+            $container = $stageIds === [] ? null : $stageTopology[$stageIds[0]]['container'];
             foreach ($stageIds as $stageId) {
                 if ($stageTopology[$stageId]['container'] !== $container) {
                     throw new \InvalidArgumentException('Все этапы группы должны находиться в одной колонке');
@@ -118,9 +116,6 @@ final class StageGroupService
                         $assignedStageIds[$branchStageId] = true;
                         $branchStageIds[] = $branchStageId;
                     }
-                    if (!$isElse && $branchStageIds === []) {
-                        throw new \InvalidArgumentException('Каждая обычная ветка должна содержать хотя бы один этап');
-                    }
                     $operands = [];
                     foreach (is_array($branch['operands'] ?? null) ? $branch['operands'] : [] as $operand) {
                         $operandKind = ($operand['kind'] ?? null) === 'variable' ? 'variable' : (($operand['kind'] ?? null) === 'constant' ? 'constant' : null);
@@ -146,6 +141,10 @@ final class StageGroupService
                 if (count($branches) < 2 || $elseCount !== 1 || count($assignedStageIds) !== count($stageIds)) {
                     throw new \InvalidArgumentException('Условие должно иметь обычную ветку, одну ветку «Иначе» и распределять все этапы');
                 }
+                $branches = array_values(array_merge(
+                    array_filter($branches, static fn(array $branch): bool => !$branch['isElse']),
+                    array_filter($branches, static fn(array $branch): bool => $branch['isElse'])
+                ));
             }
             $clean[] = [
                 'id' => $id,
