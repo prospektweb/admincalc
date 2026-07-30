@@ -256,6 +256,28 @@ class ElementDataService
                         
                         $result[] = $addResult;
                         continue 2;
+
+                    case 'duplicateStage':
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $detailHandler = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                        $duplicateResult = $handler->duplicateStage($request);
+                        if (($duplicateResult['status'] ?? 'error') === 'ok') {
+                            $presetId = (int)($request['presetId'] ?? 0);
+                            $stageId = (int)($duplicateResult['config']['id'] ?? 0);
+                            if ($presetId > 0 && $stageId > 0) {
+                                $detailHandler->addStageToPreset($presetId, $stageId);
+                                $rootDetailIds = $detailHandler->getProductRootsFromPreset($presetId);
+                                if (!empty($rootDetailIds)) {
+                                    $duplicateResult['initPayload'] = $detailHandler->enrichPresetFromProductRoots(
+                                        $presetId,
+                                        $rootDetailIds,
+                                        $request['offerIds'] ?? []
+                                    );
+                                }
+                            }
+                        }
+                        $result[] = $duplicateResult;
+                        continue 2;
                         
                     case 'deleteStage':
                         // Updated handler for DELETE_STAGE_REQUEST

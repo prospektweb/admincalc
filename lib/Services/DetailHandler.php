@@ -357,6 +357,55 @@ class DetailHandler
     }
 
     /**
+     * Create an independent 1:1 copy of a stage and insert it after the source.
+     */
+    public function duplicateStage(array $data): array
+    {
+        $createdConfigIds = [];
+        try {
+            $detailId = (int)($data['detailId'] ?? 0);
+            $stageId = (int)($data['stageId'] ?? 0);
+            if ($detailId <= 0 || $stageId <= 0) {
+                return ['status' => 'error', 'message' => 'Не указаны ID детали или этапа'];
+            }
+
+            $detail = $this->getDetailById($detailId);
+            if (!$detail) {
+                return ['status' => 'error', 'message' => 'Деталь не найдена'];
+            }
+            $existingConfigs = array_values(array_filter(array_map('intval', $detail['CONFIGS'] ?? [])));
+            $sourceIndex = array_search($stageId, $existingConfigs, true);
+            if ($sourceIndex === false) {
+                return ['status' => 'error', 'message' => 'Этап не принадлежит выбранной детали'];
+            }
+
+            $newStageId = $this->cloneConfig($stageId, $createdConfigIds, true);
+            if (!$newStageId) {
+                return ['status' => 'error', 'message' => 'Не удалось создать копию этапа'];
+            }
+
+            array_splice($existingConfigs, $sourceIndex + 1, 0, [$newStageId]);
+            \CIBlockElement::SetPropertyValuesEx($detailId, $this->detailsIblockId, [
+                'CALC_STAGES' => $existingConfigs,
+            ]);
+
+            return [
+                'status' => 'ok',
+                'config' => [
+                    'id' => $newStageId,
+                    'sourceId' => $stageId,
+                    'detailId' => $detailId,
+                ],
+            ];
+        } catch (\Throwable $e) {
+            foreach (array_reverse($createdConfigIds) as $createdConfigId) {
+                \CIBlockElement::Delete((int)$createdConfigId);
+            }
+            return ['status' => 'error', 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
      * Удалить этап (конфигурацию)
      * 
      * @param array $data Данные запроса
@@ -1446,7 +1495,7 @@ class DetailHandler
     /**
      * Клонировать конфигурацию (1:1)
      */
-    private function cloneConfig(int $configId, array &$createdConfigIds): ?int
+    private function cloneConfig(int $configId, array &$createdConfigIds, bool $markAsCopy = false): ?int
     {
         $element = \CIBlockElement::GetList(
             [],
@@ -1464,7 +1513,7 @@ class DetailHandler
         $properties = $element->GetProperties();
 
         $el = new \CIBlockElement();
-        $newName = $fields['NAME'];
+        $newName = (string)$fields['NAME'] . ($markAsCopy ? ' (копия)' : '');
         $newFields = [
             'IBLOCK_ID' => $this->stagesIblockId,
             'NAME' => $newName,

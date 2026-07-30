@@ -244,6 +244,9 @@
                 case 'ADD_STAGE_REQUEST':
                     await this.handleAddStageRequest(message, origin);
                     break;
+                case 'DUPLICATE_STAGE_REQUEST':
+                    await this.handleDuplicateStageRequest(message, origin);
+                    break;
                 case 'DELETE_STAGE_REQUEST':
                     await this.handleDeleteStageRequest(message, origin);
                     break;
@@ -439,7 +442,7 @@
                     console.warn('[BitrixBridge][DEBUG] Known types:', [
                         'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'SELECT_FIELDS_REQUEST', 'SELECT_DETAILS_TO_BINDING_REQUEST',
                         'ADD_DETAIL_REQUEST', 'ADD_DETAIL_TO_BINDING_REQUEST',
-                        'ADD_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'SAVE_STAGE_ACTIVATION_REQUEST', 'REMOVE_DETAIL_REQUEST',
+                        'ADD_STAGE_REQUEST', 'DUPLICATE_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'SAVE_STAGE_ACTIVATION_REQUEST', 'REMOVE_DETAIL_REQUEST',
                         'RENAME_DETAIL_REQUEST', 'CHANGE_PRODUCT_TYPE_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST',
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST',
@@ -1714,6 +1717,42 @@
                     message.requestId,
                     origin
                 );
+            }
+        }
+
+        async handleDuplicateStageRequest(message, origin) {
+            const payload = message.payload || {};
+            const detailId = Number(payload.detailId || 0);
+            const stageId = Number(payload.stageId || 0);
+            try {
+                const presetId = this.initData?.preset?.id;
+                if (!presetId || detailId <= 0 || stageId <= 0) {
+                    throw new Error('Preset ID, detail ID and stage ID are required');
+                }
+                const result = await this.fetchRefreshData([{
+                    action: 'duplicateStage',
+                    detailId,
+                    stageId,
+                    presetId,
+                    offerIds: this.config.offerIds || [],
+                    siteId: this.config.siteId || SITE_ID,
+                }]);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Empty response' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось продублировать этап');
+                }
+                if (!responsePayload.initPayload) {
+                    throw new Error('Сервер не вернул обновлённое состояние после дублирования');
+                }
+                this.initData = responsePayload.initPayload;
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка дублирования этапа',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
