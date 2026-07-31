@@ -16,6 +16,7 @@ $checks = [
     [$bundleSource, 'commitTransaction()', 'Preset clone must commit only a complete graph'],
     [$bundleSource, 'rollbackTransaction()', 'Preset clone must roll back an incomplete graph'],
     [$bundleSource, 'remapPresetStageReferences', 'Preset properties must be remapped to cloned stage IDs'],
+    [$bundleSource, 'extractHtmlPropertyValueForClone', 'Bitrix HTML property wrappers must be normalized before cloning'],
     [$bundleSource, "'CALC_PRESET' => \$newPresetId", 'The clone must be assigned to the current product'],
     [$bundleSource, 'resolveSingleProductIdFromOffers', 'All selected offers must resolve to one product'],
     [$bundleSource, 'getElementLinkPropertyId', 'The persisted product assignment must be verified'],
@@ -36,8 +37,30 @@ require_once $root . '/lib/Calculator/BundleHandler.php';
 
 $reflection = new ReflectionClass(\Prospektweb\Calc\Calculator\BundleHandler::class);
 $handler = $reflection->newInstanceWithoutConstructor();
+$htmlPropertyMethod = $reflection->getMethod('extractHtmlPropertyValueForClone');
+$htmlPropertyMethod->setAccessible(true);
 $method = $reflection->getMethod('remapPresetStageReferences');
 $method->setAccessible(true);
+
+$jsonFixture = '{"version":3,"groups":[]}';
+$valueWrapped = $htmlPropertyMethod->invoke($handler, [
+    'VALUE' => ['TEXT' => $jsonFixture, 'TYPE' => 'HTML'],
+    'PROPERTY_TYPE' => 'S',
+    'USER_TYPE' => 'HTML',
+]);
+$rawValueWrapped = $htmlPropertyMethod->invoke($handler, [
+    '~VALUE' => ['TEXT' => $jsonFixture, 'TYPE' => 'HTML'],
+    'VALUE' => 'escaped fallback',
+    'PROPERTY_TYPE' => 'S',
+    'USER_TYPE' => 'HTML',
+]);
+
+if (($valueWrapped['TEXT'] ?? null) !== $jsonFixture
+    || ($valueWrapped['TYPE'] ?? null) !== 'HTML'
+    || ($rawValueWrapped['TEXT'] ?? null) !== $jsonFixture
+    || ($rawValueWrapped['TYPE'] ?? null) !== 'HTML') {
+    throw new RuntimeException('Bitrix VALUE.TEXT and ~VALUE.TEXT HTML property formats must preserve STAGE_GROUPS JSON');
+}
 
 $groups = [
     'version' => 3,

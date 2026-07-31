@@ -765,7 +765,7 @@ class BundleHandler
                 $value = (int)($prop['VALUE_ENUM_ID'] ?? $prop['VALUE']);
             }
             if (($prop['PROPERTY_TYPE'] ?? '') === 'S' && ($prop['USER_TYPE'] ?? '') === 'HTML') {
-                $value = ['TEXT' => (string)($prop['~VALUE']['TEXT'] ?? $prop['VALUE']), 'TYPE' => (string)($prop['VALUE_TYPE'] ?? 'text')];
+                $value = $this->extractHtmlPropertyValueForClone($prop);
             }
 
             $withDescription = (string)($prop['WITH_DESCRIPTION'] ?? 'N') === 'Y';
@@ -784,6 +784,34 @@ class BundleHandler
         }
 
         return $result;
+    }
+
+    /**
+     * CIBlockElement::GetProperty возвращает HTML-свойство в двух формах:
+     * VALUE['TEXT'] в актуальных версиях Bitrix и ~VALUE['TEXT'] в части
+     * совместимых обработчиков. Нельзя приводить VALUE-массив к строке:
+     * результатом будет "Array" и валидный JSON свойства будет потерян.
+     */
+    private function extractHtmlPropertyValueForClone(array $property): array
+    {
+        $rawValue = $property['~VALUE'] ?? $property['VALUE'] ?? '';
+        $fallbackValue = $property['VALUE'] ?? '';
+
+        if (is_array($rawValue)) {
+            $text = $rawValue['TEXT'] ?? '';
+            $type = $rawValue['TYPE'] ?? $property['VALUE_TYPE'] ?? 'text';
+        } elseif (is_array($fallbackValue)) {
+            $text = $fallbackValue['TEXT'] ?? '';
+            $type = $fallbackValue['TYPE'] ?? $property['VALUE_TYPE'] ?? 'text';
+        } else {
+            $text = $rawValue;
+            $type = $property['VALUE_TYPE'] ?? 'text';
+        }
+
+        return [
+            'TEXT' => (string)$text,
+            'TYPE' => (string)$type,
+        ];
     }
 
     private function normalizeToIntArray($value): array
