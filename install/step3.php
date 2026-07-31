@@ -514,6 +514,61 @@ function ensureListPropertyWithValues(int $iblockId, string $code, string $name,
     installLog("  → Значения {$code}: добавлено {$added}, всего " . count($existingByXml), 'success');
 }
 
+/**
+ * Rename a calculator-owned catalog property without recreating it.
+ *
+ * CIBlockProperty::Update keeps the property ID, directory settings and all
+ * offer values. Both historical aliases are accepted for existing installs.
+ */
+function migrateCalculatorPropertyCode(
+    int $iblockId,
+    array $legacyCodes,
+    string $targetCode
+): void {
+    if ($iblockId <= 0) {
+        installLog("  → Пропуск миграции {$targetCode}: не задан IBLOCK_ID", 'warning');
+        return;
+    }
+
+    $target = \CIBlockProperty::GetList(
+        [],
+        ['IBLOCK_ID' => $iblockId, 'CODE' => $targetCode]
+    )->Fetch();
+    if ($target) {
+        installLog("  → Свойство {$targetCode} уже существует (ID: {$target['ID']})", 'warning');
+        return;
+    }
+
+    foreach ($legacyCodes as $legacyCode) {
+        $legacy = \CIBlockProperty::GetList(
+            [],
+            ['IBLOCK_ID' => $iblockId, 'CODE' => $legacyCode]
+        )->Fetch();
+        if (!$legacy) {
+            continue;
+        }
+
+        $propertyApi = new \CIBlockProperty();
+        if ($propertyApi->Update((int)$legacy['ID'], ['CODE' => $targetCode])) {
+            installLog(
+                "  → Свойство {$legacyCode} переименовано в {$targetCode}; ID {$legacy['ID']} сохранён",
+                'success'
+            );
+        } else {
+            $error = (string)$propertyApi->LAST_ERROR;
+            installLog("  → Ошибка переименования {$legacyCode}: {$error}", 'error');
+            $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] =
+                "Свойство {$legacyCode} → {$targetCode}: {$error}";
+        }
+        return;
+    }
+
+    installLog(
+        "  → Свойство цвета не найдено; {$targetCode} будет настроено владельцем инфоблока при необходимости",
+        'warning'
+    );
+}
+
 function ensureSkuCalculatorProperties(int $skuIblockId): void
 {
     if ($skuIblockId <= 0) {
@@ -522,6 +577,11 @@ function ensureSkuCalculatorProperties(int $skuIblockId): void
     }
 
     installLog('Проверка обязательных свойств калькулятора в инфоблоке ТП...', 'header');
+    migrateCalculatorPropertyCode(
+        $skuIblockId,
+        ['CALC_COLORS', 'CALC_COLOR'],
+        'CALC_PROP_COLOR'
+    );
 
     $volumeValues = [1,2,3,4,5,10,15,20,30,40,50,75,100,150,200,250,300,400,500,600,750,1000,1500,2000,3000,4000,5000,6000,7000,8000,9000,10000,12000,15000,20000,25000,30000,35000,40000,45000,50000,60000,70000,80000,90000,100000,120000,150000,180000,200000,250000,300000,400000,500000];
     $volumeEnum = [];

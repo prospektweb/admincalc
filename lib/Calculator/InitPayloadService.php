@@ -35,6 +35,9 @@ class InitPayloadService
 
         $this->ensureBitrixModulesLoaded();
 
+        (new \Prospektweb\Calc\Install\CatalogPropertyCodeMigrationService())
+            ->migrateForOffers($offerIds);
+
         // Загружаем информацию о ТП
         $selectedOffers = $this->loadOffers($offerIds);
         
@@ -553,6 +556,7 @@ class InitPayloadService
         );
         
         while ($prop = $rsProperties->Fetch()) {
+            $userTypeSettings = $this->normalizeUserTypeSettings($prop['USER_TYPE_SETTINGS'] ?? null);
             $property = [
                 'ID' => (int)$prop['ID'],
                 'CODE' => $prop['CODE'] ?? '',
@@ -564,7 +568,7 @@ class InitPayloadService
                 'DEFAULT_VALUE' => $prop['DEFAULT_VALUE'] ?? '',
                 'LINK_IBLOCK_ID' => $prop['LINK_IBLOCK_ID'] ? (int)$prop['LINK_IBLOCK_ID'] : null,
                 'USER_TYPE' => $prop['USER_TYPE'] ?? null,
-                'USER_TYPE_SETTINGS' => $prop['USER_TYPE_SETTINGS'] ?? null,
+                'USER_TYPE_SETTINGS' => $userTypeSettings,
                 'WITH_DESCRIPTION' => $prop['WITH_DESCRIPTION'] ?? 'N',
                 'MULTIPLE_CNT' => $prop['MULTIPLE_CNT'] ?? 5,
                 'ROW_COUNT' => $prop['ROW_COUNT'] ?? 1,
@@ -591,11 +595,107 @@ class InitPayloadService
                 
                 $property['ENUMS'] = $enums;
             }
+
+            if (
+                ($prop['PROPERTY_TYPE'] ?? '') === 'S'
+                && ($prop['USER_TYPE'] ?? '') === 'directory'
+            ) {
+                $property['DIRECTORY_ITEMS'] = $this->loadDirectoryItems(
+                    (string)($userTypeSettings['TABLE_NAME'] ?? '')
+                );
+            }
             
             $properties[] = $property;
         }
         
         return $properties;
+    }
+
+    /**
+     * CIBlockProperty may return directory settings either as an array or as a
+     * serialized value depending on the Bitrix execution path.
+     */
+    private function normalizeUserTypeSettings($settings): array
+    {
+        if (is_array($settings)) {
+            return $settings;
+        }
+
+        if (!is_string($settings) || trim($settings) === '') {
+            return [];
+        }
+
+        $decoded = @unserialize($settings, ['allowed_classes' => false]);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Resolve a Bitrix directory property into stable XML_ID/name/image
+     * options for the calculator mapping UI.
+     */
+    private function loadDirectoryItems(string $tableName): array
+    {
+        static $cache = [];
+
+        $tableName = trim($tableName);
+        if ($tableName === '') {
+            return [];
+        }
+        if (array_key_exists($tableName, $cache)) {
+            return $cache[$tableName];
+        }
+        if (!Loader::includeModule('highloadblock')) {
+            return $cache[$tableName] = [];
+        }
+
+        $hlblock = \Bitrix\Highloadblock\HighloadBlockTable::getList([
+            'filter' => ['=TABLE_NAME' => $tableName],
+            'limit' => 1,
+        ])->fetch();
+        if (!$hlblock) {
+            return $cache[$tableName] = [];
+        }
+
+        $entity = \Bitrix\Highloadblock\HighloadBlockTable::compileEntity($hlblock);
+        $dataClass = $entity->getDataClass();
+        $fields = $entity->getFields();
+        $order = isset($fields['UF_SORT']) ? ['UF_SORT' => 'ASC', 'ID' => 'ASC'] : ['ID' => 'ASC'];
+        $rows = $dataClass::getList([
+            'select' => ['*'],
+            'order' => $order,
+        ])->fetchAll();
+
+        $items = [];
+        foreach ($rows as $row) {
+            $id = (int)($row['ID'] ?? 0);
+            $xmlId = trim((string)($row['UF_XML_ID'] ?? ''));
+            if ($xmlId === '') {
+                $xmlId = (string)$id;
+            }
+            $name = trim((string)($row['UF_NAME'] ?? $row['UF_DESCRIPTION'] ?? $xmlId));
+            $fileId = (int)($row['UF_FILE'] ?? 0);
+            $image = null;
+            if ($fileId > 0) {
+                $file = \CFile::GetFileArray($fileId);
+                if (is_array($file) && !empty($file['SRC'])) {
+                    $image = [
+                        'SRC' => (string)$file['SRC'],
+                        'WIDTH' => (int)($file['WIDTH'] ?? 0),
+                        'HEIGHT' => (int)($file['HEIGHT'] ?? 0),
+                    ];
+                }
+            }
+
+            $items[] = [
+                'ID' => $id,
+                'VALUE' => $name !== '' ? $name : $xmlId,
+                'XML_ID' => $xmlId,
+                'SORT' => (int)($row['UF_SORT'] ?? 500),
+                'IMAGE' => $image,
+            ];
+        }
+
+        return $cache[$tableName] = $items;
     }
 
     /**
