@@ -33,7 +33,8 @@ foreach ([
         throw new RuntimeException("Custom-field code normalization missing: {$needle}");
     }
 }
-if (!str_contains($component, "preg_replace('/[^A-Z0-9_]+/', '_', \$fieldCode)")) {
+if (!str_contains($component, "\$submittedCode !== \$existingCode")
+    || !str_contains($component, "preg_replace('/[^A-Z0-9_]+/', '_', \$fieldCode)")) {
     throw new RuntimeException('Server-side custom-field code normalization is missing');
 }
 if (str_contains($component . $template, '? IBLOCK_ID=')) {

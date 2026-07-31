@@ -179,13 +179,17 @@ class CalcCustomFieldEditComponent extends CBitrixComponent
         $propValues = $_POST['PROPERTY_VALUES'] ?? [];
 
         // Генерация/валидация символьного кода
-        $fieldCode = strtoupper(trim($_POST['CODE'] ??  ''));
+        $submittedCode = trim($_POST['CODE'] ?? '');
+        $existingCode = $this->elementId > 0 ? (string)($this->arResult['ELEMENT']['CODE'] ?? '') : '';
+        $fieldCode = $submittedCode;
         if ($fieldCode === '') {
             $fieldCode = $this->generateUniqueElementCode($arFields['NAME']);
-        }
-        $fieldCode = trim((string)preg_replace('/[^A-Z0-9_]+/', '_', $fieldCode), '_');
-        if ($fieldCode === '' || !preg_match('/^[A-Z]/', $fieldCode)) {
-            $fieldCode = 'FIELD_' . ($fieldCode !== '' ? $fieldCode : date('Ymd_His'));
+        } elseif ($existingCode === '' || $submittedCode !== $existingCode) {
+            $fieldCode = strtoupper($fieldCode);
+            $fieldCode = trim((string)preg_replace('/[^A-Z0-9_]+/', '_', $fieldCode), '_');
+            if ($fieldCode === '' || !preg_match('/^[A-Z]/', $fieldCode)) {
+                $fieldCode = 'FIELD_' . ($fieldCode !== '' ? $fieldCode : date('Ymd_His'));
+            }
         }
 
         if ($this->isElementCodeExists($fieldCode, $this->elementId)) {
