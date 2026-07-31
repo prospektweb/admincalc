@@ -41,6 +41,21 @@ final class StageGroupService
         foreach ($normalized as $item) {
             $normalizedById[$item['id']] = $item;
         }
+        foreach ($normalized as $item) {
+            $visited = [];
+            $current = $item;
+            while ($current['parentId'] !== null) {
+                if (isset($visited[$current['id']])) {
+                    throw new \InvalidArgumentException('Группы этапов не могут образовывать циклическую вложенность');
+                }
+                $visited[$current['id']] = true;
+                $parent = $normalizedById[$current['parentId']] ?? null;
+                if (!$parent || $parent['kind'] === 'condition') {
+                    throw new \InvalidArgumentException('Группа может принадлежать только существующей родительской группе');
+                }
+                $current = $parent;
+            }
+        }
         $usedByParent = [];
         $clean = [];
         foreach ($normalized as $item) {
@@ -53,7 +68,7 @@ final class StageGroupService
             if ($parentId !== null) {
                 $parent = $normalizedById[$parentId] ?? null;
                 if (!$parent || $parentId === $id || $parent['kind'] === 'condition') {
-                    throw new \InvalidArgumentException('Подгруппа должна принадлежать группе верхнего уровня');
+                    throw new \InvalidArgumentException('Подгруппа должна принадлежать родительской группе');
                 }
             }
             if ($title === '' || mb_strlen($title) > 250 || mb_strlen($description) > 4000) {

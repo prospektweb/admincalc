@@ -3377,7 +3377,7 @@
                 const response = Array.isArray(result) && result[0] ? result[0] : { status: 'error', message: 'Пустой ответ сервера' };
                 if (response.status !== 'ok') throw new Error(response.message || 'Не удалось сохранить группы этапов');
                 if (this.initData && this.initData.preset) {
-                    const value = JSON.stringify({ version: 2, groups: Array.isArray(response.groups) ? response.groups : [] });
+                    const value = JSON.stringify({ version: 3, groups: Array.isArray(response.groups) ? response.groups : [] });
                     this.initData.preset.properties = this.initData.preset.properties || {};
                     this.initData.preset.properties.STAGE_GROUPS = {
                         VALUE: { TEXT: value, TYPE: 'TEXT' },

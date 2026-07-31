@@ -42,8 +42,9 @@ $checks = [
     'server validates preset stage membership and topology' => strpos($groups, 'collectPresetStageTopology') !== false
         && strpos($groups, 'Все этапы группы должны находиться в одной колонке') !== false
         && strpos($groups, 'Этапы группы должны идти подряд') !== false,
-    'stage groups support one nested level and verify durable persistence' => strpos($groups, "'parentId' => \$parentId") !== false
-        && strpos($groups, 'Подгруппа должна принадлежать группе верхнего уровня') !== false
+    'stage groups preserve recursive parent links and verify durable persistence' => strpos($groups, "'parentId' => \$parentId") !== false
+        && strpos($groups, 'циклическую вложенность') !== false
+        && strpos($groups, 'Подгруппа должна принадлежать родительской группе') !== false
         && strpos($groups, 'SetPropertyValues(') !== false
         && strpos($groups, 'Группы этапов не были записаны в пресет') !== false,
     'stage-group property lookup uses the supported legacy code filter' => strpos($groups, "'CODE' => self::PROPERTY_CODE") !== false
