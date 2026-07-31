@@ -15,6 +15,7 @@ $assert = static function (bool $condition, string $message): void {
 
 $assert(strpos($service, 'collectDetailTreeIds') !== false, 'contract impact maps presets through their exact detail tree');
 $assert(strpos($service, "'stageIds' => array_map('intval', array_keys(\$presetStageIds))") !== false, 'each preset receives only its own affected stages');
+$assert(strpos($service, 'if ($focusStageId > 0)') !== false, 'preset editor links never emit a zero stage focus');
 $assert(strpos($service, "ensureStringProperty") !== false, 'contract blocking property is prepared without destructive schema repair');
 $assert(strpos($elementData, "\$propertyCode === 'GLOBAL_DEPENDENCIES'") !== false, 'global dependency property is prepared on first save');
 $assert(strpos($detailHandler, 'array_splice($updatedPresetDetails, $origPos + 1, 0, [$newDetailId])') !== false, 'top-level duplication inserts an adjacent independent detail');

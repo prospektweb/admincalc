@@ -80,9 +80,12 @@ final class CalculatorContractService
                     (array)($product['offers'] ?? [])
                 )));
                 if ($offerIds) {
+                    $focusStageId = (int)($preset['stageIds'][0] ?? 0);
                     $preset['editorUrl'] = '/bitrix/admin/prospektweb_calc_calculator.php?offer_ids='
-                        . implode(',', $offerIds)
-                        . '&focus_stage_id=' . (int)($preset['stageIds'][0] ?? 0);
+                        . implode(',', $offerIds);
+                    if ($focusStageId > 0) {
+                        $preset['editorUrl'] .= '&focus_stage_id=' . $focusStageId;
+                    }
                 }
             } catch (\Throwable $exception) {
                 // Dependency inspection must remain available even when a preset
