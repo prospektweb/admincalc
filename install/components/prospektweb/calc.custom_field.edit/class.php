@@ -180,11 +180,26 @@ class CalcCustomFieldEditComponent extends CBitrixComponent
 
         // Генерация/валидация символьного кода
         $submittedCode = trim($_POST['CODE'] ?? '');
-        $existingCode = $this->elementId > 0 ? (string)($this->arResult['ELEMENT']['CODE'] ?? '') : '';
+        $existingCode = '';
+        if ($this->elementId > 0) {
+            $existingElement = \CIBlockElement::GetList(
+                [],
+                ['ID' => $this->elementId, 'IBLOCK_ID' => $this->iblockId],
+                false,
+                ['nTopCount' => 1],
+                ['ID', 'CODE']
+            )->Fetch();
+            $existingCode = (string)($existingElement['CODE'] ?? '');
+        }
         $fieldCode = $submittedCode;
         if ($fieldCode === '') {
             $fieldCode = $this->generateUniqueElementCode($arFields['NAME']);
-        } elseif ($existingCode === '' || $submittedCode !== $existingCode) {
+        } elseif ($existingCode !== '' && strcasecmp($submittedCode, $existingCode) === 0
+            && preg_match('/^[A-Za-z][A-Za-z0-9_]*$/', $submittedCode)) {
+            // Keep an unchanged legacy lower-case code (and permit a case-only rollback)
+            // so editing metadata never silently breaks formula and stage-value references.
+            $fieldCode = $submittedCode;
+        } else {
             $fieldCode = strtoupper($fieldCode);
             $fieldCode = trim((string)preg_replace('/[^A-Z0-9_]+/', '_', $fieldCode), '_');
             if ($fieldCode === '' || !preg_match('/^[A-Z]/', $fieldCode)) {
