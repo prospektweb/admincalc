@@ -89,7 +89,7 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 <div id="calc-container">
     <iframe 
         id="calc-iframe" 
-        src="/local/apps/prospektweb.calc/index.html?v=98f8e3ec6c3a"
+        src="/local/apps/prospektweb.calc/index.html?v=d84663875462"
         title="<?= Loc::getMessage('PROSPEKTWEB_CALC_IFRAME_TITLE') ?>">
     </iframe>
 </div>
