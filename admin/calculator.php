@@ -55,6 +55,11 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 
 <style>
 /* Стили для полноэкранного отображения iframe */
+html,
+body {
+    overflow: hidden !important;
+}
+
 .prospektweb-calc-page {
     margin: 0;
     padding: 0;
@@ -89,7 +94,7 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 <div id="calc-container">
     <iframe 
         id="calc-iframe" 
-        src="/local/apps/prospektweb.calc/index.html?v=d84663875462"
+        src="/local/apps/prospektweb.calc/index.html?v=c1c338fca07c"
         title="<?= Loc::getMessage('PROSPEKTWEB_CALC_IFRAME_TITLE') ?>">
     </iframe>
 </div>
