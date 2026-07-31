@@ -16,10 +16,28 @@ class CalcCustomFieldEditor {
     }
 
     init() {
+        this.bindCodeNormalization();
         this.bindTypeSelector();
         this.bindOptionsEditor();
         this.bindPreviewUpdates();
         this.updatePreview();
+    }
+
+    bindCodeNormalization() {
+        const codeInput = this.form?.querySelector('[data-field-code]');
+        if (!codeInput) return;
+
+        codeInput.addEventListener('input', () => {
+            const cursor = codeInput.selectionStart;
+            codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9_]+/g, '_');
+            if (cursor !== null) codeInput.setSelectionRange(cursor, cursor);
+        });
+        codeInput.addEventListener('blur', () => {
+            codeInput.value = codeInput.value.replace(/^_+|_+$/g, '');
+            if (codeInput.value && !/^[A-Z]/.test(codeInput.value)) {
+                codeInput.value = `FIELD_${codeInput.value}`;
+            }
+        });
     }
 
     /**

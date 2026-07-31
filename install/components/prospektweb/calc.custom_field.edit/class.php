@@ -179,14 +179,13 @@ class CalcCustomFieldEditComponent extends CBitrixComponent
         $propValues = $_POST['PROPERTY_VALUES'] ?? [];
 
         // Генерация/валидация символьного кода
-        $fieldCode = trim($_POST['CODE'] ??  '');
+        $fieldCode = strtoupper(trim($_POST['CODE'] ??  ''));
         if ($fieldCode === '') {
             $fieldCode = $this->generateUniqueElementCode($arFields['NAME']);
         }
-
-        if (!preg_match('/^[A-Z][A-Z0-9_]*$/', $fieldCode)) {
-            $this->arResult['ERRORS'][] = 'Символьный код должен начинаться с буквы и содержать только заглавные латинские буквы, цифры и подчёркивание';
-            return false;
+        $fieldCode = trim((string)preg_replace('/[^A-Z0-9_]+/', '_', $fieldCode), '_');
+        if ($fieldCode === '' || !preg_match('/^[A-Z]/', $fieldCode)) {
+            $fieldCode = 'FIELD_' . ($fieldCode !== '' ? $fieldCode : date('Ymd_His'));
         }
 
         if ($this->isElementCodeExists($fieldCode, $this->elementId)) {
@@ -276,7 +275,7 @@ class CalcCustomFieldEditComponent extends CBitrixComponent
         // Редирект после сохранения
         if (! empty($_POST['save'])) {
             // Кнопка "Сохранить" — возврат к списку
-            $backUrl = $this->arParams['BACK_URL'] ?: '/bitrix/admin/iblock_list_admin.php? IBLOCK_ID=' . $this->iblockId .  '&type=calculator&lang=' .  LANGUAGE_ID;
+            $backUrl = $this->arParams['BACK_URL'] ?: '/bitrix/admin/iblock_list_admin.php?IBLOCK_ID=' . $this->iblockId .  '&type=calculator&lang=' .  LANGUAGE_ID;
             LocalRedirect($backUrl);
         } else {
             // Кнопка "Применить" — остаёмся на странице

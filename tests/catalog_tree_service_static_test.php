@@ -11,6 +11,10 @@ foreach ([
     "['IBLOCK_ID' => \$iblockId]",
     'buildTree($sections, $elements)',
     'saveCustomFieldProperties',
+    'normalizeCustomFieldType',
+    "['number', 'text', 'checkbox', 'select']",
+    "VALUE_ENUM",
+    "preg_match('/\\((number|text|checkbox|select)\\)/'",
     'Сначала удалите или переместите вложенные разделы и элементы',
 ] as $needle) {
     if (!str_contains($service, $needle)) {
@@ -32,6 +36,15 @@ foreach (['getPresetLoadOptions', 'PRESET_LOAD_OPTIONS_RESPONSE', 'presetLoadOpt
 
 if (!str_contains($dispatcher, '$replaceCustomFields') || !str_contains($dispatcher, '? $customFieldIds')) {
     throw new RuntimeException('Exact custom-field replacement contract is missing');
+}
+
+foreach ([$service, $dispatcher] as $enumWriter) {
+    if (!str_contains($enumWriter, "CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'ID' => 'ASC']")) {
+        throw new RuntimeException('Custom-field types must be resolved by their exact XML_ID');
+    }
+    if (!str_contains($enumWriter, "(string)(\$enum['XML_ID'] ?? '') === \$xmlId")) {
+        throw new RuntimeException('Custom-field enum lookup must not coerce one type into another');
+    }
 }
 
 echo "Catalog tree static contract: OK\n";

@@ -880,8 +880,13 @@ class ElementDataService
                             if (!$property) {
                                 return 0;
                             }
-                            $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => (int)$property['ID'], '=XML_ID' => $xmlId])->Fetch();
-                            return $enum ? (int)$enum['ID'] : 0;
+                            $enumCursor = \CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'ID' => 'ASC'], ['PROPERTY_ID' => (int)$property['ID']]);
+                            while ($enum = $enumCursor->Fetch()) {
+                                if ((string)($enum['XML_ID'] ?? '') === $xmlId) {
+                                    return (int)$enum['ID'];
+                                }
+                            }
+                            return 0;
                         };
                         $fieldTypeEnumId = $enumId($customFieldsIblockId, 'FIELD_TYPE', $type);
                         $requiredEnumId = $enumId($customFieldsIblockId, 'IS_REQUIRED', !empty($field['required']) ? 'Y' : 'N');

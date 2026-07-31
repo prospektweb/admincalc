@@ -44,7 +44,7 @@ $iblockId = (int)($arParams['IBLOCK_ID'] ??  0);
 $backUrl = $arParams['BACK_URL'] ?? '';
 
 if (empty($backUrl) && $iblockId > 0) {
-    $backUrl = '/bitrix/admin/iblock_list_admin.php? IBLOCK_ID=' . $iblockId .  '&type=calculator&lang=' . LANGUAGE_ID;
+    $backUrl = '/bitrix/admin/iblock_list_admin.php?IBLOCK_ID=' . $iblockId .  '&type=calculator&lang=' . LANGUAGE_ID;
 } elseif (empty($backUrl)) {
     // Fallback - перейти к списку калькуляторов
     $backUrl = '/bitrix/admin/iblock_admin.php?type=calculator&lang=' .  LANGUAGE_ID;
@@ -120,7 +120,9 @@ if (empty($backUrl) && $iblockId > 0) {
                            name="CODE"
                            class="calc-input calc-input-code"
                            value="<?= htmlspecialcharsbx($element['CODE'] ?? '') ?>"
-                           pattern="[A-Z][A-Z0-9_]*"
+                           data-field-code
+                           autocapitalize="characters"
+                           spellcheck="false"
                            title="Только заглавные латинские буквы, цифры и подчёркивание. Должен начинаться с буквы."
                            required
                            placeholder="PAPER_TYPE">

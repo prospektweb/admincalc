@@ -297,7 +297,7 @@ final class CatalogTreeService
             $values[$code] = $property ?: [];
         }
         return [
-            'type' => (string)($values['FIELD_TYPE']['VALUE_XML_ID'] ?? $values['FIELD_TYPE']['VALUE'] ?? 'text'),
+            'type' => $this->normalizeCustomFieldType($values['FIELD_TYPE']),
             'defaultValue' => (string)($values['DEFAULT_VALUE']['VALUE'] ?? ''),
             'required' => (string)($values['IS_REQUIRED']['VALUE_XML_ID'] ?? $values['IS_REQUIRED']['VALUE'] ?? 'N') === 'Y',
             'unit' => (string)($values['UNIT']['VALUE'] ?? ''),
@@ -331,8 +331,31 @@ final class CatalogTreeService
         if (!$property) {
             return 0;
         }
-        $enum = \CIBlockPropertyEnum::GetList([], ['PROPERTY_ID' => (int)$property['ID'], '=XML_ID' => $xmlId])->Fetch();
-        return $enum ? (int)$enum['ID'] : 0;
+        $enumCursor = \CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'ID' => 'ASC'], ['PROPERTY_ID' => (int)$property['ID']]);
+        while ($enum = $enumCursor->Fetch()) {
+            if ((string)($enum['XML_ID'] ?? '') === $xmlId) {
+                return (int)$enum['ID'];
+            }
+        }
+        return 0;
+    }
+
+    private function normalizeCustomFieldType(array $property): string
+    {
+        $allowed = ['number', 'text', 'checkbox', 'select'];
+        $xmlId = strtolower(trim((string)($property['VALUE_XML_ID'] ?? '')));
+        if (in_array($xmlId, $allowed, true)) {
+            return $xmlId;
+        }
+
+        $displayValue = strtolower(trim((string)($property['VALUE_ENUM'] ?? $property['VALUE'] ?? '')));
+        if (in_array($displayValue, $allowed, true)) {
+            return $displayValue;
+        }
+        if (preg_match('/\((number|text|checkbox|select)\)/', $displayValue, $matches)) {
+            return $matches[1];
+        }
+        return 'text';
     }
 
     private function validateSection(int $iblockId, int $sectionId): int
