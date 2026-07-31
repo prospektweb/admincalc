@@ -122,13 +122,10 @@ final class CatalogTreeService
             throw new \InvalidArgumentException('Введите название элемента');
         }
 
-        $code = $this->normalizeCode(
-            $iblockId,
-            trim((string)($request['code'] ?? '')),
-            $name,
-            'element',
-            $elementId
-        );
+        $requestedCode = trim((string)($request['code'] ?? ''));
+        $code = (string)$iblock['CODE'] === 'CALC_CUSTOM_FIELDS'
+            ? $this->normalizeCustomFieldCode($iblockId, $requestedCode, $name, $elementId)
+            : $this->normalizeCode($iblockId, $requestedCode, $name, 'element', $elementId);
         $fields = [
             'IBLOCK_ID' => $iblockId,
             'IBLOCK_SECTION_ID' => $sectionId > 0 ? $sectionId : false,
@@ -406,6 +403,64 @@ final class CatalogTreeService
             $candidate = $base . '-' . $suffix++;
         } while ($suffix < 10000);
         throw new \RuntimeException('Не удалось подобрать уникальный код');
+    }
+
+    /**
+     * Codes of CALC_CUSTOM_FIELDS are formula identifiers, not URL slugs.
+     * Keep an unchanged legacy code intact so editing metadata cannot silently
+     * break existing references, but generate every new/changed code using the
+     * parser-safe [A-Za-z_][A-Za-z0-9_]* contract.
+     */
+    private function normalizeCustomFieldCode(int $iblockId, string $code, string $name, int $excludeId): string
+    {
+        if ($excludeId > 0 && $code !== '') {
+            $existing = \CIBlockElement::GetList(
+                [],
+                ['IBLOCK_ID' => $iblockId, 'ID' => $excludeId],
+                false,
+                ['nTopCount' => 1],
+                ['ID', 'CODE']
+            )->Fetch();
+            if ($existing && (string)($existing['CODE'] ?? '') === $code) {
+                return $code;
+            }
+        }
+
+        $source = $code !== '' ? $code : $name;
+        $base = trim((string)\CUtil::translit($source, 'ru', [
+            'replace_space' => '_',
+            'replace_other' => '_',
+            'change_case' => 'U',
+            'delete_repeat_replace' => true,
+        ]), '_');
+        $base = trim((string)preg_replace('/[^A-Za-z0-9_]+/', '_', $base), '_');
+        $base = (string)preg_replace('/_+/', '_', $base);
+        if ($base === '') {
+            $base = 'FIELD';
+        }
+        if (!preg_match('/^[A-Za-z_]/', $base)) {
+            $base = 'FIELD_' . $base;
+        }
+        $base = substr($base, 0, 50);
+
+        $candidate = $base;
+        $suffix = 2;
+        do {
+            $row = \CIBlockElement::GetList(
+                [],
+                ['IBLOCK_ID' => $iblockId, '=CODE' => $candidate],
+                false,
+                ['nTopCount' => 1],
+                ['ID']
+            )->Fetch();
+            if (!$row || (int)$row['ID'] === $excludeId) {
+                return $candidate;
+            }
+            $tail = '_' . $suffix++;
+            $candidate = substr($base, 0, 50 - strlen($tail)) . $tail;
+        } while ($suffix < 10000);
+
+        throw new \RuntimeException('Не удалось подобрать уникальный код поля');
     }
 
     private function assertAdmin(): void
