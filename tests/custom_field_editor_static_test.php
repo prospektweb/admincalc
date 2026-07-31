@@ -26,6 +26,9 @@ foreach ([
 }
 foreach ([
     'bindCodeNormalization',
+    'const originalCode = codeInput.value',
+    'rawValue.toUpperCase() === originalCode.toUpperCase()',
+    '/^[A-Za-z][A-Za-z0-9_]*$/.test(rawValue)',
     "toUpperCase().replace(/[^A-Z0-9_]+/g, '_')",
     '`FIELD_${codeInput.value}`',
 ] as $needle) {

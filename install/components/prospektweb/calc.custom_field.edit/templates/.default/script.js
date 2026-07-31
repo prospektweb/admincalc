@@ -26,10 +26,17 @@ class CalcCustomFieldEditor {
     bindCodeNormalization() {
         const codeInput = this.form?.querySelector('[data-field-code]');
         if (!codeInput) return;
+        const originalCode = codeInput.value;
 
         codeInput.addEventListener('input', () => {
+            const rawValue = codeInput.value;
+            const isCaseOnlyEdit = originalCode
+                && rawValue.toUpperCase() === originalCode.toUpperCase()
+                && /^[A-Za-z][A-Za-z0-9_]*$/.test(rawValue);
+            if (isCaseOnlyEdit) return;
+
             const cursor = codeInput.selectionStart;
-            codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9_]+/g, '_');
+            codeInput.value = rawValue.toUpperCase().replace(/[^A-Z0-9_]+/g, '_');
             if (cursor !== null) codeInput.setSelectionRange(cursor, cursor);
         });
         codeInput.addEventListener('blur', () => {
