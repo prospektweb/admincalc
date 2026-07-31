@@ -94,7 +94,7 @@ body {
 <div id="calc-container">
     <iframe 
         id="calc-iframe" 
-        src="/local/apps/prospektweb.calc/index.html?v=c1c338fca07c"
+        src="/local/apps/prospektweb.calc/index.html?v=f4e2300793ba"
         title="<?= Loc::getMessage('PROSPEKTWEB_CALC_IFRAME_TITLE') ?>">
     </iframe>
 </div>
