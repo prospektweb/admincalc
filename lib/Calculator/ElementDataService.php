@@ -211,6 +211,27 @@ class ElementDataService
                         $result[] = $cloneResult;
                         continue 2;
 
+                    case 'cloneDetails':
+                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
+                        $cloneResult = $handler->cloneDetails($request);
+                        if (($cloneResult['status'] ?? 'error') === 'ok') {
+                            $presetId = (int)($request['presetId'] ?? 0);
+                            $rootDetailIds = array_values(array_filter(array_map(
+                                'intval',
+                                $cloneResult['rootDetailIds'] ?? []
+                            )));
+                            if ($presetId > 0 && !empty($rootDetailIds)) {
+                                $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
+                                $cloneResult['initPayload'] = $enrichmentService->enrichPresetFromProductRoots(
+                                    $presetId,
+                                    $rootDetailIds,
+                                    $request['offerIds'] ?? []
+                                );
+                            }
+                        }
+                        $result[] = $cloneResult;
+                        continue 2;
+
                     case 'changeProductType':
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();
                         $changeResult = $handler->changeProductType($request);

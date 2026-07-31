@@ -96,8 +96,9 @@ if (
     $cloneDetail === ''
     || strpos($cloneDetail, "['DETAILS' => false]") !== false
     || strpos($cloneDetail, "['CALC_DETAILS' => false]") !== false
+    || strpos($cloneDetail, 'cloneStageGroupsForStageMap($presetId, $stageMap, $newDetailId)') === false
 ) {
-    throw new RuntimeException('Cloning must not publish an intermediate empty topology before INIT');
+    throw new RuntimeException('Cloning must preserve stage groups without publishing an intermediate empty topology');
 }
 
 $cloneRecursive = $slice(
@@ -112,6 +113,8 @@ if (
     || strpos($cloneRecursive, "if (\$newConfigIds !== [])") === false
     || strpos($cloneRecursive, "if (\$newDetailIds !== [])") === false
     || strpos($cloneRecursive, "\$propertyValues['TYPE'] = ['VALUE'") !== false
+    || strpos($cloneRecursive, "(string)\$originalDetail['NAME'] . ' (копия)'") === false
+    || strpos($cloneRecursive, "\$stageMap[(int)\$configId] = (int)\$newConfigId") === false
 ) {
     throw new RuntimeException('A clone must rebuild topology fields using native Bitrix property value shapes');
 }
@@ -128,12 +131,19 @@ $cloneBridge = $slice(
     'async handleCloneDetailRequest',
     'async handleSaveSettingsEquipmentRequest'
 );
+$cloneSelectedBridge = $slice(
+    $integration,
+    'async handleCloneSelectedDetailsRequest',
+    'async handleClonePresetRequest'
+);
 if (
     $cloneBridge === ''
     || strpos($cloneBridge, 'responsePayload.initPayload') === false
     || strpos($cloneBridge, 'this.enrichPreset(') !== false
+    || $cloneSelectedBridge === ''
+    || strpos($cloneSelectedBridge, "action: 'cloneDetails'") === false
 ) {
-    throw new RuntimeException('The browser must not re-enrich a clone through the legacy flow');
+    throw new RuntimeException('The browser must clone selected details atomically without the legacy flow');
 }
 
 $removeAction = $slice($elementDataService, "case 'removeDetail':", "case 'renameDetail':");

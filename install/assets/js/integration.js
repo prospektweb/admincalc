@@ -284,6 +284,9 @@
                 case 'CLONE_DETAIL_REQUEST':
                     await this.handleCloneDetailRequest(message, origin);
                     break;
+                case 'CLONE_SELECTED_DETAILS_REQUEST':
+                    await this.handleCloneSelectedDetailsRequest(message, origin);
+                    break;
                 case 'CLONE_PRESET_REQUEST':
                     await this.handleClonePresetRequest(message, origin);
                     break;
@@ -448,7 +451,7 @@
                         'ADD_STAGE_REQUEST', 'DUPLICATE_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'SAVE_STAGE_ACTIVATION_REQUEST', 'REMOVE_DETAIL_REQUEST',
                         'RENAME_DETAIL_REQUEST', 'CHANGE_PRODUCT_TYPE_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST',
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
-                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST', 'CLONE_PRESET_REQUEST',
+                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST', 'CLONE_SELECTED_DETAILS_REQUEST', 'CLONE_PRESET_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
                         'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_LOGIC_AUDIT_REQUEST', 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST', 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
@@ -1382,6 +1385,44 @@
             }
         }
 
+        async handleCloneSelectedDetailsRequest(message, origin) {
+            const payload = message.payload || {};
+            const detailIds = Array.from(new Set((Array.isArray(payload.detailIds) ? payload.detailIds : [])
+                .map((id) => parseInt(id, 10) || 0)
+                .filter((id) => id > 0)));
+            const presetId = parseInt(payload.presetId, 10) || 0;
+            if (detailIds.length === 0 || !presetId) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не выбраны детали для клонирования',
+                }, message.requestId, origin);
+                return;
+            }
+
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'cloneDetails',
+                    detailIds,
+                    presetId,
+                    offerIds: this.config.offerIds || [],
+                }]);
+                const responsePayload = (Array.isArray(result) && result[0]) ? result[0] : null;
+                if (!responsePayload || responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload?.message || 'Не удалось клонировать выбранные детали');
+                }
+                if (!responsePayload.initPayload) {
+                    throw new Error('Сервер не вернул обновлённую структуру пресета');
+                }
+                this.initData = responsePayload.initPayload;
+                this.sendPwrtMessage('INIT', responsePayload.initPayload, message.requestId, origin);
+            } catch (error) {
+                console.error('[BitrixBridge] CLONE_SELECTED_DETAILS_REQUEST error:', error);
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка клонирования выбранных деталей',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
+            }
+        }
+
         async handleClonePresetRequest(message, origin) {
             const payload = message.payload || {};
             const presetId = parseInt(payload.presetId, 10) || 0;
@@ -1782,16 +1823,16 @@
                     ? result[0]
                     : { status: 'error', message: 'Empty response' };
                 if (responsePayload.status !== 'ok') {
-                    throw new Error(responsePayload.message || 'Не удалось продублировать этап');
+                    throw new Error(responsePayload.message || 'Не удалось клонировать этап');
                 }
                 if (!responsePayload.initPayload) {
-                    throw new Error('Сервер не вернул обновлённое состояние после дублирования');
+                    throw new Error('Сервер не вернул обновлённое состояние после клонирования');
                 }
                 this.initData = responsePayload.initPayload;
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 this.sendPwrtMessage('ERROR', {
-                    message: 'Ошибка дублирования этапа',
+                    message: 'Ошибка клонирования этапа',
                     details: error && error.message ? error.message : 'Unknown error',
                 }, message.requestId, origin);
             }
@@ -4629,7 +4670,7 @@
                 action: 'addNewDetail',
                 presetId,
                 offerIds: this.config.offerIds || [],
-                name: 'Деталь #1',
+                name: 'Новая деталь',
             }]);
             const response = Array.isArray(created) ? created[0] : null;
             const newDetailId = parseInt(response?.detail?.id, 10) || 0;

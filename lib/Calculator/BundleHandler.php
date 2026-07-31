@@ -241,9 +241,9 @@ class BundleHandler
                 }
             }
 
-            // Валидация от дублирования клонирования
+            // Валидация полноты клонирования
             if (count($detailMap) !== count($detailGraph)) {
-                throw new \Exception('Обнаружено дублирование/потеря при клонировании деталей: ожидалось '
+                throw new \Exception('Обнаружен повтор или потеря при клонировании деталей: ожидалось '
                     . count($detailGraph) . ', создано ' . count($detailMap));
             }
 

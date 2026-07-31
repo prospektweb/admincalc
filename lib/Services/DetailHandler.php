@@ -114,6 +114,7 @@ class DetailHandler
     {
         $createdDetailIds = [];
         $createdConfigIds = [];
+        $stageMap = [];
         try {
             $detailId = (int)($data['detailId'] ?? 0);
             $presetId = (int)($data['presetId'] ?? 0);
@@ -128,7 +129,7 @@ class DetailHandler
             }
 
             // Клонируем деталь 1:1
-            $cloneResult = $this->cloneDetailRecursive($originalDetail, $createdDetailIds, $createdConfigIds);
+            $cloneResult = $this->cloneDetailRecursive($originalDetail, $createdDetailIds, $createdConfigIds, $stageMap);
             if (!$cloneResult || ($cloneResult['status'] ?? 'error') !== 'ok') {
                 $this->rollbackCreated($createdDetailIds, $createdConfigIds);
                 return ['status' => 'error', 'message' => 'Не удалось клонировать деталь'];
@@ -189,6 +190,8 @@ class DetailHandler
                     array_map('intval', $presetDetails),
                     array_map('intval', $createdDetailIds)
                 )));
+
+                $this->cloneStageGroupsForStageMap($presetId, $stageMap, $newDetailId);
             }
 
             return [
@@ -354,6 +357,43 @@ class DetailHandler
                 'message' => $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Клонировать несколько выбранных деталей и подключить их к пресету.
+     */
+    public function cloneDetails(array $data): array
+    {
+        $detailIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            is_array($data['detailIds'] ?? null) ? $data['detailIds'] : []
+        ))));
+        if ($detailIds === []) {
+            return ['status' => 'error', 'message' => 'Не выбраны детали для клонирования'];
+        }
+
+        $clonedDetails = [];
+        $createdDetailIds = [];
+        $createdConfigIds = [];
+        $rootDetailIds = [];
+        foreach ($detailIds as $detailId) {
+            $result = $this->cloneDetail(array_merge($data, ['detailId' => $detailId]));
+            if (($result['status'] ?? 'error') !== 'ok') {
+                return $result;
+            }
+            $clonedDetails[] = $result['detail'];
+            $createdDetailIds = array_merge($createdDetailIds, $result['createdDetailIds'] ?? []);
+            $createdConfigIds = array_merge($createdConfigIds, $result['createdConfigIds'] ?? []);
+            $rootDetailIds = $result['rootDetailIds'] ?? $rootDetailIds;
+        }
+
+        return [
+            'status' => 'ok',
+            'details' => $clonedDetails,
+            'rootDetailIds' => array_values(array_unique(array_map('intval', $rootDetailIds))),
+            'createdDetailIds' => array_values(array_unique(array_map('intval', $createdDetailIds))),
+            'createdConfigIds' => array_values(array_unique(array_map('intval', $createdConfigIds))),
+        ];
     }
 
     /**
@@ -1432,9 +1472,10 @@ class DetailHandler
     /**
      * Клонировать деталь рекурсивно (1:1)
      */
-    private function cloneDetailRecursive(array $originalDetail, array &$createdDetailIds, array &$createdConfigIds): array
+    private function cloneDetailRecursive(array $originalDetail, array &$createdDetailIds, array &$createdConfigIds, array &$stageMap): array
     {
-        $newDetailId = $this->createDetailElement($originalDetail['NAME'], $originalDetail['TYPE']);
+        $cloneName = (string)$originalDetail['NAME'] . ' (копия)';
+        $newDetailId = $this->createDetailElement($cloneName, $originalDetail['TYPE']);
         if (!$newDetailId) {
             return ['status' => 'error', 'message' => 'Не удалось создать клон детали'];
         }
@@ -1446,6 +1487,7 @@ class DetailHandler
             $newConfigId = $this->cloneConfig($configId, $createdConfigIds);
             if ($newConfigId) {
                 $newConfigIds[] = $newConfigId;
+                $stageMap[(int)$configId] = (int)$newConfigId;
             }
         }
 
@@ -1455,7 +1497,7 @@ class DetailHandler
             foreach ($originalDetail['DETAIL_IDS'] as $childId) {
                 $childDetail = $this->getDetailById($childId);
                 if ($childDetail) {
-                    $childClone = $this->cloneDetailRecursive($childDetail, $createdDetailIds, $createdConfigIds);
+                    $childClone = $this->cloneDetailRecursive($childDetail, $createdDetailIds, $createdConfigIds, $stageMap);
                     if (($childClone['status'] ?? 'error') === 'ok') {
                         $newDetailIds[] = $childClone['detail']['id'];
                     }
@@ -1484,12 +1526,148 @@ class DetailHandler
             'status' => 'ok',
             'detail' => [
                 'id' => $newDetailId,
-                'name' => $originalDetail['NAME'],
+                'name' => $cloneName,
                 'type' => $originalDetail['TYPE'],
             ],
             'createdConfigIds' => $createdConfigIds,
             'createdDetailIds' => $createdDetailIds,
         ];
+    }
+
+    /**
+     * Дополнить STAGE_GROUPS клонами групп и условий, относящихся к клонированным этапам.
+     *
+     * @param array<int, int> $stageMap
+     */
+    private function cloneStageGroupsForStageMap(int $presetId, array $stageMap, int $cloneDetailId): void
+    {
+        if ($presetId <= 0 || $stageMap === []) {
+            return;
+        }
+
+        $element = \CIBlockElement::GetList(
+            [],
+            ['ID' => $presetId, 'IBLOCK_ID' => $this->presetsIblockId],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'IBLOCK_ID']
+        )->GetNextElement();
+        if (!$element) {
+            return;
+        }
+
+        $properties = $element->GetProperties();
+        $property = $properties['STAGE_GROUPS'] ?? null;
+        $text = is_array($property)
+            ? (string)($property['~VALUE']['TEXT'] ?? $property['VALUE']['TEXT'] ?? $property['VALUE'] ?? '')
+            : '';
+        if (trim($text) === '') {
+            return;
+        }
+
+        $document = json_decode($text, true);
+        $groups = is_array($document['groups'] ?? null) ? $document['groups'] : [];
+        if ($groups === []) {
+            return;
+        }
+
+        $sourceStageIds = array_fill_keys(array_map('intval', array_keys($stageMap)), true);
+        $selected = [];
+        foreach ($groups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+            $stageIds = array_values(array_filter(array_map('intval', is_array($group['stageIds'] ?? null) ? $group['stageIds'] : [])));
+            if ($stageIds !== [] && count(array_filter($stageIds, static fn(int $id): bool => isset($sourceStageIds[$id]))) === count($stageIds)) {
+                $selected[(string)($group['id'] ?? '')] = true;
+            }
+        }
+
+        // Пустые подгруппы/условия принадлежат клонируемой структуре через родителя.
+        do {
+            $changed = false;
+            foreach ($groups as $group) {
+                if (!is_array($group)) {
+                    continue;
+                }
+                $id = (string)($group['id'] ?? '');
+                $parentId = (string)($group['parentId'] ?? '');
+                $stageIds = is_array($group['stageIds'] ?? null) ? $group['stageIds'] : [];
+                if ($id !== '' && !isset($selected[$id]) && $stageIds === [] && $parentId !== '' && isset($selected[$parentId])) {
+                    $selected[$id] = true;
+                    $changed = true;
+                }
+            }
+        } while ($changed);
+
+        if ($selected === []) {
+            return;
+        }
+
+        $existingIds = [];
+        foreach ($groups as $group) {
+            if (is_array($group) && (string)($group['id'] ?? '') !== '') {
+                $existingIds[(string)$group['id']] = true;
+            }
+        }
+        $groupIdMap = [];
+        foreach (array_keys($selected) as $oldId) {
+            $base = preg_replace('/[^A-Za-z0-9_-]/', '', $oldId) ?: 'group';
+            $candidate = $base . '_copy_' . $cloneDetailId;
+            $suffix = 2;
+            while (isset($existingIds[$candidate])) {
+                $candidate = $base . '_copy_' . $cloneDetailId . '_' . $suffix++;
+            }
+            $groupIdMap[$oldId] = $candidate;
+            $existingIds[$candidate] = true;
+        }
+
+        $clones = [];
+        foreach ($groups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+            $oldId = (string)($group['id'] ?? '');
+            if (!isset($selected[$oldId])) {
+                continue;
+            }
+            $parentId = (string)($group['parentId'] ?? '');
+            if ($parentId !== '' && !isset($groupIdMap[$parentId])) {
+                continue;
+            }
+            $clone = $this->remapStageIdsRecursive($group, $stageMap);
+            $clone['id'] = $groupIdMap[$oldId];
+            $clone['parentId'] = $parentId !== '' ? $groupIdMap[$parentId] : null;
+            $clones[] = $clone;
+        }
+
+        if ($clones === []) {
+            return;
+        }
+        $document['groups'] = array_values(array_merge($groups, $clones));
+        $encoded = json_encode($document, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
+            'STAGE_GROUPS' => ['VALUE' => ['TEXT' => $encoded, 'TYPE' => 'TEXT']],
+        ]);
+    }
+
+    /** @param mixed $node @return mixed */
+    private function remapStageIdsRecursive($node, array $stageMap)
+    {
+        if (!is_array($node)) {
+            return $node;
+        }
+        foreach ($node as $key => $value) {
+            if ($key === 'stageIds' && is_array($value)) {
+                $node[$key] = array_values(array_map(
+                    static fn($id): int => (int)($stageMap[(int)$id] ?? $id),
+                    $value
+                ));
+                continue;
+            }
+            $node[$key] = $this->remapStageIdsRecursive($value, $stageMap);
+        }
+        return $node;
     }
 
     /**
@@ -1573,7 +1751,7 @@ class DetailHandler
             []
         );
         
-        return 'Деталь #' . ($count + 1);
+        return 'Новая деталь';
     }
 
     /**
@@ -2055,7 +2233,7 @@ class DetailHandler
                 }
                 $createdIds[] = $finishId;
 
-                $secondId = $this->createDetailElement('Деталь #2', 'DETAIL');
+                $secondId = $this->createDetailElement('Новая деталь', 'DETAIL');
                 if (!$secondId) {
                     throw new \RuntimeException('Не удалось создать вторую деталь');
                 }
