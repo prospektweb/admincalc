@@ -35,6 +35,9 @@ class InitPayloadService
 
         $this->ensureBitrixModulesLoaded();
 
+        (new \Prospektweb\Calc\Install\SchemaRepairService())
+            ->ensureOfferNamingAndMarginSchema();
+
         (new \Prospektweb\Calc\Install\CatalogPropertyCodeMigrationService())
             ->migrateForOffers($offerIds);
 
@@ -464,6 +467,7 @@ class InitPayloadService
             'defaultExtraValue' => $settingsManager->getDefaultExtraValue(),
             'defaultExtraCurrency' => $settingsManager->getDefaultExtraCurrency(),
             'editorTheme' => $editorTheme,
+            'priceSettingsPresets' => (new \Prospektweb\Calc\Services\PriceSettingsPresetService())->list(),
         ];
     }
 

@@ -299,6 +299,9 @@
                 case 'CHANGE_ENTITY_META_REQUEST':
                     await this.handleChangeEntityMetaRequest(message, origin);
                     break;
+                case 'SAVE_PRICE_SETTINGS_PRESET_REQUEST':
+                    await this.handleSavePriceSettingsPresetRequest(message, origin);
+                    break;
                 case 'GET_AI_SETTINGS_REQUEST':
                     await this.handleGetAiSettingsRequest(message, origin);
                     break;
@@ -1273,6 +1276,7 @@
                     entityId: Number(payload.entityId || 0),
                     name: payload.name || '',
                     previewText: payload.previewText || '',
+                    offerNameTemplate: payload.offerNameTemplate || '',
                 }]);
                 const response = Array.isArray(result) ? result[0] : null;
                 if (!response || response.status !== 'ok') throw new Error(response && response.message ? response.message : 'Не удалось сохранить данные');
@@ -1283,6 +1287,8 @@
                 if (payload.entityType === 'preset' && this.initData && this.initData.preset) {
                     this.initData.preset.name = payload.name;
                     this.initData.preset.previewText = payload.previewText || '';
+                    this.initData.preset.properties = this.initData.preset.properties || {};
+                    this.initData.preset.properties.OFFER_NAME_TEMPLATE = payload.offerNameTemplate || '';
                 }
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
@@ -1381,6 +1387,29 @@
                 this.sendPwrtMessage('AI_STAGE_LOGIC_PROPOSAL_RESPONSE', {
                     status: 'error',
                     message: error && error.message ? error.message : 'Не удалось сформировать проект логики этапа',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleSavePriceSettingsPresetRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'savePriceSettingsPreset',
+                    name: payload.name || '',
+                    mode: payload.mode || 'markup',
+                    prices: Array.isArray(payload.prices) ? payload.prices : [],
+                }]);
+                const response = Array.isArray(result) ? result[0] : null;
+                if (!response || response.status !== 'ok') {
+                    throw new Error(response && response.message ? response.message : 'Не удалось сохранить пресет отпускных цен');
+                }
+                this.initData.context = this.initData.context || {};
+                this.initData.context.priceSettingsPresets = response.presets || [];
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: error && error.message ? error.message : 'Не удалось сохранить пресет отпускных цен',
                 }, message.requestId, origin);
             }
         }

@@ -52,10 +52,7 @@ class PresetPriceService
 
             $catalogPriceService = new CatalogPriceService();
 
-            // 1. Очистить ВСЕ текущие цены пресета
-            $catalogPriceService->deleteAllPrices($presetId);
-
-            // 2. Преобразовать payload в структуру [typeId => [ranges]]
+            // Преобразовать payload в структуру [typeId => [ranges]]
             $pricesByType = [];
             
             foreach ($prices as $range) {
@@ -71,14 +68,17 @@ class PresetPriceService
 
                 $pricesByType[$typeId][] = [
                     'price' => isset($range['price']) ? (float)$range['price'] : 0,
-                    'currency' => $range['currency'] ?? 'PRC',
+                    'currency' => in_array(($range['currency'] ?? ''), ['RUB', 'PRC', 'MRG'], true)
+                        ? $range['currency']
+                        : 'PRC',
                     'quantityFrom' => isset($range['quantityFrom']) ? (int)$range['quantityFrom'] : null,
                     'quantityTo' => isset($range['quantityTo']) ? (int)$range['quantityTo'] : null,
                 ];
             }
 
-            // 3. Записать новые цены
-            $catalogPriceService->writePriceRangesMultiType($presetId, $pricesByType);
+            if (!$catalogPriceService->syncPriceRangesMultiType($presetId, $pricesByType)) {
+                throw new \RuntimeException('Не удалось синхронизировать диапазоны отпускных цен');
+            }
 
             return [
                 'status' => 'ok',

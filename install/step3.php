@@ -1260,6 +1260,14 @@ switch ($currentStep) {
                 'SORT' => 1110,
                 'HINT' => 'VALUE: код; DESCRIPTION: значение|название|описание',
             ],
+            'OFFER_NAME_TEMPLATE' => [
+                'NAME' => 'Шаблон названия торгового предложения',
+                'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
+                'MULTIPLE' => 'N',
+                'SORT' => 1120,
+                'HINT' => 'Шаблон формируется после выполнения всех этапов расчёта',
+            ],
         ];
 
         $installData['iblock_ids']['CALC_PRESETS'] = createIblockWithLog('calculator', 'CALC_PRESETS', 'Пресеты', $presetsProps);
@@ -1503,7 +1511,7 @@ switch ($currentStep) {
             }
         }
         
-        // Создание валюты PRC
+        // Создание служебных валют процентов: наценка и маржа
         installLog("");
         installLog("Создание валюты PRC...", 'header');
         
@@ -1554,6 +1562,35 @@ switch ($currentStep) {
                 } else {
                     installLog("  → Ошибка создания валюты PRC", 'error');
                 }
+            }
+
+            $marginCurrencyExists = \CCurrency::GetByID('MRG');
+            if (!$marginCurrencyExists) {
+                $marginCurrencyResult = \CCurrency::Add([
+                    'CURRENCY' => 'MRG',
+                    'SORT' => 998,
+                    'AMOUNT_CNT' => 1,
+                    'AMOUNT' => 1,
+                ]);
+                if ($marginCurrencyResult) {
+                    foreach (['ru', 'en'] as $lang) {
+                        \CCurrencyLang::Add([
+                            'CURRENCY' => 'MRG',
+                            'LID' => $lang,
+                            'FORMAT_STRING' => '#',
+                            'FULL_NAME' => '% margin',
+                            'DEC_POINT' => '.',
+                            'THOUSANDS_SEP' => ' ',
+                            'DECIMALS' => 2,
+                        ]);
+                    }
+                }
+                installLog(
+                    $marginCurrencyResult ? '  → Валюта MRG успешно создана' : '  → Ошибка создания валюты MRG',
+                    $marginCurrencyResult ? 'success' : 'error'
+                );
+            } else {
+                installLog('  → Валюта MRG уже существует', 'warning');
             }
         } else {
             installLog("  → Модуль currency не загружен, пропуск создания валюты", 'warning');

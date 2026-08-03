@@ -25,6 +25,15 @@ class SchemaRepairService
     public static function getPropertySchema(): array
     {
         return [
+            'CALC_PRESETS' => [
+                'OFFER_NAME_TEMPLATE' => [
+                    'NAME' => 'Шаблон названия торгового предложения',
+                    'TYPE' => 'S',
+                    'USER_TYPE' => 'HTML',
+                    'SORT' => 1120,
+                    'HINT' => 'Шаблон формируется после выполнения всех этапов расчёта',
+                ],
+            ],
             'CALC_SETTINGS' => [
                 'AI_CONTEXT_JSON' => [
                     'NAME' => 'Контекст AI-конструктора',
@@ -176,6 +185,79 @@ class SchemaRepairService
         $result['migratedStageCount'] = empty($result['errors'])
             ? $this->migrateLegacyStageOwnership($configManager)
             : 0;
+
+        return $this->withCounts($result);
+    }
+
+    /**
+     * Runtime-safe repair for installations upgraded without rerunning the installer.
+     * Does not migrate elements and never changes an existing property or currency.
+     */
+    public function ensureOfferNamingAndMarginSchema(): array
+    {
+        $result = ['created' => [], 'existing' => [], 'errors' => []];
+        if (!Loader::includeModule('iblock')) {
+            $result['errors'][] = 'Модуль «Информационные блоки» не подключён';
+            return $this->withCounts($result);
+        }
+
+        $definition = self::getPropertySchema()['CALC_PRESETS']['OFFER_NAME_TEMPLATE'];
+        $iblockId = (new ConfigManager())->getIblockId('CALC_PRESETS');
+        if ($iblockId <= 0) {
+            $result['errors'][] = 'Инфоблок CALC_PRESETS не найден';
+        } else {
+            $existing = \CIBlockProperty::GetList([], [
+                'IBLOCK_ID' => $iblockId,
+                'CODE' => 'OFFER_NAME_TEMPLATE',
+            ])->Fetch();
+            if ($existing) {
+                $result['existing'][] = 'CALC_PRESETS.OFFER_NAME_TEMPLATE';
+            } else {
+                $property = new \CIBlockProperty();
+                $propertyId = $property->Add($this->buildPropertyFields(
+                    $iblockId,
+                    'OFFER_NAME_TEMPLATE',
+                    $definition
+                ));
+                if ($propertyId) {
+                    $result['created'][] = 'CALC_PRESETS.OFFER_NAME_TEMPLATE';
+                } else {
+                    $result['errors'][] = 'Не удалось создать CALC_PRESETS.OFFER_NAME_TEMPLATE: '
+                        . (trim((string)$property->LAST_ERROR) ?: 'неизвестная ошибка');
+                }
+            }
+        }
+
+        if (Loader::includeModule('currency')) {
+            if (\CCurrency::GetByID('MRG')) {
+                $result['existing'][] = 'CURRENCY.MRG';
+            } else {
+                $currencyId = \CCurrency::Add([
+                    'CURRENCY' => 'MRG',
+                    'SORT' => 998,
+                    'AMOUNT_CNT' => 1,
+                    'AMOUNT' => 1,
+                ]);
+                if ($currencyId) {
+                    foreach (['ru', 'en'] as $languageId) {
+                        \CCurrencyLang::Add([
+                            'CURRENCY' => 'MRG',
+                            'LID' => $languageId,
+                            'FORMAT_STRING' => '#',
+                            'FULL_NAME' => '% margin',
+                            'DEC_POINT' => '.',
+                            'THOUSANDS_SEP' => ' ',
+                            'DECIMALS' => 2,
+                        ]);
+                    }
+                    $result['created'][] = 'CURRENCY.MRG';
+                } else {
+                    $result['errors'][] = 'Не удалось создать валюту MRG';
+                }
+            }
+        } else {
+            $result['errors'][] = 'Модуль «Валюты» не подключён';
+        }
 
         return $this->withCounts($result);
     }
