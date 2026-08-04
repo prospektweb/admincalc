@@ -9,6 +9,7 @@ $customFieldsService = file_get_contents(__DIR__ . '/../lib/Services/CustomField
 $initPayloadService = file_get_contents(__DIR__ . '/../lib/Calculator/InitPayloadService.php');
 $presetEnrichmentService = file_get_contents(__DIR__ . '/../lib/Services/PresetEnrichmentService.php');
 $catalogMetaService = file_get_contents(__DIR__ . '/../lib/Services/CatalogMetaService.php');
+$offerUpdateService = file_get_contents(__DIR__ . '/../lib/Services/OfferUpdateService.php');
 $aiGatewayService = file_get_contents(__DIR__ . '/../lib/Services/AiGatewayService.php');
 $calculatorAjax = file_get_contents(__DIR__ . '/../tools/calculator_ajax.php');
 $installer = file_get_contents(__DIR__ . '/../install/step3.php');
@@ -17,21 +18,25 @@ $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/in
 $engineBundlePath = __DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js';
 $engineBundle = is_file($engineBundlePath) ? file_get_contents($engineBundlePath) : $appBundle;
 
-if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($appIndex) || !is_string($appBundle) || !is_string($engineBundle)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($offerUpdateService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($appIndex) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
 $integration = str_replace("\r\n", "\n", $integration);
 
 $checks = [
-    [$integration, "offers: offers", 'Save request must submit every offer as one batch'],
+    [$integration, "offers: offers", 'Save request must submit every compact offer as one batch'],
     [$integration, "normalizeBatchSaveResults", 'Batch save response must be mapped back to individual offers'],
+    [$integration, "delete json.historyJson", 'Full history snapshots must not be duplicated in the offer-update payload'],
+    [$initPayloadService, "'saveCalculationHistory' => Option::get(self::MODULE_ID, 'SAVE_CALC_HISTORY', 'N') === 'Y'", 'Init payload must tell the editor whether a full history snapshot is needed'],
+    [$offerUpdateService, "if (!empty(\$writeErrors))", 'Offer update failures must not be reported as successful saves'],
+    [$offerUpdateService, "'status' => 'error'", 'Offer update response must expose failed writes'],
     [$calculator, "this.expandCalculatorDialog(dialog);", 'Calculator dialog must request expanded mode after Show'],
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
-    [$calculator, "index.html?v=5a50b460044d-ai-global-safe", 'Embedded calculator must load the current frontend release without stale HTML cache'],
-    [$calculatorPage, "index.html?v=5a50b460044d-ai-global-safe", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
-    [$appIndex, "assets/index.js?v=5a50b460044d", 'App HTML must load the current JavaScript bundle without stale asset cache'],
-    [$appIndex, "assets/style.css?v=5a50b460044d", 'App HTML must load the current stylesheet without stale asset cache'],
+    [$calculator, "index.html?v=caeabb454324", 'Embedded calculator must load the current frontend release without stale HTML cache'],
+    [$calculatorPage, "index.html?v=caeabb454324", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
+    [$appIndex, "assets/index.js?v=caeabb454324", 'App HTML must load the current JavaScript bundle without stale asset cache'],
+    [$appIndex, "assets/style.css?v=caeabb454324", 'App HTML must load the current stylesheet without stale asset cache'],
     [$calculatorPage, "overflow: hidden !important;", 'Standalone calculator page must not expose the taller Bitrix admin document scrollbar'],
     [$calculatorPage, 'z-index: 2147483647;', 'Standalone calculator must cover every Bitrix admin chrome layer'],
     [$calculatorPage, "document.body.appendChild(container);", 'Standalone calculator must escape the Bitrix workarea stacking context'],

@@ -3871,9 +3871,8 @@
             let savedCount = 0;
 
             try {
-                // SaveAllService already accepts an array. Sending one request for the whole
-                // calculation avoids a full Bitrix/PHP bootstrap for every offer and mirrors
-                // the fast batch recalculation path.
+                // Keep manual saving aligned with mass recalculation: one request updates all
+                // offers. The iframe sends a compact update contract instead of full reports.
                 const response = await this.sendPwrtRequest('SAVE_CALCULATION_REQUEST', {
                     offers: offers,
                 }, message.requestId);
@@ -3959,11 +3958,19 @@
                     }
 
                     const offerId = Number(item.offerId || item.offerID || item.id || 0);
-                    const json = Object.prototype.hasOwnProperty.call(item, 'json') ? item.json : item;
+                    const historyJson = Object.prototype.hasOwnProperty.call(item, 'historyJson')
+                        ? item.historyJson
+                        : undefined;
+                    let json = Object.prototype.hasOwnProperty.call(item, 'json') ? item.json : item;
+                    if (json === item && historyJson !== undefined) {
+                        json = Object.assign({}, item);
+                        delete json.historyJson;
+                    }
 
                     return {
                         offerId: offerId,
                         json: json,
+                        historyJson: historyJson,
                     };
                 })
                 .filter((item) => item && item.offerId > 0);

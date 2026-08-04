@@ -467,6 +467,7 @@ class InitPayloadService
             'defaultExtraValue' => $settingsManager->getDefaultExtraValue(),
             'defaultExtraCurrency' => $settingsManager->getDefaultExtraCurrency(),
             'editorTheme' => $editorTheme,
+            'saveCalculationHistory' => Option::get(self::MODULE_ID, 'SAVE_CALC_HISTORY', 'N') === 'Y',
             'priceSettingsPresets' => (new \Prospektweb\Calc\Services\PriceSettingsPresetService())->list(),
         ];
     }

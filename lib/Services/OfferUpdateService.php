@@ -41,15 +41,20 @@ class OfferUpdateService
                 $offerName = trim((string)($offer['offerName'] ?? ''));
                 $parametrValues = $this->buildValueDescriptionList($offer['parametrValues'] ?? [], 'name', 'value');
 
-                if ($offerIblockId > 0 && $parametrValues !== null) {
+                if ($offerIblockId <= 0) {
+                    throw new \RuntimeException('Торговое предложение не найдено');
+                }
+
+                if ($parametrValues !== null) {
                     \CIBlockElement::SetPropertyValuesEx($offerId, $offerIblockId, [
                         'PARAMETR_VALUES' => $parametrValues ?: false,
                     ]);
                 }
 
+                $nameUpdated = true;
                 if ($offerName !== '') {
                     $element = new \CIBlockElement();
-                    $element->Update($offerId, ['NAME' => $offerName]);
+                    $nameUpdated = (bool)$element->Update($offerId, ['NAME' => $offerName]);
                 }
 
                 $purchasePrice = $this->normalizeNumber($offer['purchasePrice'] ?? null);
@@ -83,6 +88,34 @@ class OfferUpdateService
                     } else {
                         $pricesUpdated = $this->priceService->syncPriceRangesMultiType($offerId, $rangesByType);
                     }
+                }
+
+                $writeErrors = [];
+                if (!$nameUpdated) {
+                    $writeErrors[] = 'название';
+                }
+                if ($purchasePrice !== null && !$purchasingUpdated) {
+                    $writeErrors[] = 'закупочная цена';
+                }
+                if (!empty($dimensions) && !$dimensionsUpdated) {
+                    $writeErrors[] = 'габариты';
+                }
+                if (!empty($rangesByType) && !$pricesUpdated) {
+                    $writeErrors[] = 'диапазоны цен';
+                }
+
+                if (!empty($writeErrors)) {
+                    $message = 'Не сохранены: ' . implode(', ', $writeErrors);
+                    $errors[] = ['offerId' => $offerId, 'message' => $message];
+                    $results[] = [
+                        'offerId' => $offerId,
+                        'status' => 'error',
+                        'message' => $message,
+                        'updatedPurchasingPrice' => $purchasingUpdated,
+                        'updatedDimensions' => $dimensionsUpdated,
+                        'updatedPrices' => $pricesUpdated,
+                    ];
+                    continue;
                 }
 
                 $results[] = [

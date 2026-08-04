@@ -293,7 +293,7 @@ class CalculationHistoryHandler
         }
 
         $offerId = (int)($offerData['offerId'] ?? 0);
-        $json = $offerData['json'] ?? null;
+        $json = $offerData['historyJson'] ?? ($offerData['json'] ?? null);
 
         if ($offerId <= 0) {
             $errors[] = 'Некорректный offerId';
