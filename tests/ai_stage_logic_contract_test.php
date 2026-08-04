@@ -33,6 +33,7 @@ $checks = [
     [$gateway, 'prepareStageLogicPrompt', 'shared generation and preview prompt builder'],
     [$gateway, "'compatibleModules'", 'stale client field compatibility'],
     [$gateway, "expectedResults", 'expected results contract'],
+    [$gateway, "round(value, digits) is invalid", 'round arity is explicit for the model'],
     [$gateway, "globalAssignments", 'safe dynamic global assignment contract'],
     [$gateway, "Never target a global constant", 'global constants remain immutable'],
     [$gateway, "not automatically an available input value", 'first-owner stages must not read uninitialized mutable globals'],

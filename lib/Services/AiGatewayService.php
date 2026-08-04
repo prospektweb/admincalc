@@ -421,6 +421,7 @@ final class AiGatewayService
             . "\nProduce the standard results explicitly listed in expectedResults. You may add useful additionalResults when they help downstream stages."
             . "\nFollow the optional instructions array. An empty array is valid."
             . "\nUse only these formula functions: if, round, ceil, floor, min, max, abs, trim, lower, upper, len, contains, replace, toNumber, toString, split, join, get, getPrice, regexMatch, regexExtract."
+            . "\nFormula signature rule: round, ceil, floor, abs, trim, lower, upper, len, toNumber, and toString accept exactly one argument. In particular, round(value, digits) is invalid. For six decimal places use round(value * 1000000) / 1000000."
             . "\nVariables are evaluated in array order. A formula may reference inputs, globals, and only earlier variables."
             . "\nFor running material consumption, prefer a supplied global quantity explicitly described as including technological waste when one exists. Do not silently replace it with the base sheet quantity."
             . "\nTreat feed allowance as longitudinal by default: add it to running length, not to roll-width compatibility, unless the source description explicitly states otherwise. Evaluate both valid orientations and choose the one with the lower longitudinal material consumption."
