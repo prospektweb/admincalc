@@ -1072,7 +1072,10 @@ final class AiGatewayService
     {
         $apiKey = trim((string)Option::get(self::MODULE_ID, self::KEY_OPTION, ''));
         if ($apiKey === '') throw new \RuntimeException('API-ключ Timeweb AI Gateway не задан');
-        $client = new HttpClient(['socketTimeout' => 15, 'streamTimeout' => 60]);
+        // A complete stage draft is substantially larger than a short text or
+        // single-formula answer. Timeweb can legitimately need more than one
+        // minute to return it, especially after a clarification round.
+        $client = new HttpClient(['socketTimeout' => 15, 'streamTimeout' => 180]);
         $client->setHeader('Authorization', 'Bearer ' . $apiKey);
         $client->setHeader('Accept', 'application/json');
         $url = self::BASE_URL . $path;

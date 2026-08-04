@@ -45,6 +45,8 @@ $checks = [
     [$context, "'iblockType' => \$this->iblockType", 'actual product iblock type'],
     [$context, "'sectionId' => (int)(\$product['sectionId']", 'actual product section'],
     [$context, '\\CIBlockPropertyEnum::GetByID', 'human-readable enum value resolution'],
+    [$context, "CIBlockPropertyEnum::GetList", 'all list enum options are exposed to AI'],
+    [$context, "['PROPERTY_ID' => (int)(\$property['ID'] ?? 0)]", 'enum options are scoped to their property'],
     [$navigation, '/bitrix/admin/iblock_list_admin.php', 'product list navigation'],
     [file_get_contents($root . '/../calcconfig/src/lib/bitrix-utils.ts'), '/bitrix/admin/iblock_element_edit.php', 'direct product element navigation'],
 ];

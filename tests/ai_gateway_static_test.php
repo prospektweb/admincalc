@@ -14,6 +14,7 @@ $checks = [
     'unsupported temperature is not sent' => strpos($service, "'temperature'") === false,
     'gateway error details are preserved' => strpos($service, 'extractGatewayError') !== false
         && strpos($service, 'Timeweb AI Gateway: ') !== false,
+    'stage-sized response timeout is supported' => strpos($service, "'streamTimeout' => 180") !== false,
     'preset preview tag' => strpos($service, "{анонс пресета}") !== false,
     'AI actions are routed' => strpos($elementService, "case 'getAiSettings'") !== false
         && strpos($elementService, "case 'saveAiSettings'") !== false

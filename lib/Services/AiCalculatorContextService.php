@@ -188,12 +188,29 @@ final class AiCalculatorContextService
             if ($code === '') {
                 continue;
             }
+            $values = null;
+            $xmlIds = null;
+            if ((string)($property['PROPERTY_TYPE'] ?? '') === 'L') {
+                $values = [];
+                $xmlIds = [];
+                $enumCursor = \CIBlockPropertyEnum::GetList(
+                    ['SORT' => 'ASC', 'ID' => 'ASC'],
+                    ['PROPERTY_ID' => (int)($property['ID'] ?? 0)]
+                );
+                while ($enum = $enumCursor->Fetch()) {
+                    // Keep enum IDs here: propertyExamples() resolves both the
+                    // human label and XML_ID through the same Bitrix API used
+                    // for actual element values.
+                    $values[] = (string)($enum['ID'] ?? '');
+                    $xmlIds[] = (string)($enum['XML_ID'] ?? '');
+                }
+            }
             $definitions[$code] = [
                 'NAME' => (string)($property['NAME'] ?? $code),
                 'PROPERTY_TYPE' => (string)($property['PROPERTY_TYPE'] ?? 'S'),
                 'MULTIPLE' => (string)($property['MULTIPLE'] ?? 'N'),
-                'VALUE' => null,
-                'VALUE_XML_ID' => null,
+                'VALUE' => $values,
+                'VALUE_XML_ID' => $xmlIds,
             ];
         }
         return $definitions;
