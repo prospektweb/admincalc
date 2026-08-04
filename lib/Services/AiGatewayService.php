@@ -411,6 +411,8 @@ final class AiGatewayService
         ];
         $systemPrompt = trim((string)$template['prompt'])
             . "\n\nReturn exactly one JSON object and no Markdown."
+            . "\nTreat request.intent as the authoritative administrator brief. Never ask the administrator to repeat information already present in intent, currentLogic, availableSources, globals, expectedResults, instructions, entities, or baseProducts."
+            . "\nDo not ask the administrator to choose sourceRef values, formula codes, field paths, intermediate variables, or implementation details. Select and design those yourself from the supplied contract."
             . "\nBuild the complete calculation draft for exactly one stage. Inputs must bind only by sourceRef values from availableSources. Never emit sourcePath or any ID."
             . "\nAn availableSources.example is a current verified value or compact sample, not a permanent constant. Use it to understand shape, units, currencies, VAT and price ranges without fixing the formula to that one value."
             . "\nTreat baseProducts as supported product examples, not as one fixed current product. Their XML_ID samples and optional xmlIdContract describe storefront input values; never invent or hard-code a missing XML_ID contract."
@@ -424,6 +426,7 @@ final class AiGatewayService
             . "\nEvery additionalResults item must be {\"code\":\"...\",\"title\":\"...\",\"source\":\"declaredInputOrVariableCode\"}. Use [] when there are no additional results."
             . "\nPrefer explicit intermediate variables and meaningful English ASCII codes. Preserve Russian titles and descriptions."
             . "\nIf essential production rules are missing, return needs-clarification with one to three precise questions and draft=null. Do not guess norms, spoilage, make-ready, pricing, dimensions, or unit conversions."
+            . "\nIf request.intent states that this is the only clarification round, do not return needs-clarification again. Build a proposal with explicit assumptions, or return cannot-propose only when the available contract makes the calculation technically impossible."
             . "\nFor status=proposal return questions=[] and a complete draft. Copy baseFingerprint exactly."
             . "\nRequired response shape:\n"
             . json_encode($responseShape, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
