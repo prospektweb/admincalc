@@ -44,6 +44,36 @@ if (empty($offerIds)) {
     die();
 }
 
+// Standalone page close target: return to the product that owns the selected SKUs.
+// The regular CAdminDialog flow does not use this page and keeps its native close behavior.
+$returnProductUrl = '';
+if (Loader::includeModule('catalog') && Loader::includeModule('iblock')) {
+    foreach ($offerIds as $offerId) {
+        $productInfo = \CCatalogSku::GetProductInfo((int)$offerId);
+        $productId = (int)($productInfo['ID'] ?? 0);
+        $productIblockId = (int)($productInfo['IBLOCK_ID'] ?? 0);
+        if ($productId <= 0 || $productIblockId <= 0) {
+            continue;
+        }
+
+        $productIblock = \CIBlock::GetByID($productIblockId)->Fetch();
+        $productIblockType = trim((string)($productIblock['IBLOCK_TYPE_ID'] ?? ''));
+        if ($productIblockType === '') {
+            continue;
+        }
+
+        $returnProductUrl = '/bitrix/admin/iblock_element_edit.php?' . http_build_query([
+            'IBLOCK_ID' => $productIblockId,
+            'type' => $productIblockType,
+            'lang' => defined('LANGUAGE_ID') ? LANGUAGE_ID : 'ru',
+            'ID' => $productId,
+            'find_section_section' => 0,
+            'WF' => 'Y',
+        ]);
+        break;
+    }
+}
+
 // Заголовок страницы
 $APPLICATION->SetTitle(Loc::getMessage('PROSPEKTWEB_CALC_PAGE_TITLE'));
 
@@ -57,6 +87,10 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 /* Стили для полноэкранного отображения iframe */
 html,
 body {
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
     overflow: hidden !important;
 }
 
@@ -65,18 +99,17 @@ body {
     padding: 0;
 }
 
-.prospektweb-calc-page #calc-container {
+#calc-container {
     position: fixed;
-    top: 90px; /* Отступ для административного меню Bitrix */
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: 100%;
-    height: calc(100% - 90px);
+    inset: 0;
+    z-index: 2147483647;
+    width: 100vw;
+    height: 100vh;
     background: #f5f5f5;
+    isolation: isolate;
 }
 
-.prospektweb-calc-page #calc-iframe {
+#calc-iframe {
     width: 100%;
     height: 100%;
     border: none;
@@ -102,6 +135,13 @@ body {
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Move the standalone editor above Bitrix workarea stacking contexts.
+    // A high z-index alone is insufficient while the node remains inside adm-workarea.
+    var container = document.getElementById('calc-container');
+    if (container && container.parentNode !== document.body) {
+        document.body.appendChild(container);
+    }
+
     // КЛЮЧЕВОЙ КОД: создание экземпляра интеграции
     var integration = new ProspektwebCalcIntegration({
         iframeSelector: '#calc-iframe',
@@ -110,8 +150,20 @@ document.addEventListener('DOMContentLoaded', function() {
         siteId: '<?= SITE_ID ?>',
         sessid: '<?= bitrix_sessid() ?>',
         onClose: function() {
-            // При закрытии калькулятора возвращаемся к списку товаров
-            window.close();
+            // Regular popup/tab flow closes the auxiliary window. When the same URL
+            // is opened in the current admin tab, navigate back to the owning product.
+            if (window.opener && !window.opener.closed) {
+                window.close();
+                return;
+            }
+
+            var returnProductUrl = <?= json_encode($returnProductUrl, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+            if (returnProductUrl) {
+                window.location.assign(returnProductUrl);
+                return;
+            }
+
+            window.history.back();
         },
         onError: function(error) {
             console.error('Calc error:', error);
