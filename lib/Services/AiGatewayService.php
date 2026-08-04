@@ -407,6 +407,7 @@ final class AiGatewayService
                 ]],
                 'results' => [],
                 'additionalResults' => [],
+                'globalAssignments' => [],
             ],
         ];
         $systemPrompt = trim((string)$template['prompt'])
@@ -421,9 +422,12 @@ final class AiGatewayService
             . "\nFollow the optional instructions array. An empty array is valid."
             . "\nUse only these formula functions: if, round, ceil, floor, min, max, abs, trim, lower, upper, len, contains, replace, toNumber, toString, split, join, get, getPrice, regexMatch, regexExtract."
             . "\nVariables are evaluated in array order. A formula may reference inputs, globals, and only earlier variables."
+            . "\nFor running material consumption, prefer a supplied global quantity explicitly described as including technological waste when one exists. Do not silently replace it with the base sheet quantity."
+            . "\nTreat feed allowance as longitudinal by default: add it to running length, not to roll-width compatibility, unless the source description explicitly states otherwise. Evaluate both valid orientations and choose the one with the lower longitudinal material consumption."
             . "\nResult key must be one of width, length, height, weight, purchasingPrice, basePrice, operationPurchasingPrice, operationBasePrice, materialPurchasingPrice, materialBasePrice."
             . "\nEvery results item must be {\"key\":\"...\",\"source\":\"declaredInputOrVariableCode\"}. Include only results that are actually bound; never emit an item with an empty or placeholder source."
             . "\nEvery additionalResults item must be {\"code\":\"...\",\"title\":\"...\",\"source\":\"declaredInputOrVariableCode\"}. Use [] when there are no additional results."
+            . "\nWhen the administrator asks to update dynamic global values, emit globalAssignments. Every item must be {\"targetCode\":\"mutableGlobalVariableCodeFromGlobals\",\"source\":\"declaredInputOrVariableCode\"}. Never target a global constant. Use [] when no global update is requested."
             . "\nPrefer explicit intermediate variables and meaningful English ASCII codes. Preserve Russian titles and descriptions."
             . "\nDo not ask about rare edge cases when a conservative deterministic fallback can be expressed and disclosed. Prefer a proposal with an explicit compatibility boolean additional result and zero operation or material consumption when the selected resource cannot physically process the item; list this fallback in assumptions."
             . "\nIf essential production rules are missing, return needs-clarification with one to three precise questions and draft=null. Do not guess norms, spoilage, make-ready, pricing, dimensions, or unit conversions."
@@ -893,7 +897,7 @@ final class AiGatewayService
         if (count($questions) !== 0) throw new \RuntimeException('Готовый AI-проект не должен содержать вопросы');
         $draft = is_array($proposal['draft'] ?? null) ? $proposal['draft'] : null;
         if ($draft === null) throw new \RuntimeException('AI не вернул draft этапа');
-        $this->assertAllowedLogicKeys($draft, 'draft', ['inputs', 'variables', 'results', 'additionalResults']);
+        $this->assertAllowedLogicKeys($draft, 'draft', ['inputs', 'variables', 'results', 'additionalResults', 'globalAssignments']);
         $allowedRefs = array_fill_keys(array_column($request['availableSources'], 'ref'), true);
         $symbols = [];
         $inputs = [];
@@ -959,6 +963,26 @@ final class AiGatewayService
             ];
         }
 
+        $mutableGlobalCodes = [];
+        foreach ($request['globals'] as $global) {
+            if (($global['kind'] ?? '') === 'variable') $mutableGlobalCodes[(string)$global['code']] = true;
+        }
+        $globalAssignments = [];
+        $assignedGlobalCodes = [];
+        $rawGlobalAssignments = is_array($draft['globalAssignments'] ?? null) ? $draft['globalAssignments'] : [];
+        if (count($rawGlobalAssignments) > 50) throw new \RuntimeException('Слишком много глобальных присваиваний в AI-проекте');
+        foreach ($rawGlobalAssignments as $index => $assignment) {
+            if (!is_array($assignment)) throw new \RuntimeException('draft.globalAssignments должен содержать объекты');
+            $this->assertAllowedLogicKeys($assignment, 'draft.globalAssignments[' . $index . ']', ['targetCode', 'source']);
+            $targetCode = $this->logicCode($assignment['targetCode'] ?? '', 'draft.globalAssignments[' . $index . '].targetCode');
+            if (!isset($mutableGlobalCodes[$targetCode])) throw new \RuntimeException('AI попытался изменить недоступное глобальное значение');
+            if (isset($assignedGlobalCodes[$targetCode])) throw new \RuntimeException('AI повторно назначил глобальное значение');
+            $assignedGlobalCodes[$targetCode] = true;
+            $source = $this->logicCode($assignment['source'] ?? '', 'draft.globalAssignments[' . $index . '].source');
+            if (!isset($symbols[$source])) throw new \RuntimeException('Глобальное присваивание AI ссылается на необъявленный код');
+            $globalAssignments[] = ['targetCode' => $targetCode, 'source' => $source];
+        }
+
         return [
             'schema' => self::STAGE_LOGIC_PROPOSAL_SCHEMA,
             'baseFingerprint' => $request['baseFingerprint'],
@@ -966,7 +990,7 @@ final class AiGatewayService
             'summary' => $this->logicText($proposal['summary'] ?? '', 'summary', 1200),
             'assumptions' => $assumptions,
             'questions' => [],
-            'draft' => ['inputs' => $inputs, 'variables' => $variables, 'results' => $results, 'additionalResults' => $additional],
+            'draft' => ['inputs' => $inputs, 'variables' => $variables, 'results' => $results, 'additionalResults' => $additional, 'globalAssignments' => $globalAssignments],
         ];
     }
 
