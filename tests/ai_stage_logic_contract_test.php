@@ -35,6 +35,8 @@ $checks = [
     [$gateway, "expectedResults", 'expected results contract'],
     [$gateway, "globalAssignments", 'safe dynamic global assignment contract'],
     [$gateway, "Never target a global constant", 'global constants remain immutable'],
+    [$gateway, "not automatically an available input value", 'first-owner stages must not read uninitialized mutable globals'],
+    [$gateway, "initial or baseline global constants", 'first-owner stages use initial values as inputs'],
     [$gateway, "including technological waste", 'waste-inclusive operation quantity preference'],
     [$gateway, "feed allowance as longitudinal", 'feed allowance axis rule'],
     [$gateway, "'results' => []", 'no invalid result placeholder'],
