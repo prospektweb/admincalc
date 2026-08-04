@@ -427,6 +427,18 @@ final class GlobalCodeRefactorService
         } else {
             $value = array_map(static fn(array $row): string => $row['value'], $after);
         }
+        // PHP 8 exposes a Bitrix comparison bug when an existing HTML user-type
+        // property is replaced with its converted array value: the core passes
+        // that array to strcmp(). Clear the exact property first inside the
+        // surrounding transaction, then write the reviewed replacement.
+        if ($mutation['mode'] === 'html' || $mutation['mode'] === 'formula') {
+            \CIBlockElement::SetPropertyValues(
+                (int)$mutation['elementId'],
+                (int)$mutation['iblockId'],
+                [],
+                (string)$mutation['propertyCode']
+            );
+        }
         \CIBlockElement::SetPropertyValuesEx((int)$mutation['elementId'], (int)$mutation['iblockId'], [
             $mutation['propertyCode'] => $value,
         ]);
