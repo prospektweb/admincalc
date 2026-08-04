@@ -9,9 +9,13 @@ if (!is_string($bundle) || $bundle === '') {
 }
 
 $checks = [
-    'iblock_edit.php?type=${encodeURIComponent(s)}' => 'Iblock edit URL builder must preserve the actual iblock type',
     'Тип инфоблока не указан' => 'Iblock edit URL builder must reject a missing type',
 ];
+
+if (preg_match('/iblock_edit\.php\?type=\$\{encodeURIComponent\([A-Za-z_$][A-Za-z0-9_$]*\)\}/', $bundle) !== 1) {
+    fwrite(STDERR, "Iblock edit URL builder must preserve the actual iblock type\n");
+    exit(1);
+}
 
 foreach ($checks as $needle => $message) {
     if (strpos($bundle, $needle) === false) {
