@@ -38,6 +38,8 @@ $checks = [
     'AI audit is a dedicated contract' => strpos($gateway, 'LOGIC_AUDIT_PROPOSAL_SCHEMA') !== false,
     'stage groups are stored on preset' => strpos($groups, "STAGE_GROUPS") !== false,
     'safe global refactor updates condition branch operands' => strpos($refactor, "'STAGE_GROUPS', \$map, 'condition'") !== false,
+    'safe global refactor preserves scalar activation-condition storage' => strpos($refactor, "'ACTIVATION_CONDITION', \$map, 'condition', 'scalar'") !== false
+        && strpos($refactor, "\$mutation['mode'] === 'scalar'") !== false,
     'safe global refactor clears existing HTML values before writing converted arrays' => strpos($refactor, "if (\$mutation['mode'] === 'html' || \$mutation['mode'] === 'formula')") !== false
         && strpos($refactor, '\\CIBlockElement::SetPropertyValues(') !== false
         && strpos($refactor, "(string)\$mutation['propertyCode']") !== false,

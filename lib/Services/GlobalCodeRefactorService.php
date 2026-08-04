@@ -148,7 +148,7 @@ final class GlobalCodeRefactorService
         }
         foreach ($this->elementIds($stagesId) as $elementId) {
             $this->planJsonProperty($mutations, 'stages', $stagesId, $elementId, 'GLOBAL_ASSIGNMENTS', $map, 'logic');
-            $this->planJsonProperty($mutations, 'stages', $stagesId, $elementId, 'ACTIVATION_CONDITION', $map, 'condition');
+            $this->planJsonProperty($mutations, 'stages', $stagesId, $elementId, 'ACTIVATION_CONDITION', $map, 'condition', 'scalar');
             $this->planDescribedSources($mutations, $stagesId, $elementId, 'OUTPUTS', $map);
             $this->planDescribedSources($mutations, $stagesId, $elementId, 'REFERENCE', $map);
         }
@@ -305,7 +305,7 @@ final class GlobalCodeRefactorService
         $this->appendPropertyMutation($mutations, $storage, $iblockId, $elementId, $propertyCode, $rows, $after, $mode, $label);
     }
 
-    private function planJsonProperty(array &$mutations, string $storage, int $iblockId, int $elementId, string $propertyCode, array $map, string $mode): void
+    private function planJsonProperty(array &$mutations, string $storage, int $iblockId, int $elementId, string $propertyCode, array $map, string $mode, string $storageMode = 'html'): void
     {
         $rows = $this->readPropertyRows($iblockId, $elementId, $propertyCode);
         if ($rows === [] || trim($rows[0]['value']) === '') return;
@@ -314,7 +314,7 @@ final class GlobalCodeRefactorService
         $afterValue = $mode === 'condition' ? $this->rewriteCondition($value, $map) : $this->rewriteLogic($value, $map);
         $after = $rows;
         $after[0]['value'] = json_encode($afterValue, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $this->appendPropertyMutation($mutations, $storage, $iblockId, $elementId, $propertyCode, $rows, $after, 'html');
+        $this->appendPropertyMutation($mutations, $storage, $iblockId, $elementId, $propertyCode, $rows, $after, $storageMode);
     }
 
     private function rewriteCondition(array $value, array $map): array
@@ -422,6 +422,8 @@ final class GlobalCodeRefactorService
         $after = $mutation['after'];
         if ($mutation['mode'] === 'html' || $mutation['mode'] === 'formula') {
             $value = ['VALUE' => ['TEXT' => (string)($after[0]['value'] ?? ''), 'TYPE' => 'TEXT']];
+        } elseif ($mutation['mode'] === 'scalar') {
+            $value = (string)($after[0]['value'] ?? '');
         } elseif ($mutation['mode'] === 'described') {
             $value = array_map(static fn(array $row): array => ['VALUE' => $row['value'], 'DESCRIPTION' => $row['description']], $after);
         } else {
