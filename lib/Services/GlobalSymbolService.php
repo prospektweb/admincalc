@@ -11,6 +11,14 @@ final class GlobalSymbolService
     private const IBLOCK_CODE = 'CALC_GLOBAL_VALUES';
     private const TYPES = ['auto', 'string', 'number', 'boolean', 'array', 'object'];
     private const KINDS = ['constant', 'variable'];
+    private const CODE_PATTERN = '/^[A-Za-z_][A-Za-z0-9_]*$/';
+    private const RESERVED_CODES = [
+        'if', 'round', 'ceil', 'floor', 'min', 'max', 'abs', 'trim', 'lower', 'upper',
+        'len', 'contains', 'replace', 'tonumber', 'tostring', 'split', 'join', 'get',
+        'getprice', 'regexmatch', 'regexextract', 'true', 'false', 'null', 'undefined',
+        'offer', 'product', 'calculator', 'operation', 'operationvariant', 'equipment',
+        'material', 'materialvariant', 'stage', 'preset',
+    ];
 
     public function list(): array
     {
@@ -60,6 +68,9 @@ final class GlobalSymbolService
             'INITIAL_VALUE' => $this->propertyId($iblockId, 'INITIAL_VALUE'),
         ];
         $reservedCodes = $this->collectCalculatorNamespaceCodes();
+        foreach ($this->list() as $existingRow) {
+            $reservedCodes[strtolower((string)$existingRow['code'])] = true;
+        }
         $connection = Application::getConnection();
         $connection->startTransaction();
         try {
@@ -68,6 +79,7 @@ final class GlobalSymbolService
                 throw new \InvalidArgumentException('Глобальное значение должно быть объектом');
             }
             $id = (int)($row['id'] ?? 0);
+            $requestedCode = $this->normalizeRequestedCode($row['code'] ?? '');
             $title = trim((string)($row['title'] ?? ''));
             $description = trim((string)($row['description'] ?? ''));
             $kind = (string)($row['kind'] ?? 'constant');
@@ -95,12 +107,21 @@ final class GlobalSymbolService
                 'SORT' => 100 + ((int)$rowIndex * 10),
             ];
             if ($id > 0) {
-                $existing = \CIBlockElement::GetList([], ['ID' => $id, 'IBLOCK_ID' => $iblockId], false, ['nTopCount' => 1], ['ID'])->Fetch();
-                if (!$existing || !$elementApi->Update($id, $fields)) {
+                $existing = \CIBlockElement::GetList([], ['ID' => $id, 'IBLOCK_ID' => $iblockId], false, ['nTopCount' => 1], ['ID', 'CODE'])->Fetch();
+                if (!$existing) {
+                    throw new \RuntimeException('Глобальное значение для обновления не найдено');
+                }
+                if ($requestedCode !== '' && $requestedCode !== (string)($existing['CODE'] ?? '')) {
+                    throw new \RuntimeException('Существующий код можно изменить только через безопасное переименование со списком затронутых ссылок');
+                }
+                if (!$elementApi->Update($id, $fields)) {
                     throw new \RuntimeException('Не удалось обновить глобальное значение');
                 }
             } else {
-                $fields['CODE'] = $this->generateCode($title, $iblockId, $reservedCodes);
+                $fields['CODE'] = $requestedCode !== '' ? $requestedCode : $this->generateCode($title, $iblockId, $reservedCodes);
+                if ($requestedCode !== '' && isset($reservedCodes[strtolower($requestedCode)])) {
+                    throw new \InvalidArgumentException('Код ' . $requestedCode . ' уже занят или конфликтует с формулой калькулятора');
+                }
                 $id = (int)$elementApi->Add($fields);
                 if ($id <= 0) {
                     throw new \RuntimeException('Не удалось создать глобальное значение: ' . trim((string)$elementApi->LAST_ERROR));
@@ -154,6 +175,19 @@ final class GlobalSymbolService
             throw $error;
         }
         return ['status' => 'ok', 'symbols' => $this->list()];
+    }
+
+    private function normalizeRequestedCode($value): string
+    {
+        $code = trim((string)$value);
+        if ($code === '') return '';
+        if (!preg_match(self::CODE_PATTERN, $code)) {
+            throw new \InvalidArgumentException('Код должен начинаться с латинской буквы или _ и содержать только латиницу, цифры и _');
+        }
+        if (in_array(strtolower($code), self::RESERVED_CODES, true)) {
+            throw new \InvalidArgumentException('Код ' . $code . ' зарезервирован языком формул');
+        }
+        return $code;
     }
 
     public function ensureStorage(): int
@@ -231,13 +265,7 @@ final class GlobalSymbolService
         $slug = trim($slug, '_');
         $slug = $slug !== '' ? substr($slug, 0, 80) : 'global_value';
         if (preg_match('/^[0-9]/', $slug)) $slug = 'value_' . $slug;
-        if (in_array($slug, [
-            'if', 'round', 'ceil', 'floor', 'min', 'max', 'abs', 'trim', 'lower', 'upper',
-            'len', 'contains', 'replace', 'tonumber', 'tostring', 'split', 'join', 'get',
-            'getprice', 'regexmatch', 'regexextract', 'true', 'false', 'null', 'undefined',
-            'offer', 'product', 'calculator', 'operation', 'operationvariant', 'equipment',
-            'material', 'materialvariant', 'stage', 'preset',
-        ], true)) $slug = 'global_' . $slug;
+        if (in_array($slug, self::RESERVED_CODES, true)) $slug = 'global_' . $slug;
         $code = $slug;
         $suffix = 2;
         do {

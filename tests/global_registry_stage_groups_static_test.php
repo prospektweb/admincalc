@@ -14,8 +14,9 @@ $ajax = file_get_contents($root . '/tools/calculator_ajax.php');
 $checks = [
     'global registry has dedicated iblock' => strpos($globals, "CALC_GLOBAL_VALUES") !== false,
     'global code is generated server-side' => strpos($globals, 'generateCode(') !== false && strpos($globals, "\\CUtil::translit") !== false,
-    'global code generation uses the title instead of a user-entered code hint' => strpos($globals, '$this->generateCode($title, $iblockId, $reservedCodes)') !== false
-        && strpos($globals, "\$row['hint']") === false,
+    'global registry accepts an explicit validated code and falls back to title generation' => strpos($globals, "\$row['code']") !== false
+        && strpos($globals, 'normalizeRequestedCode') !== false
+        && strpos($globals, '$this->generateCode($title, $iblockId, $reservedCodes)') !== false,
     'global code generation reserves calculator inputs, local variables and legacy globals' => strpos($globals, 'collectCalculatorNamespaceCodes') !== false
         && strpos($globals, "'PARAMS'") !== false
         && strpos($globals, "'LOGIC_JSON'") !== false

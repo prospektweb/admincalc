@@ -6,7 +6,7 @@ use Bitrix\Main\Application;
 use Prospektweb\Calc\Config\ConfigManager;
 
 /**
- * Plans and atomically applies AI-approved global-code renames.
+ * Plans and atomically applies reviewed global-code renames.
  *
  * A preview fingerprint contains the exact before/after mutation set. Apply
  * rebuilds the plan, so a concurrent edit can never be overwritten silently.
@@ -44,7 +44,7 @@ final class GlobalCodeRefactorService
         }
         $plan = $this->buildPlan($request);
         if (!hash_equals($plan['fingerprint'], $expected)) {
-            throw new \RuntimeException('Данные изменились после предварительной проверки. Выполните AI-анализ и проверку влияния повторно.');
+            throw new \RuntimeException('Данные изменились после предварительной проверки. Повторите проверку влияния переименования.');
         }
 
         $connection = Application::getConnection();
@@ -319,7 +319,14 @@ final class GlobalCodeRefactorService
 
     private function rewriteCondition(array $value, array $map): array
     {
-        if (isset($value['code']) && is_string($value['code'])) $value['code'] = $map[$value['code']] ?? $value['code'];
+        foreach ($value as $key => &$nested) {
+            if ($key === 'code' && is_string($nested)) {
+                $nested = $map[$nested] ?? $nested;
+            } elseif (is_array($nested)) {
+                $nested = $this->rewriteCondition($nested, $map);
+            }
+        }
+        unset($nested);
         return $value;
     }
 
