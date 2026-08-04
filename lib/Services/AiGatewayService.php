@@ -425,6 +425,7 @@ final class AiGatewayService
             . "\nEvery results item must be {\"key\":\"...\",\"source\":\"declaredInputOrVariableCode\"}. Include only results that are actually bound; never emit an item with an empty or placeholder source."
             . "\nEvery additionalResults item must be {\"code\":\"...\",\"title\":\"...\",\"source\":\"declaredInputOrVariableCode\"}. Use [] when there are no additional results."
             . "\nPrefer explicit intermediate variables and meaningful English ASCII codes. Preserve Russian titles and descriptions."
+            . "\nDo not ask about rare edge cases when a conservative deterministic fallback can be expressed and disclosed. Prefer a proposal with an explicit compatibility boolean additional result and zero operation or material consumption when the selected resource cannot physically process the item; list this fallback in assumptions."
             . "\nIf essential production rules are missing, return needs-clarification with one to three precise questions and draft=null. Do not guess norms, spoilage, make-ready, pricing, dimensions, or unit conversions."
             . "\nIf request.intent states that this is the only clarification round, do not return needs-clarification again. Build a proposal with explicit assumptions, or return cannot-propose only when the available contract makes the calculation technically impossible."
             . "\nFor status=proposal return questions=[] and a complete draft. Copy baseFingerprint exactly."

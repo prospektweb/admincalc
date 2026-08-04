@@ -26,6 +26,7 @@ $checks = [
     [$gateway, "authoritative administrator brief", 'administrator intent boundary'],
     [$gateway, "Do not ask the administrator to choose sourceRef values", 'implementation detail boundary'],
     [$gateway, "only clarification round", 'single clarification round boundary'],
+    [$gateway, "explicit compatibility boolean additional result", 'deterministic physical compatibility fallback'],
     [$gateway, "role=mapped-candidate", 'dynamic entity selection contract'],
     [$gateway, "baseProducts", 'base product examples'],
     [$gateway, 'previewStageLogicPrompt', 'exact final prompt preview'],
