@@ -30,6 +30,8 @@ $checks = [
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
     [$calculator, "index.html?v=e6f944d2b41a", 'Embedded calculator must load the current frontend release without stale HTML cache'],
     [$calculatorPage, "index.html?v=e6f944d2b41a", 'Standalone calculator page must load the current frontend release without stale HTML cache'],
+    [$appIndex, "assets/index.js?v=e6f944d2b41a", 'App HTML must load the current JavaScript bundle without stale asset cache'],
+    [$appIndex, "assets/style.css?v=e6f944d2b41a", 'App HTML must load the current stylesheet without stale asset cache'],
     [$calculatorPage, "overflow: hidden !important;", 'Standalone calculator page must not expose the taller Bitrix admin document scrollbar'],
     [$calculatorPage, 'z-index: 2147483647;', 'Standalone calculator must cover every Bitrix admin chrome layer'],
     [$calculatorPage, "document.body.appendChild(container);", 'Standalone calculator must escape the Bitrix workarea stacking context'],
