@@ -41,6 +41,7 @@ $checks = [
     [$gateway, "Mandatory PROSPEKT sheet-state contract", 'roll lamination uses the preset sheet-state mapping'],
     [$gateway, "Never assume they were initialized", 'model cannot invent prior mutable initialization'],
     [$gateway, "including technological waste", 'waste-inclusive operation quantity preference'],
+    [$gateway, "use metres = millimetres / 1000", 'running consumption exposes metres explicitly'],
     [$gateway, "feed allowance as longitudinal", 'feed allowance axis rule'],
     [$gateway, "deterministic default without asking", 'known trim policy does not trigger clarification'],
     [$gateway, "base sheet quantity", 'trim threshold uses base quantity'],
