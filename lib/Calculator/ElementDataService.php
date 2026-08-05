@@ -71,7 +71,8 @@ class ElementDataService
 
                     case 'saveGlobalSymbols':
                         $result[] = (new \Prospektweb\Calc\Services\GlobalSymbolService())->save(
-                            is_array($request['symbols'] ?? null) ? $request['symbols'] : []
+                            is_array($request['symbols'] ?? null) ? $request['symbols'] : [],
+                            (int)($request['presetId'] ?? 0)
                         );
                         continue 2;
 
@@ -1165,7 +1166,6 @@ class ElementDataService
                         $stageId = (int)($request['stageId'] ?? 0);
                         $name = trim((string)($request['name'] ?? ''));
                         $previewText = trim((string)($request['previewText'] ?? ''));
-                        $offerNameTemplate = trim((string)($request['offerNameTemplate'] ?? ''));
 
                         if ($stageId > 0 && $name !== '') {
                             $el = new \CIBlockElement();
@@ -1200,23 +1200,12 @@ class ElementDataService
                             $result[] = ['status' => 'error', 'message' => $el->LAST_ERROR ?: 'Не удалось сохранить данные'];
                             continue 2;
                         }
-                        if ($entityType === 'preset') {
-                            $presetsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_PRESETS', 0);
-                            if ($presetsIblockId > 0) {
-                                \CIBlockElement::SetPropertyValuesEx($entityId, $presetsIblockId, [
-                                    'OFFER_NAME_TEMPLATE' => $offerNameTemplate !== ''
-                                        ? ['VALUE' => ['TEXT' => $offerNameTemplate, 'TYPE' => 'TEXT']]
-                                        : false,
-                                ]);
-                            }
-                        }
                         $result[] = [
                             'status' => 'ok',
                             'entityType' => $entityType,
                             'id' => $entityId,
                             'name' => $name,
                             'previewText' => $previewText,
-                            'offerNameTemplate' => $offerNameTemplate,
                         ];
                         continue 2;
 

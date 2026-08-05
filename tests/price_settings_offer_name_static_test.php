@@ -25,9 +25,8 @@ $assert(strpos($priceService, 'syncPriceRangesMultiType') !== false, 'Price chan
 $assert(strpos($presetService, 'PRICE_SETTINGS_PRESETS_JSON') !== false, 'Named price presets must be stored in module options');
 $assert(strpos($bridge, 'SAVE_PRICE_SETTINGS_PRESET_REQUEST') !== false, 'Integration bridge must handle named price presets');
 $assert(strpos($actions, "case 'savePriceSettingsPreset'") !== false, 'AJAX handler must persist named price presets');
-$assert(strpos($actions, "'OFFER_NAME_TEMPLATE'") !== false, 'Preset meta save must persist offer name template separately');
+$assert(strpos($actions, 'OFFER_NAME_TEMPLATE') === false, 'Preset meta save must not persist the retired offer name template');
+$assert(strpos($bridge, 'offerNameTemplate') === false, 'Integration bridge must not send the retired offer name template');
 $assert(substr_count($propertyPayload, "'VALUE_ENUM'") >= 4, 'Property payload must preserve readable enum values');
-$assert(substr_count($propertyPayload, "'USER_TYPE'") >= 2, 'Property payload must expose property user types to the offer-name tag menu');
-$assert(strpos($propertyPayload, "'WITH_DESCRIPTION'") !== false, 'Property payload must expose description support to the offer-name tag menu');
 
-echo "Price settings and offer name static tests passed\n";
+echo "Price settings and stage offer name static tests passed\n";

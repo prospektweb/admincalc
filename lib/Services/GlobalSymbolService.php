@@ -20,13 +20,20 @@ final class GlobalSymbolService
         'material', 'materialvariant', 'stage', 'preset',
     ];
 
-    public function list(): array
+    public function list(int $presetId = 0): array
     {
         $iblockId = $this->ensureStorage();
+        if ($presetId > 0) {
+            $this->claimLegacyRows($iblockId, $presetId);
+        }
         $result = [];
+        $filter = ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'];
+        if ($presetId > 0) {
+            $filter['=PROPERTY_PRESET_ID'] = $presetId;
+        }
         $iterator = \CIBlockElement::GetList(
             ['SORT' => 'ASC', 'ID' => 'ASC'],
-            ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'],
+            $filter,
             false,
             false,
             ['ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'IBLOCK_ID']
@@ -52,7 +59,7 @@ final class GlobalSymbolService
         return $result;
     }
 
-    public function save(array $rows): array
+    public function save(array $rows, int $presetId): array
     {
         global $USER;
         if (!$USER || !$USER->IsAdmin()) {
@@ -61,14 +68,18 @@ final class GlobalSymbolService
         if (count($rows) > 500) {
             throw new \InvalidArgumentException('Слишком много глобальных значений');
         }
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Не указан пресет глобальных значений');
+        }
         $iblockId = $this->ensureStorage();
         $propertyIds = [
             'KIND' => $this->propertyId($iblockId, 'KIND'),
             'DATA_TYPE' => $this->propertyId($iblockId, 'DATA_TYPE'),
             'INITIAL_VALUE' => $this->propertyId($iblockId, 'INITIAL_VALUE'),
+            'PRESET_ID' => $this->propertyId($iblockId, 'PRESET_ID'),
         ];
         $reservedCodes = $this->collectCalculatorNamespaceCodes();
-        foreach ($this->list() as $existingRow) {
+        foreach ($this->list($presetId) as $existingRow) {
             $reservedCodes[strtolower((string)$existingRow['code'])] = true;
         }
         $connection = Application::getConnection();
@@ -107,7 +118,7 @@ final class GlobalSymbolService
                 'SORT' => 100 + ((int)$rowIndex * 10),
             ];
             if ($id > 0) {
-                $existing = \CIBlockElement::GetList([], ['ID' => $id, 'IBLOCK_ID' => $iblockId], false, ['nTopCount' => 1], ['ID', 'CODE'])->Fetch();
+                $existing = \CIBlockElement::GetList([], ['ID' => $id, 'IBLOCK_ID' => $iblockId, '=PROPERTY_PRESET_ID' => $presetId], false, ['nTopCount' => 1], ['ID', 'CODE'])->Fetch();
                 if (!$existing) {
                     throw new \RuntimeException('Глобальное значение для обновления не найдено');
                 }
@@ -131,6 +142,7 @@ final class GlobalSymbolService
             \CIBlockElement::SetPropertyValuesEx($id, $iblockId, [
                 'KIND' => $kind,
                 'DATA_TYPE' => $dataType,
+                'PRESET_ID' => $presetId,
             ]);
             // PHP 8 exposes a Bitrix comparison bug for an existing HTML user-type
             // value (strcmp receives the converted array). Clear it first inside
@@ -174,7 +186,7 @@ final class GlobalSymbolService
             $connection->rollbackTransaction();
             throw $error;
         }
-        return ['status' => 'ok', 'symbols' => $this->list()];
+        return ['status' => 'ok', 'symbols' => $this->list($presetId)];
     }
 
     private function normalizeRequestedCode($value): string
@@ -223,7 +235,31 @@ final class GlobalSymbolService
         $this->ensureProperty($iblockId, 'KIND', 'Вид значения', 'S', null, 100);
         $this->ensureProperty($iblockId, 'DATA_TYPE', 'Тип данных', 'S', null, 110);
         $this->ensureProperty($iblockId, 'INITIAL_VALUE', 'Начальное значение или формула', 'S', 'HTML', 120);
+        $this->ensureProperty($iblockId, 'PRESET_ID', 'Пресет', 'N', null, 130);
         return $iblockId;
+    }
+
+    /**
+     * The registry used to be shared. On the first scoped load, preserve those
+     * rows by assigning them to the preset from which the migration is opened.
+     */
+    private function claimLegacyRows(int $iblockId, int $presetId): void
+    {
+        $optionName = 'global_symbols_scope_migrated';
+        if ((string)\Bitrix\Main\Config\Option::get('prospektweb.calc', $optionName, '') !== '') {
+            return;
+        }
+        $iterator = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y', 'PROPERTY_PRESET_ID' => false],
+            false,
+            false,
+            ['ID']
+        );
+        while ($row = $iterator->Fetch()) {
+            \CIBlockElement::SetPropertyValuesEx((int)$row['ID'], $iblockId, ['PRESET_ID' => $presetId]);
+        }
+        \Bitrix\Main\Config\Option::set('prospektweb.calc', $optionName, (string)$presetId);
     }
 
     private function ensureProperty(int $iblockId, string $code, string $name, string $type, ?string $userType, int $sort): void

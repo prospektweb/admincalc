@@ -26,7 +26,12 @@ $checks = [
         && strpos($refactor, 'hash_equals(') !== false
         && strpos($refactor, 'startTransaction()') !== false
         && strpos($refactor, 'replaceIdentifiers(') !== false,
-    'init exposes shared symbols' => strpos($init, "'globalSymbols'") !== false,
+    'init exposes symbols scoped to the current preset' => strpos($init, "'globalSymbols'") !== false
+        && strpos($init, 'GlobalSymbolService())->list((int)$presetId)') !== false,
+    'global registry owns every row by preset and filters scoped reads' => strpos($globals, "'PRESET_ID', 'Пресет'") !== false
+        && strpos($globals, "'=PROPERTY_PRESET_ID'") !== false
+        && strpos($globals, "'PRESET_ID' => " . '$presetId') !== false
+        && strpos($globals, 'claimLegacyRows') !== false,
     'global registry saves value and type by stable property ids and verifies the write' => strpos($globals, "'INITIAL_VALUE' => \$this->propertyId") !== false
         && strpos($globals, 'SetPropertyValues(') !== false
         && strpos($globals, "Глобальное значение не было полностью записано") !== false,
@@ -71,6 +76,7 @@ $checks = [
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalCodeRefactorService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\StageGroupService'") !== false,
     'actions are routed through PHP service' => strpos($service, "case 'saveGlobalSymbols'") !== false
+        && strpos($service, "(int)(\$request['presetId'] ?? 0)") !== false
         && strpos($service, "case 'previewGlobalCodeRefactor'") !== false
         && strpos($service, "case 'applyGlobalCodeRefactor'") !== false
         && strpos($service, "case 'saveStageGroups'") !== false,
