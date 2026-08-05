@@ -28,5 +28,7 @@ $assert(strpos($actions, "case 'savePriceSettingsPreset'") !== false, 'AJAX hand
 $assert(strpos($actions, 'OFFER_NAME_TEMPLATE') === false, 'Preset meta save must not persist the retired offer name template');
 $assert(strpos($bridge, 'offerNameTemplate') === false, 'Integration bridge must not send the retired offer name template');
 $assert(substr_count($propertyPayload, "'VALUE_ENUM'") >= 4, 'Property payload must preserve readable enum values');
+$assert(substr_count($propertyPayload, "'WITH_DESCRIPTION'") >= 3, 'Property payload must preserve the description capability used by parameter menus');
+$assert(substr_count($propertyPayload, "'USER_TYPE'") >= 3, 'Property payload must preserve property user types');
 
 echo "Price settings and stage offer name static tests passed\n";
