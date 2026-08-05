@@ -3394,12 +3394,12 @@
         async handleSaveGlobalValuesRequest(message, origin) {
             const payload = message.payload || {};
             try {
+                const presetId = Number(payload.presetId || this.initData?.preset?.id || 0);
                 const requests = [{
                     action: 'saveGlobalSymbols',
-                    presetId: Number(payload.presetId || 0),
+                    presetId: presetId,
                     symbols: Array.isArray(payload.symbols) ? payload.symbols : [],
                 }];
-                const presetId = Number(payload.presetId || 0);
                 if (presetId > 0) {
                     requests.push({
                         action: 'savePresetGlobals',

@@ -86,6 +86,11 @@ $checks = [
         && strpos($integration, 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST') !== false
         && strpos($integration, 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST') !== false
         && strpos($integration, 'SAVE_STAGE_GROUPS_REQUEST') !== false,
+    'combined global save recovers the preset id from current init state' => strpos(
+        $integration,
+        'const presetId = Number(payload.presetId || this.initData?.preset?.id || 0);'
+    ) !== false
+        && strpos($integration, "action: 'saveGlobalSymbols',\n                    presetId: presetId,") !== false,
     'ajax error mapper accepts every throwable without corrupting JSON errors' => strpos($ajax, 'function resolveErrorType(\\Throwable $e)') !== false,
 ];
 
