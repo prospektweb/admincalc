@@ -869,6 +869,7 @@ class InitPayloadService
     {
         $elementDataService = new ElementDataService();
         $store = [];
+        $linkedIblockIds = [];
 
         foreach ($propertiesRaw as $code => $propertyData) {
             $values = $propertyData['values'] ?? [];
@@ -881,6 +882,8 @@ class InitPayloadService
             if ($linkIblockId <= 0) {
                 continue;
             }
+
+            $linkedIblockIds[$code] = $linkIblockId;
 
             if (empty($ids)) {
                 if ($code === 'CALC_CUSTOM_FIELDS') {
@@ -901,7 +904,83 @@ class InitPayloadService
             $store[$code] = $payload[0]['data'] ?? [];
         }
 
+        // Equipment selected through OPTIONS_EQUIPMENT is not necessarily the
+        // stage's static EQUIPMENT value. Preload every mapped candidate so the
+        // calculation runtime can resolve stable stage equipment paths after it
+        // chooses a mapping for the current product/offer.
+        $mappedEquipmentIds = self::extractMappedVariantIdsFromStages(
+            $store['CALC_STAGES'] ?? [],
+            'OPTIONS_EQUIPMENT'
+        );
+        $loadedEquipmentIds = array_map(
+            static fn(array $item): int => (int)($item['id'] ?? 0),
+            is_array($store['CALC_EQUIPMENT'] ?? null) ? $store['CALC_EQUIPMENT'] : []
+        );
+        $missingEquipmentIds = array_values(array_diff($mappedEquipmentIds, $loadedEquipmentIds));
+        $equipmentIblockId = (int)($linkedIblockIds['CALC_EQUIPMENT'] ?? 0);
+
+        if ($equipmentIblockId > 0 && !empty($missingEquipmentIds)) {
+            $payload = $elementDataService->prepareRefreshPayload([
+                [
+                    'iblockId' => $equipmentIblockId,
+                    'iblockType' => null,
+                    'ids' => $missingEquipmentIds,
+                    'includeParent' => true,
+                ],
+            ]);
+            $mappedEquipment = $payload[0]['data'] ?? [];
+            $equipmentById = [];
+            foreach (array_merge($store['CALC_EQUIPMENT'] ?? [], $mappedEquipment) as $equipment) {
+                $equipmentId = (int)($equipment['id'] ?? 0);
+                if ($equipmentId > 0) {
+                    $equipmentById[$equipmentId] = $equipment;
+                }
+            }
+            $store['CALC_EQUIPMENT'] = array_values($equipmentById);
+        }
+
         return $store;
+    }
+
+    /**
+     * Collect target entity IDs referenced by a stage OPTIONS_* mapping.
+     *
+     * @param array<int, array<string, mixed>> $stages
+     * @return int[]
+     */
+    private static function extractMappedVariantIdsFromStages(array $stages, string $propertyCode): array
+    {
+        $ids = [];
+
+        foreach ($stages as $stage) {
+            $property = $stage['properties'][$propertyCode] ?? null;
+            if (!is_array($property)) {
+                continue;
+            }
+
+            $rawValue = $property['~VALUE'] ?? $property['VALUE'] ?? null;
+            if (is_array($rawValue) && array_key_exists('TEXT', $rawValue)) {
+                $rawValue = $rawValue['TEXT'];
+            }
+            if (!is_string($rawValue) || trim($rawValue) === '') {
+                continue;
+            }
+
+            $decoded = html_entity_decode($rawValue, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $mapping = json_decode($decoded, true);
+            if (!is_array($mapping) || !is_array($mapping['mappings'] ?? null)) {
+                continue;
+            }
+
+            foreach ($mapping['mappings'] as $row) {
+                $variantId = (int)($row['variantId'] ?? 0);
+                if ($variantId > 0) {
+                    $ids[$variantId] = true;
+                }
+            }
+        }
+
+        return array_map('intval', array_keys($ids));
     }
 
     /**
