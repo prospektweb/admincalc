@@ -26,6 +26,7 @@ class PropertyPayloadLoader
             'WITH_DESCRIPTION',
             'VALUE',
             '~VALUE',
+            'VALUE_ENUM',
             'VALUE_XML_ID',
         ];
 
@@ -56,6 +57,7 @@ class PropertyPayloadLoader
                     'WITH_DESCRIPTION' => $prop['WITH_DESCRIPTION'] ?? 'N',
                     'VALUE' => $isMultiple ? [] : null,
                     '~VALUE' => $isMultiple ? [] : null,
+                    'VALUE_ENUM' => $isMultiple ? [] : null,
                     'VALUE_XML_ID' => $isMultiple ? [] : null,
                 ];
             }
@@ -72,11 +74,13 @@ class PropertyPayloadLoader
             if ($properties[$code]['MULTIPLE'] === 'Y') {
                 $properties[$code]['VALUE'][] = $prop['VALUE'];
                 $properties[$code]['~VALUE'][] = $prop['~VALUE'] ?? $prop['VALUE'];
+                $properties[$code]['VALUE_ENUM'][] = $prop['VALUE_ENUM'] ?? null;
                 $properties[$code]['DESCRIPTION'][] = $prop['DESCRIPTION'] ?? null;
                 $properties[$code]['VALUE_XML_ID'][] = $prop['VALUE_XML_ID'] ?? null;
             } else {
                 $properties[$code]['VALUE'] = $prop['VALUE'];
                 $properties[$code]['~VALUE'] = $prop['~VALUE'] ?? $prop['VALUE'];
+                $properties[$code]['VALUE_ENUM'] = $prop['VALUE_ENUM'] ?? null;
                 $properties[$code]['DESCRIPTION'] = $prop['DESCRIPTION'] ?? null;
                 $properties[$code]['VALUE_XML_ID'] = $prop['VALUE_XML_ID'] ?? null;
             }

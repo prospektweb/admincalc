@@ -16,6 +16,7 @@ $priceService = $read('lib/Services/PresetPriceService.php');
 $presetService = $read('lib/Services/PriceSettingsPresetService.php');
 $bridge = $read('install/assets/js/integration.js');
 $actions = $read('lib/Calculator/ElementDataService.php');
+$propertyPayload = $read('lib/Calculator/PropertyPayloadLoader.php');
 
 $assert(strpos($schema, "'OFFER_NAME_TEMPLATE'") !== false, 'Runtime schema must include OFFER_NAME_TEMPLATE');
 $assert(strpos($installer, "'CURRENCY' => 'MRG'") !== false, 'Installer must create MRG currency');
@@ -25,5 +26,6 @@ $assert(strpos($presetService, 'PRICE_SETTINGS_PRESETS_JSON') !== false, 'Named 
 $assert(strpos($bridge, 'SAVE_PRICE_SETTINGS_PRESET_REQUEST') !== false, 'Integration bridge must handle named price presets');
 $assert(strpos($actions, "case 'savePriceSettingsPreset'") !== false, 'AJAX handler must persist named price presets');
 $assert(strpos($actions, "'OFFER_NAME_TEMPLATE'") !== false, 'Preset meta save must persist offer name template separately');
+$assert(substr_count($propertyPayload, "'VALUE_ENUM'") >= 4, 'Property payload must preserve readable enum values');
 
 echo "Price settings and offer name static tests passed\n";
