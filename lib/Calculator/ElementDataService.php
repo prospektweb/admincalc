@@ -1483,7 +1483,11 @@ class ElementDataService
                         $presetId = (int)($request['presetId'] ?? 0);
                         $prices = $request['prices'] ?? [];
                         
-                        $pricesResult = $priceService->changePricePreset($presetId, $prices);
+                        $pricesResult = $priceService->changePricePreset(
+                            $presetId,
+                            $prices,
+                            is_array($request['priceProfilePolicy'] ?? null) ? $request['priceProfilePolicy'] : null
+                        );
                         
                         if ($pricesResult['status'] === 'ok') {
                             // Enrich preset

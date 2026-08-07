@@ -3043,6 +3043,7 @@
 
             const payload = message.payload || {};
             const prices = Array.isArray(payload) ? payload : (payload.prices || []);
+            const priceProfilePolicy = Array.isArray(payload) ? null : (payload.priceProfilePolicy || null);
 
             try {
                 // Получаем presetId из initData
@@ -3064,6 +3065,7 @@
                         action: 'changePricePreset',
                         presetId: presetId,
                         prices: prices,
+                        priceProfilePolicy: priceProfilePolicy,
                         offerIds: offerIds,
                         siteId: siteId,
                     }

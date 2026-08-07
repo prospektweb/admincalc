@@ -761,6 +761,7 @@ class InitPayloadService
             (array)($presetElement['prices'] ?? []),
             $this->loadPriceLimits($iblockId, $presetId)
         );
+        $presetElement['priceProfilePolicy'] = $this->loadPriceProfilePolicy($iblockId, $presetId);
 
         $propertiesRaw = $this->loadPresetProperties($iblockId, $presetId);
         $presetElement['properties'] = [];
@@ -845,7 +846,7 @@ class InitPayloadService
         while ($arProp = $rsProperty->Fetch()) {
             $code = $arProp['CODE'] ?: (string)$arProp['ID'];
 
-            if (in_array($code, ['JSON', 'CALC_DIMENSIONS_WEIGHT', 'PRICE_LIMITS_JSON'], true)) {
+            if (in_array($code, ['JSON', 'CALC_DIMENSIONS_WEIGHT', 'PRICE_LIMITS_JSON', 'PRICE_PROFILE_POLICY_JSON'], true)) {
                 continue;
             }
 
@@ -887,6 +888,28 @@ class InitPayloadService
                 && (int)($limit['typeId'] ?? 0) > 0
                 && (float)($limit['limitRub'] ?? 0) > 0;
         }));
+    }
+
+    private function loadPriceProfilePolicy(int $iblockId, int $presetId): ?array
+    {
+        $property = \CIBlockElement::GetProperty(
+            $iblockId,
+            $presetId,
+            [],
+            ['CODE' => 'PRICE_PROFILE_POLICY_JSON']
+        )->Fetch();
+        $raw = $property['VALUE'] ?? '';
+        if (is_array($raw)) {
+            $raw = $raw['TEXT'] ?? '';
+        }
+        $decoded = json_decode((string)$raw, true);
+        if (!is_array($decoded)
+            || (int)($decoded['version'] ?? 0) !== 1
+            || ($decoded['$schema'] ?? '') !== 'prospektweb.calc.conditional-price-profiles/v1'
+            || !is_array($decoded['rules'] ?? null)) {
+            return null;
+        }
+        return $decoded;
     }
 
     private function mergePriceLimits(array $prices, array $limits): array

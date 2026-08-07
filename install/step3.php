@@ -1276,6 +1276,13 @@ switch ($currentStep) {
                 'SORT' => 1130,
                 'HINT' => 'Версионированный JSON с RUB-ограничителями по типу цены и диапазону количества тиражей',
             ],
+            'PRICE_PROFILE_POLICY_JSON' => [
+                'NAME' => 'Условные профили отпускных цен',
+                'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
+                'SORT' => 1140,
+                'HINT' => 'Версионированные снимки сеток цен, выбираемые по глобальным логическим значениям',
+            ],
         ];
 
         $installData['iblock_ids']['CALC_PRESETS'] = createIblockWithLog('calculator', 'CALC_PRESETS', 'Пресеты', $presetsProps);
