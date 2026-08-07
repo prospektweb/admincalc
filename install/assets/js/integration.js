@@ -302,6 +302,12 @@
                 case 'SAVE_PRICE_SETTINGS_PRESET_REQUEST':
                     await this.handleSavePriceSettingsPresetRequest(message, origin);
                     break;
+                case 'RENAME_PRICE_SETTINGS_PRESET_REQUEST':
+                    await this.handleRenamePriceSettingsPresetRequest(message, origin);
+                    break;
+                case 'DELETE_PRICE_SETTINGS_PRESET_REQUEST':
+                    await this.handleDeletePriceSettingsPresetRequest(message, origin);
+                    break;
                 case 'GET_AI_SETTINGS_REQUEST':
                     await this.handleGetAiSettingsRequest(message, origin);
                     break;
@@ -1407,6 +1413,49 @@
             } catch (error) {
                 this.sendPwrtMessage('ERROR', {
                     message: error && error.message ? error.message : 'Не удалось сохранить пресет отпускных цен',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleRenamePriceSettingsPresetRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'renamePriceSettingsPreset',
+                    id: payload.id || '',
+                    name: payload.name || '',
+                }]);
+                const response = Array.isArray(result) ? result[0] : null;
+                if (!response || response.status !== 'ok') {
+                    throw new Error(response && response.message ? response.message : 'Не удалось переименовать шаблон отпускных цен');
+                }
+                this.initData.context = this.initData.context || {};
+                this.initData.context.priceSettingsPresets = response.presets || [];
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: error && error.message ? error.message : 'Не удалось переименовать шаблон отпускных цен',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleDeletePriceSettingsPresetRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'deletePriceSettingsPreset',
+                    id: payload.id || '',
+                }]);
+                const response = Array.isArray(result) ? result[0] : null;
+                if (!response || response.status !== 'ok') {
+                    throw new Error(response && response.message ? response.message : 'Не удалось удалить шаблон отпускных цен');
+                }
+                this.initData.context = this.initData.context || {};
+                this.initData.context.priceSettingsPresets = response.presets || [];
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: error && error.message ? error.message : 'Не удалось удалить шаблон отпускных цен',
                 }, message.requestId, origin);
             }
         }

@@ -1218,6 +1218,19 @@ class ElementDataService
                         );
                         continue 2;
 
+                    case 'renamePriceSettingsPreset':
+                        $priceSettingsService = new \Prospektweb\Calc\Services\PriceSettingsPresetService();
+                        $result[] = $priceSettingsService->rename(
+                            (string)($request['id'] ?? ''),
+                            (string)($request['name'] ?? '')
+                        );
+                        continue 2;
+
+                    case 'deletePriceSettingsPreset':
+                        $priceSettingsService = new \Prospektweb\Calc\Services\PriceSettingsPresetService();
+                        $result[] = $priceSettingsService->delete((string)($request['id'] ?? ''));
+                        continue 2;
+
 
                     case 'deleteDetail':
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();

@@ -28,10 +28,16 @@ $assert(strpos($priceService, 'savePriceLimits') !== false, 'Preset price save m
 $assert(strpos($priceService, 'prospektweb.calc.price-limits/v1') !== false, 'RUB limits need a versioned payload');
 $assert(strpos($presetService, 'PRICE_SETTINGS_PRESETS_JSON') !== false, 'Named price presets must be stored in module options');
 $assert(strpos($presetService, "'limitRub'") !== false, 'Named price templates must preserve RUB limits');
+$assert(strpos($presetService, 'public function rename') !== false, 'Named price templates must support stable-ID rename');
+$assert(strpos($presetService, 'public function delete') !== false, 'Named price templates must support deletion');
 $assert(strpos($payload, 'mergePriceLimits') !== false, 'INIT prices must restore RUB limits');
 $assert(strpos($payload, '$quantityFrom > 0') !== false, 'Open range zero must match Bitrix null when restoring RUB limits');
 $assert(strpos($bridge, 'SAVE_PRICE_SETTINGS_PRESET_REQUEST') !== false, 'Integration bridge must handle named price presets');
+$assert(strpos($bridge, 'RENAME_PRICE_SETTINGS_PRESET_REQUEST') !== false, 'Integration bridge must handle template rename');
+$assert(strpos($bridge, 'DELETE_PRICE_SETTINGS_PRESET_REQUEST') !== false, 'Integration bridge must handle template deletion');
 $assert(strpos($actions, "case 'savePriceSettingsPreset'") !== false, 'AJAX handler must persist named price presets');
+$assert(strpos($actions, "case 'renamePriceSettingsPreset'") !== false, 'AJAX handler must rename named price presets');
+$assert(strpos($actions, "case 'deletePriceSettingsPreset'") !== false, 'AJAX handler must delete named price presets');
 $assert(strpos($actions, 'OFFER_NAME_TEMPLATE') === false, 'Preset meta save must not persist the retired offer name template');
 $assert(strpos($bridge, 'offerNameTemplate') === false, 'Integration bridge must not send the retired offer name template');
 $assert(substr_count($propertyPayload, "'VALUE_ENUM'") >= 4, 'Property payload must preserve readable enum values');
