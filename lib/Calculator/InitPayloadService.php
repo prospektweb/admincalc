@@ -757,6 +757,11 @@ class InitPayloadService
             return null;
         }
 
+        $presetElement['prices'] = $this->mergePriceLimits(
+            (array)($presetElement['prices'] ?? []),
+            $this->loadPriceLimits($iblockId, $presetId)
+        );
+
         $propertiesRaw = $this->loadPresetProperties($iblockId, $presetId);
         $presetElement['properties'] = [];
         foreach ($propertiesRaw as $code => $property) {
@@ -840,7 +845,7 @@ class InitPayloadService
         while ($arProp = $rsProperty->Fetch()) {
             $code = $arProp['CODE'] ?: (string)$arProp['ID'];
 
-            if (in_array($code, ['JSON', 'CALC_DIMENSIONS_WEIGHT'], true)) {
+            if (in_array($code, ['JSON', 'CALC_DIMENSIONS_WEIGHT', 'PRICE_LIMITS_JSON'], true)) {
                 continue;
             }
 
@@ -859,6 +864,61 @@ class InitPayloadService
         }
 
         return $result;
+    }
+
+    private function loadPriceLimits(int $iblockId, int $presetId): array
+    {
+        $property = \CIBlockElement::GetProperty(
+            $iblockId,
+            $presetId,
+            [],
+            ['CODE' => 'PRICE_LIMITS_JSON']
+        )->Fetch();
+        $raw = $property['VALUE'] ?? '';
+        if (is_array($raw)) {
+            $raw = $raw['TEXT'] ?? '';
+        }
+        $decoded = json_decode((string)$raw, true);
+        if (!is_array($decoded) || (int)($decoded['version'] ?? 0) !== 1) {
+            return [];
+        }
+        return array_values(array_filter((array)($decoded['limits'] ?? []), static function ($limit): bool {
+            return is_array($limit)
+                && (int)($limit['typeId'] ?? 0) > 0
+                && (float)($limit['limitRub'] ?? 0) > 0;
+        }));
+    }
+
+    private function mergePriceLimits(array $prices, array $limits): array
+    {
+        $indexed = [];
+        foreach ($limits as $limit) {
+            $key = $this->priceRangeKey(
+                (int)$limit['typeId'],
+                isset($limit['quantityFrom']) ? (int)$limit['quantityFrom'] : null,
+                isset($limit['quantityTo']) ? (int)$limit['quantityTo'] : null
+            );
+            $indexed[$key] = max(0.0, (float)$limit['limitRub']);
+        }
+
+        foreach ($prices as &$price) {
+            $key = $this->priceRangeKey(
+                (int)($price['typeId'] ?? 0),
+                isset($price['quantityFrom']) ? (int)$price['quantityFrom'] : null,
+                isset($price['quantityTo']) ? (int)$price['quantityTo'] : null
+            );
+            $price['limitRub'] = ($indexed[$key] ?? 0) > 0 ? $indexed[$key] : null;
+        }
+        unset($price);
+        return $prices;
+    }
+
+    private function priceRangeKey(int $typeId, ?int $quantityFrom, ?int $quantityTo): string
+    {
+        $quantityFrom = ($quantityFrom !== null && $quantityFrom > 0) ? $quantityFrom : null;
+        $quantityTo = ($quantityTo !== null && $quantityTo > 0) ? $quantityTo : null;
+        return $typeId . ':' . ($quantityFrom === null ? 'n' : $quantityFrom)
+            . ':' . ($quantityTo === null ? 'n' : $quantityTo);
     }
 
 

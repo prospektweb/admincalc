@@ -12,6 +12,8 @@ use Prospektweb\Calc\Services\CatalogPriceService;
  */
 class PresetPriceService
 {
+    private const PRICE_LIMITS_PROPERTY = 'PRICE_LIMITS_JSON';
+    private const PRICE_LIMITS_SCHEMA = 'prospektweb.calc.price-limits/v1';
     private int $presetsIblockId;
     private ConfigManager $configManager;
     private SettingsManager $settingsManager;
@@ -80,6 +82,8 @@ class PresetPriceService
                 throw new \RuntimeException('Не удалось синхронизировать диапазоны отпускных цен');
             }
 
+            $this->savePriceLimits($presetId, $prices);
+
             return [
                 'status' => 'ok',
                 'presetId' => $presetId,
@@ -91,6 +95,45 @@ class PresetPriceService
                 'message' => $e->getMessage(),
             ];
         }
+    }
+
+    private function savePriceLimits(int $presetId, array $prices): void
+    {
+        $limits = [];
+        foreach ($prices as $range) {
+            $typeId = (int)($range['typeId'] ?? 0);
+            $limitRub = isset($range['limitRub']) ? max(0.0, (float)$range['limitRub']) : 0.0;
+            if ($typeId <= 0 || $limitRub <= 0) {
+                continue;
+            }
+            $limits[] = [
+                'typeId' => $typeId,
+                'quantityFrom' => $this->normalizeQuantityBound($range['quantityFrom'] ?? null),
+                'quantityTo' => $this->normalizeQuantityBound($range['quantityTo'] ?? null),
+                'limitRub' => $limitRub,
+            ];
+        }
+
+        $json = json_encode([
+            '$schema' => self::PRICE_LIMITS_SCHEMA,
+            'version' => 1,
+            'limits' => $limits,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($json)) {
+            throw new \RuntimeException('Не удалось сериализовать ограничители отпускных цен');
+        }
+
+        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
+            self::PRICE_LIMITS_PROPERTY => ['VALUE' => ['TEXT' => $json, 'TYPE' => 'text']],
+        ]);
+    }
+
+    private function normalizeQuantityBound($value): ?int
+    {
+        if ($value === false || $value === null || $value === '' || (string)$value === '0') {
+            return null;
+        }
+        return (int)$value;
     }
 
 }

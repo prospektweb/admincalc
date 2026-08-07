@@ -71,12 +71,14 @@ class PriceSettingsPresetService
             if (!in_array($currency, ['RUB', 'PRC', 'MRG'], true)) continue;
             $price = (float)($range['price'] ?? 0);
             if ($price < 0 || ($currency === 'MRG' && $price >= 100)) continue;
+            $limitRub = isset($range['limitRub']) ? max(0.0, (float)$range['limitRub']) : 0.0;
             $prices[] = [
                 'typeId' => (int)($range['typeId'] ?? 0),
                 'price' => $price,
                 'currency' => $currency,
                 'quantityFrom' => isset($range['quantityFrom']) ? (int)$range['quantityFrom'] : null,
                 'quantityTo' => isset($range['quantityTo']) ? (int)$range['quantityTo'] : null,
+                'limitRub' => $limitRub > 0 ? $limitRub : null,
             ];
         }
         if (!$prices) return null;

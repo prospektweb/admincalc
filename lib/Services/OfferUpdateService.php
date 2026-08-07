@@ -39,7 +39,14 @@ class OfferUpdateService
                 $elementData = \CIBlockElement::GetByID($offerId)->Fetch();
                 $offerIblockId = (int)($elementData['IBLOCK_ID'] ?? 0);
                 $offerName = trim((string)($offer['offerName'] ?? ''));
-                $parametrValues = $this->buildValueDescriptionList($offer['parametrValues'] ?? [], 'name', 'value');
+                $parametrValues = $this->buildValueDescriptionList(
+                    array_values(array_filter(
+                        is_array($offer['parametrValues'] ?? null) ? $offer['parametrValues'] : [],
+                        static fn($entry): bool => is_array($entry) && ($entry['writeToOffer'] ?? true) !== false
+                    )),
+                    'name',
+                    'value'
+                );
 
                 if ($offerIblockId <= 0) {
                     throw new \RuntimeException('Торговое предложение не найдено');

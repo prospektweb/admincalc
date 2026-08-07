@@ -33,6 +33,13 @@ class SchemaRepairService
                     'SORT' => 1120,
                     'HINT' => 'Шаблон формируется после выполнения всех этапов расчёта',
                 ],
+                'PRICE_LIMITS_JSON' => [
+                    'NAME' => 'Ограничители наценки и маржи',
+                    'TYPE' => 'S',
+                    'USER_TYPE' => 'HTML',
+                    'SORT' => 1130,
+                    'HINT' => 'Версионированный JSON с RUB-ограничителями по типу цены и диапазону количества тиражей',
+                ],
             ],
             'CALC_SETTINGS' => [
                 'AI_CONTEXT_JSON' => [
@@ -201,28 +208,31 @@ class SchemaRepairService
             return $this->withCounts($result);
         }
 
-        $definition = self::getPropertySchema()['CALC_PRESETS']['OFFER_NAME_TEMPLATE'];
+        $definitions = self::getPropertySchema()['CALC_PRESETS'];
         $iblockId = (new ConfigManager())->getIblockId('CALC_PRESETS');
         if ($iblockId <= 0) {
             $result['errors'][] = 'Инфоблок CALC_PRESETS не найден';
         } else {
-            $existing = \CIBlockProperty::GetList([], [
-                'IBLOCK_ID' => $iblockId,
-                'CODE' => 'OFFER_NAME_TEMPLATE',
-            ])->Fetch();
-            if ($existing) {
-                $result['existing'][] = 'CALC_PRESETS.OFFER_NAME_TEMPLATE';
-            } else {
+            foreach ($definitions as $propertyCode => $definition) {
+                $label = 'CALC_PRESETS.' . $propertyCode;
+                $existing = \CIBlockProperty::GetList([], [
+                    'IBLOCK_ID' => $iblockId,
+                    'CODE' => $propertyCode,
+                ])->Fetch();
+                if ($existing) {
+                    $result['existing'][] = $label;
+                    continue;
+                }
                 $property = new \CIBlockProperty();
                 $propertyId = $property->Add($this->buildPropertyFields(
                     $iblockId,
-                    'OFFER_NAME_TEMPLATE',
+                    $propertyCode,
                     $definition
                 ));
                 if ($propertyId) {
-                    $result['created'][] = 'CALC_PRESETS.OFFER_NAME_TEMPLATE';
+                    $result['created'][] = $label;
                 } else {
-                    $result['errors'][] = 'Не удалось создать CALC_PRESETS.OFFER_NAME_TEMPLATE: '
+                    $result['errors'][] = 'Не удалось создать ' . $label . ': '
                         . (trim((string)$property->LAST_ERROR) ?: 'неизвестная ошибка');
                 }
             }

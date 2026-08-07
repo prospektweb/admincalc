@@ -1268,6 +1268,14 @@ switch ($currentStep) {
                 'SORT' => 1120,
                 'HINT' => 'Шаблон формируется после выполнения всех этапов расчёта',
             ],
+            'PRICE_LIMITS_JSON' => [
+                'NAME' => 'Ограничители наценки и маржи',
+                'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
+                'MULTIPLE' => 'N',
+                'SORT' => 1130,
+                'HINT' => 'Версионированный JSON с RUB-ограничителями по типу цены и диапазону количества тиражей',
+            ],
         ];
 
         $installData['iblock_ids']['CALC_PRESETS'] = createIblockWithLog('calculator', 'CALC_PRESETS', 'Пресеты', $presetsProps);
