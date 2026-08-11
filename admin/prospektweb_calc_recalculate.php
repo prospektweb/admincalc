@@ -350,7 +350,8 @@ $jsMessages = [
     var config = {
         ajaxEndpoint: <?= json_encode($ajaxEndpoint, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>,
         messages: <?= json_encode($jsMessages, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>,
-        sessid: <?= json_encode($pageSessid, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>
+        sessid: <?= json_encode($pageSessid, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>,
+        jobStorageKey: <?= json_encode('prospektweb.calc.batchJobId.' . (int)$USER->GetID(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>
     };
 
     var scopeAll = document.getElementById('scope-all');
@@ -374,6 +375,7 @@ $jsMessages = [
     var preparedPayload = null;
     var currentPresetProgress = {};
     var serverOfferCountsByPreset = {};
+    var currentJobId = readStoredJobId();
 
     cancelBtn.disabled = true;
     confirmBtn.disabled = true;
@@ -426,17 +428,27 @@ $jsMessages = [
 
         clearPolling();
 
-        if (requestInFlight) {
-            sendApiRequest(runtimeSessid, { action: 'cancel', sessid: runtimeSessid }, function() {
+        if (requestInFlight && currentJobId) {
+            sendApiRequest(runtimeSessid, { action: 'cancel', jobId: currentJobId, sessid: runtimeSessid }, function(err, response, data) {
+                if (err || !response || response.status < 200 || response.status >= 300 || !data || !data.success) {
+                    handleApiError(data, response ? response.status : 0);
+                    return;
+                }
                 appendFrontendLog('Задача закрыта пользователем.');
+                setCurrentJobId('');
                 resetUiState(true);
             });
             return;
         }
 
-        if (preparedPayload || analysisContainer.style.display !== 'none' || resultsContainer.style.display !== 'none') {
-            sendApiRequest(runtimeSessid, { action: 'finish', sessid: runtimeSessid }, function() {
+        if (currentJobId && (preparedPayload || analysisContainer.style.display !== 'none' || resultsContainer.style.display !== 'none')) {
+            sendApiRequest(runtimeSessid, { action: 'finish', jobId: currentJobId, sessid: runtimeSessid }, function(err, response, data) {
+                if (err || !response || response.status < 200 || response.status >= 300 || !data || !data.success) {
+                    handleApiError(data, response ? response.status : 0);
+                    return;
+                }
                 appendFrontendLog('Состояние задачи очищено.');
+                setCurrentJobId('');
                 resetUiState(true);
             });
             return;
@@ -446,11 +458,19 @@ $jsMessages = [
     });
 
     function resumeExistingJob() {
+        if (!currentJobId) {
+            return;
+        }
         var runtimeSessid = getRuntimeSessid();
-        sendApiRequest(runtimeSessid, { action: 'status', sessid: runtimeSessid }, function(err, response, data) {
+        sendApiRequest(runtimeSessid, { action: 'status', jobId: currentJobId, sessid: runtimeSessid }, function(err, response, data) {
             if (err || !response || response.status !== 200 || !data || !data.success) {
+                if (data && (data.errorCode === 'JOB_NOT_FOUND' || data.errorCode === 'JOB_EXPIRED' || data.errorCode === 'JOB_ID_MISMATCH')) {
+                    setCurrentJobId('');
+                }
                 return;
             }
+
+            setCurrentJobId(data.jobId || currentJobId);
 
             requestInFlight = !data.finished;
             startBtn.disabled = requestInFlight;
@@ -559,6 +579,7 @@ $jsMessages = [
                 return;
             }
 
+            setCurrentJobId(data.jobId || '');
             appendFrontendLog('Задача создана. Начинаем обработку...');
             renderServerLogs(data.logs || []);
             updateUiWithData(data);
@@ -619,6 +640,27 @@ $jsMessages = [
             return window.BX.bitrix_sessid();
         }
         return config.sessid;
+    }
+
+    function readStoredJobId() {
+        try {
+            return String(window.localStorage.getItem(config.jobStorageKey) || '');
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function setCurrentJobId(jobId) {
+        currentJobId = String(jobId || '');
+        try {
+            if (currentJobId) {
+                window.localStorage.setItem(config.jobStorageKey, currentJobId);
+            } else {
+                window.localStorage.removeItem(config.jobStorageKey);
+            }
+        } catch (error) {
+            // The current page can continue even when persistent browser storage is disabled.
+        }
     }
 
     function renderAnalysis(analysisRows) {
@@ -773,6 +815,7 @@ $jsMessages = [
         pollingTimer = setTimeout(function() {
             sendApiRequest(sessid, {
                 action: 'step',
+                jobId: currentJobId,
                 sessid: sessid
             }, function(err, response, data) {
                 if (err) {
@@ -915,12 +958,27 @@ $jsMessages = [
         }
 
         if (data && data.errorCode === 'JOB_EXPIRED') {
+            setCurrentJobId('');
             alert('Задача пересчёта истекла по времени. Запустите пересчёт заново.');
             return;
         }
 
         if (data && data.errorCode === 'JOB_NOT_FOUND') {
+            setCurrentJobId('');
             alert('Активная задача не найдена. Выполните анализ и запустите пересчёт заново.');
+            return;
+        }
+
+        if (data && data.errorCode === 'JOB_ID_MISMATCH') {
+            setCurrentJobId('');
+            alert('Активная задача была заменена в другой вкладке. Обновите страницу.');
+            return;
+        }
+
+        if (data && data.errorCode === 'JOB_ALREADY_ACTIVE' && data.meta && data.meta.jobId) {
+            setCurrentJobId(data.meta.jobId);
+            appendFrontendLog('Найдена ранее запущенная задача. Восстанавливаем её состояние...');
+            resumeExistingJob();
             return;
         }
 

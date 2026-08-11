@@ -15,25 +15,39 @@ use Prospektweb\Calc\Install\SchemaRepairService;
 
 global $USER;
 
+header('Content-Type: application/json; charset=UTF-8');
+header('Cache-Control: no-store, private');
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    header('Allow: POST');
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'errorCode' => 'METHOD_NOT_ALLOWED',
+        'error' => 'Only POST is allowed',
+    ], JSON_UNESCAPED_UNICODE);
+    die();
+}
+
 // Проверка прав доступа
 if (!check_bitrix_sessid() || !$USER->IsAdmin()) {
-    header('Content-Type: application/json; charset=UTF-8');
     http_response_code(403);
-    echo json_encode(['error' => 'Access denied'], JSON_UNESCAPED_UNICODE);
+    echo json_encode([
+        'success' => false,
+        'errorCode' => 'ACCESS_DENIED',
+        'error' => 'Access denied',
+    ], JSON_UNESCAPED_UNICODE);
     die();
 }
 
 // Подключение модуля
 if (!Loader::includeModule('prospektweb.calc')) {
-    header('Content-Type: application/json; charset=UTF-8');
     http_response_code(500);
     echo json_encode(['error' => 'Module prospektweb.calc not loaded'], JSON_UNESCAPED_UNICODE);
     die();
 }
 
 $action = (string)($_REQUEST['action'] ?? 'run');
-
-header('Content-Type: application/json; charset=UTF-8');
 
 try {
     switch ($action) {

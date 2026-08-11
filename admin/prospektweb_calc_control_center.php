@@ -9,6 +9,7 @@
 require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php';
 
 use Bitrix\Main\Loader;
+use Bitrix\Main\ModuleManager;
 use Prospektweb\Calc\Config\ConfigManager;
 
 global $USER, $APPLICATION;
@@ -41,6 +42,17 @@ $diagnosticsUrl = '/bitrix/admin/settings.php?' . http_build_query([
     'mid_menu' => 1,
     'tabControl_active_tab' => 'edit5',
 ]);
+$moduleVersion = trim((string)ModuleManager::getVersion('prospektweb.calc')) ?: 'unknown';
+$controlCenterEndpoints = [
+    'settings' => '/bitrix/tools/prospektweb.calc/control_center_settings.php',
+    'diagnostics' => '/bitrix/tools/prospektweb.calc/diagnostic.php',
+    'batch' => '/bitrix/tools/prospektweb.calc/batch_recalculate.php',
+];
+$controlCenterCapabilities = [
+    'settings' => true,
+    'diagnostics' => true,
+    'batch' => true,
+];
 
 $resolveIblockType = static function (int $iblockId, string $fallback): string {
     if ($iblockId <= 0 || !Loader::includeModule('iblock')) {
@@ -159,6 +171,12 @@ body {
     var iframe = document.getElementById('prospektweb-control-center-iframe');
     var routeMap = <?= json_encode($routeMap, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     var allowedAdminPaths = <?= json_encode($allowedAdminPaths, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+    var controlCenterInitPayload = <?= json_encode([
+        'sessid' => bitrix_sessid(),
+        'endpoints' => $controlCenterEndpoints,
+        'moduleVersion' => $moduleVersion,
+        'capabilities' => $controlCenterCapabilities,
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
 
     function resizeControlCenter() {
         if (!container) {
@@ -182,8 +200,27 @@ body {
         if (!message || typeof message !== 'object'
             || message.protocol !== 'pwrt-v1'
             || message.source !== 'prospektweb.calc'
-            || message.target !== 'bitrix'
-            || message.type !== 'OPEN_ADMIN_URL') {
+            || message.target !== 'bitrix') {
+            return;
+        }
+
+        if (message.type === 'READY') {
+            if (!message.payload || message.payload.mode !== 'control-center') {
+                return;
+            }
+
+            iframe.contentWindow.postMessage({
+                protocol: 'pwrt-v1',
+                source: 'bitrix',
+                target: 'prospektweb.calc',
+                type: 'CONTROL_CENTER_INIT',
+                payload: controlCenterInitPayload,
+                timestamp: Date.now()
+            }, window.location.origin);
+            return;
+        }
+
+        if (message.type !== 'OPEN_ADMIN_URL') {
             return;
         }
 

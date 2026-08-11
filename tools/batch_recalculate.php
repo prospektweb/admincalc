@@ -19,11 +19,12 @@ global $USER;
 
 $APPLICATION->RestartBuffer();
 header('Content-Type: application/json; charset=UTF-8');
+header('Cache-Control: no-store, private');
 
 function respondJson(int $statusCode, array $payload): void
 {
     http_response_code($statusCode);
-    echo json_encode($payload);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     die();
 }
 
@@ -126,19 +127,72 @@ function validateCommonParams(array $requestData): array
     return [$presetIds, $onlyChanged, $calcServerUrl, $timeout];
 }
 
+function getJobStorageDirectory(): string
+{
+    $documentRoot = (string)($_SERVER['DOCUMENT_ROOT'] ?? '');
+    $siteNamespace = substr(hash('sha256', $documentRoot . '|prospektweb.calc|batch-recalculate'), 0, 24);
+    $private = rtrim(sys_get_temp_dir(), '/\\')
+        . DIRECTORY_SEPARATOR
+        . 'prospektweb-calc-'
+        . $siteNamespace;
+    if (!is_dir($private) && !@mkdir($private, 0700, true) && !is_dir($private)) {
+        respondJson(500, [
+            'success' => false,
+            'errorCode' => 'JOB_STORAGE_ERROR',
+            'error' => 'Unable to create private recalculate job storage',
+        ]);
+    }
+    @chmod($private, 0700);
+
+    return $private;
+}
+
 function getJobFilePath(int $userId): string
 {
-    $base = $_SERVER['DOCUMENT_ROOT'] . '/upload/prospektweb.calc';
-    if (!is_dir($base)) {
-        @mkdir($base, 0775, true);
-    }
+    return getJobStorageDirectory() . '/batch_recalc_job_user_' . $userId . '.json';
+}
 
-    return $base . '/batch_recalc_job_user_' . $userId . '.json';
+function getLegacyJobFilePaths(int $userId): array
+{
+    $base = $_SERVER['DOCUMENT_ROOT'] . '/upload/prospektweb.calc';
+    return [
+        $base . '/batch_recalc_job_user_' . $userId . '.json',
+        $base . '/private/batch_recalc_job_user_' . $userId . '.json',
+    ];
+}
+
+/** @return resource */
+function acquireJobLock(int $userId)
+{
+    $handle = @fopen(getJobStorageDirectory() . '/batch_recalc_job_user_' . $userId . '.lock', 'c+');
+    if (!is_resource($handle) || !flock($handle, LOCK_EX)) {
+        respondJson(503, [
+            'success' => false,
+            'errorCode' => 'JOB_LOCK_UNAVAILABLE',
+            'error' => 'Unable to lock recalculate job',
+        ]);
+    }
+    @chmod(getJobStorageDirectory() . '/batch_recalc_job_user_' . $userId . '.lock', 0600);
+
+    return $handle;
 }
 
 function loadJobState(int $userId): ?array
 {
     $path = getJobFilePath($userId);
+    foreach (getLegacyJobFilePaths($userId) as $legacyPath) {
+        if (!is_file($path) && is_file($legacyPath)) {
+            $legacyContent = file_get_contents($legacyPath);
+            $legacyState = is_string($legacyContent) ? json_decode($legacyContent, true) : null;
+            if (is_array($legacyState)) {
+                $legacyState['jobId'] = (string)($legacyState['jobId'] ?? bin2hex(random_bytes(16)));
+                saveJobState($userId, $legacyState);
+            }
+        }
+        if (is_file($legacyPath)) {
+            @unlink($legacyPath);
+        }
+    }
     if (!is_file($path)) {
         return null;
     }
@@ -154,7 +208,26 @@ function loadJobState(int $userId): ?array
 
 function saveJobState(int $userId, array $state): void
 {
-    file_put_contents(getJobFilePath($userId), json_encode($state, JSON_UNESCAPED_UNICODE));
+    $path = getJobFilePath($userId);
+    $json = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json)) {
+        respondJson(500, [
+            'success' => false,
+            'errorCode' => 'JOB_SERIALIZATION_ERROR',
+            'error' => 'Unable to serialize recalculate job',
+        ]);
+    }
+
+    $temporary = $path . '.tmp.' . bin2hex(random_bytes(8));
+    if (file_put_contents($temporary, $json, LOCK_EX) === false || !@rename($temporary, $path)) {
+        @unlink($temporary);
+        respondJson(500, [
+            'success' => false,
+            'errorCode' => 'JOB_STORAGE_ERROR',
+            'error' => 'Unable to persist recalculate job',
+        ]);
+    }
+    @chmod($path, 0600);
 }
 
 function deleteJobState(int $userId): void
@@ -162,6 +235,11 @@ function deleteJobState(int $userId): void
     $path = getJobFilePath($userId);
     if (is_file($path)) {
         @unlink($path);
+    }
+    foreach (getLegacyJobFilePaths($userId) as $legacyPath) {
+        if (is_file($legacyPath)) {
+            @unlink($legacyPath);
+        }
     }
 }
 
@@ -180,8 +258,50 @@ function expireJobAndRespond(int $userId): void
     ]);
 }
 
+function loadRequestedJobOrRespond(int $userId, array $requestData, int $jobTtlSec): array
+{
+    $requestedJobId = trim((string)($requestData['jobId'] ?? ''));
+    if ($requestedJobId === '') {
+        respondJson(400, [
+            'success' => false,
+            'errorCode' => 'MISSING_JOB_ID',
+            'error' => 'jobId is required',
+        ]);
+    }
+
+    $job = loadJobState($userId);
+    if (!is_array($job)) {
+        respondJson(404, [
+            'success' => false,
+            'errorCode' => 'JOB_NOT_FOUND',
+            'error' => 'No active recalculate job',
+        ]);
+    }
+    if (isJobExpired($job, $jobTtlSec)) {
+        expireJobAndRespond($userId);
+    }
+    if (!hash_equals((string)($job['jobId'] ?? ''), $requestedJobId)) {
+        respondJson(409, [
+            'success' => false,
+            'errorCode' => 'JOB_ID_MISMATCH',
+            'error' => 'The requested job is no longer active',
+        ]);
+    }
+
+    return $job;
+}
+
 $requestBody = file_get_contents('php://input');
 $requestData = json_decode((string)$requestBody, true);
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    header('Allow: POST');
+    respondJson(405, [
+        'success' => false,
+        'errorCode' => 'METHOD_NOT_ALLOWED',
+        'error' => 'Only POST is allowed',
+    ]);
+}
 
 if ($requestData === null && !empty($requestBody)) {
     respondJson(400, [
@@ -240,24 +360,30 @@ $maxBatchSize = (int)$limits['maxBatchSize'];
 $jobTtlSec = (int)$limits['jobTtlSec'];
 $action = (string)($requestData['action'] ?? 'run');
 
+$jobLock = null;
+if (in_array($action, ['start', 'status', 'step', 'cancel', 'finish'], true)) {
+    $jobLock = acquireJobLock($userId);
+    register_shutdown_function(static function () use ($jobLock): void {
+        if (is_resource($jobLock)) {
+            flock($jobLock, LOCK_UN);
+            fclose($jobLock);
+        }
+    });
+}
+
 if ($action === 'cancel' || $action === 'finish') {
+    $job = loadRequestedJobOrRespond($userId, $requestData, $jobTtlSec);
+    $jobId = (string)$job['jobId'];
     deleteJobState($userId);
-    respondJson(200, ['success' => true, 'message' => 'Cancelled']);
+    respondJson(200, [
+        'success' => true,
+        'jobId' => $jobId,
+        'message' => 'Cancelled',
+    ]);
 }
 
 if ($action === 'status') {
-    $job = loadJobState($userId);
-    if (!is_array($job)) {
-        respondJson(404, [
-            'success' => false,
-            'errorCode' => 'JOB_NOT_FOUND',
-            'error' => 'No active recalculate job',
-        ]);
-    }
-
-    if (isJobExpired($job, $jobTtlSec)) {
-        expireJobAndRespond($userId);
-    }
+    $job = loadRequestedJobOrRespond($userId, $requestData, $jobTtlSec);
 
     $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
     $job['finished'] = empty($job['queue']);
@@ -265,6 +391,7 @@ if ($action === 'status') {
 
     respondJson(200, [
         'success' => true,
+        'jobId' => (string)$job['jobId'],
         'summary' => $job['summary'],
         'details' => array_values($job['details']),
         'errors' => $job['errors'],
@@ -299,6 +426,26 @@ if ($action === 'analyze') {
 if ($action === 'start') {
     [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
     $productIdsByPreset = validateProductIdsByPreset($requestData);
+
+    $existingJob = loadJobState($userId);
+    if (is_array($existingJob) && isJobExpired($existingJob, $jobTtlSec)) {
+        deleteJobState($userId);
+        $existingJob = null;
+    }
+    if (is_array($existingJob) && empty($existingJob['finished']) && empty($requestData['replace'])) {
+        respondJson(409, [
+            'success' => false,
+            'errorCode' => 'JOB_ALREADY_ACTIVE',
+            'error' => 'A recalculate job is already active',
+            'meta' => [
+                'jobId' => (string)($existingJob['jobId'] ?? ''),
+                'summary' => $existingJob['summary'] ?? [],
+            ],
+        ]);
+    }
+    if (is_array($existingJob)) {
+        deleteJobState($userId);
+    }
 
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
     $analysis = $service->getPresetAnalysis($presetIds);
@@ -344,6 +491,7 @@ if ($action === 'start') {
     }
 
     $jobState = [
+        'jobId' => bin2hex(random_bytes(16)),
         'params' => [
             'onlyChanged' => $onlyChanged,
             'calcServerUrl' => $calcServerUrl,
@@ -373,6 +521,7 @@ if ($action === 'start') {
 
     respondJson(200, [
         'success' => true,
+        'jobId' => (string)$jobState['jobId'],
         'summary' => $jobState['summary'],
         'details' => array_values($jobState['details']),
         'errors' => $jobState['errors'],
@@ -382,18 +531,7 @@ if ($action === 'start') {
 }
 
 if ($action === 'step') {
-    $job = loadJobState($userId);
-    if (!is_array($job)) {
-        respondJson(404, [
-            'success' => false,
-            'errorCode' => 'JOB_NOT_FOUND',
-            'error' => 'No active recalculate job',
-        ]);
-    }
-
-    if (isJobExpired($job, $jobTtlSec)) {
-        expireJobAndRespond($userId);
-    }
+    $job = loadRequestedJobOrRespond($userId, $requestData, $jobTtlSec);
 
     if (empty($job['queue'])) {
         $job['finished'] = true;
@@ -402,6 +540,7 @@ if ($action === 'step') {
 
         respondJson(200, [
             'success' => true,
+            'jobId' => (string)$job['jobId'],
             'summary' => $job['summary'],
             'details' => array_values($job['details']),
             'errors' => $job['errors'],
@@ -496,6 +635,7 @@ if ($action === 'step') {
 
     respondJson(200, [
         'success' => true,
+        'jobId' => (string)$job['jobId'],
         'summary' => $job['summary'],
         'details' => array_values($job['details']),
         'errors' => $job['errors'],

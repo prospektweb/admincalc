@@ -38,9 +38,29 @@ $assert(strpos($page, "event.origin !== window.location.origin") !== false, 'Mes
 $assert(strpos($page, "message.protocol !== 'pwrt-v1'") !== false, 'Messages must use the versioned bridge protocol');
 $assert(strpos($page, "message.source !== 'prospektweb.calc'") !== false, 'Messages must identify the calculator SPA');
 $assert(strpos($page, "message.target !== 'bitrix'") !== false, 'Messages must target the Bitrix host');
-$assert(strpos($page, "message.type !== 'OPEN_ADMIN_URL'") !== false, 'Only the agreed navigation message is handled');
+$assert(strpos($page, "message.type === 'READY'") !== false, 'The host recognizes the control-center readiness message');
+$assert(strpos($page, "message.payload.mode !== 'control-center'") !== false, 'Legacy editor readiness messages cannot receive the control-center bootstrap');
+$assert(strpos($page, "type: 'CONTROL_CENTER_INIT'") !== false, 'The trusted iframe receives the versioned control-center bootstrap');
+$assert(strpos($page, "source: 'bitrix'") !== false, 'The bootstrap identifies the Bitrix host as its source');
+$assert(strpos($page, "target: 'prospektweb.calc'") !== false, 'The bootstrap targets only the calculator SPA');
+$assert(strpos($page, 'iframe.contentWindow.postMessage({') !== false, 'The bootstrap is sent only to the owned iframe window');
+$assert(strpos($page, '}, window.location.origin)') !== false, 'The bootstrap is sent only to the current origin');
+$assert(strpos($page, "'sessid' => bitrix_sessid()") !== false, 'The bootstrap carries the authenticated Bitrix session token');
+$assert(strpos($page, "'settings' => '/bitrix/tools/prospektweb.calc/control_center_settings.php'") !== false, 'The bootstrap exposes the native settings endpoint');
+$assert(strpos($page, "'diagnostics' => '/bitrix/tools/prospektweb.calc/diagnostic.php'") !== false, 'The bootstrap exposes the native diagnostics endpoint');
+$assert(strpos($page, "'batch' => '/bitrix/tools/prospektweb.calc/batch_recalculate.php'") !== false, 'The bootstrap exposes the native batch endpoint');
+$assert(strpos($page, "'moduleVersion' => \$moduleVersion") !== false, 'The bootstrap exposes the installed module version');
+$assert(strpos($page, "'capabilities' => \$controlCenterCapabilities") !== false, 'The bootstrap exposes explicit feature capabilities');
+$assert(strpos($page, "'settings' => true") !== false && strpos($page, "'diagnostics' => true") !== false && strpos($page, "'batch' => true") !== false, 'All embedded Phase 2 capabilities are advertised');
+$assert(strpos($page, "message.type !== 'OPEN_ADMIN_URL'") !== false, 'Only the agreed navigation message remains as a fallback after bootstrap handling');
 $assert(strpos($page, "message.payload.route") !== false, 'The bridge consumes a route key');
 $assert(strpos($page, 'message.payload.url') === false, 'The bridge must never consume a raw iframe URL');
+$iframeUrlSourceStart = strpos($page, '$iframeUrl =');
+$iframeUrlSourceEnd = $iframeUrlSourceStart === false ? false : strpos($page, 'require $_SERVER', $iframeUrlSourceStart);
+$iframeUrlSource = ($iframeUrlSourceStart === false || $iframeUrlSourceEnd === false)
+    ? ''
+    : substr($page, $iframeUrlSourceStart, $iframeUrlSourceEnd - $iframeUrlSourceStart);
+$assert($iframeUrlSource !== '' && strpos($iframeUrlSource, 'sessid') === false, 'The iframe URL must never expose the Bitrix session token');
 $assert(strpos($page, 'Object.prototype.hasOwnProperty.call(routeMap, route)') !== false, 'Route keys are checked against the server map');
 $assert(strpos($page, 'new URL(routeMap[route], window.location.origin)') !== false, 'Server routes are resolved against the current origin');
 $assert(strpos($page, 'targetUrl.origin !== window.location.origin') !== false, 'Resolved routes receive a same-origin check');
@@ -70,7 +90,7 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($contextualGenerator, 'window.ProspektwebProductGenerator = ProductGenerator') !== false, 'The contextual offer generator remains available');
-$assert(strpos($appIndex, 'edc0836cd764') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, 'a3149ba3b0d8') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'Пресеты и калькуляции') !== false, 'The published bundle contains the control-center workspace');
 $assert(strpos($appBundle, 'Витринные калькуляторы') !== false, 'The published bundle exposes storefront calculator navigation');

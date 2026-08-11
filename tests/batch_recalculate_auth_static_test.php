@@ -1,7 +1,9 @@
 <?php
 
 $source = file_get_contents(__DIR__ . '/../lib/Services/BatchRecalculateService.php');
-if (!is_string($source)) {
+$endpoint = file_get_contents(__DIR__ . '/../tools/batch_recalculate.php');
+$page = file_get_contents(__DIR__ . '/../admin/prospektweb_calc_recalculate.php');
+if (!is_string($source) || !is_string($endpoint) || !is_string($page)) {
     throw new RuntimeException('BatchRecalculateService source is unavailable');
 }
 
@@ -15,6 +17,41 @@ $checks = [
 foreach ($checks as $needle => $message) {
     if (strpos($source . file_get_contents(__DIR__ . '/../lib/Services/CalcServerRequestSigner.php'), $needle) === false) {
         throw new RuntimeException($message);
+    }
+}
+
+$endpointChecks = [
+    "header('Cache-Control: no-store, private')" => 'Batch responses must not be cached',
+    "REQUEST_METHOD'] ?? '') !== 'POST'" => 'Batch endpoint must accept POST only',
+    'check_bitrix_sessid()' => 'Batch endpoint must enforce CSRF protection',
+    '$USER->IsAdmin()' => 'Batch endpoint must require an administrator',
+    'sys_get_temp_dir()' => 'Batch state must live outside the web document root',
+    "hash('sha256', \$documentRoot" => 'Batch storage must be namespaced per site',
+    '@mkdir($private, 0700, true)' => 'Batch storage directory must be owner-only',
+    '@chmod($path, 0600)' => 'Batch state files must be owner-only',
+    'getLegacyJobFilePaths($userId)' => 'Legacy public job files must be migrated and removed',
+    'LOCK_EX' => 'Batch job writes must be locked',
+    'flock($handle, LOCK_EX)' => 'Batch requests must serialize job mutations',
+    "'jobId' => bin2hex(random_bytes(16))" => 'Each batch job must have an unguessable identifier',
+    "'MISSING_JOB_ID'" => 'Job actions must reject a missing job identifier',
+    "'JOB_ID_MISMATCH'" => 'Job actions must reject a stale identifier',
+    "'JOB_ALREADY_ACTIVE'" => 'Starting over an active job must require an explicit replacement',
+    "empty(\$requestData['replace'])" => 'Active job replacement must be explicit',
+];
+foreach ($endpointChecks as $needle => $message) {
+    if (strpos($endpoint, $needle) === false) {
+        throw new RuntimeException($message);
+    }
+}
+
+foreach ([
+    "jobStorageKey:",
+    "jobId: currentJobId",
+    "setCurrentJobId(data.jobId || '')",
+    "data.errorCode === 'JOB_ALREADY_ACTIVE'",
+] as $needle) {
+    if (strpos($page, $needle) === false) {
+        throw new RuntimeException('Legacy batch UI must preserve hardened job lifecycle: ' . $needle);
     }
 }
 

@@ -19,10 +19,10 @@ if (!Loader::includeModule($module_id)) {
     return;
 }
 
-use Prospektweb\Calc\Config\SettingsManager;
 use Prospektweb\Calc\Config\ConfigManager;
 use Prospektweb\Calc\Install\SnapshotManager;
 use Prospektweb\Calc\Services\AsproAiPatchManager;
+use Prospektweb\Calc\Services\ControlCenterSettingsService;
 
 global $USER, $APPLICATION;
 
@@ -32,8 +32,8 @@ if (!$USER->IsAdmin()) {
 }
 
 
-$settingsManager = new SettingsManager();
 $configManager = new ConfigManager();
+$controlCenterSettingsService = new ControlCenterSettingsService();
 
 /**
  * Возвращает DataClass для HL истории расчётов.
@@ -331,8 +331,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_PO
             throw new \RuntimeException('Base URL должен быть корректным HTTPS-адресом без логина, пароля, query и fragment.');
         }
 
-        Option::set($module_id, 'ASPRO_AI_TIMEWEB_ENABLED', $timewebEnabled);
-        Option::set($module_id, 'ASPRO_AI_TIMEWEB_BASE_URL', rtrim($timewebBaseUrl, '/'));
+        $controlCenterSettingsService->saveAsproIntegration($timewebEnabled === 'Y', $timewebBaseUrl);
 
         $patchManager = new AsproAiPatchManager();
         if ($patchAction === 'apply') {
@@ -359,96 +358,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && isset($_PO
 
 // Обработка сохранения
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
-    $settingsManager->setLoggingEnabled(($_POST['LOGGING_ENABLED'] ?? 'N') === 'Y');
-    
-    // Сохраняем URL calc-server
-    Option::set($module_id, 'CALC_SERVER_URL', (string)($_POST['CALC_SERVER_URL'] ?? 'http://localhost:3100'));
-    Option::set($module_id, 'ASPRO_AI_TIMEWEB_ENABLED', (($_POST['ASPRO_AI_TIMEWEB_ENABLED'] ?? 'N') === 'Y') ? 'Y' : 'N');
-
-    $timewebBaseUrl = trim((string)($_POST['ASPRO_AI_TIMEWEB_BASE_URL'] ?? 'https://api.timeweb.ai/v1'));
-    $parsedBaseUrl = parse_url($timewebBaseUrl);
-    if (
-        is_array($parsedBaseUrl)
-        && strtolower((string)($parsedBaseUrl['scheme'] ?? '')) === 'https'
-        && (string)($parsedBaseUrl['host'] ?? '') !== ''
-        && empty($parsedBaseUrl['user'])
-        && empty($parsedBaseUrl['pass'])
-        && empty($parsedBaseUrl['query'])
-        && empty($parsedBaseUrl['fragment'])
-    ) {
-        Option::set($module_id, 'ASPRO_AI_TIMEWEB_BASE_URL', rtrim($timewebBaseUrl, '/'));
+    try {
+        $controlCenterSettingsService->saveLegacyPost($_POST);
+    } catch (\InvalidArgumentException $exception) {
+        $_SESSION['PROSPEKTWEB_CALC_SETTINGS_ERROR'] = $exception->getMessage();
+        LocalRedirect($APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID . '&saveError=Y');
     }
-
-    // Сохраняем настройки истории расчётов
-    Option::set($module_id, 'SAVE_CALC_HISTORY', (($_POST['SAVE_CALC_HISTORY'] ?? 'N') === 'Y') ? 'Y' : 'N');
-    Option::set($module_id, 'CALC_HISTORY_LIMIT', max(1, min(100, (int)($_POST['CALC_HISTORY_LIMIT'] ?? 10))));
-
-    // Сохраняем настройки наценки
-    if (isset($_POST['DEFAULT_EXTRA_VALUE'])) {
-        $settingsManager->setDefaultExtraValue((int)$_POST['DEFAULT_EXTRA_VALUE']);
-    }
-    if (isset($_POST['DEFAULT_EXTRA_CURRENCY_VALUE'])) {
-        $settingsManager->setDefaultExtraCurrency((string)$_POST['DEFAULT_EXTRA_CURRENCY_VALUE']);
-    }
-
-    $markupSettings = [
-        'basePriceTypeId' => (int)($_POST['MARKUP_BASE_PRICE_TYPE_ID'] ?? 0),
-        'rates' => [],
-    ];
-
-    $postedRates = $_POST['MARKUP_RATE'] ?? [];
-    if (is_array($postedRates)) {
-        foreach ($postedRates as $priceTypeId => $rateValue) {
-            $typeId = (int)$priceTypeId;
-            if ($typeId <= 0) {
-                continue;
-            }
-
-            $markupSettings['rates'][$typeId] = (float)str_replace(',', '.', (string)$rateValue);
-        }
-    }
-
-    Option::set($module_id, 'MARKUP_SETTINGS', json_encode($markupSettings, JSON_UNESCAPED_UNICODE));
 
     LocalRedirect($APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID . '&saved=Y');
 }
 
-// Получаем список типов цен
+$controlCenterSettings = $controlCenterSettingsService->getSettings();
+
+// Получаем список типов цен из общего сервиса настроек
 $priceTypes = [];
-if (Loader::includeModule('catalog')) {
-    $priceTypeList = \CCatalogGroup::GetListArray();
-    foreach ($priceTypeList as $type) {
-        $priceTypes[(int)$type['ID']] = $type['NAME'] ?? ('ID ' . $type['ID']);
-    }
+foreach ((array)($controlCenterSettings['pricing']['priceTypes'] ?? []) as $type) {
+    $priceTypes[(int)$type['id']] = (string)$type['name'];
 }
 
-$markupSettingsRaw = Option::get($module_id, 'MARKUP_SETTINGS', '');
-$markupSettings = json_decode($markupSettingsRaw, true);
-if (!is_array($markupSettings)) {
-    $markupSettings = [];
-}
+$markupBasePriceTypeId = (int)($controlCenterSettings['pricing']['basePriceTypeId'] ?? 0);
+$markupRates = is_array($controlCenterSettings['pricing']['rates'] ?? null)
+    ? $controlCenterSettings['pricing']['rates']
+    : [];
 
-$markupBasePriceTypeId = (int)($markupSettings['basePriceTypeId'] ?? 0);
-$markupRates = is_array($markupSettings['rates'] ?? null) ? $markupSettings['rates'] : [];
-
-if ($markupBasePriceTypeId <= 0 && !empty($priceTypes)) {
-    $firstPriceTypeId = (int)array_key_first($priceTypes);
-    $markupBasePriceTypeId = $firstPriceTypeId > 0 ? $firstPriceTypeId : 0;
-}
-
-$asproAiPatchStatus = [
-    'state' => 'access_error',
-    'message' => 'Не удалось получить состояние патча.',
-    'canApply' => false,
-    'canRemove' => false,
-    'asproVersion' => '',
-    'patchVersion' => AsproAiPatchManager::PATCH_VERSION,
-];
-try {
-    $asproAiPatchStatus = (new AsproAiPatchManager())->getStatus();
-} catch (\Throwable $exception) {
-    $asproAiPatchStatus['message'] = $exception->getMessage();
-}
+$asproAiPatchStatus = (array)($controlCenterSettings['integration']['patchStatus'] ?? []);
 
 $APPLICATION->SetTitle(Loc::getMessage('PROSPEKTWEB_CALC_OPTIONS_TITLE'));
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';
@@ -458,6 +391,16 @@ if (($_GET['saved'] ?? '') === 'Y') {
     CAdminMessage::ShowMessage([
         'MESSAGE' => Loc::getMessage('PROSPEKTWEB_CALC_SETTINGS_SAVED'),
         'TYPE' => 'OK',
+    ]);
+}
+
+if (($_GET['saveError'] ?? '') === 'Y' && isset($_SESSION['PROSPEKTWEB_CALC_SETTINGS_ERROR'])) {
+    $settingsError = (string)$_SESSION['PROSPEKTWEB_CALC_SETTINGS_ERROR'];
+    unset($_SESSION['PROSPEKTWEB_CALC_SETTINGS_ERROR']);
+    CAdminMessage::ShowMessage([
+        'MESSAGE' => 'Не удалось сохранить настройки',
+        'DETAILS' => htmlspecialcharsbx($settingsError),
+        'TYPE' => 'ERROR',
     ]);
 }
 
@@ -561,7 +504,7 @@ $tabControl->Begin();
     <tr>
         <td width="40%"><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE') ?></td>
         <td width="60%">
-            <input type="number" name="DEFAULT_EXTRA_VALUE" value="<?= htmlspecialcharsbx($settingsManager->getDefaultExtraValue()) ?>" min="0" step="1" style="width: 100px;">
+            <input type="number" name="DEFAULT_EXTRA_VALUE" value="<?= htmlspecialcharsbx((string)$controlCenterSettings['calculation']['defaultExtraValue']) ?>" min="0" step="1" style="width: 100px;">
             <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_VALUE_HINT') ?></div>
         </td>
     </tr>
@@ -570,10 +513,10 @@ $tabControl->Begin();
         <td><?= Loc::getMessage('PROSPEKTWEB_CALC_DEFAULT_EXTRA_CURRENCY') ?></td>
         <td>
             <select name="DEFAULT_EXTRA_CURRENCY_VALUE">
-                <option value="RUB" <?= $settingsManager->getDefaultExtraCurrency() === 'RUB' ? 'selected' : '' ?>>
+                <option value="RUB" <?= $controlCenterSettings['calculation']['defaultExtraCurrency'] === 'RUB' ? 'selected' : '' ?>>
                     <?= Loc::getMessage('PROSPEKTWEB_CALC_CURRENCY_RUB') ?>
                 </option>
-                <option value="PRC" <?= $settingsManager->getDefaultExtraCurrency() === 'PRC' ? 'selected' : '' ?>>
+                <option value="PRC" <?= $controlCenterSettings['calculation']['defaultExtraCurrency'] === 'PRC' ? 'selected' : '' ?>>
                     <?= Loc::getMessage('PROSPEKTWEB_CALC_CURRENCY_PRC') ?>
                 </option>
             </select>
@@ -589,7 +532,7 @@ $tabControl->Begin();
         <td><?= Loc::getMessage('PROSPEKTWEB_CALC_SAVE_CALC_HISTORY') ?></td>
         <td>
             <label>
-                <input type="checkbox" id="SAVE_CALC_HISTORY" name="SAVE_CALC_HISTORY" value="Y" <?= Option::get($module_id, 'SAVE_CALC_HISTORY', 'N') === 'Y' ? 'checked' : '' ?>>
+                <input type="checkbox" id="SAVE_CALC_HISTORY" name="SAVE_CALC_HISTORY" value="Y" <?= !empty($controlCenterSettings['history']['enabled']) ? 'checked' : '' ?>>
                 <?= Loc::getMessage('PROSPEKTWEB_CALC_SAVE_CALC_HISTORY_LABEL') ?>
             </label>
         </td>
@@ -598,7 +541,7 @@ $tabControl->Begin();
     <tr id="pwcalc-history-limit-row">
         <td><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_LIMIT') ?></td>
         <td>
-            <input type="number" name="CALC_HISTORY_LIMIT" value="<?= (int)Option::get($module_id, 'CALC_HISTORY_LIMIT', 10) ?>" min="1" max="100" size="5" style="width: 80px;">
+            <input type="number" name="CALC_HISTORY_LIMIT" value="<?= (int)$controlCenterSettings['history']['limit'] ?>" min="1" max="100" size="5" style="width: 80px;">
             <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_HISTORY_LIMIT_HINT') ?></div>
         </td>
     </tr>
@@ -607,7 +550,7 @@ $tabControl->Begin();
         <td><?= Loc::getMessage('PROSPEKTWEB_CALC_LOGGING_ENABLED') ?></td>
         <td>
             <label>
-                <input type="checkbox" name="LOGGING_ENABLED" value="Y" <?= $settingsManager->isLoggingEnabled() ? 'checked' : '' ?>>
+                <input type="checkbox" name="LOGGING_ENABLED" value="Y" <?= !empty($controlCenterSettings['history']['loggingEnabled']) ? 'checked' : '' ?>>
                 <?= Loc::getMessage('PROSPEKTWEB_CALC_LOGGING_ENABLED_LABEL') ?>
             </label>
             <div class="pwcalc-field-hint"><?= Loc::getMessage('PROSPEKTWEB_CALC_LOGGING_ENABLED_HINT') ?></div>
@@ -756,7 +699,7 @@ $tabControl->Begin();
     <tr>
         <td><?= Loc::getMessage('PROSPEKTWEB_CALC_CALC_SERVER_URL') ?></td>
         <td>
-            <input type="text" name="CALC_SERVER_URL" value="<?= htmlspecialcharsbx(Option::get($module_id, 'CALC_SERVER_URL', 'http://localhost:3100')) ?>" size="50" style="width: 400px;">
+            <input type="text" name="CALC_SERVER_URL" value="<?= htmlspecialcharsbx((string)$controlCenterSettings['integration']['calcServerUrl']) ?>" size="50" style="width: 400px;">
             <br><span style="color: #777; font-size: 11px;"><?= Loc::getMessage('PROSPEKTWEB_CALC_CALC_SERVER_URL_HINT') ?></span>
         </td>
     </tr>
@@ -774,7 +717,7 @@ $tabControl->Begin();
                     type="checkbox"
                     name="ASPRO_AI_TIMEWEB_ENABLED"
                     value="Y"
-                    <?= Option::get($module_id, 'ASPRO_AI_TIMEWEB_ENABLED', 'N') === 'Y' ? 'checked' : '' ?>
+                    <?= !empty($controlCenterSettings['integration']['asproAiEnabled']) ? 'checked' : '' ?>
                 >
                 Направлять штатные текстовые запросы «Аспро: AI» через Timeweb
             </label>
@@ -787,7 +730,7 @@ $tabControl->Begin();
             <input
                 type="url"
                 name="ASPRO_AI_TIMEWEB_BASE_URL"
-                value="<?= htmlspecialcharsbx(Option::get($module_id, 'ASPRO_AI_TIMEWEB_BASE_URL', 'https://api.timeweb.ai/v1')) ?>"
+                value="<?= htmlspecialcharsbx((string)$controlCenterSettings['integration']['asproAiBaseUrl']) ?>"
                 size="60"
                 style="width: 460px;"
             >
