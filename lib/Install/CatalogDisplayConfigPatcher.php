@@ -119,7 +119,14 @@ final class CatalogDisplayConfigPatcher
         $this->storageRoot = $this->normalizePath(
             $storageRoot ?? ($this->documentRoot . '/bitrix/backup/prospektweb.calc/catalog-display-config')
         );
-        $this->phpBinary = $phpBinary ?? (defined('PHP_BINARY') ? (string)PHP_BINARY : 'php');
+        $resolvedPhpBinary = trim((string)($phpBinary
+            ?? (defined('PHP_BINARY') ? (string)PHP_BINARY : '')));
+        // PHP_BINARY may be an empty string under some FPM configurations.
+        // An escaped empty command is interpreted by /bin/sh as an invalid
+        // executable and makes the otherwise valid catalog patch fail after
+        // the database transaction has committed.  Let the shell resolve the
+        // CLI binary from PATH in that environment.
+        $this->phpBinary = $resolvedPhpBinary !== '' ? $resolvedPhpBinary : 'php';
     }
 
     /** @return string[] */

@@ -292,6 +292,21 @@ try {
         'Default-storage rollback must restore the exact original bytes.'
     );
 
+    $emptyBinaryStorage = $fixtureRoot . '/empty-binary-storage';
+    $emptyBinaryPatcher = new CatalogDisplayConfigPatcher($fixtureRoot, $emptyBinaryStorage, '');
+    $emptyBinaryAudit = $emptyBinaryPatcher->audit();
+    $emptyBinaryApplied = $emptyBinaryPatcher->apply($emptyBinaryAudit['currentSha256']);
+    catalogDisplayAssert(
+        $emptyBinaryApplied['changed'] === true
+            && hash_file('sha256', $target) === $fixturePlan['patchedSha256'],
+        'An empty PHP_BINARY value must fall back to the CLI binary available on PATH.'
+    );
+    $emptyBinaryPatcher->rollback($fixturePlan['patchedSha256']);
+    catalogDisplayAssert(
+        file_get_contents($target) === $fixtureSource,
+        'Empty-binary fallback rollback must restore the exact original bytes.'
+    );
+
     echo "Catalog display config patcher tests passed.\n";
 } finally {
     catalogDisplayRemoveFixture($fixtureRoot);
