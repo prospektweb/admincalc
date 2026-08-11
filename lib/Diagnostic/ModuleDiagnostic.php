@@ -55,6 +55,7 @@ class ModuleDiagnostic
         'lib/Config/ConfigManager.php',
         'lib/Config/SettingsManager.php',
         'lib/Services/ControlCenterSettingsService.php',
+        'lib/Services/ModuleCapabilityRegistryService.php',
         'lib/Calculator/InitPayloadService.php',
         'lib/Calculator/SaveHandler.php',
         'lib/Calculator/ElementDataService.php',
@@ -66,6 +67,7 @@ class ModuleDiagnostic
         'tools/save_result.php',
         'tools/batch_recalculate.php',
         'tools/control_center_settings.php',
+        'tools/control_center_modules.php',
         'tools/product_generator.php',
         'install/assets/js/calculator.js',
         'install/assets/js/integration.js',
@@ -252,6 +254,7 @@ class ModuleDiagnostic
             'save_result.php',
             'batch_recalculate.php',
             'control_center_settings.php',
+            'control_center_modules.php',
             'product_generator.php',
         ];
 

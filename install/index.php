@@ -573,8 +573,13 @@ class prospektweb_calc extends CModule
         }
         if (!is_dir($toolsDir)) {
             $result['warnings'][] = 'Директория Tools не найдена';
-        } elseif (!file_exists($toolsDir . '/control_center_settings.php')) {
-            $result['warnings'][] = 'API настроек центра управления не найден';
+        } else {
+            if (!file_exists($toolsDir . '/control_center_settings.php')) {
+                $result['warnings'][] = 'API настроек центра управления не найден';
+            }
+            if (!file_exists($toolsDir . '/control_center_modules.php')) {
+                $result['warnings'][] = 'API возможностей центра управления не найден';
+            }
         }
         if (!is_dir($appsDir)) {
             $result['warnings'][] = 'Директория Apps не найдена';

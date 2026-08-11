@@ -81,6 +81,34 @@ namespace Prospektweb\Calc\Services {
             return ['transport' => 'ok', 'settings' => $settings, 'revision' => $revision];
         }
     }
+
+    class ModuleCapabilityRegistryService
+    {
+        public function getCatalog(): array
+        {
+            return [
+                'contract' => 'prospektweb.control-plane/catalog/v1',
+                'revision' => str_repeat('a', 64),
+                'summary' => [],
+                'modules' => [],
+                'transport' => 'ok',
+            ];
+        }
+
+        public function setCapability(string $capabilityId, bool $enabled, string $revision, int $userId): array
+        {
+            return [
+                'contract' => 'prospektweb.control-plane/catalog/v1',
+                'revision' => $revision,
+                'summary' => [],
+                'modules' => [],
+                'transport' => 'ok',
+                'capabilityId' => $capabilityId,
+                'enabled' => $enabled,
+                'userId' => $userId,
+            ];
+        }
+    }
 }
 
 namespace {
@@ -129,6 +157,7 @@ PHP;
 
     foreach ([
         'settings.php' => $root . '/tools/control_center_settings.php',
+        'modules.php' => $root . '/tools/control_center_modules.php',
         'batch.php' => $root . '/tools/batch_recalculate.php',
     ] as $wrapperName => $endpointPath) {
         $wrapper = '<?php require ' . var_export($endpointPath, true) . ';';
@@ -238,6 +267,38 @@ PHP;
         'settings' => '[]',
     ]));
     $assert($settingsInvalidFlat['status'] === 400 && ($settingsInvalidFlat['body']['errorCode'] ?? '') === 'INVALID_JSON', 'Flat settings form must reject non-object settings JSON');
+
+    $modulesForm = $post('modules.php', 'application/x-www-form-urlencoded', $form([
+        'sessid' => 'valid',
+        'payload' => json_encode(['action' => 'get'], JSON_UNESCAPED_SLASHES),
+    ]));
+    $assert($modulesForm['status'] === 200 && ($modulesForm['body']['data']['transport'] ?? '') === 'ok', 'Modules form payload must pass prolog and decode');
+
+    $modulesJson = $post('modules.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'get',
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($modulesJson['status'] === 200 && ($modulesJson['body']['data']['transport'] ?? '') === 'ok', 'Modules raw JSON must remain compatible before prolog');
+
+    $modulesSet = $post('modules.php', 'application/x-www-form-urlencoded', $form([
+        'sessid' => 'valid',
+        'payload' => json_encode([
+            'action' => 'set',
+            'revision' => str_repeat('a', 64),
+            'capabilityId' => 'storefront.property_descriptions',
+            'enabled' => false,
+        ], JSON_UNESCAPED_SLASHES),
+    ]));
+    $assert($modulesSet['status'] === 200
+        && ($modulesSet['body']['data']['capabilityId'] ?? '') === 'storefront.property_descriptions'
+        && ($modulesSet['body']['data']['enabled'] ?? true) === false,
+        'Modules set payload must preserve boolean state and synchronized field names');
+
+    $modulesInvalid = $post('modules.php', 'application/x-www-form-urlencoded', $form([
+        'sessid' => 'valid',
+        'payload' => '[]',
+    ]));
+    $assert($modulesInvalid['status'] === 400 && ($modulesInvalid['body']['errorCode'] ?? '') === 'INVALID_JSON', 'Modules form payload must reject non-object JSON');
 
     $batchForm = $post('batch.php', 'application/x-www-form-urlencoded', $form([
         'sessid' => 'valid',

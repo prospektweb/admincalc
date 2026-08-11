@@ -49,9 +49,11 @@ $assert(strpos($page, "'sessid' => bitrix_sessid()") !== false, 'The bootstrap c
 $assert(strpos($page, "'settings' => '/bitrix/tools/prospektweb.calc/control_center_settings.php'") !== false, 'The bootstrap exposes the native settings endpoint');
 $assert(strpos($page, "'diagnostics' => '/bitrix/tools/prospektweb.calc/diagnostic.php'") !== false, 'The bootstrap exposes the native diagnostics endpoint');
 $assert(strpos($page, "'batch' => '/bitrix/tools/prospektweb.calc/batch_recalculate.php'") !== false, 'The bootstrap exposes the native batch endpoint');
+$assert(strpos($page, "'modules' => '/bitrix/tools/prospektweb.calc/control_center_modules.php'") !== false, 'The bootstrap exposes the native modules endpoint');
 $assert(strpos($page, "'moduleVersion' => \$moduleVersion") !== false, 'The bootstrap exposes the installed module version');
 $assert(strpos($page, "'capabilities' => \$controlCenterCapabilities") !== false, 'The bootstrap exposes explicit feature capabilities');
 $assert(strpos($page, "'settings' => true") !== false && strpos($page, "'diagnostics' => true") !== false && strpos($page, "'batch' => true") !== false, 'All embedded Phase 2 capabilities are advertised');
+$assert(strpos($page, "'modules' => true") !== false, 'The embedded Phase 3A module catalog is advertised');
 $assert(strpos($page, "message.type !== 'OPEN_ADMIN_URL'") !== false, 'Only the agreed navigation message remains as a fallback after bootstrap handling');
 $assert(strpos($page, "message.payload.route") !== false, 'The bridge consumes a route key');
 $assert(strpos($page, 'message.payload.url') === false, 'The bridge must never consume a raw iframe URL');
@@ -90,7 +92,7 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($contextualGenerator, 'window.ProspektwebProductGenerator = ProductGenerator') !== false, 'The contextual offer generator remains available');
-$assert(strpos($appIndex, '2b0629860244') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, '49b40b6042ad') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'Пресеты и калькуляции') !== false, 'The published bundle contains the control-center workspace');
 $assert(strpos($appBundle, 'Витринные калькуляторы') !== false, 'The published bundle exposes storefront calculator navigation');

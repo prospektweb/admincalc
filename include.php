@@ -32,6 +32,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\SaveAllService' => 'lib/Services/SaveAllService.php',
     'Prospektweb\\Calc\\Services\\BatchRecalculateService' => 'lib/Services/BatchRecalculateService.php',
     'Prospektweb\\Calc\\Services\\ControlCenterSettingsService' => 'lib/Services/ControlCenterSettingsService.php',
+    'Prospektweb\\Calc\\Services\\ModuleCapabilityRegistryService' => 'lib/Services/ModuleCapabilityRegistryService.php',
     'Prospektweb\\Calc\\Services\\CalcServerRequestSigner' => 'lib/Services/CalcServerRequestSigner.php',
     'Prospektweb\\Calc\\Services\\AiGatewayService' => 'lib/Services/AiGatewayService.php',
     'Prospektweb\\Calc\\Services\\AiCalculatorContextService' => 'lib/Services/AiCalculatorContextService.php',

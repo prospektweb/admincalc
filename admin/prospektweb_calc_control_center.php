@@ -47,11 +47,13 @@ $controlCenterEndpoints = [
     'settings' => '/bitrix/tools/prospektweb.calc/control_center_settings.php',
     'diagnostics' => '/bitrix/tools/prospektweb.calc/diagnostic.php',
     'batch' => '/bitrix/tools/prospektweb.calc/batch_recalculate.php',
+    'modules' => '/bitrix/tools/prospektweb.calc/control_center_modules.php',
 ];
 $controlCenterCapabilities = [
     'settings' => true,
     'diagnostics' => true,
     'batch' => true,
+    'modules' => true,
 ];
 
 $resolveIblockType = static function (int $iblockId, string $fallback): string {
