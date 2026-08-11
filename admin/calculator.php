@@ -9,6 +9,7 @@ require_once($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_ad
 use Bitrix\Main\Loader;
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\Page\Asset;
+use Prospektweb\Calc\Config\ConfigManager;
 
 Loc::loadMessages(__FILE__);
 
@@ -33,13 +34,121 @@ if (!Loader::includeModule('prospektweb.calc')) {
     die();
 }
 
-// Получение offer_ids из GET
-$offerIdsRaw = $_GET['offer_ids'] ?? '';
-$offerIds = array_filter(array_map('intval', explode(',', $offerIdsRaw)));
+// The editor URL is a launch envelope, not data authority. Resolve every SKU
+// against the configured catalog before initializing the React application.
+$offerIdsRaw = is_string($_GET['offer_ids'] ?? null) ? (string)$_GET['offer_ids'] : '';
+$controlCenterMode = (string)($_GET['control_center'] ?? '') === 'Y';
+$editorInstanceId = is_string($_GET['editor_instance_id'] ?? null)
+    && preg_match('/^[a-f0-9]{32}$/', (string)$_GET['editor_instance_id'])
+        ? (string)$_GET['editor_instance_id']
+        : '';
+if ($controlCenterMode && !$USER->IsAdmin()) {
+    $APPLICATION->AuthForm(Loc::getMessage('PROSPEKTWEB_CALC_ACCESS_DENIED'));
+    exit;
+}
+$offerIds = preg_match('/^[1-9][0-9]*(?:,[1-9][0-9]*)*$/', $offerIdsRaw)
+    ? array_map('intval', explode(',', $offerIdsRaw))
+    : [];
+$uniqueOfferIds = array_values(array_unique($offerIds));
 
-if (empty($offerIds)) {
+if (empty($offerIds) || count($offerIds) > 500 || count($uniqueOfferIds) !== count($offerIds)) {
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php');
     ShowError(Loc::getMessage('PROSPEKTWEB_CALC_NO_OFFERS_SELECTED'));
+    require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php');
+    die();
+}
+
+$offerIds = $uniqueOfferIds;
+$configManager = new ConfigManager();
+$productIblockId = (int)$configManager->getProductIblockId();
+$skuIblockId = (int)$configManager->getSkuIblockId();
+$validatedProductId = 0;
+$isValidLaunch = $productIblockId > 0
+    && $skuIblockId > 0
+    && Loader::includeModule('iblock')
+    && (!$controlCenterMode || $editorInstanceId !== '');
+
+if ($isValidLaunch) {
+    $foundOfferIds = [];
+    $offerFilter = [
+        'IBLOCK_ID' => $skuIblockId,
+        'ID' => $offerIds,
+    ];
+    if ($controlCenterMode) {
+        $offerFilter['ACTIVE'] = 'Y';
+    }
+    $offerCursor = \CIBlockElement::GetList(
+        ['ID' => 'ASC'],
+        $offerFilter,
+        false,
+        false,
+        ['ID', 'PROPERTY_CML2_LINK']
+    );
+    while ($offer = $offerCursor->Fetch()) {
+        $offerId = (int)($offer['ID'] ?? 0);
+        $parentProductId = (int)($offer['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+        if ($offerId <= 0 || $parentProductId <= 0) {
+            $isValidLaunch = false;
+            break;
+        }
+        if ($validatedProductId > 0 && $validatedProductId !== $parentProductId) {
+            $isValidLaunch = false;
+            break;
+        }
+        $validatedProductId = $parentProductId;
+        $foundOfferIds[$offerId] = true;
+    }
+
+    if (count($foundOfferIds) !== count($offerIds)) {
+        $isValidLaunch = false;
+    }
+    foreach ($offerIds as $offerId) {
+        if (!isset($foundOfferIds[$offerId])) {
+            $isValidLaunch = false;
+            break;
+        }
+    }
+}
+
+$validatedProduct = null;
+if ($isValidLaunch && $validatedProductId > 0) {
+    $productFilter = [
+        'ID' => $validatedProductId,
+        'IBLOCK_ID' => $productIblockId,
+    ];
+    if ($controlCenterMode) {
+        $productFilter['ACTIVE'] = 'Y';
+    }
+    $validatedProduct = \CIBlockElement::GetList(
+        [],
+        $productFilter,
+        false,
+        false,
+        ['ID', 'IBLOCK_ID']
+    )->Fetch();
+    $isValidLaunch = is_array($validatedProduct);
+}
+
+if ($isValidLaunch && $controlCenterMode) {
+    $hasFocusPreset = false;
+    $presetCursor = \CIBlockElement::GetProperty(
+        $productIblockId,
+        $validatedProductId,
+        ['ID' => 'ASC'],
+        ['CODE' => 'CALC_PRESET']
+    );
+    while ($presetProperty = $presetCursor->Fetch()) {
+        if ((int)($presetProperty['VALUE'] ?? 0) === 12740) {
+            $hasFocusPreset = true;
+            break;
+        }
+    }
+    $isValidLaunch = $hasFocusPreset;
+}
+
+if (!$isValidLaunch) {
+    require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php');
+    ShowError('Некорректный набор торговых предложений для редактора калькуляций');
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php');
     die();
 }
@@ -47,31 +156,17 @@ if (empty($offerIds)) {
 // Standalone page close target: return to the product that owns the selected SKUs.
 // The regular CAdminDialog flow does not use this page and keeps its native close behavior.
 $returnProductUrl = '';
-if (Loader::includeModule('catalog') && Loader::includeModule('iblock')) {
-    foreach ($offerIds as $offerId) {
-        $productInfo = \CCatalogSku::GetProductInfo((int)$offerId);
-        $productId = (int)($productInfo['ID'] ?? 0);
-        $productIblockId = (int)($productInfo['IBLOCK_ID'] ?? 0);
-        if ($productId <= 0 || $productIblockId <= 0) {
-            continue;
-        }
-
-        $productIblock = \CIBlock::GetByID($productIblockId)->Fetch();
-        $productIblockType = trim((string)($productIblock['IBLOCK_TYPE_ID'] ?? ''));
-        if ($productIblockType === '') {
-            continue;
-        }
-
-        $returnProductUrl = '/bitrix/admin/iblock_element_edit.php?' . http_build_query([
-            'IBLOCK_ID' => $productIblockId,
-            'type' => $productIblockType,
-            'lang' => defined('LANGUAGE_ID') ? LANGUAGE_ID : 'ru',
-            'ID' => $productId,
-            'find_section_section' => 0,
-            'WF' => 'Y',
-        ]);
-        break;
-    }
+$productIblock = \CIBlock::GetByID($productIblockId)->Fetch();
+$productIblockType = trim((string)($productIblock['IBLOCK_TYPE_ID'] ?? ''));
+if ($productIblockType !== '') {
+    $returnProductUrl = '/bitrix/admin/iblock_element_edit.php?' . http_build_query([
+        'IBLOCK_ID' => $productIblockId,
+        'type' => $productIblockType,
+        'lang' => defined('LANGUAGE_ID') ? LANGUAGE_ID : 'ru',
+        'ID' => $validatedProductId,
+        'find_section_section' => 0,
+        'WF' => 'Y',
+    ]);
 }
 
 // Заголовок страницы
@@ -127,7 +222,7 @@ body {
 <div id="calc-container">
     <iframe 
         id="calc-iframe" 
-        src="/local/apps/prospektweb.calc/index.html?v=49b40b6042ad"
+        src="/local/apps/prospektweb.calc/index.html?v=bf2a18163412"
         title="<?= Loc::getMessage('PROSPEKTWEB_CALC_IFRAME_TITLE') ?>">
     </iframe>
 </div>
@@ -150,6 +245,20 @@ document.addEventListener('DOMContentLoaded', function() {
         siteId: '<?= SITE_ID ?>',
         sessid: '<?= bitrix_sessid() ?>',
         onClose: function() {
+            var controlCenterMode = <?= json_encode($controlCenterMode) ?>;
+            var editorInstanceId = <?= json_encode($editorInstanceId) ?>;
+            if (controlCenterMode && editorInstanceId && window.parent !== window) {
+                window.parent.postMessage({
+                    protocol: 'pwrt-v1',
+                    source: 'prospektweb.calc',
+                    target: 'bitrix',
+                    type: 'CLOSE_CONTROL_CENTER_EDITOR',
+                    payload: {editorInstanceId: editorInstanceId},
+                    timestamp: Date.now()
+                }, window.location.origin);
+                return;
+            }
+
             // Regular popup/tab flow closes the auxiliary window. When the same URL
             // is opened in the current admin tab, navigate back to the owning product.
             if (window.opener && !window.opener.closed) {

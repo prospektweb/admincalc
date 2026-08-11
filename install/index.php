@@ -580,6 +580,9 @@ class prospektweb_calc extends CModule
             if (!file_exists($toolsDir . '/control_center_modules.php')) {
                 $result['warnings'][] = 'API возможностей центра управления не найден';
             }
+            if (!file_exists($toolsDir . '/control_center_editors.php')) {
+                $result['warnings'][] = 'API запуска редакторов центра управления не найден';
+            }
         }
         if (!is_dir($appsDir)) {
             $result['warnings'][] = 'Директория Apps не найдена';

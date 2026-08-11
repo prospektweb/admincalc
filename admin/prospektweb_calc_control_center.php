@@ -43,17 +43,20 @@ $diagnosticsUrl = '/bitrix/admin/settings.php?' . http_build_query([
     'tabControl_active_tab' => 'edit5',
 ]);
 $moduleVersion = trim((string)ModuleManager::getVersion('prospektweb.calc')) ?: 'unknown';
+$controlCenterInstanceId = bin2hex(random_bytes(16));
 $controlCenterEndpoints = [
     'settings' => '/bitrix/tools/prospektweb.calc/control_center_settings.php',
     'diagnostics' => '/bitrix/tools/prospektweb.calc/diagnostic.php',
     'batch' => '/bitrix/tools/prospektweb.calc/batch_recalculate.php',
     'modules' => '/bitrix/tools/prospektweb.calc/control_center_modules.php',
+    'editors' => '/bitrix/tools/prospektweb.calc/control_center_editors.php',
 ];
 $controlCenterCapabilities = [
     'settings' => true,
     'diagnostics' => true,
     'batch' => true,
     'modules' => true,
+    'editors' => true,
 ];
 
 $resolveIblockType = static function (int $iblockId, string $fallback): string {
@@ -154,6 +157,69 @@ body {
     height: 100%;
     border: 0;
 }
+
+#prospektweb-control-center-editor[hidden] {
+    display: none !important;
+}
+
+#prospektweb-control-center-editor {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-rows: 44px minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+    background: #0b121a;
+}
+
+.prospektweb-control-center-editor__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-width: 0;
+    padding: 0 12px 0 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0e1823;
+    color: #eef7ff;
+    font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#prospektweb-control-center-editor-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#prospektweb-control-center-editor-close {
+    flex: 0 0 auto;
+    min-width: 86px;
+    height: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #dce9f5;
+    cursor: pointer;
+    font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#prospektweb-control-center-editor-close:hover {
+    border-color: rgba(56, 189, 248, 0.45);
+    background: rgba(56, 189, 248, 0.14);
+    color: #ffffff;
+}
+
+#prospektweb-control-center-editor-iframe {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    border: 0;
+    background: #ffffff;
+}
 </style>
 
 <div id="prospektweb-control-center">
@@ -163,6 +229,18 @@ body {
         title="ПРОСПЕКТ — центр управления"
         referrerpolicy="same-origin"
     ></iframe>
+    <section id="prospektweb-control-center-editor" aria-hidden="true" hidden>
+        <div class="prospektweb-control-center-editor__bar">
+            <div id="prospektweb-control-center-editor-title">Редактор</div>
+            <button id="prospektweb-control-center-editor-close" type="button">Закрыть</button>
+        </div>
+        <iframe
+            id="prospektweb-control-center-editor-iframe"
+            src="about:blank"
+            title="Редактор ПРОСПЕКТ"
+            referrerpolicy="same-origin"
+        ></iframe>
+    </section>
 </div>
 
 <script>
@@ -171,14 +249,222 @@ body {
 
     var container = document.getElementById('prospektweb-control-center');
     var iframe = document.getElementById('prospektweb-control-center-iframe');
+    var editorOverlay = document.getElementById('prospektweb-control-center-editor');
+    var editorIframe = document.getElementById('prospektweb-control-center-editor-iframe');
+    var editorTitle = document.getElementById('prospektweb-control-center-editor-title');
+    var editorClose = document.getElementById('prospektweb-control-center-editor-close');
     var routeMap = <?= json_encode($routeMap, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     var allowedAdminPaths = <?= json_encode($allowedAdminPaths, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+    var controlCenterInstanceId = <?= json_encode($controlCenterInstanceId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     var controlCenterInitPayload = <?= json_encode([
         'sessid' => bitrix_sessid(),
         'endpoints' => $controlCenterEndpoints,
         'moduleVersion' => $moduleVersion,
         'capabilities' => $controlCenterCapabilities,
+        'controlCenterInstanceId' => $controlCenterInstanceId,
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+    var activeEditor = null;
+    var launchPending = false;
+
+    function createEditorInstanceId() {
+        var bytes = new Uint8Array(16);
+        window.crypto.getRandomValues(bytes);
+        return Array.prototype.map.call(bytes, function (byte) {
+            return byte.toString(16).padStart(2, '0');
+        }).join('');
+    }
+
+    function sendToControlCenter(type, payload) {
+        if (!iframe || !iframe.contentWindow) {
+            return;
+        }
+
+        iframe.contentWindow.postMessage({
+            protocol: 'pwrt-v1',
+            source: 'bitrix',
+            target: 'prospektweb.calc',
+            type: type,
+            payload: Object.assign({controlCenterInstanceId: controlCenterInstanceId}, payload || {}),
+            timestamp: Date.now()
+        }, window.location.origin);
+    }
+
+    function closeOwnedEditor(reason) {
+        if (!activeEditor || !editorOverlay || !editorIframe) {
+            return;
+        }
+
+        var closedEditor = activeEditor;
+        activeEditor = null;
+        editorOverlay.hidden = true;
+        editorOverlay.setAttribute('aria-hidden', 'true');
+        editorIframe.src = 'about:blank';
+        if (editorTitle) {
+            editorTitle.textContent = 'Редактор';
+        }
+
+        sendToControlCenter('EDITOR_CLOSED', {
+            editorType: closedEditor.type,
+            reason: reason || 'closed'
+        });
+    }
+
+    function requestOwnedEditorClose() {
+        if (!activeEditor) {
+            return;
+        }
+
+        if (window.confirm('Закрыть редактор? Несохранённые изменения могут быть потеряны.')) {
+            closeOwnedEditor('host-close');
+        }
+    }
+
+    function openOwnedEditor(editorType, title, targetUrl) {
+        if (!editorOverlay || !editorIframe || activeEditor) {
+            throw new Error('Другой редактор уже открыт');
+        }
+        if (!(targetUrl instanceof URL)
+            || targetUrl.origin !== window.location.origin
+            || ['/bitrix/admin/prospektweb_calc_calculator.php', '/bitrix/admin/prospektweb_frontcalc_editor.php'].indexOf(targetUrl.pathname) === -1) {
+            throw new Error('Недопустимый адрес редактора');
+        }
+
+        var editorInstanceId = createEditorInstanceId();
+        targetUrl.searchParams.set('editor_instance_id', editorInstanceId);
+        targetUrl.searchParams.set('_cc_nonce', editorInstanceId);
+        activeEditor = {id: editorInstanceId, type: editorType};
+        if (editorTitle) {
+            editorTitle.textContent = title;
+        }
+        editorIframe.src = targetUrl.pathname + targetUrl.search;
+        editorOverlay.hidden = false;
+        editorOverlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function postEditorAction(action, payload) {
+        var endpoint = controlCenterInitPayload.endpoints.editors;
+        var form = new URLSearchParams();
+        form.set('sessid', controlCenterInitPayload.sessid);
+        form.set('payload', JSON.stringify(Object.assign({action: action}, payload || {})));
+
+        return window.fetch(endpoint, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: form.toString(),
+            cache: 'no-store'
+        }).then(function (response) {
+            return response.json().catch(function () {
+                throw new Error('Сервер вернул некорректный ответ');
+            }).then(function (result) {
+                if (!response.ok || !result || result.success !== true || !result.data) {
+                    throw new Error(result && result.error ? result.error : 'Не удалось открыть редактор');
+                }
+                return result.data;
+            });
+        });
+    }
+
+    function reportEditorError(error) {
+        var message = error && error.message ? error.message : 'Не удалось открыть редактор';
+        window.alert(message);
+    }
+
+    function hasExactPayloadKeys(payload, expectedKeys) {
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+            return false;
+        }
+        var keys = Object.keys(payload).sort();
+        var expected = expectedKeys.slice().sort();
+        return keys.length === expected.length && keys.every(function (key, index) {
+            return key === expected[index];
+        });
+    }
+
+    function launchCalculationEditor(payload) {
+        if (launchPending || activeEditor) {
+            return;
+        }
+        if (!hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId', 'productId', 'offerIds'])) {
+            return;
+        }
+        var presetId = Number.isSafeInteger(payload.presetId) ? payload.presetId : 0;
+        var productId = Number.isSafeInteger(payload.productId) ? payload.productId : 0;
+        var offerIds = Array.isArray(payload.offerIds) ? payload.offerIds : [];
+        if (presetId <= 0
+            || productId <= 0
+            || offerIds.length === 0
+            || offerIds.length > 500
+            || offerIds.some(function (offerId) {
+                return !Number.isSafeInteger(offerId) || offerId <= 0;
+            })
+            || new Set(offerIds).size !== offerIds.length) {
+            return;
+        }
+
+        launchPending = true;
+        postEditorAction('validate_calculation_launch', {
+            presetId: presetId,
+            productId: productId,
+            offerIds: offerIds
+        }).then(function (data) {
+            if (data.focusPresetId !== presetId
+                || data.productId !== productId
+                || !Array.isArray(data.offerIds)
+                || data.offerIds.length === 0
+                || data.offerIds.length > 500
+                || data.offerIds.some(function (offerId) {
+                    return !Number.isSafeInteger(offerId) || offerId <= 0;
+                })
+                || new Set(data.offerIds).size !== data.offerIds.length) {
+                throw new Error('У товара нет активных торговых предложений');
+            }
+            var targetUrl = new URL('/bitrix/admin/prospektweb_calc_calculator.php', window.location.origin);
+            targetUrl.searchParams.set('offer_ids', data.offerIds.join(','));
+            targetUrl.searchParams.set('control_center', 'Y');
+            targetUrl.searchParams.set('lang', <?= json_encode($languageId) ?>);
+            targetUrl.searchParams.set('IFRAME', 'Y');
+            targetUrl.searchParams.set('IFRAME_TYPE', 'SIDE_SLIDER');
+            openOwnedEditor('calculation', 'Редактор калькуляций · ' + data.productName, targetUrl);
+        }).catch(reportEditorError).finally(function () {
+            launchPending = false;
+        });
+    }
+
+    function launchStorefrontEditor(payload) {
+        if (launchPending || activeEditor) {
+            return;
+        }
+        if (!hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'productId'])) {
+            return;
+        }
+        var productId = Number.isSafeInteger(payload.productId) ? payload.productId : 0;
+        if (productId <= 0) {
+            return;
+        }
+
+        launchPending = true;
+        postEditorAction('validate_storefront_launch', {productId: productId}).then(function (data) {
+            if (data.productId !== productId
+                || !Number.isSafeInteger(data.productIblockId)
+                || data.productIblockId <= 0) {
+                throw new Error('Сервер вернул некорректный товар');
+            }
+            var targetUrl = new URL('/bitrix/admin/prospektweb_frontcalc_editor.php', window.location.origin);
+            targetUrl.searchParams.set('IBLOCK_ID', String(data.productIblockId));
+            targetUrl.searchParams.set('ID', String(data.productId));
+            targetUrl.searchParams.set('control_center', 'Y');
+            targetUrl.searchParams.set('lang', <?= json_encode($languageId) ?>);
+            targetUrl.searchParams.set('IFRAME', 'Y');
+            targetUrl.searchParams.set('IFRAME_TYPE', 'SIDE_SLIDER');
+            openOwnedEditor('storefront', 'Настройки калькулятора · ' + data.productName, targetUrl);
+        }).catch(reportEditorError).finally(function () {
+            launchPending = false;
+        });
+    }
 
     function resizeControlCenter() {
         if (!container) {
@@ -192,17 +478,34 @@ body {
 
     resizeControlCenter();
     window.addEventListener('resize', resizeControlCenter);
+    if (editorClose) {
+        editorClose.addEventListener('click', requestOwnedEditorClose);
+    }
 
     window.addEventListener('message', function (event) {
-        if (!iframe || event.source !== iframe.contentWindow || event.origin !== window.location.origin) {
+        if (event.origin !== window.location.origin) {
             return;
         }
 
         var message = event.data;
-        if (!message || typeof message !== 'object'
+        if (!message || typeof message !== 'object' || Array.isArray(message)
             || message.protocol !== 'pwrt-v1'
             || message.source !== 'prospektweb.calc'
             || message.target !== 'bitrix') {
+            return;
+        }
+
+        if (editorIframe && event.source === editorIframe.contentWindow) {
+            if (message.type === 'CLOSE_CONTROL_CENTER_EDITOR'
+                && activeEditor
+                && hasExactPayloadKeys(message.payload, ['editorInstanceId'])
+                && message.payload.editorInstanceId === activeEditor.id) {
+                closeOwnedEditor('editor-close');
+            }
+            return;
+        }
+
+        if (!iframe || event.source !== iframe.contentWindow) {
             return;
         }
 
@@ -219,6 +522,22 @@ body {
                 payload: controlCenterInitPayload,
                 timestamp: Date.now()
             }, window.location.origin);
+            return;
+        }
+
+        if (message.type === 'OPEN_CALC_EDITOR') {
+            if (!message.payload || message.payload.controlCenterInstanceId !== controlCenterInstanceId) {
+                return;
+            }
+            launchCalculationEditor(message.payload);
+            return;
+        }
+
+        if (message.type === 'OPEN_STOREFRONT_EDITOR') {
+            if (!message.payload || message.payload.controlCenterInstanceId !== controlCenterInstanceId) {
+                return;
+            }
+            launchStorefrontEditor(message.payload);
             return;
         }
 

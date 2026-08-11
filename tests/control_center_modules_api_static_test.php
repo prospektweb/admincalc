@@ -55,6 +55,7 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_modules.php'") !== fal
 $assert(strpos($diagnostic, "'lib/Services/ModuleCapabilityRegistryService.php'") !== false && substr_count($diagnostic, "'control_center_modules.php'") >= 1, 'Module diagnostics must verify registry service and endpoint');
 $assert(strpos($host, "'modules' => '/bitrix/tools/prospektweb.calc/control_center_modules.php'") !== false, 'Control-center bootstrap must expose the modules endpoint');
 $assert(strpos($host, "'modules' => true") !== false, 'Control-center bootstrap must advertise the modules capability');
-$assert(strpos($version, "'VERSION' => '1.4.0'") !== false, 'Phase 3A must advance the admincalc module version');
+$versionMatch = preg_match("/'VERSION'\\s*=>\\s*'([^']+)'/", $version, $versionParts);
+$assert($versionMatch === 1 && version_compare($versionParts[1], '1.4.0', '>='), 'Phase 3A requires admincalc module version 1.4.0 or newer');
 
 echo "Control center modules API static tests passed\n";

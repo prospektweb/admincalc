@@ -109,6 +109,41 @@ namespace Prospektweb\Calc\Services {
             ];
         }
     }
+
+    class ControlCenterEditorsService
+    {
+        public function getCatalog(): array
+        {
+            return [
+                'contract' => 'prospektweb.control-center.editors/v1',
+                'focusPresetId' => 12740,
+                'calculations' => [],
+                'storefront' => ['available' => true, 'productIblockId' => 7, 'products' => []],
+                'transport' => 'ok',
+            ];
+        }
+
+        public function validateCalculationLaunch(int $presetId, int $productId, array $offerIds): array
+        {
+            return [
+                'contract' => 'prospektweb.control-center.editors/v1',
+                'focusPresetId' => $presetId,
+                'productId' => $productId,
+                'offerIds' => $offerIds,
+                'transport' => 'ok',
+            ];
+        }
+
+        public function validateStorefrontLaunch(int $productId): array
+        {
+            return [
+                'contract' => 'prospektweb.control-center.editors/v1',
+                'productIblockId' => 7,
+                'productId' => $productId,
+                'transport' => 'ok',
+            ];
+        }
+    }
 }
 
 namespace {
@@ -158,6 +193,7 @@ PHP;
     foreach ([
         'settings.php' => $root . '/tools/control_center_settings.php',
         'modules.php' => $root . '/tools/control_center_modules.php',
+        'editors.php' => $root . '/tools/control_center_editors.php',
         'batch.php' => $root . '/tools/batch_recalculate.php',
     ] as $wrapperName => $endpointPath) {
         $wrapper = '<?php require ' . var_export($endpointPath, true) . ';';
@@ -299,6 +335,43 @@ PHP;
         'payload' => '[]',
     ]));
     $assert($modulesInvalid['status'] === 400 && ($modulesInvalid['body']['errorCode'] ?? '') === 'INVALID_JSON', 'Modules form payload must reject non-object JSON');
+
+    $editorsCatalog = $post('editors.php', 'application/x-www-form-urlencoded', $form([
+        'sessid' => 'valid',
+        'payload' => json_encode(['action' => 'catalog'], JSON_UNESCAPED_SLASHES),
+    ]));
+    $assert($editorsCatalog['status'] === 200
+        && ($editorsCatalog['body']['data']['focusPresetId'] ?? 0) === 12740
+        && ($editorsCatalog['body']['data']['transport'] ?? '') === 'ok',
+        'Editors catalog form payload must pass prolog and decode');
+
+    $editorsCalculation = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'validate_calculation_launch',
+        'presetId' => 12740,
+        'productId' => 10,
+        'offerIds' => [101],
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsCalculation['status'] === 200
+        && ($editorsCalculation['body']['data']['offerIds'] ?? []) === [101],
+        'Editors raw JSON must pass the selective list through server validation');
+
+    $editorsStorefront = $post('editors.php', 'application/x-www-form-urlencoded', $form([
+        'sessid' => 'valid',
+        'payload' => json_encode([
+            'action' => 'validate_storefront_launch',
+            'productId' => 11,
+        ], JSON_UNESCAPED_SLASHES),
+    ]));
+    $assert($editorsStorefront['status'] === 200
+        && ($editorsStorefront['body']['data']['productIblockId'] ?? 0) === 7,
+        'Editors storefront form payload must preserve the validated product ID');
+
+    $editorsInvalid = $post('editors.php', 'application/x-www-form-urlencoded', $form([
+        'sessid' => 'valid',
+        'payload' => '[]',
+    ]));
+    $assert($editorsInvalid['status'] === 400 && ($editorsInvalid['body']['errorCode'] ?? '') === 'INVALID_JSON', 'Editors form payload must reject non-object JSON');
 
     $batchForm = $post('batch.php', 'application/x-www-form-urlencoded', $form([
         'sessid' => 'valid',
