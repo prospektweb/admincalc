@@ -623,6 +623,11 @@ final class CatalogCalcPropertyMigrationService
                 'targetEnumCount' => count($targetEnums),
                 'missingTargetEnumCount' => count(array_diff_key($expectedTargetXmlIds, $targetEnums)),
                 'expectedSort' => self::PROPERTY_SORTS[$targetCode] ?? 500,
+                'targetSort' => (int)($target['SORT'] ?? 0),
+                'SECTION_PROPERTY' => (string)($target['SECTION_PROPERTY'] ?? ''),
+                'SMART_FILTER' => (string)($target['SMART_FILTER'] ?? ''),
+                'DISPLAY_TYPE' => (string)($target['DISPLAY_TYPE'] ?? ''),
+                'DISPLAY_EXPANDED' => (string)($target['DISPLAY_EXPANDED'] ?? ''),
             ];
         }
 
@@ -2480,7 +2485,9 @@ final class CatalogCalcPropertyMigrationService
             if (!$property) {
                 continue;
             }
-            $fields = ['SORT' => $sort];
+            // Bitrix applies SMART_FILTER during CIBlockProperty::Update only
+            // when the owning information block is present in the payload.
+            $fields = ['IBLOCK_ID' => $offerIblockId, 'SORT' => $sort];
             if (in_array($code, array_values(self::PROPERTY_MAP), true)) {
                 $fields += [
                     'ACTIVE' => 'Y',

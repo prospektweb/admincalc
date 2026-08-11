@@ -344,6 +344,20 @@ migration_assert(
     strpos($serviceSource, "'VALUE' => (string)\$targetEnums[\$canonicalXmlId]['VALUE']") !== false,
     'an equivalent existing offer enum must retain its canonical display label during merge'
 );
+migration_assert(
+    preg_match(
+        '/\$fields\s*=\s*\[\s*\'IBLOCK_ID\'\s*=>\s*\$offerIblockId,\s*\'SORT\'\s*=>\s*\$sort\s*\];'
+            . '[\s\S]*?\$api->Update\(\(int\)\$property\[\'ID\'\],\s*\$fields\)/',
+        $serviceSource
+    ) === 1,
+    'target property updates must include IBLOCK_ID so Bitrix persists SMART_FILTER'
+);
+foreach (['targetSort', 'SECTION_PROPERTY', 'SMART_FILTER', 'DISPLAY_TYPE', 'DISPLAY_EXPANDED'] as $field) {
+    migration_assert(
+        strpos($serviceSource, "'{$field}' =>") !== false,
+        'property audit must expose target flag diagnostic ' . $field
+    );
+}
 foreach ([
     'materializeBaseOffers', 'rollbackBaseOffers', 'cutover', 'productsWithoutOffers',
     'BASE_OFFER_MARKER_PREFIX', "'QUANTITY' => 0", "'CAN_BUY_ZERO' => 'N'",
