@@ -77,6 +77,6 @@ $assert(strpos($autoload, 'ControlCenterEditorsService') !== false, 'Editors ser
 $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== false, 'Installer integrity must verify the editors endpoint');
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
-$assert(strpos($version, "'VERSION' => '1.5.0'") !== false, 'Phase 4A must publish a coherent module version');
+$assert(strpos($version, "'VERSION' => '1.5.1'") !== false, 'Phase 4A hotfix must publish a coherent module version');
 
 echo "Control center editors API static tests passed\n";
