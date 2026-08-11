@@ -127,6 +127,7 @@ if ($requestMethod === 'GET') {
                 <input id="confirm-mutation" type="checkbox">
                 Я подтверждаю выбранное изменяющее действие
             </label>
+            <pre id="migration-result" hidden aria-live="polite"></pre>
         </form>
     </main>
     <script>
@@ -140,7 +141,9 @@ if ($requestMethod === 'GET') {
             'apply_semantic_fixes',
             'rollback_semantic_fixes'
         ];
-        form.addEventListener('submit', function (event) {
+        var result = document.getElementById('migration-result');
+        var submitButtons = form.querySelectorAll('button[type="submit"]');
+        form.addEventListener('submit', async function (event) {
             var action = event.submitter ? event.submitter.value : '';
             var isMutation = mutatingActions.indexOf(action) !== -1;
             document.getElementById('action-value').value = action;
@@ -158,6 +161,35 @@ if ($requestMethod === 'GET') {
                     return;
                 }
                 document.getElementById('confirm-action').value = action;
+            }
+            event.preventDefault();
+            result.hidden = false;
+            result.textContent = 'Выполняется ' + action + '…';
+            submitButtons.forEach(function (button) {
+                button.disabled = true;
+            });
+            try {
+                var response = await fetch(form.action || window.location.href, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    credentials: 'same-origin',
+                    headers: {'X-Requested-With': 'XMLHttpRequest'}
+                });
+                var responseText = await response.text();
+                result.textContent = responseText;
+                result.dataset.httpStatus = String(response.status);
+            } catch (error) {
+                result.textContent = JSON.stringify({
+                    status: 'error',
+                    error: 'request_failed',
+                    message: error instanceof Error ? error.message : String(error)
+                });
+                result.dataset.httpStatus = '0';
+            } finally {
+                submitButtons.forEach(function (button) {
+                    button.disabled = false;
+                });
+                document.getElementById('confirm-mutation').checked = false;
             }
         });
     }());

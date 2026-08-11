@@ -24,10 +24,22 @@ $assertions = [
     'mutations carry a separate confirmation token' => strpos($source, 'name="confirmAction"') !== false
         && strpos($source, "'error' => 'confirmation_required'") !== false
         && strpos($source, 'hash_equals($action') !== false,
-    'validated HTML submissions continue through the browser native POST' => strpos(
+    'validated HTML submissions use the authenticated same-origin POST transport' => strpos(
+        $source,
+        "await fetch(form.action || window.location.href"
+    ) !== false && strpos($source, "method: 'POST'") !== false
+        && strpos($source, "credentials: 'same-origin'") !== false
+        && strpos($source, 'body: new FormData(form)') !== false
+        && strpos($source, 'form.submit();') === false,
+    'HTML result is rendered as text rather than executable markup' => strpos(
+        $source,
+        'id="migration-result" hidden aria-live="polite"'
+    ) !== false && substr_count($source, 'result.textContent =') >= 3
+        && strpos($source, 'result.innerHTML') === false,
+    'mutation confirmation remains checked before transport starts' => strpos(
         $source,
         "if (!document.getElementById('confirm-mutation').checked) {\n                    event.preventDefault();"
-    ) !== false && strpos($source, 'form.submit();') === false,
+    ) !== false && strpos($source, "document.getElementById('confirm-action').value = action;") !== false,
     'execute cannot receive semantic fixes from the HTML panel' => strpos(
         $source,
         "!in_array(\$action, ['audit', 'verify', 'cutover'], true)"
