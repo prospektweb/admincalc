@@ -80,6 +80,7 @@ if ($requestMethod === 'GET') {
         <form method="post" action="">
             <?= bitrix_sessid_post() ?>
             <input type="hidden" name="migrationUiSubmission" value="1">
+            <input id="action-value" type="hidden" name="action" value="">
             <input id="confirm-action" type="hidden" name="confirmAction" value="">
             <input id="semantic-value" type="hidden" name="applySemanticFixes" value="false">
             <div class="shared">
@@ -133,8 +134,10 @@ if ($requestMethod === 'GET') {
             'rollback_semantic_fixes'
         ];
         form.addEventListener('submit', function (event) {
+            event.preventDefault();
             var action = event.submitter ? event.submitter.value : '';
             var isMutation = mutatingActions.indexOf(action) !== -1;
+            document.getElementById('action-value').value = action;
             document.getElementById('semantic-value').value =
                 document.getElementById('semantic-fixes').checked && semanticActions.indexOf(action) !== -1
                     ? 'true'
@@ -142,12 +145,12 @@ if ($requestMethod === 'GET') {
             document.getElementById('confirm-action').value = '';
             if (isMutation) {
                 if (!document.getElementById('confirm-mutation').checked) {
-                    event.preventDefault();
                     window.alert('Подтвердите изменяющее действие перед отправкой.');
                     return;
                 }
                 document.getElementById('confirm-action').value = action;
             }
+            form.submit();
         });
     }());
     </script>
