@@ -115,7 +115,7 @@ if (!Loader::includeModule('prospektweb.calc')) {
     ]);
 }
 
-$action = (string)($request['action'] ?? 'catalog');
+$action = $request['action'] ?? 'catalog';
 $service = new ControlCenterEditorsService();
 $assertAllowedRequestKeys = static function (array $allowedKeys) use ($request): void {
     foreach (array_keys($request) as $requestKey) {
@@ -124,8 +124,90 @@ $assertAllowedRequestKeys = static function (array $allowedKeys) use ($request):
         }
     }
 };
+$parsePositiveInt = static function ($value, string $field): int {
+    if (is_int($value)) {
+        $parsed = $value;
+    } elseif (is_string($value) && preg_match('/^[1-9][0-9]*$/D', $value)) {
+        $parsed = (int)$value;
+        if ((string)$parsed !== $value) {
+            throw new \InvalidArgumentException($field . ' must be a safe positive integer');
+        }
+    } else {
+        throw new \InvalidArgumentException($field . ' must be a safe positive integer');
+    }
+    if ($parsed <= 0 || $parsed > 9007199254740991) {
+        throw new \InvalidArgumentException($field . ' must be a safe positive integer');
+    }
+
+    return $parsed;
+};
+$parseStrictPositiveInt = static function ($value, string $field): int {
+    if (!is_int($value) || $value <= 0 || $value > 9007199254740991) {
+        throw new \InvalidArgumentException($field . ' must be a safe positive integer');
+    }
+
+    return $value;
+};
+$parseStrictNonNegativeInt = static function ($value, string $field): int {
+    if (!is_int($value) || $value < 0 || $value > 9007199254740991) {
+        throw new \InvalidArgumentException($field . ' must be a safe non-negative integer');
+    }
+
+    return $value;
+};
+$parseTemplateId = static function ($value, bool $allowEmpty): string {
+    if ($allowEmpty && $value === null) {
+        return '';
+    }
+    if (!is_string($value)) {
+        throw new \InvalidArgumentException('templateId must be a valid template identifier');
+    }
+    if ($allowEmpty && $value === '') {
+        return '';
+    }
+    if (preg_match('/^[a-f0-9]{16,32}$/D', $value) !== 1) {
+        throw new \InvalidArgumentException('templateId must be a valid template identifier');
+    }
+
+    return $value;
+};
+$parseIndividualRevision = static function ($value): string {
+    if (!is_string($value) || preg_match('/^[a-f0-9]{64}$/D', $value) !== 1) {
+        throw new \InvalidArgumentException('expectedRevision must be a SHA-256 revision');
+    }
+
+    return $value;
+};
+$parseTarget = static function ($value, array $allowedTargets): string {
+    if (!is_string($value) || !in_array($value, $allowedTargets, true)) {
+        throw new \InvalidArgumentException('target is not supported');
+    }
+
+    return $value;
+};
+$parseSchema = static function ($value): array {
+    if (!is_array($value) || $value === []) {
+        throw new \InvalidArgumentException('schema must be a non-empty object');
+    }
+    if (array_keys($value) === range(0, count($value) - 1)) {
+        throw new \InvalidArgumentException('schema must be a non-empty object');
+    }
+    $encoded = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded)) {
+        throw new \InvalidArgumentException('schema must be valid JSON data');
+    }
+    if (strlen($encoded) > 60000) {
+        throw new \InvalidArgumentException('schema must not exceed 60000 bytes');
+    }
+
+    return $value;
+};
 
 try {
+    if (!is_string($action)) {
+        throw new \InvalidArgumentException('action must be a string');
+    }
+
     if ($action === 'catalog') {
         $assertAllowedRequestKeys(['action', 'sessid']);
         $respond(200, [
@@ -136,31 +218,126 @@ try {
 
     if ($action === 'validate_calculation_launch') {
         $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'productId', 'offerIds']);
-        $presetId = $request['presetId'] ?? null;
-        $productId = $request['productId'] ?? null;
+        $presetId = $parsePositiveInt($request['presetId'] ?? null, 'presetId');
+        $productId = $parsePositiveInt($request['productId'] ?? null, 'productId');
         $offerIds = $request['offerIds'] ?? null;
-        if ((!is_int($presetId) && !(is_string($presetId) && preg_match('/^[1-9][0-9]*$/', $presetId)))
-            || (!is_int($productId) && !(is_string($productId) && preg_match('/^[1-9][0-9]*$/', $productId)))
-            || !is_array($offerIds)) {
+        if (!is_array($offerIds)) {
             throw new \InvalidArgumentException('presetId, productId and offerIds are required');
         }
 
         $respond(200, [
             'success' => true,
-            'data' => $service->validateCalculationLaunch((int)$presetId, (int)$productId, $offerIds),
+            'data' => $service->validateCalculationLaunch($presetId, $productId, $offerIds),
         ]);
     }
 
     if ($action === 'validate_storefront_launch') {
         $assertAllowedRequestKeys(['action', 'sessid', 'productId']);
-        $productId = $request['productId'] ?? null;
-        if (!is_int($productId) && !(is_string($productId) && preg_match('/^[1-9][0-9]*$/', $productId))) {
-            throw new \InvalidArgumentException('productId must be a positive integer');
-        }
+        $productId = $parsePositiveInt($request['productId'] ?? null, 'productId');
 
         $respond(200, [
             'success' => true,
-            'data' => $service->validateStorefrontLaunch((int)$productId),
+            'data' => $service->validateStorefrontLaunch($productId),
+        ]);
+    }
+
+    if ($action === 'storefront_load') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'target', 'templateId']);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $target = $parseTarget($request['target'] ?? null, ['effective', 'product', 'template']);
+        $templateId = $parseTemplateId($request['templateId'] ?? null, true);
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->loadStorefrontWorkspace($productId, $target, $templateId),
+        ]);
+    }
+
+    if ($action === 'storefront_validate') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'target', 'schema']);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $target = $parseTarget($request['target'] ?? null, ['product', 'template']);
+        $schema = $parseSchema($request['schema'] ?? null);
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->validateStorefrontSchema($productId, $target, $schema),
+        ]);
+    }
+
+    if ($action === 'storefront_save_template') {
+        $assertAllowedRequestKeys([
+            'action',
+            'sessid',
+            'productId',
+            'templateId',
+            'expectedRevision',
+            'name',
+            'sectionId',
+            'schema',
+        ]);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        if (!array_key_exists('templateId', $request)) {
+            throw new \InvalidArgumentException('templateId is required and may be null only for creation');
+        }
+        $templateId = $parseTemplateId($request['templateId'], true);
+        $expectedRevision = $parseStrictNonNegativeInt($request['expectedRevision'] ?? null, 'expectedRevision');
+        if (($templateId === '' && $expectedRevision !== 0)
+            || ($templateId !== '' && $expectedRevision <= 0)) {
+            throw new \InvalidArgumentException('expectedRevision does not match the template target');
+        }
+        $name = $request['name'] ?? null;
+        if (!is_string($name) || trim($name) === '') {
+            throw new \InvalidArgumentException('name must be a non-empty string');
+        }
+        $sectionId = $parseStrictNonNegativeInt($request['sectionId'] ?? null, 'sectionId');
+        $schema = $parseSchema($request['schema'] ?? null);
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->saveStorefrontTemplate(
+                $productId,
+                $templateId,
+                $expectedRevision,
+                $name,
+                $sectionId,
+                $schema
+            ),
+        ]);
+    }
+
+    if ($action === 'storefront_save_product') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'expectedRevision', 'schema']);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $expectedRevision = $parseIndividualRevision($request['expectedRevision'] ?? null);
+        $schema = $parseSchema($request['schema'] ?? null);
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->saveStorefrontProduct($productId, $expectedRevision, $schema),
+        ]);
+    }
+
+    if ($action === 'storefront_enable_inheritance') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'expectedRevision']);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $expectedRevision = $parseIndividualRevision($request['expectedRevision'] ?? null);
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->enableStorefrontInheritance($productId, $expectedRevision),
+        ]);
+    }
+
+    if ($action === 'storefront_delete_template') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'templateId', 'expectedRevision']);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $templateId = $parseTemplateId($request['templateId'] ?? null, false);
+        $expectedRevision = $parseStrictPositiveInt($request['expectedRevision'] ?? null, 'expectedRevision');
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->deleteStorefrontTemplate($productId, $templateId, $expectedRevision),
         ]);
     }
 
@@ -178,7 +355,7 @@ try {
 } catch (\RuntimeException $exception) {
     $respond(409, [
         'success' => false,
-        'errorCode' => 'EDITOR_UNAVAILABLE',
+        'errorCode' => $exception->getCode() === 409 ? 'REVISION_CONFLICT' : 'EDITOR_UNAVAILABLE',
         'error' => $exception->getMessage(),
     ]);
 } catch (\Throwable $exception) {

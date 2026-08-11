@@ -26,9 +26,19 @@ $assert(strpos($endpoint, "'action' => 'catalog'") === false, 'Endpoint must not
 $assert(strpos($endpoint, "\$action === 'catalog'") !== false, 'Editors endpoint must expose the catalog action');
 $assert(strpos($endpoint, "\$action === 'validate_calculation_launch'") !== false, 'Editors endpoint must validate calculation launches');
 $assert(strpos($endpoint, "\$action === 'validate_storefront_launch'") !== false, 'Editors endpoint must validate storefront launches');
+$assert(strpos($endpoint, "\$action === 'storefront_load'") !== false, 'Editors endpoint must expose native storefront workspace loading');
+$assert(strpos($endpoint, "\$action === 'storefront_validate'") !== false, 'Editors endpoint must expose native storefront schema validation');
+$assert(strpos($endpoint, "\$action === 'storefront_save_template'") !== false, 'Editors endpoint must expose revisioned template saving');
+$assert(strpos($endpoint, "\$action === 'storefront_save_product'") !== false, 'Editors endpoint must expose revisioned product saving');
+$assert(strpos($endpoint, "\$action === 'storefront_enable_inheritance'") !== false, 'Editors endpoint must expose revisioned inheritance activation');
+$assert(strpos($endpoint, "\$action === 'storefront_delete_template'") !== false, 'Editors endpoint must expose revisioned template deletion');
 $assert(strpos($endpoint, "\$request['offerIds']") !== false, 'Editors endpoint must accept a bounded selective offer list for validation');
 $assert(strpos($endpoint, "throw new \\InvalidArgumentException('Request contains unsupported fields')") !== false, 'Editors endpoint must reject unknown request fields');
-$assert(strpos($endpoint, 'validateCalculationLaunch((int)$presetId, (int)$productId, $offerIds)') !== false, 'Calculation validation must pass the selective list only to server validation');
+$assert(strpos($endpoint, 'validateCalculationLaunch($presetId, $productId, $offerIds)') !== false, 'Calculation validation must pass the selective list only to server validation');
+$assert(strpos($endpoint, "strlen(\$encoded) > 60000") !== false, 'Structured storefront schemas must have a strict 60 KB transport cap');
+$assert(strpos($endpoint, "preg_match('/^[a-f0-9]{64}$/D', \$value)") !== false, 'Product mutations must require a SHA-256 individual revision');
+$assert(strpos($endpoint, "preg_match('/^[a-f0-9]{16,32}$/D', \$value)") !== false, 'Template actions must require a canonical template identifier');
+$assert(strpos($endpoint, "\$exception->getCode() === 409 ? 'REVISION_CONFLICT' : 'EDITOR_UNAVAILABLE'") !== false, 'Provider revision conflicts must retain a stable API error code');
 
 $assert(strpos($service, "public const CONTRACT = 'prospektweb.control-center.editors/v1'") !== false, 'Editors catalog must have a versioned contract');
 $assert(strpos($service, 'public const FOCUS_PRESET_ID = 12740') !== false, 'Phase 4A must be explicitly scoped to preset 12740');
@@ -38,6 +48,16 @@ $assert(strpos($service, 'validateCalculationLaunch(int $presetId, int $productI
 $assert(strpos($service, "'offerIds' => \$validatedOfferIds") !== false, 'Validated offer IDs must be derived from the server snapshot');
 $assert(strpos($service, 'MAX_CALCULATION_OFFERS') !== false, 'Server-derived launch URLs must have a bounded offer count');
 $assert(strpos($service, 'Offer IDs must not contain duplicates') !== false, 'Duplicate selective IDs must be rejected');
+$assert(strpos($service, "public const STOREFRONT_EDITOR_CONTRACT = 'prospektweb.frontcalc.storefront-editor/v1'") !== false, 'The native storefront adapter must pin the provider contract');
+$assert(strpos($service, 'ControlCenterStorefrontEditorService') !== false, 'The native storefront adapter must resolve only the FrontCalc-owned provider');
+$assert(strpos($service, "'visualEditorAvailable' => \$visualEditorAvailable") !== false, 'The catalog must advertise provider availability separately from the legacy editor');
+$assert(strpos($service, "'visualEditorContract' => self::STOREFRONT_EDITOR_CONTRACT") !== false, 'The catalog must advertise the exact visual editor contract');
+$assert(substr_count($service, '$this->validateStorefrontLaunch($productId);') >= 6, 'Every native storefront action must revalidate the control-center product first');
+$assert(strpos($service, '->loadWorkspace($productId, $target, $templateId)') !== false, 'Workspace loading must delegate to the FrontCalc provider');
+$assert(strpos($service, '->validateSchema($productId, $target, $schema)') !== false, 'Schema validation must delegate to the FrontCalc provider');
+$assert(strpos($service, '->saveTemplate(') !== false && strpos($service, '->saveProduct(') !== false, 'Template and product saves must delegate to the FrontCalc provider');
+$assert(strpos($service, '->enableInheritance(') !== false && strpos($service, '->deleteTemplate(') !== false, 'Inheritance and deletion must delegate to the FrontCalc provider');
+$assert(strpos($service, "(string)(\$result['contract'] ?? '') !== self::STOREFRONT_EDITOR_CONTRACT") !== false, 'Provider responses must fail closed on contract drift');
 
 $assert(strpos($host, "'editors' => '/bitrix/tools/prospektweb.calc/control_center_editors.php'") !== false, 'Bootstrap must expose the editors endpoint');
 $assert(strpos($host, "'controlCenterInstanceId' => \$controlCenterInstanceId") !== false, 'Bootstrap must issue a per-page instance token');
@@ -77,6 +97,6 @@ $assert(strpos($autoload, 'ControlCenterEditorsService') !== false, 'Editors ser
 $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== false, 'Installer integrity must verify the editors endpoint');
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
-$assert(strpos($version, "'VERSION' => '1.5.1'") !== false, 'Phase 4A hotfix must publish a coherent module version');
+$assert(strpos($version, "'VERSION' => '1.6.0'") !== false, 'Phase 4B transport must publish a coherent module version');
 
 echo "Control center editors API static tests passed\n";

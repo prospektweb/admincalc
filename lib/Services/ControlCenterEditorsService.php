@@ -9,19 +9,30 @@ use Bitrix\Main\ModuleManager;
 use Prospektweb\Calc\Config\ConfigManager;
 
 /**
- * Read-only launch catalog and server-side launch authority for the editors
- * embedded by the control-center host.
+ * Server-side authority for editor launches and the native storefront-editor
+ * adapter used by the control center.
  *
- * Phase 4A is intentionally focused on preset 12740. The browser can submit
- * only entity IDs; this service re-resolves their current Bitrix relations
- * before the host constructs an allowlisted same-origin editor URL.
+ * The workspace remains intentionally focused on preset 12740. The browser can
+ * submit only entity IDs and typed editor documents; this service re-resolves
+ * the current Bitrix relations before delegating storefront work to the
+ * FrontCalc-owned service.
  */
 final class ControlCenterEditorsService
 {
     public const CONTRACT = 'prospektweb.control-center.editors/v1';
+    public const STOREFRONT_EDITOR_CONTRACT = 'prospektweb.frontcalc.storefront-editor/v1';
     public const FOCUS_PRESET_ID = 12740;
 
     private const MAX_CALCULATION_OFFERS = 500;
+    private const STOREFRONT_EDITOR_PROVIDER = '\\Prospektweb\\Frontcalc\\Service\\ControlCenterStorefrontEditorService';
+    private const STOREFRONT_EDITOR_METHODS = [
+        'loadWorkspace',
+        'validateSchema',
+        'saveTemplate',
+        'saveProduct',
+        'enableInheritance',
+        'deleteTemplate',
+    ];
 
     /** @var callable */
     private $presetLoader;
@@ -32,10 +43,14 @@ final class ControlCenterEditorsService
     /** @var callable */
     private $frontcalcAvailabilityResolver;
 
+    /** @var callable */
+    private $frontcalcEditorResolver;
+
     public function __construct(
         ?callable $presetLoader = null,
         ?callable $productIblockIdResolver = null,
-        ?callable $frontcalcAvailabilityResolver = null
+        ?callable $frontcalcAvailabilityResolver = null,
+        ?callable $frontcalcEditorResolver = null
     ) {
         $this->presetLoader = $presetLoader ?? static function (int $presetId): array {
             if (!Loader::includeModule('iblock')) {
@@ -50,6 +65,14 @@ final class ControlCenterEditorsService
         $this->frontcalcAvailabilityResolver = $frontcalcAvailabilityResolver ?? static function (): bool {
             return ModuleManager::isModuleInstalled('prospektweb.frontcalc');
         };
+        $this->frontcalcEditorResolver = $frontcalcEditorResolver ?? static function () {
+            if (!Loader::includeModule('prospektweb.frontcalc')) {
+                return null;
+            }
+
+            $providerClass = self::STOREFRONT_EDITOR_PROVIDER;
+            return class_exists($providerClass) ? new $providerClass() : null;
+        };
     }
 
     public function getCatalog(): array
@@ -57,6 +80,7 @@ final class ControlCenterEditorsService
         $snapshot = $this->loadSnapshot();
         $productIblockId = $this->resolveProductIblockId();
         $frontcalcAvailable = (bool)call_user_func($this->frontcalcAvailabilityResolver);
+        $visualEditorAvailable = $frontcalcAvailable && $this->isStorefrontEditorAvailable();
 
         $storefrontProducts = [];
         foreach ($snapshot['products'] as $product) {
@@ -79,6 +103,8 @@ final class ControlCenterEditorsService
             ]],
             'storefront' => [
                 'available' => $frontcalcAvailable,
+                'visualEditorAvailable' => $visualEditorAvailable,
+                'visualEditorContract' => self::STOREFRONT_EDITOR_CONTRACT,
                 'productIblockId' => $productIblockId,
                 'products' => $storefrontProducts,
             ],
@@ -181,6 +207,88 @@ final class ControlCenterEditorsService
         ];
     }
 
+    public function loadStorefrontWorkspace(int $productId, string $target = 'effective', string $templateId = ''): array
+    {
+        $this->validateStorefrontLaunch($productId);
+        if (!in_array($target, ['effective', 'product', 'template'], true)) {
+            throw new \InvalidArgumentException('Unsupported storefront editor target');
+        }
+        if ($target === 'template' && $templateId === '') {
+            throw new \InvalidArgumentException('templateId is required for the template target');
+        }
+        if ($target !== 'template' && $templateId !== '') {
+            throw new \InvalidArgumentException('templateId is allowed only for the template target');
+        }
+
+        return $this->assertStorefrontEditorResult(
+            $this->requireStorefrontEditor()->loadWorkspace($productId, $target, $templateId)
+        );
+    }
+
+    public function validateStorefrontSchema(int $productId, string $target, array $schema): array
+    {
+        $this->validateStorefrontLaunch($productId);
+        if (!in_array($target, ['product', 'template'], true)) {
+            throw new \InvalidArgumentException('Unsupported storefront editor target');
+        }
+
+        return $this->assertStorefrontEditorResult(
+            $this->requireStorefrontEditor()->validateSchema($productId, $target, $schema)
+        );
+    }
+
+    public function saveStorefrontTemplate(
+        int $productId,
+        string $templateId,
+        int $expectedRevision,
+        string $name,
+        int $sectionId,
+        array $schema
+    ): array {
+        $this->validateStorefrontLaunch($productId);
+
+        return $this->assertStorefrontEditorResult(
+            $this->requireStorefrontEditor()->saveTemplate(
+                $productId,
+                $templateId,
+                $expectedRevision,
+                $name,
+                $sectionId,
+                $schema
+            )
+        );
+    }
+
+    public function saveStorefrontProduct(
+        int $productId,
+        string $expectedRevision,
+        array $schema
+    ): array {
+        $this->validateStorefrontLaunch($productId);
+
+        return $this->assertStorefrontEditorResult(
+            $this->requireStorefrontEditor()->saveProduct($productId, $expectedRevision, $schema)
+        );
+    }
+
+    public function enableStorefrontInheritance(int $productId, string $expectedRevision): array
+    {
+        $this->validateStorefrontLaunch($productId);
+
+        return $this->assertStorefrontEditorResult(
+            $this->requireStorefrontEditor()->enableInheritance($productId, $expectedRevision)
+        );
+    }
+
+    public function deleteStorefrontTemplate(int $productId, string $templateId, int $expectedRevision): array
+    {
+        $this->validateStorefrontLaunch($productId);
+
+        return $this->assertStorefrontEditorResult(
+            $this->requireStorefrontEditor()->deleteTemplate($productId, $templateId, $expectedRevision)
+        );
+    }
+
     /**
      * @return array{presetName:string,offerCount:int,products:array<int,array{id:int,name:string,offerCount:int,offers:array<int,array{id:int,name:string}>}>}
      */
@@ -247,6 +355,47 @@ final class ControlCenterEditorsService
         }
 
         return $productIblockId;
+    }
+
+    private function isStorefrontEditorAvailable(): bool
+    {
+        try {
+            $this->requireStorefrontEditor();
+            return true;
+        } catch (\Throwable $exception) {
+            return false;
+        }
+    }
+
+    /** @return object */
+    private function requireStorefrontEditor()
+    {
+        try {
+            $provider = call_user_func($this->frontcalcEditorResolver);
+        } catch (\Throwable $exception) {
+            throw new \RuntimeException('The native storefront editor is unavailable');
+        }
+
+        if (!is_object($provider)) {
+            throw new \RuntimeException('The native storefront editor is unavailable');
+        }
+        foreach (self::STOREFRONT_EDITOR_METHODS as $method) {
+            if (!is_callable([$provider, $method])) {
+                throw new \RuntimeException('The native storefront editor is unavailable');
+            }
+        }
+
+        return $provider;
+    }
+
+    private function assertStorefrontEditorResult($result): array
+    {
+        if (!is_array($result)
+            || (string)($result['contract'] ?? '') !== self::STOREFRONT_EDITOR_CONTRACT) {
+            throw new \RuntimeException('The native storefront editor returned an incompatible response');
+        }
+
+        return $result;
     }
 
     /**

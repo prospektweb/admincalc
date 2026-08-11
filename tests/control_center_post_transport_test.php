@@ -118,7 +118,13 @@ namespace Prospektweb\Calc\Services {
                 'contract' => 'prospektweb.control-center.editors/v1',
                 'focusPresetId' => 12740,
                 'calculations' => [],
-                'storefront' => ['available' => true, 'productIblockId' => 7, 'products' => []],
+                'storefront' => [
+                    'available' => true,
+                    'visualEditorAvailable' => true,
+                    'visualEditorContract' => 'prospektweb.frontcalc.storefront-editor/v1',
+                    'productIblockId' => 7,
+                    'products' => [],
+                ],
                 'transport' => 'ok',
             ];
         }
@@ -142,6 +148,83 @@ namespace Prospektweb\Calc\Services {
                 'productId' => $productId,
                 'transport' => 'ok',
             ];
+        }
+
+        public function loadStorefrontWorkspace(int $productId, string $target = 'effective', string $templateId = ''): array
+        {
+            if ($productId === 99) {
+                throw new \RuntimeException('Visual editor unavailable');
+            }
+            return $this->storefrontResult('load', [
+                'productId' => $productId,
+                'target' => $target,
+                'templateId' => $templateId,
+            ]);
+        }
+
+        public function validateStorefrontSchema(int $productId, string $target, array $schema): array
+        {
+            return $this->storefrontResult('validate', [
+                'productId' => $productId,
+                'target' => $target,
+                'schema' => $schema,
+            ]);
+        }
+
+        public function saveStorefrontTemplate(
+            int $productId,
+            string $templateId,
+            int $expectedRevision,
+            string $name,
+            int $sectionId,
+            array $schema
+        ): array {
+            return $this->storefrontResult('save_template', [
+                'productId' => $productId,
+                'templateId' => $templateId,
+                'expectedRevision' => $expectedRevision,
+                'name' => $name,
+                'sectionId' => $sectionId,
+                'schema' => $schema,
+            ]);
+        }
+
+        public function saveStorefrontProduct(int $productId, string $expectedRevision, array $schema): array
+        {
+            if ($expectedRevision === str_repeat('b', 64)) {
+                throw new \RuntimeException('Individual settings changed', 409);
+            }
+            return $this->storefrontResult('save_product', [
+                'productId' => $productId,
+                'expectedRevision' => $expectedRevision,
+                'schema' => $schema,
+            ]);
+        }
+
+        public function enableStorefrontInheritance(int $productId, string $expectedRevision): array
+        {
+            return $this->storefrontResult('enable_inheritance', [
+                'productId' => $productId,
+                'expectedRevision' => $expectedRevision,
+            ]);
+        }
+
+        public function deleteStorefrontTemplate(int $productId, string $templateId, int $expectedRevision): array
+        {
+            return $this->storefrontResult('delete_template', [
+                'productId' => $productId,
+                'templateId' => $templateId,
+                'expectedRevision' => $expectedRevision,
+            ]);
+        }
+
+        private function storefrontResult(string $operation, array $extra): array
+        {
+            return array_merge([
+                'contract' => 'prospektweb.frontcalc.storefront-editor/v1',
+                'operation' => $operation,
+                'transport' => 'ok',
+            ], $extra);
         }
     }
 }
@@ -342,6 +425,9 @@ PHP;
     ]));
     $assert($editorsCatalog['status'] === 200
         && ($editorsCatalog['body']['data']['focusPresetId'] ?? 0) === 12740
+        && ($editorsCatalog['body']['data']['storefront']['visualEditorAvailable'] ?? false) === true
+        && ($editorsCatalog['body']['data']['storefront']['visualEditorContract'] ?? '')
+            === 'prospektweb.frontcalc.storefront-editor/v1'
         && ($editorsCatalog['body']['data']['transport'] ?? '') === 'ok',
         'Editors catalog form payload must pass prolog and decode');
 
@@ -366,6 +452,186 @@ PHP;
     $assert($editorsStorefront['status'] === 200
         && ($editorsStorefront['body']['data']['productIblockId'] ?? 0) === 7,
         'Editors storefront form payload must preserve the validated product ID');
+
+    $editorSchema = [
+        'version' => 2,
+        'fields' => [[
+            'property_code' => 'CALC_PROP_VOLUME',
+            'title' => 'Quantity',
+        ]],
+    ];
+    $templateId = 'abcdef0123456789';
+    $individualRevision = str_repeat('a', 64);
+
+    $editorsStorefrontLoad = $post('editors.php', 'application/x-www-form-urlencoded', $form([
+        'sessid' => 'valid',
+        'payload' => json_encode([
+            'action' => 'storefront_load',
+            'productId' => 11,
+            'target' => 'template',
+            'templateId' => $templateId,
+        ], JSON_UNESCAPED_SLASHES),
+    ]));
+    $assert($editorsStorefrontLoad['status'] === 200
+        && ($editorsStorefrontLoad['body']['data']['operation'] ?? '') === 'load'
+        && ($editorsStorefrontLoad['body']['data']['target'] ?? '') === 'template'
+        && ($editorsStorefrontLoad['body']['data']['templateId'] ?? '') === $templateId,
+        'Storefront load must preserve a validated template target');
+
+    $editorsStorefrontValidate = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_validate',
+        'productId' => 11,
+        'target' => 'product',
+        'schema' => $editorSchema,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontValidate['status'] === 200
+        && ($editorsStorefrontValidate['body']['data']['operation'] ?? '') === 'validate'
+        && ($editorsStorefrontValidate['body']['data']['schema'] ?? []) === $editorSchema,
+        'Storefront validate must preserve the typed schema object');
+
+    $editorsStorefrontTemplateCreate = $post('editors.php', 'application/x-www-form-urlencoded', $form([
+        'sessid' => 'valid',
+        'payload' => json_encode([
+            'action' => 'storefront_save_template',
+            'productId' => 11,
+            'templateId' => null,
+            'expectedRevision' => 0,
+            'name' => 'New template',
+            'sectionId' => 0,
+            'schema' => $editorSchema,
+        ], JSON_UNESCAPED_SLASHES),
+    ]));
+    $assert($editorsStorefrontTemplateCreate['status'] === 200
+        && ($editorsStorefrontTemplateCreate['body']['data']['operation'] ?? '') === 'save_template'
+        && ($editorsStorefrontTemplateCreate['body']['data']['templateId'] ?? null) === ''
+        && ($editorsStorefrontTemplateCreate['body']['data']['expectedRevision'] ?? -1) === 0,
+        'Storefront template create must map a null template ID to the provider empty ID');
+
+    $editorsStorefrontProductSave = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_save_product',
+        'productId' => 11,
+        'expectedRevision' => $individualRevision,
+        'schema' => $editorSchema,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontProductSave['status'] === 200
+        && ($editorsStorefrontProductSave['body']['data']['operation'] ?? '') === 'save_product'
+        && ($editorsStorefrontProductSave['body']['data']['expectedRevision'] ?? '') === $individualRevision,
+        'Storefront product save must preserve the individual SHA-256 revision');
+
+    $editorsStorefrontInheritance = $post('editors.php', 'application/x-www-form-urlencoded', $form([
+        'sessid' => 'valid',
+        'payload' => json_encode([
+            'action' => 'storefront_enable_inheritance',
+            'productId' => 11,
+            'expectedRevision' => $individualRevision,
+        ], JSON_UNESCAPED_SLASHES),
+    ]));
+    $assert($editorsStorefrontInheritance['status'] === 200
+        && ($editorsStorefrontInheritance['body']['data']['operation'] ?? '') === 'enable_inheritance',
+        'Storefront inheritance must pass through the existing editors transport');
+
+    $editorsStorefrontDelete = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_delete_template',
+        'productId' => 11,
+        'templateId' => $templateId,
+        'expectedRevision' => 4,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontDelete['status'] === 200
+        && ($editorsStorefrontDelete['body']['data']['operation'] ?? '') === 'delete_template'
+        && ($editorsStorefrontDelete['body']['data']['expectedRevision'] ?? 0) === 4,
+        'Storefront template delete must preserve the positive template revision');
+
+    $editorsStorefrontExtraField = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_load',
+        'productId' => 11,
+        'target' => 'effective',
+        'unexpected' => true,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontExtraField['status'] === 422
+        && ($editorsStorefrontExtraField['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront requests must reject keys outside the exact action allowlist');
+
+    $editorsStorefrontListSchema = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_validate',
+        'productId' => 11,
+        'target' => 'product',
+        'schema' => [['version' => 2]],
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontListSchema['status'] === 422
+        && ($editorsStorefrontListSchema['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront schema must be a JSON object rather than a list');
+
+    $editorsStorefrontOversizedSchema = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_validate',
+        'productId' => 11,
+        'target' => 'product',
+        'schema' => ['version' => 2, 'padding' => str_repeat('x', 60001)],
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontOversizedSchema['status'] === 422
+        && ($editorsStorefrontOversizedSchema['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront schema must be rejected above the 60 KB JSON cap');
+
+    $editorsStorefrontInvalidRevision = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_save_product',
+        'productId' => 11,
+        'expectedRevision' => 'not-a-revision',
+        'schema' => $editorSchema,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontInvalidRevision['status'] === 422
+        && ($editorsStorefrontInvalidRevision['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront product mutations must require an exact lowercase SHA-256 revision');
+
+    $editorsStorefrontStringTemplateRevision = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_delete_template',
+        'productId' => 11,
+        'templateId' => $templateId,
+        'expectedRevision' => '4',
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontStringTemplateRevision['status'] === 422
+        && ($editorsStorefrontStringTemplateRevision['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront template revisions must retain their strict integer type');
+
+    $editorsStorefrontMissingTemplateId = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_save_template',
+        'productId' => 11,
+        'expectedRevision' => 0,
+        'name' => 'New template',
+        'sectionId' => 0,
+        'schema' => $editorSchema,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontMissingTemplateId['status'] === 422
+        && ($editorsStorefrontMissingTemplateId['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront template creation must distinguish an explicit null ID from an omitted field');
+
+    $editorsStorefrontConflict = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_save_product',
+        'productId' => 11,
+        'expectedRevision' => str_repeat('b', 64),
+        'schema' => $editorSchema,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontConflict['status'] === 409
+        && ($editorsStorefrontConflict['body']['errorCode'] ?? '') === 'REVISION_CONFLICT',
+        'Provider revision conflicts must map to HTTP 409 REVISION_CONFLICT');
+
+    $editorsStorefrontUnavailable = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_load',
+        'productId' => 99,
+        'target' => 'effective',
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontUnavailable['status'] === 409
+        && ($editorsStorefrontUnavailable['body']['errorCode'] ?? '') === 'EDITOR_UNAVAILABLE',
+        'Unavailable storefront providers must fail closed with HTTP 409');
 
     $editorsInvalid = $post('editors.php', 'application/x-www-form-urlencoded', $form([
         'sessid' => 'valid',
