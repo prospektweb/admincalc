@@ -63,6 +63,34 @@ migration_same(
     ),
     'value-copy normalization must reuse and deduplicate the canonical format enum'
 );
+migration_assert(
+    CatalogCalcPropertyMigrationService::enumValuesEquivalent('90x50 мм', '90x50мм'),
+    'format labels with an optional space before the millimetre suffix must be equivalent'
+);
+migration_assert(
+    CatalogCalcPropertyMigrationService::enumValuesEquivalent("  210x297\u{202F}мм  ", '210x297мм'),
+    'Unicode spacing around a numeric millimetre suffix must be normalized'
+);
+migration_assert(
+    CatalogCalcPropertyMigrationService::enumValuesEquivalent("Формат\t90x50 мм", 'Формат 90x50мм'),
+    'typographic whitespace runs must be normalized without changing wording'
+);
+migration_assert(
+    CatalogCalcPropertyMigrationService::enumValuesEquivalent('90x50 мм (евро)', '90x50мм (евро)'),
+    'millimetre unit spacing inside an otherwise identical label must be normalized'
+);
+migration_assert(
+    !CatalogCalcPropertyMigrationService::enumValuesEquivalent('90x50 мм', '90x55мм'),
+    'different measurements must remain a substantive enum conflict'
+);
+migration_assert(
+    !CatalogCalcPropertyMigrationService::enumValuesEquivalent('90x50 мм', '90x50 см'),
+    'different units must remain a substantive enum conflict'
+);
+migration_assert(
+    !CatalogCalcPropertyMigrationService::enumValuesEquivalent('Формат 90x50 мм', 'Размер 90x50мм'),
+    'different wording must remain a substantive enum conflict'
+);
 
 $stage = [
     'offerPropertyCodes' => [],
@@ -174,6 +202,86 @@ migration_same(
     'an active foreign offer may satisfy the base-offer requirement'
 );
 
+$deprecatedConsumers = [
+    [
+        'type' => 'migrated_source_used_by_other_preset',
+        'productId' => 2400,
+        'presetId' => 2425,
+        'migrationPresetId' => 12740,
+    ],
+    [
+        'type' => 'other_preset_legacy_reference',
+        'presetId' => 1095,
+        'presetActive' => 'N',
+        'scope' => 'graph',
+        'elementId' => 1009,
+        'propertyCode' => 'OPTIONS_OPERATION',
+    ],
+];
+$strictDeprecated = CatalogCalcPropertyMigrationService::classifyDeprecatedPresetConsumers(
+    $deprecatedConsumers,
+    false
+);
+migration_same(
+    $deprecatedConsumers,
+    $strictDeprecated['conflicts'] ?? null,
+    'deprecated preset consumers must block by default'
+);
+migration_same(
+    [],
+    $strictDeprecated['acceptedDeprecatedPresetConsumers'] ?? null,
+    'default audit must not silently accept deprecated preset breakage'
+);
+
+$acceptedDeprecated = CatalogCalcPropertyMigrationService::classifyDeprecatedPresetConsumers(
+    $deprecatedConsumers,
+    true
+);
+migration_same([], $acceptedDeprecated['conflicts'] ?? null, 'explicit override may accept deprecated consumers');
+migration_same(
+    $deprecatedConsumers,
+    $acceptedDeprecated['acceptedDeprecatedPresetConsumers'] ?? null,
+    'explicit override must surface every accepted deprecated consumer'
+);
+migration_same(
+    'deprecated_preset_consumer_explicitly_accepted',
+    $acceptedDeprecated['warnings'][0]['type'] ?? null,
+    'explicit override must emit detailed warnings'
+);
+
+$strictConsumers = [
+    [
+        'type' => 'other_preset_legacy_reference',
+        'presetId' => 12740,
+        'scope' => 'graph',
+        'elementId' => 12758,
+    ],
+    [
+        'type' => 'unexpected_product_calc_property',
+        'code' => 'CALC_UNKNOWN',
+    ],
+    [
+        'type' => 'migrated_source_used_by_other_preset',
+        'productId' => 2400,
+        'presetId' => 2425,
+        'migrationPresetId' => 9999,
+    ],
+];
+$strictEvenWithOverride = CatalogCalcPropertyMigrationService::classifyDeprecatedPresetConsumers(
+    $strictConsumers,
+    true
+);
+migration_same(
+    $strictConsumers,
+    $strictEvenWithOverride['conflicts'] ?? null,
+    'override must never suppress preset 12740 or unknown product CALC conflicts'
+);
+migration_same(
+    [],
+    $strictEvenWithOverride['acceptedDeprecatedPresetConsumers'] ?? null,
+    'strict conflicts must not be presented as accepted deprecated consumers'
+);
+
 $conflict = [
     'productValues' => ['CALC_METHOD' => ['xmlId' => 'DIGITAL']],
     'offerValues' => ['CALC_PROP_METHOD' => ['xmlId' => 'OFSET']],
@@ -200,6 +308,31 @@ foreach (['shyne', 'plake', 'gmund', 'aquarello', 'design-paper'] as $xmlId) {
     migration_assert(strpos($designerFormula, '"' . $xmlId . '"') !== false, 'designer paper formula must include ' . $xmlId);
 }
 
+foreach ([
+    'audit',
+    'snapshot',
+    'execute',
+    'applySemanticFixes',
+    'rollbackSemanticFixes',
+    'materializeBaseOffers',
+    'rollbackBaseOffers',
+    'verify',
+    'cutover',
+] as $methodName) {
+    $method = new ReflectionMethod(CatalogCalcPropertyMigrationService::class, $methodName);
+    $parameters = $method->getParameters();
+    $flag = end($parameters);
+    migration_same(
+        'allowLegacyPresetBreakage',
+        $flag instanceof ReflectionParameter ? $flag->getName() : null,
+        $methodName . ' must propagate the explicit legacy-preset breakage flag'
+    );
+    migration_assert(
+        $flag instanceof ReflectionParameter && $flag->isDefaultValueAvailable() && $flag->getDefaultValue() === false,
+        $methodName . ' legacy-preset breakage flag must remain fail-closed by default'
+    );
+}
+
 $root = dirname(__DIR__);
 $serviceSource = file_get_contents($root . '/lib/Install/CatalogCalcPropertyMigrationService.php');
 $toolSource = file_get_contents($root . '/tools/catalog_calc_property_migration.php');
@@ -207,6 +340,10 @@ $includeSource = file_get_contents($root . '/include.php');
 foreach ([$serviceSource, $toolSource, $includeSource] as $source) {
     migration_assert(is_string($source), 'migration source file must be readable');
 }
+migration_assert(
+    strpos($serviceSource, "'VALUE' => (string)\$targetEnums[\$canonicalXmlId]['VALUE']") !== false,
+    'an equivalent existing offer enum must retain its canonical display label during merge'
+);
 foreach ([
     'materializeBaseOffers', 'rollbackBaseOffers', 'cutover', 'productsWithoutOffers',
     'BASE_OFFER_MARKER_PREFIX', "'QUANTITY' => 0", "'CAN_BUY_ZERO' => 'N'",
@@ -226,6 +363,8 @@ foreach ([
     'verifyMaterializedBaseOffers', 'markerSafety', 'unexpectedProductCalcProperties',
     'migrateProductFrontcalcConfigs', 'FRONTCALC_CONFIG', 'restoreJsonContainerShapes',
     'safeLinkedElementRewritePlans', 'sourceSha256', 'AI_CONTEXT_JSON CAS mismatch',
+    'classifyDeprecatedPresetConsumers', 'acceptedDeprecatedPresetConsumers',
+    "'allowLegacyPresetBreakage' => \$allowLegacyPresetBreakage",
 ] as $token) {
     migration_assert(strpos($serviceSource, $token) !== false, 'service contract token missing: ' . $token);
 }
@@ -235,6 +374,8 @@ foreach ([
     "case 'cutover'", "case 'rollback_base_offers'", 'expectedFingerprint',
     "case 'apply_semantic_fixes'", "case 'rollback_semantic_fixes'",
     "case 'audit_catalog_display'", "case 'rollback_catalog_display'", 'expectedPatchedSha256',
+    'allow-legacy-preset-breakage', 'allowLegacyPresetBreakage',
+    'invalid_legacy_preset_breakage_flag',
 ] as $token) {
     migration_assert(strpos($toolSource, $token) !== false, 'guarded tool token missing: ' . $token);
 }

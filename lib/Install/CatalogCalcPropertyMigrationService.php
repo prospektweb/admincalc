@@ -155,10 +155,86 @@ final class CatalogCalcPropertyMigrationService
         return self::PROPERTY_SORTS;
     }
 
+    /**
+     * Keep deprecated-preset breakage fail-closed unless an administrator has
+     * explicitly accepted it for the current audited migration fingerprint.
+     * The original conflict payload is retained verbatim for recovery/audit;
+     * warnings add a stable wrapper type without hiding the source conflict.
+     *
+     * @param array<int,array<string,mixed>> $consumers
+     * @return array{
+     *     conflicts:array<int,array<string,mixed>>,
+     *     acceptedDeprecatedPresetConsumers:array<int,array<string,mixed>>,
+     *     warnings:array<int,array<string,mixed>>
+     * }
+     */
+    public static function classifyDeprecatedPresetConsumers(
+        array $consumers,
+        bool $allowLegacyPresetBreakage
+    ): array {
+        $conflicts = [];
+        $accepted = [];
+        $warnings = [];
+        foreach ($consumers as $consumer) {
+            $type = (string)($consumer['type'] ?? '');
+            $consumerPresetId = (int)($consumer['presetId'] ?? 0);
+            $isSourceAssignment = $type === 'migrated_source_used_by_other_preset';
+            $eligible = $allowLegacyPresetBreakage
+                && in_array($type, [
+                    'migrated_source_used_by_other_preset',
+                    'other_preset_legacy_reference',
+                ], true)
+                && $consumerPresetId > 0
+                && $consumerPresetId !== self::DEFAULT_PRESET_ID
+                && (!$isSourceAssignment
+                    || (int)($consumer['migrationPresetId'] ?? 0) === self::DEFAULT_PRESET_ID);
+            if (!$eligible) {
+                $conflicts[] = $consumer;
+                continue;
+            }
+            $accepted[] = $consumer;
+            $warning = $consumer;
+            $warning['legacyConflictType'] = $type;
+            $warning['type'] = 'deprecated_preset_consumer_explicitly_accepted';
+            $warnings[] = $warning;
+        }
+        return [
+            'conflicts' => $conflicts,
+            'acceptedDeprecatedPresetConsumers' => $accepted,
+            'warnings' => $warnings,
+        ];
+    }
+
     public static function canonicalTargetXmlId(string $sourceCode, string $xmlId): string
     {
         $xmlId = trim($xmlId);
         return self::ENUM_XML_ID_ALIASES[$sourceCode][$xmlId] ?? $xmlId;
+    }
+
+    /**
+     * Existing offer enum labels are canonical when the XML_ID is the same.
+     * Treat only typographic whitespace and an optional space before the
+     * numeric millimetre suffix as insignificant; wording and measurements
+     * must otherwise remain byte-for-byte equivalent after normalization.
+     */
+    public static function enumValuesEquivalent(string $sourceValue, string $targetValue): bool
+    {
+        return self::normalizeEnumValue($sourceValue) === self::normalizeEnumValue($targetValue);
+    }
+
+    private static function normalizeEnumValue(string $value): string
+    {
+        $normalized = preg_replace('/[\p{Z}\x{0009}-\x{000D}]+/u', ' ', $value);
+        if (!is_string($normalized)) {
+            $normalized = $value;
+        }
+        $normalized = trim($normalized);
+
+        // CALC_FORMAT historically used both "90x50 мм" and "90x50мм".
+        // Restrict unit folding to a unit token directly following a digit so
+        // substantive text (including other units) cannot be conflated.
+        $unitNormalized = preg_replace('/(?<=[0-9]) ?мм(?=\z|[^\p{L}\p{N}_])/iu', 'мм', $normalized);
+        return is_string($unitNormalized) ? $unitNormalized : $normalized;
     }
 
     /** @param string[] $xmlIds @return string[] */
@@ -461,8 +537,11 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /** @return array<string,mixed> */
-    public function audit(int $presetId = self::DEFAULT_PRESET_ID, bool $applySemanticFixes = false): array
-    {
+    public function audit(
+        int $presetId = self::DEFAULT_PRESET_ID,
+        bool $applySemanticFixes = false,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
         $this->assertEnvironment($presetId);
         $this->resetCaches();
         $state = $this->catalogState();
@@ -519,7 +598,10 @@ final class CatalogCalcPropertyMigrationService
                     ];
                 }
                 if (isset($targetEnums[$canonicalXmlId]) && !$isAlias
-                    && trim((string)$targetEnums[$canonicalXmlId]['VALUE']) !== trim((string)$enum['VALUE'])) {
+                    && !self::enumValuesEquivalent(
+                        (string)$enum['VALUE'],
+                        (string)$targetEnums[$canonicalXmlId]['VALUE']
+                    )) {
                     $conflicts[] = [
                         'type' => 'enum_value_mismatch',
                         'sourceCode' => $sourceCode,
@@ -573,13 +655,33 @@ final class CatalogCalcPropertyMigrationService
             }
         }
 
-        $sourcePresetConsumers = $this->auditSourcePresetConsumers($state, $presetId);
+        $acceptedDeprecatedPresetConsumers = [];
+        $sourcePresetConsumers = $this->auditSourcePresetConsumers(
+            $state,
+            $presetId,
+            $allowLegacyPresetBreakage
+        );
         foreach ($sourcePresetConsumers['conflicts'] as $conflict) {
             $conflicts[] = $conflict;
         }
-        $otherPresetConsumers = $this->auditOtherPresetConsumers($presetId);
+        foreach ($sourcePresetConsumers['warnings'] as $warning) {
+            $warnings[] = $warning;
+        }
+        foreach ($sourcePresetConsumers['acceptedDeprecatedPresetConsumers'] as $consumer) {
+            $acceptedDeprecatedPresetConsumers[] = $consumer;
+        }
+        $otherPresetConsumers = $this->auditOtherPresetConsumers(
+            $presetId,
+            $allowLegacyPresetBreakage
+        );
         foreach ($otherPresetConsumers['conflicts'] as $conflict) {
             $conflicts[] = $conflict;
+        }
+        foreach ($otherPresetConsumers['warnings'] as $warning) {
+            $warnings[] = $warning;
+        }
+        foreach ($otherPresetConsumers['acceptedDeprecatedPresetConsumers'] as $consumer) {
+            $acceptedDeprecatedPresetConsumers[] = $consumer;
         }
 
         $presetAudit = $this->auditPresetRefactor($presetId, $applySemanticFixes);
@@ -612,8 +714,15 @@ final class CatalogCalcPropertyMigrationService
             ];
         }
 
-        $snapshot = $this->buildSnapshotPayload($presetId, $displayAudit);
-        $snapshot['intent'] = ['applySemanticFixes' => $applySemanticFixes];
+        $snapshot = $this->buildSnapshotPayload(
+            $presetId,
+            $displayAudit,
+            $allowLegacyPresetBreakage
+        );
+        $snapshot['intent'] = [
+            'applySemanticFixes' => $applySemanticFixes,
+            'allowLegacyPresetBreakage' => $allowLegacyPresetBreakage,
+        ];
         $fingerprint = 'sha256:' . hash('sha256', self::canonicalJson($snapshot));
 
         return [
@@ -640,6 +749,8 @@ final class CatalogCalcPropertyMigrationService
             ),
             'sourcePresetConsumers' => $sourcePresetConsumers,
             'otherPresetConsumers' => $otherPresetConsumers,
+            'allowLegacyPresetBreakage' => $allowLegacyPresetBreakage,
+            'acceptedDeprecatedPresetConsumers' => $acceptedDeprecatedPresetConsumers,
             'cutoverReady' => $conflicts === [] && $state['productsWithoutOffers'] === [],
             'presetRefactor' => $presetAudit['summary'],
             'applySemanticFixes' => $applySemanticFixes,
@@ -653,11 +764,21 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /** @return array<string,mixed> */
-    public function snapshot(int $presetId = self::DEFAULT_PRESET_ID, bool $applySemanticFixes = false): array
-    {
-        $audit = $this->audit($presetId, $applySemanticFixes);
-        $payload = $this->buildSnapshotPayload($presetId, (array)($audit['catalogDisplayConfig'] ?? []));
-        $payload['intent'] = ['applySemanticFixes' => $applySemanticFixes];
+    public function snapshot(
+        int $presetId = self::DEFAULT_PRESET_ID,
+        bool $applySemanticFixes = false,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
+        $audit = $this->audit($presetId, $applySemanticFixes, $allowLegacyPresetBreakage);
+        $payload = $this->buildSnapshotPayload(
+            $presetId,
+            (array)($audit['catalogDisplayConfig'] ?? []),
+            $allowLegacyPresetBreakage
+        );
+        $payload['intent'] = [
+            'applySemanticFixes' => $applySemanticFixes,
+            'allowLegacyPresetBreakage' => $allowLegacyPresetBreakage,
+        ];
         $payload['fingerprint'] = $audit['fingerprint'];
         return $this->writeSnapshot($payload);
     }
@@ -700,14 +821,24 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /** @return array<string,mixed> */
-    public function execute(int $presetId, string $expectedFingerprint, bool $applySemanticFixes = false): array
-    {
+    public function execute(
+        int $presetId,
+        string $expectedFingerprint,
+        bool $applySemanticFixes = false,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
         return $this->withMigrationLock(function () use (
             $presetId,
             $expectedFingerprint,
-            $applySemanticFixes
+            $applySemanticFixes,
+            $allowLegacyPresetBreakage
         ): array {
-            return $this->executeUnlocked($presetId, $expectedFingerprint, $applySemanticFixes);
+            return $this->executeUnlocked(
+                $presetId,
+                $expectedFingerprint,
+                $applySemanticFixes,
+                $allowLegacyPresetBreakage
+            );
         });
     }
 
@@ -715,20 +846,27 @@ final class CatalogCalcPropertyMigrationService
     private function executeUnlocked(
         int $presetId,
         string $expectedFingerprint,
-        bool $applySemanticFixes = false
+        bool $applySemanticFixes = false,
+        bool $allowLegacyPresetBreakage = false
     ): array {
         if ($applySemanticFixes) {
             throw new \InvalidArgumentException(
                 'Semantic fixes require the separate apply_semantic_fixes phase and a new audited fingerprint'
             );
         }
-        $audit = $this->audit($presetId, $applySemanticFixes);
+        $audit = $this->audit($presetId, $applySemanticFixes, $allowLegacyPresetBreakage);
         $this->assertFingerprint($expectedFingerprint, (string)$audit['fingerprint']);
         if ($audit['conflicts'] !== []) {
             throw new \RuntimeException('Migration audit contains blocking conflicts');
         }
-        $snapshot = $this->snapshot($presetId, $applySemanticFixes);
-        $audit = $this->assertFreshAudit($presetId, $expectedFingerprint, $applySemanticFixes);
+        $snapshot = $this->snapshot($presetId, $applySemanticFixes, $allowLegacyPresetBreakage);
+        $audit = $this->assertFreshAudit(
+            $presetId,
+            $expectedFingerprint,
+            $applySemanticFixes,
+            true,
+            $allowLegacyPresetBreakage
+        );
         if (!in_array($this->migrationPhase(), ['materialized', 'parity_started', 'parity_complete'], true)) {
             throw new \RuntimeException('Execute requires a completed materialize_base_offers phase');
         }
@@ -775,7 +913,11 @@ final class CatalogCalcPropertyMigrationService
         $displayPatch = $this->applyCatalogDisplayConfig((array)($audit['catalogDisplayConfig'] ?? []));
         $refresh = $this->refreshCatalogSurfaces();
         $this->resetCaches();
-        $verification = $this->verify($presetId, $applySemanticFixes);
+        $verification = $this->verify(
+            $presetId,
+            $applySemanticFixes,
+            $allowLegacyPresetBreakage
+        );
         if ($verification['errors'] !== []) {
             throw new \RuntimeException('Post-migration verification failed: ' . self::canonicalJson($verification['errors']));
         }
@@ -792,27 +934,41 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /** @return array<string,mixed> */
-    public function applySemanticFixes(int $presetId, string $expectedFingerprint): array
-    {
-        return $this->withMigrationLock(function () use ($presetId, $expectedFingerprint): array {
-            return $this->applySemanticFixesUnlocked($presetId, $expectedFingerprint);
+    public function applySemanticFixes(
+        int $presetId,
+        string $expectedFingerprint,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
+        return $this->withMigrationLock(function () use (
+            $presetId,
+            $expectedFingerprint,
+            $allowLegacyPresetBreakage
+        ): array {
+            return $this->applySemanticFixesUnlocked(
+                $presetId,
+                $expectedFingerprint,
+                $allowLegacyPresetBreakage
+            );
         });
     }
 
     /** @return array<string,mixed> */
-    private function applySemanticFixesUnlocked(int $presetId, string $expectedFingerprint): array
-    {
-        $audit = $this->audit($presetId, true);
+    private function applySemanticFixesUnlocked(
+        int $presetId,
+        string $expectedFingerprint,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
+        $audit = $this->audit($presetId, true, $allowLegacyPresetBreakage);
         $this->assertFingerprint($expectedFingerprint, (string)$audit['fingerprint']);
         if ($audit['conflicts'] !== []) {
             throw new \RuntimeException('Migration audit contains blocking conflicts');
         }
-        $parityVerification = $this->verify($presetId, false);
+        $parityVerification = $this->verify($presetId, false, $allowLegacyPresetBreakage);
         if ($parityVerification['errors'] !== []) {
             throw new \RuntimeException('Parity migration must be verified before semantic fixes');
         }
-        $snapshot = $this->snapshot($presetId, true);
-        $this->assertFreshAudit($presetId, $expectedFingerprint, true);
+        $snapshot = $this->snapshot($presetId, true, $allowLegacyPresetBreakage);
+        $this->assertFreshAudit($presetId, $expectedFingerprint, true, true, $allowLegacyPresetBreakage);
         $connection = Application::getConnection();
         $connection->startTransaction();
         try {
@@ -825,7 +981,7 @@ final class CatalogCalcPropertyMigrationService
             $connection->rollbackTransaction();
             throw $error;
         }
-        $verification = $this->verify($presetId, true);
+        $verification = $this->verify($presetId, true, $allowLegacyPresetBreakage);
         if ($verification['errors'] !== []) {
             throw new \RuntimeException('Semantic fix verification failed');
         }
@@ -838,24 +994,38 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /** @return array<string,mixed> */
-    public function rollbackSemanticFixes(int $presetId, string $expectedFingerprint): array
-    {
-        return $this->withMigrationLock(function () use ($presetId, $expectedFingerprint): array {
-            return $this->rollbackSemanticFixesUnlocked($presetId, $expectedFingerprint);
+    public function rollbackSemanticFixes(
+        int $presetId,
+        string $expectedFingerprint,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
+        return $this->withMigrationLock(function () use (
+            $presetId,
+            $expectedFingerprint,
+            $allowLegacyPresetBreakage
+        ): array {
+            return $this->rollbackSemanticFixesUnlocked(
+                $presetId,
+                $expectedFingerprint,
+                $allowLegacyPresetBreakage
+            );
         });
     }
 
     /** @return array<string,mixed> */
-    private function rollbackSemanticFixesUnlocked(int $presetId, string $expectedFingerprint): array
-    {
-        $audit = $this->audit($presetId, true);
+    private function rollbackSemanticFixesUnlocked(
+        int $presetId,
+        string $expectedFingerprint,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
+        $audit = $this->audit($presetId, true, $allowLegacyPresetBreakage);
         $this->assertFingerprint($expectedFingerprint, (string)$audit['fingerprint']);
-        $semanticVerification = $this->verify($presetId, true);
+        $semanticVerification = $this->verify($presetId, true, $allowLegacyPresetBreakage);
         if ($semanticVerification['errors'] !== []) {
             throw new \RuntimeException('Semantic fixes are not in their verified state');
         }
-        $snapshot = $this->snapshot($presetId, true);
-        $this->assertFreshAudit($presetId, $expectedFingerprint, true);
+        $snapshot = $this->snapshot($presetId, true, $allowLegacyPresetBreakage);
+        $this->assertFreshAudit($presetId, $expectedFingerprint, true, true, $allowLegacyPresetBreakage);
         $connection = Application::getConnection();
         $connection->startTransaction();
         try {
@@ -868,7 +1038,7 @@ final class CatalogCalcPropertyMigrationService
             $connection->rollbackTransaction();
             throw $error;
         }
-        $verification = $this->verify($presetId, false);
+        $verification = $this->verify($presetId, false, $allowLegacyPresetBreakage);
         if ($verification['errors'] !== []) {
             throw new \RuntimeException('Semantic rollback verification failed');
         }
@@ -881,17 +1051,31 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /** @return array<string,mixed> */
-    public function materializeBaseOffers(int $presetId, string $expectedFingerprint): array
-    {
-        return $this->withMigrationLock(function () use ($presetId, $expectedFingerprint): array {
-            return $this->materializeBaseOffersUnlocked($presetId, $expectedFingerprint);
+    public function materializeBaseOffers(
+        int $presetId,
+        string $expectedFingerprint,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
+        return $this->withMigrationLock(function () use (
+            $presetId,
+            $expectedFingerprint,
+            $allowLegacyPresetBreakage
+        ): array {
+            return $this->materializeBaseOffersUnlocked(
+                $presetId,
+                $expectedFingerprint,
+                $allowLegacyPresetBreakage
+            );
         });
     }
 
     /** @return array<string,mixed> */
-    private function materializeBaseOffersUnlocked(int $presetId, string $expectedFingerprint): array
-    {
-        $audit = $this->audit($presetId, false);
+    private function materializeBaseOffersUnlocked(
+        int $presetId,
+        string $expectedFingerprint,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
+        $audit = $this->audit($presetId, false, $allowLegacyPresetBreakage);
         $this->assertFingerprint($expectedFingerprint, (string)$audit['fingerprint']);
         if ($audit['conflicts'] !== []) {
             throw new \RuntimeException('Migration audit contains blocking conflicts');
@@ -908,8 +1092,8 @@ final class CatalogCalcPropertyMigrationService
         if ($unknown !== []) {
             throw new \RuntimeException('Unexpected products without offers: ' . implode(',', $unknown));
         }
-        $snapshot = $this->snapshot($presetId, false);
-        $this->assertFreshAudit($presetId, $expectedFingerprint, false);
+        $snapshot = $this->snapshot($presetId, false, $allowLegacyPresetBreakage);
+        $this->assertFreshAudit($presetId, $expectedFingerprint, false, true, $allowLegacyPresetBreakage);
         $created = [];
         $reconciled = [];
         $skipped = [];
@@ -987,25 +1171,39 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /** @return array<string,mixed> */
-    public function rollbackBaseOffers(int $presetId, string $expectedFingerprint): array
-    {
-        return $this->withMigrationLock(function () use ($presetId, $expectedFingerprint): array {
-            return $this->rollbackBaseOffersUnlocked($presetId, $expectedFingerprint);
+    public function rollbackBaseOffers(
+        int $presetId,
+        string $expectedFingerprint,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
+        return $this->withMigrationLock(function () use (
+            $presetId,
+            $expectedFingerprint,
+            $allowLegacyPresetBreakage
+        ): array {
+            return $this->rollbackBaseOffersUnlocked(
+                $presetId,
+                $expectedFingerprint,
+                $allowLegacyPresetBreakage
+            );
         });
     }
 
     /** @return array<string,mixed> */
-    private function rollbackBaseOffersUnlocked(int $presetId, string $expectedFingerprint): array
-    {
-        $audit = $this->audit($presetId, false);
+    private function rollbackBaseOffersUnlocked(
+        int $presetId,
+        string $expectedFingerprint,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
+        $audit = $this->audit($presetId, false, $allowLegacyPresetBreakage);
         $this->assertFingerprint($expectedFingerprint, (string)$audit['fingerprint']);
         $this->assertAllSourcesActive('Base offer rollback');
         if ($this->migrationPhase() !== 'materialized') {
             throw new \RuntimeException('Base offer rollback is allowed only before parity refactor');
         }
         $this->assertPreParityStructure($presetId, 'Base offer rollback');
-        $snapshot = $this->snapshot($presetId, false);
-        $this->assertFreshAudit($presetId, $expectedFingerprint, false, false);
+        $snapshot = $this->snapshot($presetId, false, $allowLegacyPresetBreakage);
+        $this->assertFreshAudit($presetId, $expectedFingerprint, false, false, $allowLegacyPresetBreakage);
         $markers = $this->createdBaseOfferMarkers();
         $rolledBack = [];
         $connection = Application::getConnection();
@@ -1056,14 +1254,24 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /** @return array<string,mixed> */
-    public function cutover(int $presetId, string $expectedFingerprint, bool $requireSemanticFixes = false): array
-    {
+    public function cutover(
+        int $presetId,
+        string $expectedFingerprint,
+        bool $requireSemanticFixes = false,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
         return $this->withMigrationLock(function () use (
             $presetId,
             $expectedFingerprint,
-            $requireSemanticFixes
+            $requireSemanticFixes,
+            $allowLegacyPresetBreakage
         ): array {
-            return $this->cutoverUnlocked($presetId, $expectedFingerprint, $requireSemanticFixes);
+            return $this->cutoverUnlocked(
+                $presetId,
+                $expectedFingerprint,
+                $requireSemanticFixes,
+                $allowLegacyPresetBreakage
+            );
         });
     }
 
@@ -1071,16 +1279,25 @@ final class CatalogCalcPropertyMigrationService
     private function cutoverUnlocked(
         int $presetId,
         string $expectedFingerprint,
-        bool $requireSemanticFixes = false
+        bool $requireSemanticFixes = false,
+        bool $allowLegacyPresetBreakage = false
     ): array {
-        $audit = $this->audit($presetId, $requireSemanticFixes);
+        $audit = $this->audit(
+            $presetId,
+            $requireSemanticFixes,
+            $allowLegacyPresetBreakage
+        );
         $this->assertFingerprint($expectedFingerprint, (string)$audit['fingerprint']);
         if ($audit['conflicts'] !== []) {
             throw new \RuntimeException(
                 'Source deactivation audit contains blocking conflicts: ' . self::canonicalJson($audit['conflicts'])
             );
         }
-        $verification = $this->verify($presetId, $requireSemanticFixes);
+        $verification = $this->verify(
+            $presetId,
+            $requireSemanticFixes,
+            $allowLegacyPresetBreakage
+        );
         if ($verification['errors'] === [] && ($verification['phase'] ?? '') === 'complete') {
             // This invocation did not deactivate the sources.  Persist the
             // completed state before refreshing so a retry can never attempt
@@ -1088,7 +1305,11 @@ final class CatalogCalcPropertyMigrationService
             $this->setMigrationPhase('complete');
             try {
                 $catalogRefresh = $this->refreshCatalogSurfaces();
-                $final = $this->verify($presetId, $requireSemanticFixes);
+                $final = $this->verify(
+                    $presetId,
+                    $requireSemanticFixes,
+                    $allowLegacyPresetBreakage
+                );
                 if ($final['errors'] !== [] || ($final['phase'] ?? '') !== 'complete') {
                     throw new \RuntimeException('Repeated cutover verification failed');
                 }
@@ -1112,8 +1333,18 @@ final class CatalogCalcPropertyMigrationService
         if (!in_array($this->migrationPhase(), ['parity_complete'], true)) {
             throw new \RuntimeException('Source deactivation requires durable parity_complete phase');
         }
-        $snapshot = $this->snapshot($presetId, $requireSemanticFixes);
-        $this->assertFreshAudit($presetId, $expectedFingerprint, $requireSemanticFixes);
+        $snapshot = $this->snapshot(
+            $presetId,
+            $requireSemanticFixes,
+            $allowLegacyPresetBreakage
+        );
+        $this->assertFreshAudit(
+            $presetId,
+            $expectedFingerprint,
+            $requireSemanticFixes,
+            true,
+            $allowLegacyPresetBreakage
+        );
         $connection = Application::getConnection();
         $connection->startTransaction();
         try {
@@ -1139,12 +1370,21 @@ final class CatalogCalcPropertyMigrationService
         $this->resetCaches();
         try {
             $catalogRefresh = $this->refreshCatalogSurfaces();
-            $final = $this->verify($presetId, $requireSemanticFixes);
+            $final = $this->verify(
+                $presetId,
+                $requireSemanticFixes,
+                $allowLegacyPresetBreakage
+            );
             if ($final['errors'] !== [] || ($final['phase'] ?? '') !== 'complete') {
                 throw new \RuntimeException('Cutover verification failed');
             }
         } catch (\Throwable $error) {
-            $this->throwAfterFailedCutover($presetId, $requireSemanticFixes, $error);
+            $this->throwAfterFailedCutover(
+                $presetId,
+                $requireSemanticFixes,
+                $allowLegacyPresetBreakage,
+                $error
+            );
         }
         $this->setMigrationPhase('complete');
         return [
@@ -1159,10 +1399,15 @@ final class CatalogCalcPropertyMigrationService
     private function throwAfterFailedCutover(
         int $presetId,
         bool $requireSemanticFixes,
+        bool $allowLegacyPresetBreakage,
         \Throwable $cutoverError
     ): void {
         try {
-            $rollback = $this->reactivateSourcesAfterFailedCutover($presetId, $requireSemanticFixes);
+            $rollback = $this->reactivateSourcesAfterFailedCutover(
+                $presetId,
+                $requireSemanticFixes,
+                $allowLegacyPresetBreakage
+            );
         } catch (\Throwable $rollbackError) {
             throw new \RuntimeException(
                 'Cutover failed and automatic source reactivation failed: '
@@ -1182,7 +1427,8 @@ final class CatalogCalcPropertyMigrationService
     /** @return array<string,mixed> */
     private function reactivateSourcesAfterFailedCutover(
         int $presetId,
-        bool $requireSemanticFixes
+        bool $requireSemanticFixes,
+        bool $allowLegacyPresetBreakage
     ): array {
         $state = $this->catalogState();
         $connection = Application::getConnection();
@@ -1222,7 +1468,11 @@ final class CatalogCalcPropertyMigrationService
             throw new \RuntimeException('Automatic source reactivation did not restore all source properties');
         }
         $this->setMigrationPhase('parity_complete');
-        $verification = $this->verify($presetId, $requireSemanticFixes);
+        $verification = $this->verify(
+            $presetId,
+            $requireSemanticFixes,
+            $allowLegacyPresetBreakage
+        );
         return [
             'status' => $verification['errors'] === [] && ($verification['phase'] ?? '') === 'ready_for_cutover'
                 ? 'ready_for_cutover'
@@ -1235,8 +1485,11 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /** @return array<string,mixed> */
-    public function verify(int $presetId = self::DEFAULT_PRESET_ID, bool $requireSemanticFixes = false): array
-    {
+    public function verify(
+        int $presetId = self::DEFAULT_PRESET_ID,
+        bool $requireSemanticFixes = false,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
         $this->assertEnvironment($presetId);
         $this->resetCaches();
         $state = $this->catalogState();
@@ -1274,7 +1527,10 @@ final class CatalogCalcPropertyMigrationService
                 }
                 if (!isset($targetEnums[$canonicalXmlId])
                     || (!$isAlias
-                        && trim((string)$targetEnums[$canonicalXmlId]['VALUE']) !== trim((string)$sourceEnum['VALUE']))) {
+                        && !self::enumValuesEquivalent(
+                            (string)$sourceEnum['VALUE'],
+                            (string)$targetEnums[$canonicalXmlId]['VALUE']
+                        ))) {
                     $errors[] = [
                         'type' => 'target_enum_missing_or_different',
                         'targetCode' => $targetCode,
@@ -1295,11 +1551,33 @@ final class CatalogCalcPropertyMigrationService
         foreach ($this->verifyMaterializedBaseOffers()['errors'] as $baseOfferError) {
             $errors[] = $baseOfferError;
         }
-        foreach ($this->auditSourcePresetConsumers($state, $presetId)['conflicts'] as $conflict) {
+        $acceptedDeprecatedPresetConsumers = [];
+        $sourcePresetConsumers = $this->auditSourcePresetConsumers(
+            $state,
+            $presetId,
+            $allowLegacyPresetBreakage
+        );
+        foreach ($sourcePresetConsumers['conflicts'] as $conflict) {
             $errors[] = $conflict;
         }
-        foreach ($this->auditOtherPresetConsumers($presetId)['conflicts'] as $conflict) {
+        foreach ($sourcePresetConsumers['warnings'] as $warning) {
+            $warnings[] = $warning;
+        }
+        foreach ($sourcePresetConsumers['acceptedDeprecatedPresetConsumers'] as $consumer) {
+            $acceptedDeprecatedPresetConsumers[] = $consumer;
+        }
+        $otherPresetConsumers = $this->auditOtherPresetConsumers(
+            $presetId,
+            $allowLegacyPresetBreakage
+        );
+        foreach ($otherPresetConsumers['conflicts'] as $conflict) {
             $errors[] = $conflict;
+        }
+        foreach ($otherPresetConsumers['warnings'] as $warning) {
+            $warnings[] = $warning;
+        }
+        foreach ($otherPresetConsumers['acceptedDeprecatedPresetConsumers'] as $consumer) {
+            $acceptedDeprecatedPresetConsumers[] = $consumer;
         }
         foreach ($this->verifyPropertySorts() as $error) {
             $errors[] = $error;
@@ -1351,6 +1629,8 @@ final class CatalogCalcPropertyMigrationService
             'phase' => $phase,
             'presetId' => $presetId,
             'semanticFixesRequired' => $requireSemanticFixes,
+            'allowLegacyPresetBreakage' => $allowLegacyPresetBreakage,
+            'acceptedDeprecatedPresetConsumers' => $acceptedDeprecatedPresetConsumers,
             'cutoverReady' => $cutoverReady,
             'sourceStates' => $sourceActive,
             'transferCounts' => $state['transferCounts'],
@@ -1406,10 +1686,11 @@ final class CatalogCalcPropertyMigrationService
         int $presetId,
         string $expectedFingerprint,
         bool $semanticFixes,
-        bool $requireConflictFree = true
+        bool $requireConflictFree = true,
+        bool $allowLegacyPresetBreakage = false
     ): array
     {
-        $audit = $this->audit($presetId, $semanticFixes);
+        $audit = $this->audit($presetId, $semanticFixes, $allowLegacyPresetBreakage);
         $this->assertFingerprint($expectedFingerprint, (string)$audit['fingerprint']);
         if ($requireConflictFree && $audit['conflicts'] !== []) {
             throw new \RuntimeException('Migration audit contains blocking conflicts');
@@ -2242,7 +2523,10 @@ final class CatalogCalcPropertyMigrationService
             }
             if (isset($targetEnums[$canonicalXmlId])) {
                 if (!$isAlias
-                    && trim((string)$targetEnums[$canonicalXmlId]['VALUE']) !== trim((string)$sourceEnum['VALUE'])) {
+                    && !self::enumValuesEquivalent(
+                        (string)$sourceEnum['VALUE'],
+                        (string)$targetEnums[$canonicalXmlId]['VALUE']
+                    )) {
                     throw new \RuntimeException(
                         'Enum conflict ' . $sourceCode . ' -> ' . $targetCode . ' for XML_ID ' . $canonicalXmlId
                     );
@@ -2253,7 +2537,9 @@ final class CatalogCalcPropertyMigrationService
                     continue;
                 }
                 if (!$enumApi->Update((int)$targetEnums[$canonicalXmlId]['ID'], [
-                    'VALUE' => (string)$sourceEnum['VALUE'],
+                    // Preserve the canonical offer-facing label even when the
+                    // product label differs only by normalized spacing.
+                    'VALUE' => (string)$targetEnums[$canonicalXmlId]['VALUE'],
                     'SORT' => (int)$sourceEnum['SORT'],
                     'DEF' => (string)$sourceEnum['DEF'],
                     'XML_ID' => $canonicalXmlId,
@@ -2470,11 +2756,21 @@ final class CatalogCalcPropertyMigrationService
         return array_values($ids);
     }
 
-    /** @return array{assignments:array<int,array<string,mixed>>,conflicts:array<int,array<string,mixed>>} */
-    private function auditSourcePresetConsumers(array $state, int $presetId): array
-    {
+    /**
+     * @return array{
+     *     assignments:array<int,array<string,mixed>>,
+     *     conflicts:array<int,array<string,mixed>>,
+     *     acceptedDeprecatedPresetConsumers:array<int,array<string,mixed>>,
+     *     warnings:array<int,array<string,mixed>>
+     * }
+     */
+    private function auditSourcePresetConsumers(
+        array $state,
+        int $presetId,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
         $assignments = [];
-        $conflicts = [];
+        $deprecatedConsumers = [];
         foreach (array_keys((array)$state['productValues']) as $productId) {
             $presetIds = $this->propertyElementIds(
                 (int)$state['productIblockId'],
@@ -2490,7 +2786,7 @@ final class CatalogCalcPropertyMigrationService
             ];
             foreach ($presetIds as $assignedPresetId) {
                 if ((int)$assignedPresetId !== $presetId) {
-                    $conflicts[] = [
+                    $deprecatedConsumers[] = [
                         'type' => 'migrated_source_used_by_other_preset',
                         'productId' => (int)$productId,
                         'presetId' => (int)$assignedPresetId,
@@ -2499,7 +2795,11 @@ final class CatalogCalcPropertyMigrationService
                 }
             }
         }
-        return ['assignments' => $assignments, 'conflicts' => $conflicts];
+        return ['assignments' => $assignments]
+            + self::classifyDeprecatedPresetConsumers(
+                $deprecatedConsumers,
+                $allowLegacyPresetBreakage
+            );
     }
 
     /** @return array<string,mixed> */
@@ -2807,13 +3107,23 @@ final class CatalogCalcPropertyMigrationService
         ];
     }
 
-    /** @return array{presetIds:int[],references:array<int,array<string,mixed>>,conflicts:array<int,array<string,mixed>>} */
-    private function auditOtherPresetConsumers(int $migrationPresetId): array
-    {
+    /**
+     * @return array{
+     *     presetIds:int[],
+     *     references:array<int,array<string,mixed>>,
+     *     conflicts:array<int,array<string,mixed>>,
+     *     acceptedDeprecatedPresetConsumers:array<int,array<string,mixed>>,
+     *     warnings:array<int,array<string,mixed>>
+     * }
+     */
+    private function auditOtherPresetConsumers(
+        int $migrationPresetId,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
         $presetIblockId = (new ConfigManager())->getIblockId('CALC_PRESETS');
         $presetIds = [];
         $references = [];
-        $conflicts = [];
+        $deprecatedConsumers = [];
         $cursor = \CIBlockElement::GetList(
             ['ID' => 'ASC'],
             ['IBLOCK_ID' => $presetIblockId],
@@ -2834,7 +3144,7 @@ final class CatalogCalcPropertyMigrationService
                     'scope' => 'graph',
                 ] + $reference;
                 $references[] = $entry;
-                $conflicts[] = ['type' => 'other_preset_legacy_reference'] + $entry;
+                $deprecatedConsumers[] = ['type' => 'other_preset_legacy_reference'] + $entry;
             }
             $globalAudit = $this->scanPresetGlobalLegacyReferences($presetId);
             foreach ($globalAudit['references'] as $reference) {
@@ -2844,14 +3154,16 @@ final class CatalogCalcPropertyMigrationService
                     'scope' => 'global',
                 ] + $reference;
                 $references[] = $entry;
-                $conflicts[] = ['type' => 'other_preset_legacy_reference'] + $entry;
+                $deprecatedConsumers[] = ['type' => 'other_preset_legacy_reference'] + $entry;
             }
         }
         return [
             'presetIds' => $presetIds,
             'references' => $references,
-            'conflicts' => $conflicts,
-        ];
+        ] + self::classifyDeprecatedPresetConsumers(
+            $deprecatedConsumers,
+            $allowLegacyPresetBreakage
+        );
     }
 
     private function rewriteGraphJsonReferences(array $graph, array $plans): void
@@ -4351,8 +4663,11 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /** @return array<string,mixed> */
-    private function buildSnapshotPayload(int $presetId, ?array $displayAudit = null): array
-    {
+    private function buildSnapshotPayload(
+        int $presetId,
+        ?array $displayAudit = null,
+        bool $allowLegacyPresetBreakage = false
+    ): array {
         $state = $this->catalogState();
         $propertyDefinitions = [];
         foreach (self::PROPERTY_MAP as $sourceCode => $targetCode) {
@@ -4393,6 +4708,19 @@ final class CatalogCalcPropertyMigrationService
             }
             $graphSnapshot[] = $element + ['properties' => $properties];
         }
+        $sourcePresetConsumers = $this->auditSourcePresetConsumers(
+            $state,
+            $presetId,
+            $allowLegacyPresetBreakage
+        );
+        $otherPresetConsumers = $this->auditOtherPresetConsumers(
+            $presetId,
+            $allowLegacyPresetBreakage
+        );
+        $acceptedDeprecatedPresetConsumers = array_merge(
+            (array)($sourcePresetConsumers['acceptedDeprecatedPresetConsumers'] ?? []),
+            (array)($otherPresetConsumers['acceptedDeprecatedPresetConsumers'] ?? [])
+        );
 
         return [
             'schema' => self::SNAPSHOT_SCHEMA,
@@ -4400,6 +4728,8 @@ final class CatalogCalcPropertyMigrationService
             'moduleId' => self::MODULE_ID,
             'migrationPhase' => $this->migrationPhase(),
             'presetId' => $presetId,
+            'allowLegacyPresetBreakage' => $allowLegacyPresetBreakage,
+            'acceptedDeprecatedPresetConsumers' => $acceptedDeprecatedPresetConsumers,
             'productIblockId' => (int)$state['productIblockId'],
             'offerIblockId' => (int)$state['offerIblockId'],
             'propertyMap' => self::PROPERTY_MAP,
@@ -4421,8 +4751,8 @@ final class CatalogCalcPropertyMigrationService
                 self::BASE_OFFER_OPTION,
                 ''
             ),
-            'sourcePresetConsumers' => $this->auditSourcePresetConsumers($state, $presetId),
-            'otherPresetConsumers' => $this->auditOtherPresetConsumers($presetId),
+            'sourcePresetConsumers' => $sourcePresetConsumers,
+            'otherPresetConsumers' => $otherPresetConsumers,
             'presetGraph' => $graphSnapshot,
             'globalSymbols' => $this->snapshotGlobalSymbols($presetId),
             'aiContextSelectionOption' => (string)\Bitrix\Main\Config\Option::get(
@@ -4584,6 +4914,10 @@ final class CatalogCalcPropertyMigrationService
             'sha256' => $storedHash,
             'bytes' => (int)$bytes,
             'fingerprint' => $fingerprint,
+            'allowLegacyPresetBreakage' => !empty($payload['allowLegacyPresetBreakage']),
+            'acceptedDeprecatedPresetConsumers' => array_values((array)(
+                $payload['acceptedDeprecatedPresetConsumers'] ?? []
+            )),
         ];
     }
 

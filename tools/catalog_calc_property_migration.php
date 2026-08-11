@@ -68,6 +68,7 @@ if ($requestMethod === 'GET') {
             .semantic { padding-top: 16px; border-top: 1px solid #dce3e8; }
             .checkbox { display: flex; align-items: center; gap: 8px; margin: 0 0 16px; font-weight: 400; }
             .confirmation { margin-top: 20px; padding: 12px; border: 1px solid #e0b4b4; border-radius: 4px; background: #fff8f8; }
+            .legacy-breakage { padding: 12px; border: 1px solid #d88989; border-radius: 4px; background: #fff0f0; color: #7d2020; }
             .rollback { margin-top: 18px; padding-top: 16px; border-top: 1px dashed #d9a0a0; }
             .hint { color: #566673; font-size: 13px; }
         </style>
@@ -83,6 +84,7 @@ if ($requestMethod === 'GET') {
             <input id="action-value" type="hidden" name="action" value="">
             <input id="confirm-action" type="hidden" name="confirmAction" value="">
             <input id="semantic-value" type="hidden" name="applySemanticFixes" value="false">
+            <input id="legacy-breakage-value" type="hidden" name="allowLegacyPresetBreakage" value="false">
             <div class="shared">
                 <label>Preset ID
                     <input type="number" name="presetId" value="<?= (int)$presetId ?>" min="1" required>
@@ -96,6 +98,11 @@ if ($requestMethod === 'GET') {
                 Учитывать смысловые исправления только в audit / verify / cutover
             </label>
             <p class="hint">Snapshot, создание базовых ТП и перенос свойств всегда выполняются без смысловых исправлений.</p>
+            <label class="checkbox legacy-breakage">
+                <input id="allow-legacy-preset-breakage" type="checkbox" value="true">
+                Я явно принимаю, что устаревшие пресеты, кроме #12740, перестанут работать после отключения свойств товаров
+            </label>
+            <p class="hint">По умолчанию такие потребители блокируют миграцию. Выбор включается в audit fingerprint и должен оставаться одинаковым на всех этапах.</p>
 
             <h2>Основные этапы</h2>
             <div class="actions">
@@ -142,6 +149,8 @@ if ($requestMethod === 'GET') {
                 document.getElementById('semantic-fixes').checked && semanticActions.indexOf(action) !== -1
                     ? 'true'
                     : 'false';
+            document.getElementById('legacy-breakage-value').value =
+                document.getElementById('allow-legacy-preset-breakage').checked ? 'true' : 'false';
             document.getElementById('confirm-action').value = '';
             if (isMutation) {
                 if (!document.getElementById('confirm-mutation').checked) {
@@ -218,15 +227,24 @@ $semanticFixes = filter_var(
 if ($semanticFixes === null) {
     $respond(['status' => 'error', 'error' => 'invalid_semantic_fix_flag'], 400);
 }
+$legacyBreakageValue = $request['allowLegacyPresetBreakage'] ?? false;
+if (is_bool($legacyBreakageValue)) {
+    $allowLegacyPresetBreakage = $legacyBreakageValue;
+} elseif (is_string($legacyBreakageValue)
+    && in_array($legacyBreakageValue, ['true', 'false'], true)) {
+    $allowLegacyPresetBreakage = $legacyBreakageValue === 'true';
+} else {
+    $respond(['status' => 'error', 'error' => 'invalid_legacy_preset_breakage_flag'], 400);
+}
 
 try {
     $service = new CatalogCalcPropertyMigrationService();
     switch ($action) {
         case 'audit':
-            $result = $service->audit($presetId, $semanticFixes);
+            $result = $service->audit($presetId, $semanticFixes, $allowLegacyPresetBreakage);
             break;
         case 'snapshot':
-            $result = $service->snapshot($presetId, $semanticFixes);
+            $result = $service->snapshot($presetId, $semanticFixes, $allowLegacyPresetBreakage);
             break;
         case 'audit_catalog_display':
             $result = $service->auditCatalogDisplay($presetId);
@@ -241,41 +259,47 @@ try {
             $result = $service->execute(
                 $presetId,
                 trim((string)($request['expectedFingerprint'] ?? '')),
-                $semanticFixes
+                $semanticFixes,
+                $allowLegacyPresetBreakage
             );
             break;
         case 'apply_semantic_fixes':
             $result = $service->applySemanticFixes(
                 $presetId,
-                trim((string)($request['expectedFingerprint'] ?? ''))
+                trim((string)($request['expectedFingerprint'] ?? '')),
+                $allowLegacyPresetBreakage
             );
             break;
         case 'rollback_semantic_fixes':
             $result = $service->rollbackSemanticFixes(
                 $presetId,
-                trim((string)($request['expectedFingerprint'] ?? ''))
+                trim((string)($request['expectedFingerprint'] ?? '')),
+                $allowLegacyPresetBreakage
             );
             break;
         case 'materialize_base_offers':
             $result = $service->materializeBaseOffers(
                 $presetId,
-                trim((string)($request['expectedFingerprint'] ?? ''))
+                trim((string)($request['expectedFingerprint'] ?? '')),
+                $allowLegacyPresetBreakage
             );
             break;
         case 'verify':
-            $result = $service->verify($presetId, $semanticFixes);
+            $result = $service->verify($presetId, $semanticFixes, $allowLegacyPresetBreakage);
             break;
         case 'cutover':
             $result = $service->cutover(
                 $presetId,
                 trim((string)($request['expectedFingerprint'] ?? '')),
-                $semanticFixes
+                $semanticFixes,
+                $allowLegacyPresetBreakage
             );
             break;
         case 'rollback_base_offers':
             $result = $service->rollbackBaseOffers(
                 $presetId,
-                trim((string)($request['expectedFingerprint'] ?? ''))
+                trim((string)($request['expectedFingerprint'] ?? '')),
+                $allowLegacyPresetBreakage
             );
             break;
         default:

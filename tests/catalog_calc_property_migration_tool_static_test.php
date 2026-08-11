@@ -31,6 +31,24 @@ $assertions = [
         "!in_array(\$action, ['audit', 'verify', 'cutover'], true)"
     ) !== false,
     'semantic apply and rollback are visually separated' => strpos($source, 'class="rollback danger"') !== false,
+    'legacy preset breakage requires an explicit unchecked acknowledgement' => strpos(
+        $source,
+        'id="allow-legacy-preset-breakage" type="checkbox"'
+    ) !== false && strpos(
+        $source,
+        'name="allowLegacyPresetBreakage" value="false"'
+    ) !== false,
+    'legacy preset breakage flag uses strict boolean parsing' => strpos(
+        $source,
+        "in_array(\$legacyBreakageValue, ['true', 'false'], true)"
+    ) !== false && strpos(
+        $source,
+        "'error' => 'invalid_legacy_preset_breakage_flag'"
+    ) !== false,
+    'legacy preset breakage choice is propagated to every guarded phase' => substr_count(
+        $source,
+        '$allowLegacyPresetBreakage'
+    ) >= 11,
 ];
 
 $requiredActions = [
