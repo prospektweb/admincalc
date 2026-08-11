@@ -141,7 +141,6 @@ if ($requestMethod === 'GET') {
             'rollback_semantic_fixes'
         ];
         form.addEventListener('submit', function (event) {
-            event.preventDefault();
             var action = event.submitter ? event.submitter.value : '';
             var isMutation = mutatingActions.indexOf(action) !== -1;
             document.getElementById('action-value').value = action;
@@ -154,12 +153,12 @@ if ($requestMethod === 'GET') {
             document.getElementById('confirm-action').value = '';
             if (isMutation) {
                 if (!document.getElementById('confirm-mutation').checked) {
+                    event.preventDefault();
                     window.alert('Подтвердите изменяющее действие перед отправкой.');
                     return;
                 }
                 document.getElementById('confirm-action').value = action;
             }
-            form.submit();
         });
     }());
     </script>

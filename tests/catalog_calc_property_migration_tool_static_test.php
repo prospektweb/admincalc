@@ -24,8 +24,10 @@ $assertions = [
     'mutations carry a separate confirmation token' => strpos($source, 'name="confirmAction"') !== false
         && strpos($source, "'error' => 'confirmation_required'") !== false
         && strpos($source, 'hash_equals($action') !== false,
-    'validated HTML submissions use an explicit native POST' => strpos($source, 'event.preventDefault();') !== false
-        && strpos($source, 'form.submit();') !== false,
+    'validated HTML submissions continue through the browser native POST' => strpos(
+        $source,
+        "if (!document.getElementById('confirm-mutation').checked) {\n                    event.preventDefault();"
+    ) !== false && strpos($source, 'form.submit();') === false,
     'execute cannot receive semantic fixes from the HTML panel' => strpos(
         $source,
         "!in_array(\$action, ['audit', 'verify', 'cutover'], true)"
