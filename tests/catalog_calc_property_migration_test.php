@@ -230,7 +230,7 @@ foreach ([
     migration_assert(strpos($serviceSource, $token) !== false, 'service contract token missing: ' . $token);
 }
 foreach ([
-    "REQUEST_METHOD'] ?? '') !== 'POST'", 'check_bitrix_sessid()', '$USER->IsAdmin()',
+    "\$requestMethod !== 'POST'", 'check_bitrix_sessid()', '$USER->IsAdmin()',
     "case 'audit'", "case 'materialize_base_offers'", "case 'execute'", "case 'verify'",
     "case 'cutover'", "case 'rollback_base_offers'", 'expectedFingerprint',
     "case 'apply_semantic_fixes'", "case 'rollback_semantic_fixes'",
