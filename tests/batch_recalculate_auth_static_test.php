@@ -22,9 +22,13 @@ foreach ($checks as $needle => $message) {
 
 $endpointChecks = [
     "header('Cache-Control: no-store, private')" => 'Batch responses must not be cached',
-    "REQUEST_METHOD'] ?? '') !== 'POST'" => 'Batch endpoint must accept POST only',
+    "\$requestMethod !== 'POST'" => 'Batch endpoint must accept POST only',
     'check_bitrix_sessid()' => 'Batch endpoint must enforce CSRF protection',
     '$USER->IsAdmin()' => 'Batch endpoint must require an administrator',
+    "'application/x-www-form-urlencoded'" => 'Batch endpoint must accept form-urlencoded requests',
+    "array_key_exists('payload', \$_POST)" => 'Batch endpoint must accept the form payload envelope',
+    "file_get_contents('php://input')" => 'Batch endpoint must preserve raw JSON compatibility',
+    "substr(\$value, 0, 1) !== '{'" => 'Batch JSON transport must reject non-object roots',
     'sys_get_temp_dir()' => 'Batch state must live outside the web document root',
     "hash('sha256', \$documentRoot" => 'Batch storage must be namespaced per site',
     '@mkdir($private, 0700, true)' => 'Batch storage directory must be owner-only',
@@ -42,6 +46,13 @@ foreach ($endpointChecks as $needle => $message) {
     if (strpos($endpoint, $needle) === false) {
         throw new RuntimeException($message);
     }
+}
+
+$sessionHydration = strpos($endpoint, "\$_REQUEST['sessid'] = \$requestSessid");
+$postSessionHydration = strpos($endpoint, "\$_POST['sessid'] = \$requestSessid");
+$adminProlog = strpos($endpoint, "require_once \$_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php'");
+if ($sessionHydration === false || $postSessionHydration === false || $adminProlog === false || $sessionHydration >= $adminProlog || $postSessionHydration >= $adminProlog) {
+    throw new RuntimeException('Batch JSON sessid must hydrate request and POST before the Bitrix admin prolog');
 }
 
 foreach ([

@@ -8,6 +8,59 @@ define('NO_KEEP_STATISTIC', true);
 define('NO_AGENT_STATISTIC', true);
 define('PUBLIC_AJAX_MODE', true);
 
+$requestMethod = (string)($_SERVER['REQUEST_METHOD'] ?? '');
+$requestContentType = strtolower(trim((string)strtok((string)($_SERVER['CONTENT_TYPE'] ?? ''), ';')));
+$requestData = [];
+$requestError = null;
+
+$decodeJsonObject = static function ($value): ?array {
+    if (!is_string($value)) {
+        return null;
+    }
+
+    $value = trim($value);
+    if ($value === '' || substr($value, 0, 1) !== '{') {
+        return null;
+    }
+
+    $decoded = json_decode($value, true);
+    return json_last_error() === JSON_ERROR_NONE && is_array($decoded) ? $decoded : null;
+};
+
+if ($requestMethod === 'POST') {
+    $isFormRequest = $requestContentType === 'application/x-www-form-urlencoded'
+        || array_key_exists('payload', $_POST);
+
+    if ($isFormRequest) {
+        if (array_key_exists('payload', $_POST)) {
+            $requestData = $decodeJsonObject($_POST['payload']);
+            if ($requestData === null) {
+                $requestData = [];
+                $requestError = 'Request payload must be a JSON object';
+            }
+        } else {
+            $requestData = $_POST;
+        }
+    } else {
+        $requestBody = (string)file_get_contents('php://input');
+        if (trim($requestBody) !== '') {
+            $requestData = $decodeJsonObject($requestBody);
+            if ($requestData === null) {
+                $requestData = [];
+                $requestError = 'Request body must be a JSON object';
+            }
+        }
+    }
+}
+
+if (empty($_REQUEST['sessid']) && isset($requestData['sessid']) && is_scalar($requestData['sessid'])) {
+    $requestSessid = (string)$requestData['sessid'];
+    $_REQUEST['sessid'] = $requestSessid;
+    if (empty($_POST['sessid'])) {
+        $_POST['sessid'] = $requestSessid;
+    }
+}
+
 require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php';
 
 use Bitrix\Main\Config\Option;
@@ -291,10 +344,7 @@ function loadRequestedJobOrRespond(int $userId, array $requestData, int $jobTtlS
     return $job;
 }
 
-$requestBody = file_get_contents('php://input');
-$requestData = json_decode((string)$requestBody, true);
-
-if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+if ($requestMethod !== 'POST') {
     header('Allow: POST');
     respondJson(405, [
         'success' => false,
@@ -303,20 +353,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     ]);
 }
 
-if ($requestData === null && !empty($requestBody)) {
+if ($requestError !== null) {
     respondJson(400, [
         'success' => false,
         'errorCode' => 'INVALID_JSON',
-        'error' => 'Invalid JSON',
+        'error' => $requestError,
     ]);
-}
-
-if ($requestData === null) {
-    $requestData = [];
-}
-
-if (empty($_REQUEST['sessid']) && isset($requestData['sessid'])) {
-    $_REQUEST['sessid'] = (string)$requestData['sessid'];
 }
 
 if (!check_bitrix_sessid()) {

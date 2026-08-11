@@ -21,9 +21,18 @@ $assert = static function (bool $condition, string $message): void {
     }
 };
 
-$assert(strpos($endpoint, "REQUEST_METHOD'] ?? '') !== 'POST'") !== false, 'Settings API must accept POST only');
+$assert(strpos($endpoint, "\$requestMethod !== 'POST'") !== false, 'Settings API must accept POST only');
 $assert(strpos($endpoint, 'check_bitrix_sessid()') !== false, 'Settings API must enforce Bitrix CSRF protection');
 $assert(strpos($endpoint, '$USER->IsAdmin()') !== false, 'Settings API must require an administrator');
+$assert(strpos($endpoint, "'application/x-www-form-urlencoded'") !== false, 'Settings API must accept form-urlencoded requests');
+$assert(strpos($endpoint, "array_key_exists('payload', \$_POST)") !== false, 'Settings API must accept the form payload envelope');
+$assert(strpos($endpoint, "file_get_contents('php://input')") !== false, 'Settings API must preserve raw JSON compatibility');
+$assert(strpos($endpoint, "\$decodeJsonObject(\$request['settings'] ?? null)") !== false, 'Flat form saves must decode settings as JSON');
+$assert(strpos($endpoint, "substr(\$value, 0, 1) !== '{'") !== false, 'Settings JSON transport must reject non-object roots');
+$sessionHydration = strpos($endpoint, "\$_REQUEST['sessid'] = \$requestSessid");
+$postSessionHydration = strpos($endpoint, "\$_POST['sessid'] = \$requestSessid");
+$adminProlog = strpos($endpoint, "require_once \$_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php'");
+$assert($sessionHydration !== false && $postSessionHydration !== false && $adminProlog !== false && $sessionHydration < $adminProlog && $postSessionHydration < $adminProlog, 'JSON sessid must hydrate request and POST before the Bitrix admin prolog');
 $assert(strpos($endpoint, "'action'] ?? 'get'") !== false, 'Settings API must expose a read action');
 $assert(strpos($endpoint, "if (\$action === 'save')") !== false, 'Settings API must expose a save action');
 $assert(strpos($endpoint, "'REVISION_CONFLICT'") !== false, 'Settings API must expose optimistic concurrency conflicts');
