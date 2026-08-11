@@ -350,7 +350,136 @@ migration_assert(
             . '[\s\S]*?\$api->Update\(\(int\)\$property\[\'ID\'\],\s*\$fields\)/',
         $serviceSource
     ) === 1,
-    'target property updates must include IBLOCK_ID so Bitrix persists SMART_FILTER'
+    'target property updates must include IBLOCK_ID for scoped Bitrix cache invalidation'
+);
+migration_assert(
+    strpos(
+        $serviceSource,
+        "\$iblock->Update(\$offerIblockId, ['SECTION_PROPERTY' => 'Y'])"
+    ) !== false,
+    'offer iblock section-property mode must be enabled before root links are written'
+);
+migration_assert(
+    strpos(
+        $serviceSource,
+        "\\CIBlockSectionPropertyLink::Set(0, (int)\$property['ID'], ["
+    ) !== false,
+    'migrated target properties must use the explicit root section-property link API'
+);
+migration_assert(
+    strpos(
+        $serviceSource,
+        "\\CIBlockSectionPropertyLink::GetArray(\$iblockId, 0, false)"
+    ) !== false,
+    'audit must expose the effective runtime root section-property diagnostic'
+);
+migration_assert(
+    strpos($serviceSource, "'offerEffectiveRootSectionPropertyLinks' =>") !== false,
+    'effective GetArray state must remain a separate audit diagnostic'
+);
+$propertyReaderStart = strpos($serviceSource, 'private function propertyByCode(');
+$propertyReaderEnd = strpos($serviceSource, 'private function iblockSectionPropertyMode(', $propertyReaderStart);
+migration_assert(
+    $propertyReaderStart !== false
+        && $propertyReaderEnd !== false
+        && $propertyReaderEnd > $propertyReaderStart,
+    'property source-of-truth reader must remain independently inspectable'
+);
+$propertyReaderSource = substr(
+    $serviceSource,
+    $propertyReaderStart,
+    $propertyReaderEnd - $propertyReaderStart
+);
+migration_assert(
+    strpos($propertyReaderSource, '$this->rootSectionPropertyLinks(') === false
+        && strpos($propertyReaderSource, '$this->persistedRootSectionPropertyLink(') !== false
+        && strpos($propertyReaderSource, '$this->iblockSectionPropertyMode($iblockId)') !== false,
+    'property audit and verification must use raw persisted flags gated by the iblock mode'
+);
+migration_assert(
+    strpos(
+        $serviceSource,
+        "\\CIBlockSectionPropertyLink::Delete(0, (int)\$property['ID'])"
+    ) !== false,
+    'technical CALC_STATE_HASH must be explicitly hidden from root section properties'
+);
+$allLinksStart = strpos($serviceSource, 'private function persistedSectionPropertyLinks(');
+$exactRootStart = strpos($serviceSource, 'private function persistedRootSectionPropertyLink(');
+migration_assert(
+    $allLinksStart !== false && $exactRootStart !== false && $exactRootStart > $allLinksStart,
+    'persisted section-property readers must remain explicit'
+);
+$allLinksSource = substr($serviceSource, $allLinksStart, $exactRootStart - $allLinksStart);
+migration_assert(
+    strpos($allLinksSource, 'SectionPropertyTable::getList([') !== false
+        && strpos($allLinksSource, "'=IBLOCK_ID' => \$iblockId") !== false
+        && strpos($allLinksSource, "'=SECTION_ID'") === false,
+    'audit and recovery snapshot must scan every persisted offer section-property row'
+);
+$exactRootSource = substr(
+    $serviceSource,
+    $exactRootStart,
+    strpos($serviceSource, 'private function unexpectedProductCalcProperties(', $exactRootStart) - $exactRootStart
+);
+migration_assert(
+    strpos($exactRootSource, 'SectionPropertyTable::getRow([') !== false
+        && strpos($exactRootSource, "'=IBLOCK_ID' => \$iblockId") !== false
+        && strpos($exactRootSource, "'=SECTION_ID' => 0") !== false
+        && strpos($exactRootSource, "'=PROPERTY_ID' => \$propertyId") !== false,
+    'post-write verification must read the exact raw root row by its triple key'
+);
+migration_assert(
+    strpos($serviceSource, "'type' => 'dormant_offer_section_property_links'") !== false,
+    'audit must fail closed before enabling any dormant section-property links'
+);
+migration_assert(
+    substr_count($serviceSource, "'offerPersistedSectionPropertyLinks' =>") >= 2,
+    'audit and recovery snapshot must expose all persisted offer section-property links'
+);
+migration_assert(
+    substr_count($serviceSource, "'offerIblockSectionProperty' =>") >= 3,
+    'audit, verification and recovery snapshot must expose the offer iblock switch'
+);
+migration_assert(
+    strpos(
+        $serviceSource,
+        "\$this->assertTargetRootSectionPropertyLinks(\$offerIblockId);"
+    ) !== false,
+    'root section-property writes must be verified before the migration transaction commits'
+);
+migration_assert(
+    strpos(
+        $serviceSource,
+        "\$this->persistedRootSectionPropertyLink(\$offerIblockId, \$propertyId)"
+    ) !== false,
+    'post-write target assertions must use the exact persisted root row reader'
+);
+$enableStart = strpos($serviceSource, 'private function ensureOfferIblockSectionPropertiesEnabled(');
+$enableEnd = strpos($serviceSource, 'private function assertTargetRootSectionPropertyLinks(', $enableStart);
+migration_assert(
+    $enableStart !== false && $enableEnd !== false && $enableEnd > $enableStart,
+    'offer iblock section-property enablement must remain independently inspectable'
+);
+$enableSource = substr($serviceSource, $enableStart, $enableEnd - $enableStart);
+$toctouCacheReset = strpos(
+    $enableSource,
+    'unset($this->persistedSectionPropertyLinkCache[$offerIblockId]);'
+);
+$toctouRead = strpos(
+    $enableSource,
+    '$this->persistedSectionPropertyLinks($offerIblockId) !== []'
+);
+$enableUpdate = strpos(
+    $enableSource,
+    "\$iblock->Update(\$offerIblockId, ['SECTION_PROPERTY' => 'Y'])"
+);
+migration_assert(
+    $toctouCacheReset !== false
+        && $toctouRead !== false
+        && $enableUpdate !== false
+        && $toctouCacheReset < $toctouRead
+        && $toctouRead < $enableUpdate,
+    'dormant links must be uncached and re-read immediately before enabling the offer iblock mode'
 );
 foreach (['targetSort', 'SECTION_PROPERTY', 'SMART_FILTER', 'DISPLAY_TYPE', 'DISPLAY_EXPANDED'] as $field) {
     migration_assert(

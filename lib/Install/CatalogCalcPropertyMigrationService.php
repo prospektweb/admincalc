@@ -143,6 +143,15 @@ final class CatalogCalcPropertyMigrationService
     /** @var array<string,mixed>|null */
     private $catalogStateCache;
 
+    /** @var array<int,string> */
+    private $iblockSectionPropertyCache = [];
+
+    /** @var array<int,array<int,array<string,mixed>>> */
+    private $rootSectionPropertyLinkCache = [];
+
+    /** @var array<int,array<int,array<string,mixed>>> */
+    private $persistedSectionPropertyLinkCache = [];
+
     /** @return array<string,string> */
     public static function propertyMap(): array
     {
@@ -548,6 +557,28 @@ final class CatalogCalcPropertyMigrationService
         $conflicts = [];
         $warnings = [];
         $properties = [];
+        $offerIblockSectionProperty = $this->iblockSectionPropertyMode((int)$state['offerIblockId']);
+        $offerPersistedSectionPropertyLinks = $this->persistedSectionPropertyLinks(
+            (int)$state['offerIblockId']
+        );
+        $offerEffectiveRootSectionPropertyLinks = array_values(
+            $this->rootSectionPropertyLinks((int)$state['offerIblockId'])
+        );
+        if ($offerIblockSectionProperty !== 'Y' && $offerPersistedSectionPropertyLinks !== []) {
+            $dormantPropertyIds = [];
+            $dormantSectionIds = [];
+            foreach ($offerPersistedSectionPropertyLinks as $link) {
+                $dormantPropertyIds[(int)($link['PROPERTY_ID'] ?? 0)] = true;
+                $dormantSectionIds[(int)($link['SECTION_ID'] ?? 0)] = true;
+            }
+            unset($dormantPropertyIds[0]);
+            $conflicts[] = [
+                'type' => 'dormant_offer_section_property_links',
+                'count' => count($offerPersistedSectionPropertyLinks),
+                'propertyIds' => array_keys($dormantPropertyIds),
+                'sectionIds' => array_keys($dormantSectionIds),
+            ];
+        }
 
         $unexpectedProductCalcProperties = $this->unexpectedProductCalcProperties(
             (int)$state['productIblockId']
@@ -737,6 +768,9 @@ final class CatalogCalcPropertyMigrationService
             'migrationPhase' => $this->migrationPhase(),
             'productIblockId' => (int)$state['productIblockId'],
             'offerIblockId' => (int)$state['offerIblockId'],
+            'offerIblockSectionProperty' => $offerIblockSectionProperty,
+            'offerPersistedSectionPropertyLinks' => $offerPersistedSectionPropertyLinks,
+            'offerEffectiveRootSectionPropertyLinks' => $offerEffectiveRootSectionPropertyLinks,
             'fingerprint' => $fingerprint,
             'properties' => $properties,
             'unexpectedProductCalcProperties' => $unexpectedProductCalcProperties,
@@ -1501,6 +1535,13 @@ final class CatalogCalcPropertyMigrationService
         $errors = [];
         $warnings = [];
         $sourceActive = [];
+        $offerIblockSectionProperty = $this->iblockSectionPropertyMode((int)$state['offerIblockId']);
+        if ($offerIblockSectionProperty !== 'Y') {
+            $errors[] = [
+                'type' => 'offer_iblock_section_property_disabled',
+                'actual' => $offerIblockSectionProperty,
+            ];
+        }
 
         foreach (self::PROPERTY_MAP as $sourceCode => $targetCode) {
             $source = $this->propertyByCode((int)$state['productIblockId'], $sourceCode);
@@ -1637,6 +1678,7 @@ final class CatalogCalcPropertyMigrationService
             'allowLegacyPresetBreakage' => $allowLegacyPresetBreakage,
             'acceptedDeprecatedPresetConsumers' => $acceptedDeprecatedPresetConsumers,
             'cutoverReady' => $cutoverReady,
+            'offerIblockSectionProperty' => $offerIblockSectionProperty,
             'sourceStates' => $sourceActive,
             'transferCounts' => $state['transferCounts'],
             'linkedOfferCount' => (int)$state['linkedOfferCount'],
@@ -1706,6 +1748,9 @@ final class CatalogCalcPropertyMigrationService
     private function resetCaches(): void
     {
         $this->catalogStateCache = null;
+        $this->iblockSectionPropertyCache = [];
+        $this->rootSectionPropertyLinkCache = [];
+        $this->persistedSectionPropertyLinkCache = [];
     }
 
     /** @param callable():mixed $operation @return mixed */
@@ -1892,6 +1937,110 @@ final class CatalogCalcPropertyMigrationService
             'IBLOCK_ID' => $iblockId,
             'CODE' => $code,
         ])->Fetch();
+        if (!is_array($row)) {
+            return null;
+        }
+
+        // CIBlockProperty::GetList selects b_iblock_property (BP.*) only.
+        // Use the exact persisted root row as the source of truth. GetArray()
+        // normalizes invalid DISPLAY_TYPE values and is diagnostic only.
+        $link = $this->iblockSectionPropertyMode($iblockId) === 'Y'
+            ? $this->persistedRootSectionPropertyLink($iblockId, (int)($row['ID'] ?? 0))
+            : null;
+        $row['SECTION_PROPERTY'] = is_array($link) ? 'Y' : 'N';
+        $row['SMART_FILTER'] = is_array($link) ? (string)($link['SMART_FILTER'] ?? 'N') : 'N';
+        $row['DISPLAY_TYPE'] = is_array($link) ? (string)($link['DISPLAY_TYPE'] ?? '') : '';
+        $row['DISPLAY_EXPANDED'] = is_array($link) ? (string)($link['DISPLAY_EXPANDED'] ?? '') : '';
+        $row['FILTER_HINT'] = is_array($link) ? (string)($link['FILTER_HINT'] ?? '') : '';
+        return $row;
+    }
+
+    private function iblockSectionPropertyMode(int $iblockId): string
+    {
+        if ($iblockId <= 0) {
+            return 'N';
+        }
+        if (!array_key_exists($iblockId, $this->iblockSectionPropertyCache)) {
+            $this->iblockSectionPropertyCache[$iblockId] =
+                \CIBlock::GetArrayByID($iblockId, 'SECTION_PROPERTY') === 'Y' ? 'Y' : 'N';
+        }
+        return $this->iblockSectionPropertyCache[$iblockId];
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function rootSectionPropertyLinks(int $iblockId): array
+    {
+        if ($iblockId <= 0 || $this->iblockSectionPropertyMode($iblockId) !== 'Y') {
+            return [];
+        }
+        if (!array_key_exists($iblockId, $this->rootSectionPropertyLinkCache)) {
+            $links = \CIBlockSectionPropertyLink::GetArray($iblockId, 0, false);
+            $normalized = [];
+            foreach (is_array($links) ? $links : [] as $propertyId => $link) {
+                if (!is_array($link)) {
+                    continue;
+                }
+                $id = (int)($link['PROPERTY_ID'] ?? $propertyId);
+                if ($id > 0) {
+                    $normalized[$id] = $link;
+                }
+            }
+            ksort($normalized);
+            $this->rootSectionPropertyLinkCache[$iblockId] = $normalized;
+        }
+        return $this->rootSectionPropertyLinkCache[$iblockId];
+    }
+
+    /**
+     * Every persisted root and section-specific row is captured even while the
+     * information-block SECTION_PROPERTY switch is disabled. This keeps audit
+     * and recovery honest about every link that enabling the switch activates.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function persistedSectionPropertyLinks(int $iblockId): array
+    {
+        if ($iblockId <= 0) {
+            return [];
+        }
+        if (!array_key_exists($iblockId, $this->persistedSectionPropertyLinkCache)) {
+            $rows = [];
+            $cursor = \Bitrix\Iblock\SectionPropertyTable::getList([
+                'select' => [
+                    'IBLOCK_ID', 'SECTION_ID', 'PROPERTY_ID', 'SMART_FILTER',
+                    'DISPLAY_TYPE', 'DISPLAY_EXPANDED', 'FILTER_HINT',
+                ],
+                'filter' => ['=IBLOCK_ID' => $iblockId],
+                'order' => ['SECTION_ID' => 'ASC', 'PROPERTY_ID' => 'ASC'],
+            ]);
+            while ($row = $cursor->fetch()) {
+                $propertyId = (int)($row['PROPERTY_ID'] ?? 0);
+                if ($propertyId > 0) {
+                    $rows[] = $row;
+                }
+            }
+            $this->persistedSectionPropertyLinkCache[$iblockId] = $rows;
+        }
+        return $this->persistedSectionPropertyLinkCache[$iblockId];
+    }
+
+    /** @return array<string,mixed>|null */
+    private function persistedRootSectionPropertyLink(int $iblockId, int $propertyId): ?array
+    {
+        if ($iblockId <= 0 || $propertyId <= 0) {
+            return null;
+        }
+        $row = \Bitrix\Iblock\SectionPropertyTable::getRow([
+            'select' => [
+                'IBLOCK_ID', 'SECTION_ID', 'PROPERTY_ID', 'SMART_FILTER',
+                'DISPLAY_TYPE', 'DISPLAY_EXPANDED', 'FILTER_HINT',
+            ],
+            'filter' => [
+                '=IBLOCK_ID' => $iblockId,
+                '=SECTION_ID' => 0,
+                '=PROPERTY_ID' => $propertyId,
+            ],
+        ]);
         return is_array($row) ? $row : null;
     }
 
@@ -2442,6 +2591,7 @@ final class CatalogCalcPropertyMigrationService
         $state = $this->catalogState();
         $productIblockId = (int)$state['productIblockId'];
         $offerIblockId = (int)$state['offerIblockId'];
+        $this->ensureOfferIblockSectionPropertiesEnabled($offerIblockId);
         foreach (self::PROPERTY_MAP as $sourceCode => $targetCode) {
             $source = $this->propertyByCode($productIblockId, $sourceCode);
             if (!$source) {
@@ -2485,8 +2635,9 @@ final class CatalogCalcPropertyMigrationService
             if (!$property) {
                 continue;
             }
-            // Bitrix applies SMART_FILTER during CIBlockProperty::Update only
-            // when the owning information block is present in the payload.
+            // IBLOCK_ID keeps CIBlockProperty::Update cache invalidation scoped
+            // correctly. Root section/filter presentation is persisted and
+            // verified explicitly below.
             $fields = ['IBLOCK_ID' => $offerIblockId, 'SORT' => $sort];
             if (in_array($code, array_values(self::PROPERTY_MAP), true)) {
                 $fields += [
@@ -2511,8 +2662,70 @@ final class CatalogCalcPropertyMigrationService
             if (!$api->Update((int)$property['ID'], $fields)) {
                 throw new \RuntimeException('Unable to update ' . $code . ': ' . trim((string)$api->LAST_ERROR));
             }
+            if (in_array($code, array_values(self::PROPERTY_MAP), true)) {
+                \CIBlockSectionPropertyLink::Set(0, (int)$property['ID'], [
+                    'IBLOCK_ID' => $offerIblockId,
+                    'SMART_FILTER' => 'Y',
+                    'DISPLAY_TYPE' => 'F',
+                    'DISPLAY_EXPANDED' => 'N',
+                ]);
+            } elseif ($code === 'CALC_STATE_HASH') {
+                \CIBlockSectionPropertyLink::Delete(0, (int)$property['ID']);
+            }
         }
         $this->resetCaches();
+        $this->assertTargetRootSectionPropertyLinks($offerIblockId);
+        $this->resetCaches();
+    }
+
+    private function ensureOfferIblockSectionPropertiesEnabled(int $offerIblockId): void
+    {
+        if ($this->iblockSectionPropertyMode($offerIblockId) === 'Y') {
+            return;
+        }
+        // The Bitrix property editor does not participate in our GET_LOCK.
+        // Bypass the audit cache and close the dormant-link TOCTOU window
+        // immediately before enabling every persisted section link.
+        unset($this->persistedSectionPropertyLinkCache[$offerIblockId]);
+        if ($this->persistedSectionPropertyLinks($offerIblockId) !== []) {
+            throw new \RuntimeException(
+                'Refusing to enable offer information-block section properties while dormant links exist'
+            );
+        }
+        $iblock = new \CIBlock();
+        if (!$iblock->Update($offerIblockId, ['SECTION_PROPERTY' => 'Y'])) {
+            throw new \RuntimeException(
+                'Unable to enable offer information-block section properties: '
+                . trim((string)$iblock->LAST_ERROR)
+            );
+        }
+        $this->resetCaches();
+        if ($this->iblockSectionPropertyMode($offerIblockId) !== 'Y') {
+            throw new \RuntimeException('Offer information-block section properties remain disabled');
+        }
+    }
+
+    private function assertTargetRootSectionPropertyLinks(int $offerIblockId): void
+    {
+        if ($this->iblockSectionPropertyMode($offerIblockId) !== 'Y') {
+            throw new \RuntimeException('Offer information-block section properties are disabled');
+        }
+        foreach (self::PROPERTY_MAP as $targetCode) {
+            $property = $this->propertyByCode($offerIblockId, $targetCode);
+            $propertyId = (int)($property['ID'] ?? 0);
+            $link = $this->persistedRootSectionPropertyLink($offerIblockId, $propertyId);
+            if (!is_array($link)
+                || (string)($link['SMART_FILTER'] ?? 'N') !== 'Y'
+                || (string)($link['DISPLAY_TYPE'] ?? '') !== 'F'
+                || (string)($link['DISPLAY_EXPANDED'] ?? '') !== 'N') {
+                throw new \RuntimeException('Unable to verify root section-property link for ' . $targetCode);
+            }
+        }
+        $stateHash = $this->propertyByCode($offerIblockId, 'CALC_STATE_HASH');
+        if ($stateHash
+            && $this->persistedRootSectionPropertyLink($offerIblockId, (int)$stateHash['ID'])) {
+            throw new \RuntimeException('CALC_STATE_HASH must not have a root section-property link');
+        }
     }
 
     private function mergePropertyEnums(int $sourcePropertyId, int $targetPropertyId, string $sourceCode, string $targetCode): void
@@ -4739,6 +4952,15 @@ final class CatalogCalcPropertyMigrationService
             'acceptedDeprecatedPresetConsumers' => $acceptedDeprecatedPresetConsumers,
             'productIblockId' => (int)$state['productIblockId'],
             'offerIblockId' => (int)$state['offerIblockId'],
+            'productIblockSectionProperty' => $this->iblockSectionPropertyMode(
+                (int)$state['productIblockId']
+            ),
+            'offerIblockSectionProperty' => $this->iblockSectionPropertyMode(
+                (int)$state['offerIblockId']
+            ),
+            'offerPersistedSectionPropertyLinks' => $this->persistedSectionPropertyLinks(
+                (int)$state['offerIblockId']
+            ),
             'propertyMap' => self::PROPERTY_MAP,
             'propertySorts' => self::PROPERTY_SORTS,
             'propertyDefinitions' => $propertyDefinitions,
