@@ -45,6 +45,29 @@ migration_same(120, $sorts['CALC_PROP_TYPE_PAPER'] ?? null, 'paper type sort');
 migration_same(160, $sorts['CALC_PROP_FORMAT'] ?? null, 'format sort');
 migration_same(330, $sorts['CALC_PROP_OPTIONS'] ?? null, 'options sort');
 migration_same(900, $sorts['CALC_STATE_HASH'] ?? null, 'technical state hash sort');
+foreach ([null, '', 'N'] as $storedFalseFlag) {
+    migration_same(
+        'N',
+        CatalogCalcPropertyMigrationService::canonicalSectionFlag($storedFalseFlag),
+        'Bitrix false section flag must canonicalize to N'
+    );
+}
+foreach (['Y', 'X'] as $nonFalseFlag) {
+    migration_assert(
+        CatalogCalcPropertyMigrationService::canonicalSectionFlag($nonFalseFlag) !== 'N',
+        'enabled or invalid section flag must not pass the false-state contract'
+    );
+}
+migration_same(
+    'Y',
+    CatalogCalcPropertyMigrationService::canonicalSectionFlag('Y'),
+    'enabled section flag must remain enabled'
+);
+migration_same(
+    null,
+    CatalogCalcPropertyMigrationService::canonicalSectionFlag('X'),
+    'unknown section flag must be rejected'
+);
 migration_same(
     '210x99',
     CatalogCalcPropertyMigrationService::canonicalTargetXmlId('CALC_FORMAT', '99x210'),
@@ -393,7 +416,11 @@ $propertyReaderSource = substr(
 migration_assert(
     strpos($propertyReaderSource, '$this->rootSectionPropertyLinks(') === false
         && strpos($propertyReaderSource, '$this->persistedRootSectionPropertyLink(') !== false
-        && strpos($propertyReaderSource, '$this->iblockSectionPropertyMode($iblockId)') !== false,
+        && strpos($propertyReaderSource, '$this->iblockSectionPropertyMode($iblockId)') !== false
+        && strpos(
+            $propertyReaderSource,
+            'self::canonicalSectionFlag($displayExpandedRaw)'
+        ) !== false,
     'property audit and verification must use raw persisted flags gated by the iblock mode'
 );
 migration_assert(
@@ -453,6 +480,13 @@ migration_assert(
         "\$this->persistedRootSectionPropertyLink(\$offerIblockId, \$propertyId)"
     ) !== false,
     'post-write target assertions must use the exact persisted root row reader'
+);
+migration_assert(
+    strpos(
+        $serviceSource,
+        "self::canonicalSectionFlag(\$link['DISPLAY_EXPANDED'] ?? null) !== 'N'"
+    ) !== false,
+    'post-write assertion must accept only canonical Bitrix false representations'
 );
 $enableStart = strpos($serviceSource, 'private function ensureOfferIblockSectionPropertiesEnabled(');
 $enableEnd = strpos($serviceSource, 'private function assertTargetRootSectionPropertyLinks(', $enableStart);

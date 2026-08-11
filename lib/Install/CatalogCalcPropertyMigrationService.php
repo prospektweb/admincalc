@@ -165,6 +165,24 @@ final class CatalogCalcPropertyMigrationService
     }
 
     /**
+     * Bitrix stores a disabled section-property boolean as either N or NULL,
+     * depending on whether the row was added or updated. Reject every other
+     * representation instead of silently treating arbitrary values as false.
+     *
+     * @param mixed $value
+     */
+    public static function canonicalSectionFlag($value): ?string
+    {
+        if ($value === 'Y') {
+            return 'Y';
+        }
+        if ($value === null || $value === '' || $value === 'N') {
+            return 'N';
+        }
+        return null;
+    }
+
+    /**
      * Keep deprecated-preset breakage fail-closed unless an administrator has
      * explicitly accepted it for the current audited migration fingerprint.
      * The original conflict payload is retained verbatim for recovery/audit;
@@ -1950,7 +1968,15 @@ final class CatalogCalcPropertyMigrationService
         $row['SECTION_PROPERTY'] = is_array($link) ? 'Y' : 'N';
         $row['SMART_FILTER'] = is_array($link) ? (string)($link['SMART_FILTER'] ?? 'N') : 'N';
         $row['DISPLAY_TYPE'] = is_array($link) ? (string)($link['DISPLAY_TYPE'] ?? '') : '';
-        $row['DISPLAY_EXPANDED'] = is_array($link) ? (string)($link['DISPLAY_EXPANDED'] ?? '') : '';
+        if (is_array($link)) {
+            $displayExpandedRaw = array_key_exists('DISPLAY_EXPANDED', $link)
+                ? $link['DISPLAY_EXPANDED']
+                : null;
+            $row['DISPLAY_EXPANDED'] = self::canonicalSectionFlag($displayExpandedRaw)
+                ?? (string)$displayExpandedRaw;
+        } else {
+            $row['DISPLAY_EXPANDED'] = '';
+        }
         $row['FILTER_HINT'] = is_array($link) ? (string)($link['FILTER_HINT'] ?? '') : '';
         return $row;
     }
@@ -2717,7 +2743,7 @@ final class CatalogCalcPropertyMigrationService
             if (!is_array($link)
                 || (string)($link['SMART_FILTER'] ?? 'N') !== 'Y'
                 || (string)($link['DISPLAY_TYPE'] ?? '') !== 'F'
-                || (string)($link['DISPLAY_EXPANDED'] ?? '') !== 'N') {
+                || self::canonicalSectionFlag($link['DISPLAY_EXPANDED'] ?? null) !== 'N') {
                 throw new \RuntimeException('Unable to verify root section-property link for ' . $targetCode);
             }
         }
