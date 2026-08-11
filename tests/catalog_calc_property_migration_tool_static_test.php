@@ -26,10 +26,11 @@ $assertions = [
         && strpos($source, 'hash_equals($action') !== false,
     'validated HTML submissions use the authenticated same-origin POST transport' => strpos(
         $source,
-        "await fetch(form.action || window.location.href"
+        "await fetch(window.location.href"
     ) !== false && strpos($source, "method: 'POST'") !== false
         && strpos($source, "credentials: 'same-origin'") !== false
         && strpos($source, 'body: new URLSearchParams(new FormData(form))') !== false
+        && strpos($source, 'fetch(form.action') === false
         && strpos($source, 'form.submit();') === false,
     'HTML result is rendered as text rather than executable markup' => strpos(
         $source,

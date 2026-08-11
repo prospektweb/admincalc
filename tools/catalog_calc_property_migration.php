@@ -169,7 +169,7 @@ if ($requestMethod === 'GET') {
                 button.disabled = true;
             });
             try {
-                var response = await fetch(form.action || window.location.href, {
+                var response = await fetch(window.location.href, {
                     method: 'POST',
                     body: new URLSearchParams(new FormData(form)),
                     credentials: 'same-origin',
