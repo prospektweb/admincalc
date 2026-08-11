@@ -29,7 +29,7 @@ $assertions = [
         "await fetch(form.action || window.location.href"
     ) !== false && strpos($source, "method: 'POST'") !== false
         && strpos($source, "credentials: 'same-origin'") !== false
-        && strpos($source, 'body: new FormData(form)') !== false
+        && strpos($source, 'body: new URLSearchParams(new FormData(form))') !== false
         && strpos($source, 'form.submit();') === false,
     'HTML result is rendered as text rather than executable markup' => strpos(
         $source,

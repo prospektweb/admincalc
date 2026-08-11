@@ -171,7 +171,7 @@ if ($requestMethod === 'GET') {
             try {
                 var response = await fetch(form.action || window.location.href, {
                     method: 'POST',
-                    body: new FormData(form),
+                    body: new URLSearchParams(new FormData(form)),
                     credentials: 'same-origin',
                     headers: {'X-Requested-With': 'XMLHttpRequest'}
                 });
