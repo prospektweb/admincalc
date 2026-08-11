@@ -497,6 +497,60 @@ class AdminHandler
             return;
         }
 
+        $languageId = defined('LANGUAGE_ID') ? (string)LANGUAGE_ID : 'ru';
+        $languageId = preg_replace('/[^a-z]/i', '', $languageId) ?: 'ru';
+        $controlCenterUrl = '/bitrix/admin/prospektweb_calc_control_center.php?lang=' . rawurlencode($languageId);
+        $recalculateUrl = '/bitrix/admin/prospektweb_calc_recalculate.php?lang=' . rawurlencode($languageId);
+        $settingsUrl = '/bitrix/admin/settings.php?' . http_build_query([
+            'lang' => $languageId,
+            'mid' => 'prospektweb.calc',
+            'mid_menu' => 1,
+        ]);
+
+        if (!isset($aGlobalMenu['global_menu_prospektweb'])) {
+            $aGlobalMenu['global_menu_prospektweb'] = [
+                'menu_id' => 'global_menu_prospektweb',
+                'text' => 'ПРОСПЕКТ',
+                'title' => 'Инструменты ПРОСПЕКТ-WEB',
+                'sort' => 950,
+                'items_id' => 'global_menu_prospektweb_items',
+            ];
+        }
+
+        $aModuleMenu[] = [
+            'parent_menu' => 'global_menu_prospektweb',
+            'text' => 'Калькуляторы',
+            'title' => 'Калькуляторы и расчёты ПРОСПЕКТ-WEB',
+            'sort' => 10,
+            'items_id' => 'menu_prospektweb_calc_items',
+            'icon' => 'util_menu_icon',
+            'items' => [
+                [
+                    'text' => 'Центр управления',
+                    'title' => 'Пресеты, товары, витрина и служебные инструменты',
+                    'sort' => 10,
+                    'url' => $controlCenterUrl,
+                    'items_id' => 'menu_prospektweb_calc_control_center',
+                ],
+                [
+                    'text' => 'Массовый пересчёт',
+                    'title' => 'Обновить сохранённые расчёты торговых предложений',
+                    'sort' => 20,
+                    'url' => $recalculateUrl,
+                    'items_id' => 'menu_prospektweb_calc_batch_recalculation',
+                ],
+                [
+                    'text' => 'Настройки и диагностика',
+                    'title' => 'Параметры, связи и диагностика модуля',
+                    'sort' => 30,
+                    'url' => $settingsUrl,
+                    'items_id' => 'menu_prospektweb_calc_settings',
+                ],
+            ],
+        ];
+
+        // Keep the established Services entry for administrators who use the
+        // existing batch-recalculation workflow directly.
         $aModuleMenu[] = [
             'parent_menu' => 'global_menu_services',
             'sort' => 500,

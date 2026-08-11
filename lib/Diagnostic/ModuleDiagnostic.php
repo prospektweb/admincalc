@@ -224,6 +224,7 @@ class ModuleDiagnostic
 
         $adminFiles = [
             '/bitrix/admin/prospektweb_calc_calculator.php',
+            '/bitrix/admin/prospektweb_calc_control_center.php',
             '/bitrix/admin/prospektweb_calc_custom_field.php',
             '/bitrix/admin/prospektweb_calc_recalculate.php',
         ];

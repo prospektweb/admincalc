@@ -222,6 +222,19 @@ class prospektweb_calc extends CModule
                     $success = false;
                 }
             }
+
+            // Копируем полноэкранный центр управления. Он использует тот же
+            // установленный SPA bundle, но не требует контекста торговых предложений.
+            $adminControlCenterFile = $sourceAdmin . '/prospektweb_calc_control_center.php';
+            if (file_exists($adminControlCenterFile)) {
+                if (!copy($adminControlCenterFile, $targetAdmin . '/prospektweb_calc_control_center.php')) {
+                    $errors[] = "Не удалось скопировать центр управления";
+                    $success = false;
+                }
+            } else {
+                $errors[] = "Исходный файл центра управления не найден";
+                $success = false;
+            }
             
             // Копируем админский файл для кастомных полей
             $adminCustomFieldFile = $sourceAdmin . '/prospektweb_calc_custom_field.php';
@@ -296,6 +309,7 @@ class prospektweb_calc extends CModule
         $toolsDir = Application::getDocumentRoot() . '/bitrix/tools/prospektweb.calc';
         $appsDir = Application::getDocumentRoot() . '/local/apps/prospektweb.calc';
         $adminFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_calculator.php';
+        $adminControlCenterFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_control_center.php';
         $adminCustomFieldFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_custom_field.php';
         $adminRecalculateFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_recalculate.php';
 
@@ -316,6 +330,9 @@ class prospektweb_calc extends CModule
         // НОВОЕ: Удаляем админские файлы
         if (file_exists($adminFile)) {
             unlink($adminFile);
+        }
+        if (file_exists($adminControlCenterFile)) {
+            unlink($adminControlCenterFile);
         }
         if (file_exists($adminCustomFieldFile)) {
             unlink($adminCustomFieldFile);
@@ -546,6 +563,7 @@ class prospektweb_calc extends CModule
         $toolsDir = $docRoot . '/bitrix/tools/prospektweb.calc';
         $appsDir = $docRoot . '/local/apps/prospektweb.calc';
         $adminFile = $docRoot . '/bitrix/admin/prospektweb_calc_calculator.php';
+        $adminControlCenterFile = $docRoot . '/bitrix/admin/prospektweb_calc_control_center.php';
 
         if (!is_dir($jsDir)) {
             $result['warnings'][] = 'Директория JS не найдена';
@@ -561,6 +579,9 @@ class prospektweb_calc extends CModule
         }
         if (!file_exists($adminFile)) {
             $result['warnings'][] = 'Админский файл калькулятора не найден';
+        }
+        if (!file_exists($adminControlCenterFile)) {
+            $result['warnings'][] = 'Центр управления не найден';
         }
 
         return $result;
