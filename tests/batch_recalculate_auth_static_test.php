@@ -12,6 +12,8 @@ $checks = [
     "'X-Frontcalc-Signature: '" => 'Signer must emit the signature header',
     "\$serverError['message']" => 'Structured calc-server errors must use their message',
     "dirname(\$documentRoot) . '/.frontcalc-secret'" => 'Production secret must be loaded outside document root',
+    "'offerCount' => 0" => 'Every product in batch analysis must expose an offer count',
+    'countOffersByProductIds' => 'Product offer counts must come from the SKU relation',
 ];
 
 foreach ($checks as $needle => $message) {
@@ -41,6 +43,8 @@ $endpointChecks = [
     "'JOB_ID_MISMATCH'" => 'Job actions must reject a stale identifier',
     "'JOB_ALREADY_ACTIVE'" => 'Starting over an active job must require an explicit replacement',
     "empty(\$requestData['replace'])" => 'Active job replacement must be explicit',
+    'validateAnalysisContract($analysis)' => 'Batch endpoint must reject an incomplete analysis contract',
+    "'INVALID_ANALYSIS_CONTRACT'" => 'Incomplete product counts must return an explicit contract error',
 ];
 foreach ($endpointChecks as $needle => $message) {
     if (strpos($endpoint, $needle) === false) {

@@ -180,6 +180,53 @@ function validateCommonParams(array $requestData): array
     return [$presetIds, $onlyChanged, $calcServerUrl, $timeout];
 }
 
+function validateAnalysisContract(array $analysis): void
+{
+    foreach ($analysis as $row) {
+        if (!is_array($row)
+            || !isset($row['presetId'], $row['presetName'], $row['products'], $row['offerCount'])
+            || !is_int($row['presetId'])
+            || $row['presetId'] <= 0
+            || !is_string($row['presetName'])
+            || !is_array($row['products'])
+            || !is_int($row['offerCount'])
+            || $row['offerCount'] < 0) {
+            respondJson(500, [
+                'success' => false,
+                'errorCode' => 'INVALID_ANALYSIS_CONTRACT',
+                'error' => 'Сервер вернул неполную строку пресета',
+            ]);
+        }
+
+        $productOfferCount = 0;
+        foreach ($row['products'] as $product) {
+            if (!is_array($product)
+                || !isset($product['id'], $product['name'], $product['offerCount'])
+                || !is_int($product['id'])
+                || $product['id'] <= 0
+                || !is_string($product['name'])
+                || !is_int($product['offerCount'])
+                || $product['offerCount'] < 0
+                || (array_key_exists('editUrl', $product) && !is_string($product['editUrl']))) {
+                respondJson(500, [
+                    'success' => false,
+                    'errorCode' => 'INVALID_ANALYSIS_CONTRACT',
+                    'error' => 'В анализе отсутствует количество ТП по товару',
+                ]);
+            }
+            $productOfferCount += $product['offerCount'];
+        }
+
+        if ($productOfferCount !== $row['offerCount']) {
+            respondJson(500, [
+                'success' => false,
+                'errorCode' => 'INVALID_ANALYSIS_CONTRACT',
+                'error' => 'Сумма ТП по товарам не совпадает с итогом пресета',
+            ]);
+        }
+    }
+}
+
 function getJobStorageDirectory(): string
 {
     $documentRoot = (string)($_SERVER['DOCUMENT_ROOT'] ?? '');
@@ -446,6 +493,7 @@ if ($action === 'analyze') {
     [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
     $analysis = $service->getPresetAnalysis($presetIds);
+    validateAnalysisContract($analysis);
 
     $totalOffers = 0;
     foreach ($analysis as $row) {
