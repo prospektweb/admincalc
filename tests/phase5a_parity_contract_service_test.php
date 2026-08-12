@@ -284,12 +284,12 @@ $assert(
     'The exact runtime scanner must include legacy v1, accept proven source=none as empty, and reject malformed sources'
 );
 $assert(
-    ($defaultRuntime['state'] ?? '') === 'supported'
+    ($defaultRuntime['state'] ?? '') === 'invalid'
         && ($legacyDefaultRuntime['state'] ?? '') === 'invalid'
         && ($malformedDefaultRuntime['state'] ?? '') === 'invalid'
         && ($emptyDefaultRuntime['state'] ?? '') === 'invalid'
         && ($scalarFieldDefaultRuntime['state'] ?? '') === 'invalid',
-    'Configured default is supported only as a complete v2 effective runtime'
+    'Configured editor defaults never become effective public runtime sources'
 );
 $runtimeScanner = new ReflectionMethod(Phase5aParityContractService::class, 'scanRuntimeSchema');
 $legacyConsumers = [];

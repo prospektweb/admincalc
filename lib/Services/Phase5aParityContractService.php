@@ -1220,21 +1220,9 @@ final class Phase5aParityContractService
 
         $supportedSources = ['family', 'template', 'product', 'product_override', 'form_first'];
         $version = (int)($schema['version'] ?? 0);
-        $fields = $schema['fields'] ?? null;
-        $validDefaultFields = is_array($fields) && $fields !== [];
-        if ($validDefaultFields) {
-            foreach ($fields as $field) {
-                if (!is_array($field)) {
-                    $validDefaultFields = false;
-                    break;
-                }
-            }
-        }
-        $supportedSource = in_array($source, $supportedSources, true)
-            || ($source === 'default' && $version === 2 && $validDefaultFields);
-        if ($supportedSource
+        if (in_array($source, $supportedSources, true)
             && in_array($version, [1, 2], true)
-            && is_array($fields)) {
+            && is_array($schema['fields'] ?? null)) {
             return ['state' => 'supported', 'source' => $source, 'schema' => $schema];
         }
 
