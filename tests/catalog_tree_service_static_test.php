@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 $service = file_get_contents(__DIR__ . '/../lib/Services/CatalogTreeService.php');
+$batchService = file_get_contents(__DIR__ . '/../lib/Services/BatchRecalculateService.php');
 $dispatcher = file_get_contents(__DIR__ . '/../lib/Calculator/ElementDataService.php');
 $bridge = file_get_contents(__DIR__ . '/../install/assets/js/integration.js');
 
@@ -33,6 +34,13 @@ foreach (['getCatalogTree', 'saveCatalogTreeElement', 'saveCatalogTreeSection', 
     if (!str_contains($dispatcher, $action) || !str_contains($bridge, $action)) {
         throw new RuntimeException("Catalog tree action is not wired end-to-end: {$action}");
     }
+}
+
+if (substr_count($batchService, "'ACTIVE_DATE' => 'Y'") < 1) {
+    throw new RuntimeException('Preset product allowlist must reject expired and future-dated products');
+}
+if (substr_count($service, "'ACTIVE_DATE' => 'Y'") < 1) {
+    throw new RuntimeException('Preset offer catalog must reject expired and future-dated offers');
 }
 
 foreach (['getPresetLoadOptions', 'PRESET_LOAD_OPTIONS_RESPONSE', 'presetLoadOptions'] as $action) {

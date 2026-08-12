@@ -38,6 +38,7 @@ final class CatalogTreeService
                     [
                         'IBLOCK_ID' => $skuIblockId,
                         'ACTIVE' => 'Y',
+                        'ACTIVE_DATE' => 'Y',
                         'PROPERTY_CML2_LINK' => (int)$product['id'],
                     ],
                     false,

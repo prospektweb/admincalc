@@ -5,6 +5,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $endpoint = file_get_contents($root . '/tools/control_center_editors.php');
 $service = file_get_contents($root . '/lib/Services/ControlCenterEditorsService.php');
+$parityService = file_get_contents($root . '/lib/Services/Phase5aParityContractService.php');
 $host = file_get_contents($root . '/admin/prospektweb_calc_control_center.php');
 $calculator = file_get_contents($root . '/admin/calculator.php');
 $autoload = file_get_contents($root . '/include.php');
@@ -32,10 +33,18 @@ $assert(strpos($endpoint, "\$action === 'storefront_save_template'") !== false, 
 $assert(strpos($endpoint, "\$action === 'storefront_save_product'") !== false, 'Editors endpoint must expose revisioned product saving');
 $assert(strpos($endpoint, "\$action === 'storefront_enable_inheritance'") !== false, 'Editors endpoint must expose revisioned inheritance activation');
 $assert(strpos($endpoint, "\$action === 'storefront_delete_template'") !== false, 'Editors endpoint must expose revisioned template deletion');
+$assert(strpos($endpoint, "\$action === 'form_first_load'") !== false, 'Editors endpoint must expose form-first workspace loading');
+$assert(strpos($endpoint, "\$action === 'form_first_save_draft'") !== false, 'Editors endpoint must expose revisioned form-first draft saving');
+$assert(strpos($endpoint, "\$action === 'form_first_preview'") !== false, 'Editors endpoint must expose form-first compile preview');
+$assert(strpos($endpoint, "\$action === 'form_first_publish'") !== false, 'Editors endpoint must expose guarded form-first publication');
+$assert(strpos($endpoint, "\$action === 'form_first_rollback'") !== false, 'Editors endpoint must expose form-first rollback');
+$assert(strpos($endpoint, "\$action === 'phase5a_parity_contract'") !== false, 'Editors endpoint must expose a read-only Phase 5A parity contract');
+$assert(strpos($endpoint, "\$action === 'phase5a_parity_compare'") !== false, 'Editors endpoint must expose the strict read-only Phase 5A comparator');
 $assert(strpos($endpoint, "\$request['offerIds']") !== false, 'Editors endpoint must accept a bounded selective offer list for validation');
 $assert(strpos($endpoint, "throw new \\InvalidArgumentException('Request contains unsupported fields')") !== false, 'Editors endpoint must reject unknown request fields');
 $assert(strpos($endpoint, 'validateCalculationLaunch($presetId, $productId, $offerIds)') !== false, 'Calculation validation must pass the selective list only to server validation');
 $assert(strpos($endpoint, "strlen(\$encoded) > 60000") !== false, 'Structured storefront schemas must have a strict 60 KB transport cap');
+$assert(substr_count($endpoint, "strlen(\$encoded) > 60000") >= 2, 'Form and binding documents must share the strict 60 KB transport cap');
 $assert(strpos($endpoint, "preg_match('/^[a-f0-9]{64}$/D', \$value)") !== false, 'Product mutations must require a SHA-256 individual revision');
 $assert(strpos($endpoint, "preg_match('/^[a-f0-9]{16,32}$/D', \$value)") !== false, 'Template actions must require a canonical template identifier');
 $assert(strpos($endpoint, "\$exception->getCode() === 409 ? 'REVISION_CONFLICT' : 'EDITOR_UNAVAILABLE'") !== false, 'Provider revision conflicts must retain a stable API error code');
@@ -49,15 +58,51 @@ $assert(strpos($service, "'offerIds' => \$validatedOfferIds") !== false, 'Valida
 $assert(strpos($service, 'MAX_CALCULATION_OFFERS') !== false, 'Server-derived launch URLs must have a bounded offer count');
 $assert(strpos($service, 'Offer IDs must not contain duplicates') !== false, 'Duplicate selective IDs must be rejected');
 $assert(strpos($service, "public const STOREFRONT_EDITOR_CONTRACT = 'prospektweb.frontcalc.storefront-editor/v1'") !== false, 'The native storefront adapter must pin the provider contract');
+$assert(strpos($service, "public const FORM_FIRST_AUTHORING_CONTRACT = 'prospektweb.frontcalc.form-first-authoring/v1'") !== false, 'The form-first adapter must pin its distinct provider contract');
 $assert(strpos($service, 'ControlCenterStorefrontEditorService') !== false, 'The native storefront adapter must resolve only the FrontCalc-owned provider');
 $assert(strpos($service, "'visualEditorAvailable' => \$visualEditorAvailable") !== false, 'The catalog must advertise provider availability separately from the legacy editor');
 $assert(strpos($service, "'visualEditorContract' => self::STOREFRONT_EDITOR_CONTRACT") !== false, 'The catalog must advertise the exact visual editor contract');
-$assert(substr_count($service, '$this->validateStorefrontLaunch($productId);') >= 6, 'Every native storefront action must revalidate the control-center product first');
-$assert(strpos($service, '->loadWorkspace($productId, $target, $templateId)') !== false, 'Workspace loading must delegate to the FrontCalc provider');
-$assert(strpos($service, '->validateSchema($productId, $target, $schema)') !== false, 'Schema validation must delegate to the FrontCalc provider');
+$assert(strpos($service, "'formFirstAuthoringAvailable' => \$formFirstAuthoringAvailable") !== false, 'The catalog must advertise form-first provider availability');
+$assert(strpos($service, "'formFirstAuthoringContract' => self::FORM_FIRST_AUTHORING_CONTRACT") !== false, 'The catalog must advertise the exact form-first provider contract');
+$assert(strpos($service, "'formFirstPilotProductIds' => [4267]") !== false, 'The catalog must retain the exact product 4267 pilot gate');
+$assert(substr_count($service, '$this->resolveStorefrontAuthority($productId);') >= 12, 'Every storefront and form-first action must resolve the current product allowlist');
+$assert(strpos($service, "'allowedProductIds' => \$allowedProductIds") !== false, 'Server authority must materialize the current preset allowlist');
+$assert(strpos($service, '->loadWorkspace(') !== false, 'Workspace loading must delegate to the FrontCalc provider');
+$assert(strpos($service, '->validateSchema(') !== false, 'Schema validation must delegate to the FrontCalc provider');
 $assert(strpos($service, '->saveTemplate(') !== false && strpos($service, '->saveProduct(') !== false, 'Template and product saves must delegate to the FrontCalc provider');
 $assert(strpos($service, '->enableInheritance(') !== false && strpos($service, '->deleteTemplate(') !== false, 'Inheritance and deletion must delegate to the FrontCalc provider');
 $assert(strpos($service, "(string)(\$result['contract'] ?? '') !== self::STOREFRONT_EDITOR_CONTRACT") !== false, 'Provider responses must fail closed on contract drift');
+$assert(strpos($service, "(string)(\$result['contract'] ?? '') !== self::FORM_FIRST_AUTHORING_CONTRACT") !== false, 'Form-first provider responses must fail closed on contract drift');
+$assert(strpos($service, 'loadFormFirstWorkspace') !== false && strpos($service, 'saveFormFirstDraft') !== false, 'Provider availability must include form-first load and save methods');
+$assert(strpos($service, 'previewFormFirst') !== false && strpos($service, 'publishFormFirst') !== false && strpos($service, 'rollbackFormFirst') !== false, 'Provider availability must include preview, publish and rollback methods');
+$assert(
+    strpos($service, '(int)$product[\'id\'] !== $expectedProductId') !== false
+        && strpos($service, '(int)$result[\'presetId\'] !== $expectedPresetId') !== false
+        && strpos($service, '(string)$result[\'operation\'] !== $expectedOperation') !== false,
+    'Form-first responses must be bound to the requested product, preset and action'
+);
+
+$assert(strpos($parityService, "public const CONTRACT = 'prospektweb.calc.form-first-parity/v1'") !== false, 'Dependency matrix must have a versioned contract');
+$assert(strpos($parityService, 'public const GOLDEN_PRODUCT_IDS = [4267, 4403, 5058, 12727, 12764]') !== false, 'Golden parity must gate the exact five pilot products');
+$assert(
+    strpos($parityService, "'calcServerChangeRequired' => \$dependency['matrix']['valid'] && \$goldenValid ? false : null") !== false
+        && strpos($parityService, "\$dependency['matrix']['valid'] && \$goldenValid") !== false,
+    'Calc-server compatibility must require both exact dependency coverage and complete golden parity'
+);
+$assert(
+    substr_count($service, '$this->resolveDependencyContract($presetId, $authority[\'allowedProductIds\'])') === 5
+        && substr_count($service, '$dependencyContract[\'fingerprint\']') === 5,
+    'All five form-first calls must receive a freshly server-resolved dependency authority'
+);
+$assert(
+    strpos($service, "!hash_equals(\$expectedDependencyFingerprint, (string)\$result['dependencyFingerprint'])") !== false,
+    'Form-first responses must be bound to the exact dependency fingerprint used for compilation'
+);
+$assert(
+    strpos($endpoint, "'dependencyContract'") === false,
+    'The browser request must not be allowed to supply dependency authority'
+);
+$assert(strpos($parityService, "'readOnly' => true") !== false, 'Golden capture must be explicitly read-only');
 
 $assert(strpos($host, "'editors' => '/bitrix/tools/prospektweb.calc/control_center_editors.php'") !== false, 'Bootstrap must expose the editors endpoint');
 $assert(strpos($host, "'controlCenterInstanceId' => \$controlCenterInstanceId") !== false, 'Bootstrap must issue a per-page instance token');
@@ -94,9 +139,11 @@ $assert(strpos($calculator, "['CODE' => 'CALC_PRESET']") !== false && strpos($ca
 $assert(strpos($calculator, "type: 'CLOSE_CONTROL_CENTER_EDITOR'") !== false, 'Calculator close must return to the control-center overlay host');
 
 $assert(strpos($autoload, 'ControlCenterEditorsService') !== false, 'Editors service must be autoloaded');
+$assert(strpos($autoload, 'Phase5aParityContractService') !== false, 'Phase 5A parity service must be autoloaded');
 $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== false, 'Installer integrity must verify the editors endpoint');
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
-$assert(strpos($version, "'VERSION' => '1.6.0'") !== false, 'Phase 4B transport must publish a coherent module version');
+$assert(strpos($diagnostic, "'lib/Services/Phase5aParityContractService.php'") !== false, 'Diagnostics must verify the Phase 5A parity service');
+$assert(strpos($version, "'VERSION' => '1.7.0'") !== false, 'Phase 5A transport must publish a coherent module version');
 
 echo "Control center editors API static tests passed\n";

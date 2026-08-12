@@ -10,6 +10,7 @@ define('PUBLIC_AJAX_MODE', true);
 $requestMethod = (string)($_SERVER['REQUEST_METHOD'] ?? '');
 $requestContentType = strtolower(trim((string)strtok((string)($_SERVER['CONTENT_TYPE'] ?? ''), ';')));
 $request = [];
+$requestWithJsonNodeKinds = [];
 $requestError = null;
 
 $decodeJsonObject = static function ($value): ?array {
@@ -25,6 +26,21 @@ $decodeJsonObject = static function ($value): ?array {
     $decoded = json_decode($value, true);
     return json_last_error() === JSON_ERROR_NONE && is_array($decoded) ? $decoded : null;
 };
+$decodeJsonObjectPreservingNodes = static function ($value): ?array {
+    if (!is_string($value)) {
+        return null;
+    }
+
+    $value = trim($value);
+    if ($value === '' || substr($value, 0, 1) !== '{') {
+        return null;
+    }
+
+    $decoded = json_decode($value);
+    return json_last_error() === JSON_ERROR_NONE && $decoded instanceof \stdClass
+        ? get_object_vars($decoded)
+        : null;
+};
 
 if ($requestMethod === 'POST') {
     $isFormRequest = $requestContentType === 'application/x-www-form-urlencoded'
@@ -33,6 +49,7 @@ if ($requestMethod === 'POST') {
     if ($isFormRequest) {
         if (array_key_exists('payload', $_POST)) {
             $request = $decodeJsonObject($_POST['payload']);
+            $requestWithJsonNodeKinds = $decodeJsonObjectPreservingNodes($_POST['payload']) ?? [];
             if ($request === null) {
                 $request = [];
                 $requestError = 'Request payload must be a JSON object';
@@ -41,7 +58,9 @@ if ($requestMethod === 'POST') {
             $request = $_POST;
         }
     } else {
-        $request = $decodeJsonObject((string)file_get_contents('php://input'));
+        $rawRequestBody = (string)file_get_contents('php://input');
+        $request = $decodeJsonObject($rawRequestBody);
+        $requestWithJsonNodeKinds = $decodeJsonObjectPreservingNodes($rawRequestBody) ?? [];
         if ($request === null) {
             $request = [];
             $requestError = 'Request body must be a JSON object';
@@ -61,6 +80,7 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_ad
 
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Services\ControlCenterEditorsService;
+use Prospektweb\Calc\Services\Phase5aParityContractService;
 
 global $APPLICATION, $USER;
 
@@ -178,6 +198,13 @@ $parseIndividualRevision = static function ($value): string {
 
     return $value;
 };
+$parseAggregateRevision = static function ($value, string $field): string {
+    if (!is_string($value) || preg_match('/^[a-f0-9]{64}$/D', $value) !== 1) {
+        throw new \InvalidArgumentException($field . ' must be a lowercase SHA-256 revision');
+    }
+
+    return $value;
+};
 $parseTarget = static function ($value, array $allowedTargets): string {
     if (!is_string($value) || !in_array($value, $allowedTargets, true)) {
         throw new \InvalidArgumentException('target is not supported');
@@ -198,6 +225,26 @@ $parseSchema = static function ($value): array {
     }
     if (strlen($encoded) > 60000) {
         throw new \InvalidArgumentException('schema must not exceed 60000 bytes');
+    }
+
+    return $value;
+};
+$parseEditorDocument = static function ($value, string $field): array {
+    if ($value instanceof \stdClass) {
+        $value = get_object_vars($value);
+    }
+    if (!is_array($value) || $value === []) {
+        throw new \InvalidArgumentException($field . ' must be a non-empty object');
+    }
+    if (array_keys($value) === range(0, count($value) - 1)) {
+        throw new \InvalidArgumentException($field . ' must be a non-empty object');
+    }
+    $encoded = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded)) {
+        throw new \InvalidArgumentException($field . ' must be valid JSON data');
+    }
+    if (strlen($encoded) > 60000) {
+        throw new \InvalidArgumentException($field . ' must not exceed 60000 bytes');
     }
 
     return $value;
@@ -338,6 +385,165 @@ try {
         $respond(200, [
             'success' => true,
             'data' => $service->deleteStorefrontTemplate($productId, $templateId, $expectedRevision),
+        ]);
+    }
+
+    if ($action === 'form_first_load') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'presetId']);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->loadFormFirstWorkspace($productId, $presetId),
+        ]);
+    }
+
+    if ($action === 'form_first_save_draft') {
+        $assertAllowedRequestKeys([
+            'action',
+            'sessid',
+            'productId',
+            'presetId',
+            'expectedAggregateRevision',
+            'formDefinition',
+            'bindingDefinition',
+        ]);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedAggregateRevision = $parseAggregateRevision(
+            $request['expectedAggregateRevision'] ?? null,
+            'expectedAggregateRevision'
+        );
+        $formDefinition = $parseEditorDocument(
+            $requestWithJsonNodeKinds['formDefinition'] ?? $request['formDefinition'] ?? null,
+            'formDefinition'
+        );
+        $bindingDefinition = $parseEditorDocument(
+            $requestWithJsonNodeKinds['bindingDefinition'] ?? $request['bindingDefinition'] ?? null,
+            'bindingDefinition'
+        );
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->saveFormFirstDraft(
+                $productId,
+                $presetId,
+                $expectedAggregateRevision,
+                $formDefinition,
+                $bindingDefinition
+            ),
+        ]);
+    }
+
+    if ($action === 'form_first_preview') {
+        $assertAllowedRequestKeys([
+            'action',
+            'sessid',
+            'productId',
+            'presetId',
+            'formDefinition',
+            'bindingDefinition',
+        ]);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $formDefinition = $parseEditorDocument(
+            $requestWithJsonNodeKinds['formDefinition'] ?? $request['formDefinition'] ?? null,
+            'formDefinition'
+        );
+        $bindingDefinition = $parseEditorDocument(
+            $requestWithJsonNodeKinds['bindingDefinition'] ?? $request['bindingDefinition'] ?? null,
+            'bindingDefinition'
+        );
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->previewFormFirst(
+                $productId,
+                $presetId,
+                $formDefinition,
+                $bindingDefinition
+            ),
+        ]);
+    }
+
+    if ($action === 'form_first_publish') {
+        $assertAllowedRequestKeys([
+            'action',
+            'sessid',
+            'productId',
+            'presetId',
+            'expectedAggregateRevision',
+            'expectedCompileHash',
+        ]);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedAggregateRevision = $parseAggregateRevision(
+            $request['expectedAggregateRevision'] ?? null,
+            'expectedAggregateRevision'
+        );
+        $expectedCompileHash = $parseAggregateRevision(
+            $request['expectedCompileHash'] ?? null,
+            'expectedCompileHash'
+        );
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->publishFormFirst(
+                $productId,
+                $presetId,
+                $expectedAggregateRevision,
+                $expectedCompileHash
+            ),
+        ]);
+    }
+
+    if ($action === 'form_first_rollback') {
+        $assertAllowedRequestKeys([
+            'action',
+            'sessid',
+            'productId',
+            'presetId',
+            'expectedAggregateRevision',
+            'targetPublishedRevision',
+        ]);
+        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedAggregateRevision = $parseAggregateRevision(
+            $request['expectedAggregateRevision'] ?? null,
+            'expectedAggregateRevision'
+        );
+        $targetPublishedRevision = $parseStrictNonNegativeInt(
+            $request['targetPublishedRevision'] ?? null,
+            'targetPublishedRevision'
+        );
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->rollbackFormFirst(
+                $productId,
+                $presetId,
+                $expectedAggregateRevision,
+                $targetPublishedRevision
+            ),
+        ]);
+    }
+
+    if ($action === 'phase5a_parity_contract') {
+        $assertAllowedRequestKeys(['action', 'sessid']);
+        $respond(200, [
+            'success' => true,
+            'data' => (new Phase5aParityContractService())->build(),
+        ]);
+    }
+
+    if ($action === 'phase5a_parity_compare') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'baseline', 'candidate']);
+        $baseline = $parseEditorDocument($request['baseline'] ?? null, 'baseline');
+        $candidate = $parseEditorDocument($request['candidate'] ?? null, 'candidate');
+        $respond(200, [
+            'success' => true,
+            'data' => (new Phase5aParityContractService())->compare($baseline, $candidate),
         ]);
     }
 

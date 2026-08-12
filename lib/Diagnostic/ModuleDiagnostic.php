@@ -57,6 +57,7 @@ class ModuleDiagnostic
         'lib/Services/ControlCenterSettingsService.php',
         'lib/Services/ModuleCapabilityRegistryService.php',
         'lib/Services/ControlCenterEditorsService.php',
+        'lib/Services/Phase5aParityContractService.php',
         'lib/Calculator/InitPayloadService.php',
         'lib/Calculator/SaveHandler.php',
         'lib/Calculator/ElementDataService.php',

@@ -1,0 +1,93 @@
+{
+  "contract": "prospektweb.calc.form-first-golden-observation/v1",
+  "presetId": 12740,
+  "provenance": {
+    "kind": "production_partial",
+    "capturedOn": "2026-08-10/2026-08-11",
+    "source": "CURRENT_STATE.md authenticated live browser evidence",
+    "productionCaptureRequiredBeforeRelease": true,
+    "note": "Replace only from authorized live pre-publish capture of all five products; unknown facts remain null and cannot pass the release gate. Current production blockers: 4267 FRONTCALC_FAMILY_OFFER_SEED_INVALID; 5058 load success=false without a structured error."
+  },
+  "products": [
+    {
+      "productId": 4267,
+      "captureStatus": "blocked",
+      "captureError": "FRONTCALC_FAMILY_OFFER_SEED_INVALID",
+      "prices": null,
+      "selectedStageIds": null,
+      "routeProductId": 4267,
+      "reopenSelection": { "CALC_PROP_METHOD": "OFSET", "CALC_PROP_TYPE_PAPER": "mel-paper" },
+      "basketReprice": null,
+      "basketFingerprint": null,
+      "schemaFingerprint": null,
+      "compileHash": null,
+      "formRevision": null,
+      "bindingRevision": null,
+      "publishedRevision": null
+    },
+    {
+      "productId": 4403,
+      "prices": null,
+      "selectedStageIds": null,
+      "routeProductId": 4403,
+      "reopenSelection": { "CALC_PROP_METHOD": "DIGITAL", "CALC_PROP_TYPE_PAPER": "mel-paper", "CALC_PROP_PROTECTION": "lamination-rulon" },
+      "basketReprice": null,
+      "basketFingerprint": null,
+      "schemaFingerprint": null,
+      "compileHash": null,
+      "formRevision": null,
+      "bindingRevision": null,
+      "publishedRevision": null
+    },
+    {
+      "productId": 5058,
+      "captureStatus": "blocked",
+      "captureError": "load_success_false_unstructured",
+      "prices": null,
+      "selectedStageIds": null,
+      "routeProductId": null,
+      "reopenSelection": null,
+      "basketReprice": null,
+      "basketFingerprint": null,
+      "schemaFingerprint": null,
+      "compileHash": null,
+      "formRevision": null,
+      "bindingRevision": null,
+      "publishedRevision": null
+    },
+    {
+      "productId": 12727,
+      "prices": [
+        { "quantity": 50, "price": 410.0, "currency": "RUB" },
+        { "quantity": 100, "price": 530.0, "currency": "RUB" },
+        { "quantity": 150, "price": 650.0, "currency": "RUB" },
+        { "quantity": 200, "price": 770.0, "currency": "RUB" },
+        { "quantity": 300, "price": 1010.0, "currency": "RUB" }
+      ],
+      "selectedStageIds": null,
+      "routeProductId": 12727,
+      "reopenSelection": { "CALC_PROP_METHOD": "DIGITAL", "CALC_PROP_TYPE_PAPER": "mel-paper" },
+      "basketReprice": null,
+      "basketFingerprint": null,
+      "schemaFingerprint": null,
+      "compileHash": null,
+      "formRevision": null,
+      "bindingRevision": null,
+      "publishedRevision": null
+    },
+    {
+      "productId": 12764,
+      "prices": null,
+      "selectedStageIds": null,
+      "routeProductId": 12764,
+      "reopenSelection": { "CALC_PROP_METHOD": "DIGITAL", "CALC_PROP_TYPE_PAPER": "mel-paper", "CALC_PROP_OPTIONS": ["round-corners"] },
+      "basketReprice": null,
+      "basketFingerprint": null,
+      "schemaFingerprint": null,
+      "compileHash": null,
+      "formRevision": null,
+      "bindingRevision": null,
+      "publishedRevision": null
+    }
+  ]
+}

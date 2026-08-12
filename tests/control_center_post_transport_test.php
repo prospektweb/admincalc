@@ -122,6 +122,9 @@ namespace Prospektweb\Calc\Services {
                     'available' => true,
                     'visualEditorAvailable' => true,
                     'visualEditorContract' => 'prospektweb.frontcalc.storefront-editor/v1',
+                    'formFirstAuthoringAvailable' => true,
+                    'formFirstAuthoringContract' => 'prospektweb.frontcalc.form-first-authoring/v1',
+                    'formFirstPilotProductIds' => [4267],
                     'productIblockId' => 7,
                     'products' => [],
                 ],
@@ -218,6 +221,82 @@ namespace Prospektweb\Calc\Services {
             ]);
         }
 
+        public function loadFormFirstWorkspace(int $productId, int $presetId): array
+        {
+            return $this->formFirstResult('form_first_load', compact('productId', 'presetId'));
+        }
+
+        public function saveFormFirstDraft(
+            int $productId,
+            int $presetId,
+            string $expectedAggregateRevision,
+            array $formDefinition,
+            array $bindingDefinition
+        ): array {
+            if ($expectedAggregateRevision === str_repeat('f', 64)) {
+                throw new \RuntimeException('Aggregate changed', 409);
+            }
+            $field = $formDefinition['fields'][0] ?? null;
+            $nodeKinds = null;
+            if ($field instanceof \stdClass) {
+                $nodeKinds = [
+                    'emptyObject' => gettype($field->emptyObject ?? null),
+                    'emptyList' => gettype($field->emptyList ?? null),
+                    'numericKeyObject' => gettype($field->numericKeyObject ?? null),
+                ];
+            }
+            return $this->formFirstResult('form_first_save_draft', compact(
+                'productId',
+                'presetId',
+                'expectedAggregateRevision',
+                'formDefinition',
+                'bindingDefinition',
+                'nodeKinds'
+            ));
+        }
+
+        public function previewFormFirst(
+            int $productId,
+            int $presetId,
+            array $formDefinition,
+            array $bindingDefinition
+        ): array {
+            return $this->formFirstResult('form_first_preview', compact(
+                'productId',
+                'presetId',
+                'formDefinition',
+                'bindingDefinition'
+            ));
+        }
+
+        public function publishFormFirst(
+            int $productId,
+            int $presetId,
+            string $expectedAggregateRevision,
+            string $expectedCompileHash
+        ): array {
+            return $this->formFirstResult('form_first_publish', compact(
+                'productId',
+                'presetId',
+                'expectedAggregateRevision',
+                'expectedCompileHash'
+            ));
+        }
+
+        public function rollbackFormFirst(
+            int $productId,
+            int $presetId,
+            string $expectedAggregateRevision,
+            int $targetPublishedRevision
+        ): array {
+            return $this->formFirstResult('form_first_rollback', compact(
+                'productId',
+                'presetId',
+                'expectedAggregateRevision',
+                'targetPublishedRevision'
+            ));
+        }
+
         private function storefrontResult(string $operation, array $extra): array
         {
             return array_merge([
@@ -225,6 +304,39 @@ namespace Prospektweb\Calc\Services {
                 'operation' => $operation,
                 'transport' => 'ok',
             ], $extra);
+        }
+
+        private function formFirstResult(string $operation, array $extra): array
+        {
+            return array_merge([
+                'contract' => 'prospektweb.frontcalc.form-first-authoring/v1',
+                'operation' => $operation,
+                'transport' => 'ok',
+            ], $extra);
+        }
+    }
+
+    class Phase5aParityContractService
+    {
+        public function build(): array
+        {
+            return [
+                'contract' => 'prospektweb.calc.form-first-parity/v1',
+                'presetId' => 12740,
+                'readOnly' => true,
+                'transport' => 'ok',
+            ];
+        }
+
+        public function compare(array $baseline, array $candidate): array
+        {
+            return [
+                'contract' => 'prospektweb.calc.form-first-golden-comparison/v1',
+                'presetId' => 12740,
+                'readOnly' => true,
+                'valid' => $baseline === $candidate,
+                'transport' => 'ok',
+            ];
         }
     }
 }
@@ -428,6 +540,8 @@ PHP;
         && ($editorsCatalog['body']['data']['storefront']['visualEditorAvailable'] ?? false) === true
         && ($editorsCatalog['body']['data']['storefront']['visualEditorContract'] ?? '')
             === 'prospektweb.frontcalc.storefront-editor/v1'
+        && ($editorsCatalog['body']['data']['storefront']['formFirstAuthoringAvailable'] ?? false) === true
+        && ($editorsCatalog['body']['data']['storefront']['formFirstPilotProductIds'] ?? []) === [4267]
         && ($editorsCatalog['body']['data']['transport'] ?? '') === 'ok',
         'Editors catalog form payload must pass prolog and decode');
 
@@ -543,6 +657,184 @@ PHP;
         && ($editorsStorefrontDelete['body']['data']['operation'] ?? '') === 'delete_template'
         && ($editorsStorefrontDelete['body']['data']['expectedRevision'] ?? 0) === 4,
         'Storefront template delete must preserve the positive template revision');
+
+    $formDefinition = ['version' => 1, 'fields' => [['id' => 'quantity', 'type' => 'number']]];
+    $bindingDefinition = [
+        'version' => 1,
+        'bindings' => [['fieldId' => 'quantity', 'target' => 'CALC_PROP_VOLUME']],
+    ];
+    $aggregateRevision = str_repeat('c', 64);
+    $compileHash = str_repeat('d', 64);
+
+    $formFirstLoad = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_load',
+        'productId' => 4267,
+        'presetId' => 12740,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstLoad['status'] === 200
+        && ($formFirstLoad['body']['data']['operation'] ?? '') === 'form_first_load'
+        && ($formFirstLoad['body']['data']['presetId'] ?? 0) === 12740,
+        'Form-first load must preserve the exact product and preset pilot IDs');
+
+    $formFirstSave = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_save_draft',
+        'productId' => 4267,
+        'presetId' => 12740,
+        'expectedAggregateRevision' => $aggregateRevision,
+        'formDefinition' => $formDefinition,
+        'bindingDefinition' => $bindingDefinition,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstSave['status'] === 200
+        && ($formFirstSave['body']['data']['operation'] ?? '') === 'form_first_save_draft'
+        && ($formFirstSave['body']['data']['expectedAggregateRevision'] ?? '') === $aggregateRevision,
+        'Form-first draft save must preserve CAS and both typed documents');
+
+    $nodeKindsPayload = '{'
+        . '"sessid":"valid",'
+        . '"action":"form_first_save_draft",'
+        . '"productId":4267,'
+        . '"presetId":12740,'
+        . '"expectedAggregateRevision":"' . $aggregateRevision . '",'
+        . '"formDefinition":{'
+            . '"version":1,'
+            . '"fields":[{"id":"opaque","type":"number",'
+                . '"emptyObject":{},'
+                . '"emptyList":[],'
+                . '"numericKeyObject":{"0":"zero","2":"two"}'
+            . '}]'
+        . '},'
+        . '"bindingDefinition":{"version":1,"bindings":[]}'
+        . '}';
+    $nodeKindsSave = $post('editors.php', 'application/json', $nodeKindsPayload);
+    $assert(
+        $nodeKindsSave['status'] === 200
+            && ($nodeKindsSave['body']['data']['nodeKinds'] ?? null) === [
+            'emptyObject' => 'object',
+            'emptyList' => 'array',
+            'numericKeyObject' => 'object',
+        ]
+            && strpos((string)$nodeKindsSave['raw'], '"emptyObject":{}') !== false
+            && strpos((string)$nodeKindsSave['raw'], '"emptyList":[]') !== false
+            && strpos((string)$nodeKindsSave['raw'], '"numericKeyObject":{"0":"zero","2":"two"}') !== false,
+        'Form-first transport must preserve nested {}, [] and numeric-key object identity before provider delegation'
+    );
+
+    $formFirstPreview = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_preview',
+        'productId' => 4267,
+        'presetId' => 12740,
+        'formDefinition' => $formDefinition,
+        'bindingDefinition' => $bindingDefinition,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstPreview['status'] === 200
+        && ($formFirstPreview['body']['data']['operation'] ?? '') === 'form_first_preview',
+        'Form-first preview must preserve both typed documents without a CAS write token');
+
+    $formFirstPublish = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_publish',
+        'productId' => 4267,
+        'presetId' => 12740,
+        'expectedAggregateRevision' => $aggregateRevision,
+        'expectedCompileHash' => $compileHash,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstPublish['status'] === 200
+        && ($formFirstPublish['body']['data']['operation'] ?? '') === 'form_first_publish'
+        && ($formFirstPublish['body']['data']['expectedCompileHash'] ?? '') === $compileHash,
+        'Form-first publish must preserve both exact lowercase SHA-256 guards');
+
+    $formFirstRollback = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_rollback',
+        'productId' => 4267,
+        'presetId' => 12740,
+        'expectedAggregateRevision' => $aggregateRevision,
+        'targetPublishedRevision' => 0,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstRollback['status'] === 200
+        && ($formFirstRollback['body']['data']['targetPublishedRevision'] ?? -1) === 0,
+        'Form-first rollback must transport the pre-form-first revision zero');
+
+    $formFirstInvalidPreset = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_load',
+        'productId' => 4267,
+        'presetId' => '12740',
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstInvalidPreset['status'] === 422,
+        'Form-first requests must reject a string preset ID before provider delegation');
+
+    $formFirstInvalidRevision = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_publish',
+        'productId' => 4267,
+        'presetId' => 12740,
+        'expectedAggregateRevision' => 'invalid',
+        'expectedCompileHash' => $compileHash,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstInvalidRevision['status'] === 422,
+        'Form-first writes must reject malformed aggregate revisions');
+
+    $formFirstOversizedBinding = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_preview',
+        'productId' => 4267,
+        'presetId' => 12740,
+        'formDefinition' => $formDefinition,
+        'bindingDefinition' => ['version' => 1, 'padding' => str_repeat('x', 60001)],
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstOversizedBinding['status'] === 422,
+        'Form-first bindings must be rejected above the 60 KB transport cap');
+
+    $formFirstConflict = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_save_draft',
+        'productId' => 4267,
+        'presetId' => 12740,
+        'expectedAggregateRevision' => str_repeat('f', 64),
+        'formDefinition' => $formDefinition,
+        'bindingDefinition' => $bindingDefinition,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstConflict['status'] === 409
+        && ($formFirstConflict['body']['errorCode'] ?? '') === 'REVISION_CONFLICT',
+        'Form-first CAS conflicts must retain the stable HTTP 409 mapping');
+
+    $parityContract = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'phase5a_parity_contract',
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($parityContract['status'] === 200
+        && ($parityContract['body']['data']['contract'] ?? '')
+            === 'prospektweb.calc.form-first-parity/v1'
+        && ($parityContract['body']['data']['readOnly'] ?? false) === true,
+        'The Phase 5A parity contract must be available through the read-only POST action');
+
+    $observation = [
+        'contract' => 'prospektweb.calc.form-first-golden-observation/v1',
+        'presetId' => 12740,
+        'products' => [],
+    ];
+    $parityCompare = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'phase5a_parity_compare',
+        'baseline' => $observation,
+        'candidate' => $observation,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($parityCompare['status'] === 200
+        && ($parityCompare['body']['data']['valid'] ?? false) === true,
+        'The Phase 5A comparator must accept bounded read-only observation objects');
+
+    $parityCompareOversized = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'phase5a_parity_compare',
+        'baseline' => ['padding' => str_repeat('x', 60001)],
+        'candidate' => $observation,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($parityCompareOversized['status'] === 422,
+        'The Phase 5A comparator must reject oversized observation objects');
 
     $editorsStorefrontExtraField = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',

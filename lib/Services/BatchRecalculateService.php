@@ -200,6 +200,7 @@ class BatchRecalculateService
             [
                 'IBLOCK_ID' => $productIblockId,
                 'ACTIVE' => 'Y',
+                'ACTIVE_DATE' => 'Y',
                 'PROPERTY_CALC_PRESET' => $presetId,
             ],
             false,
