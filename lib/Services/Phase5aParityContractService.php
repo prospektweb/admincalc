@@ -19,6 +19,9 @@ final class Phase5aParityContractService
     public const FOCUS_PRESET_ID = 12740;
     public const GOLDEN_PRODUCT_IDS = [4267, 4403, 5058, 12727, 12764];
 
+    private const UNAVAILABLE_RUNTIME_PRODUCT_ID = 5058;
+    private const AVAILABLE_RUNTIME_SOURCES = ['family', 'template', 'product', 'product_override', 'form_first'];
+
     private const REQUIRED_CATEGORIES = [
         'ui',
         'passive_context',
@@ -33,6 +36,9 @@ final class Phase5aParityContractService
     private const GOLDEN_BASELINE = [
         4267 => [
             'reopenSelection' => [
+                'CALC_PROP_COLOR_SCHEME' => '4+0',
+                'CALC_PROP_DENSITY_PAPER' => 'MAX',
+                'CALC_PROP_FORMAT' => '90x50',
                 'CALC_PROP_METHOD' => 'OFSET',
                 'CALC_PROP_TYPE_PAPER' => 'mel-paper',
             ],
@@ -40,18 +46,39 @@ final class Phase5aParityContractService
         ],
         4403 => [
             'reopenSelection' => [
+                'CALC_PROP_COLOR_SCHEME' => '4+0',
+                'CALC_PROP_DENSITY_PAPER' => 'MAX',
+                'CALC_PROP_FILLING' => 'standart',
+                'CALC_PROP_FORMAT' => '90x50',
+                'CALC_PROP_LAMINATION' => 'gloss-low',
+                'CALC_PROP_LAMINATION_SIDES' => '2',
                 'CALC_PROP_METHOD' => 'DIGITAL',
-                'CALC_PROP_TYPE_PAPER' => 'mel-paper',
                 'CALC_PROP_PROTECTION' => 'lamination-rulon',
+                'CALC_PROP_TYPE_PAPER' => 'mel-paper',
             ],
             'routeProductId' => 4403,
         ],
         5058 => [
+            'runtimeState' => 'unavailable',
+            'runtimeSource' => 'none',
+            'prices' => [],
+            'selectedStageIds' => [],
             'reopenSelection' => null,
             'routeProductId' => null,
+            'basketReprice' => null,
+            'basketFingerprint' => null,
+            'schemaFingerprint' => null,
+            'compileHash' => null,
+            'formRevision' => null,
+            'bindingRevision' => null,
+            'publishedRevision' => null,
         ],
         12727 => [
             'reopenSelection' => [
+                'CALC_PROP_COLOR_SCHEME' => '4+0',
+                'CALC_PROP_DENSITY_PAPER' => 'MAX',
+                'CALC_PROP_FILLING' => 'standart',
+                'CALC_PROP_FORMAT' => '90x50',
                 'CALC_PROP_METHOD' => 'DIGITAL',
                 'CALC_PROP_TYPE_PAPER' => 'mel-paper',
             ],
@@ -66,9 +93,13 @@ final class Phase5aParityContractService
         ],
         12764 => [
             'reopenSelection' => [
+                'CALC_PROP_COLOR_SCHEME' => '4+0',
+                'CALC_PROP_DENSITY_PAPER' => 'MAX',
+                'CALC_PROP_FILLING' => 'standart',
+                'CALC_PROP_FORMAT' => '90x50',
                 'CALC_PROP_METHOD' => 'DIGITAL',
+                'CALC_PROP_OPTIONS' => 'round-corners',
                 'CALC_PROP_TYPE_PAPER' => 'mel-paper',
-                'CALC_PROP_OPTIONS' => ['round-corners'],
             ],
             'routeProductId' => 12764,
         ],
@@ -129,7 +160,18 @@ final class Phase5aParityContractService
                                 $capture = is_array($product['capture'] ?? null)
                                     ? $product['capture']
                                     : $product;
-                                if (is_string($product['schemaFingerprint'] ?? null)) {
+                                $runtimeSource = trim((string)($product['source'] ?? ''));
+                                if ($runtimeSource !== '') {
+                                    $capture['runtimeState'] = $runtimeSource === 'none'
+                                        ? 'unavailable'
+                                        : 'available';
+                                    $capture['runtimeSource'] = $runtimeSource;
+                                }
+                                if ($runtimeSource === 'none') {
+                                    // The resolver proves an absent FrontCalc runtime. Hashing
+                                    // an empty schema would incorrectly present it as a schema.
+                                    $capture['schemaFingerprint'] = null;
+                                } elseif (is_string($product['schemaFingerprint'] ?? null)) {
                                     $capture['schemaFingerprint'] = $product['schemaFingerprint'];
                                 }
                                 $captures[(int)$product['productId']] = $capture;
@@ -227,6 +269,7 @@ final class Phase5aParityContractService
                 'valid' => $goldenValid,
                 'products' => $golden,
                 'requiredAssertions' => [
+                    'runtimeState/runtimeSource (product 5058 is exact unavailable/none; available elsewhere)',
                     'prices',
                     'selectedStageIds',
                     'routeProductId',
@@ -318,10 +361,22 @@ final class Phase5aParityContractService
 
         $normalizedBaseline = $this->normalizeObservation($baseline, 'baseline');
         $normalizedCandidate = $this->normalizeObservation($candidate, 'candidate');
+        foreach ($normalizedBaseline['products'] as $baselineProduct) {
+            $productId = (int)($baselineProduct['productId'] ?? 0);
+            $expectedRuntimeState = $productId === self::UNAVAILABLE_RUNTIME_PRODUCT_ID
+                ? 'unavailable'
+                : 'available';
+            if (($baselineProduct['runtimeState'] ?? '') !== $expectedRuntimeState) {
+                throw new \InvalidArgumentException(
+                    'baseline.products.' . $productId . '.runtimeState does not match the authoritative runtime baseline'
+                );
+            }
+        }
         $productResults = [];
         $valid = true;
         $authoringTransition = null;
         $semanticFields = [
+            'runtimeState',
             'prices',
             'selectedStageIds',
             'routeProductId',
@@ -344,6 +399,13 @@ final class Phase5aParityContractService
             }
             if ($productId !== 4267) {
                 foreach ($this->differencePaths(
+                    $left['runtimeSource'],
+                    $right['runtimeSource'],
+                    'products.' . $productId . '.runtimeSource'
+                ) as $difference) {
+                    $mismatches[] = $difference;
+                }
+                foreach ($this->differencePaths(
                     $left['schemaFingerprint'],
                     $right['schemaFingerprint'],
                     'products.' . $productId . '.schemaFingerprint'
@@ -362,6 +424,9 @@ final class Phase5aParityContractService
                 $schemaTransitionValid = $publicationAdvanced
                     ? $schemaFingerprintChanged
                     : !$schemaFingerprintChanged;
+                $runtimeSourceTransitionValid = $publicationAdvanced
+                    ? $right['runtimeSource'] === 'form_first'
+                    : $right['runtimeSource'] === $left['runtimeSource'];
                 $transitionIssues = [];
                 if (!$revisionMonotonic) {
                     $transitionIssues[] = 'authoring_revisions_regressed';
@@ -371,18 +436,27 @@ final class Phase5aParityContractService
                         ? 'published_schema_fingerprint_did_not_change'
                         : 'public_schema_changed_without_publication';
                 }
+                if (!$runtimeSourceTransitionValid) {
+                    $transitionIssues[] = $publicationAdvanced
+                        ? 'published_runtime_source_is_not_form_first'
+                        : 'runtime_source_changed_without_publication';
+                }
                 $authoringTransition = [
                     'productId' => 4267,
-                    'valid' => $revisionMonotonic && $schemaTransitionValid,
+                    'valid' => $revisionMonotonic
+                        && $schemaTransitionValid
+                        && $runtimeSourceTransitionValid,
                     'publicationAdvanced' => $publicationAdvanced,
                     'schemaFingerprintChanged' => $schemaFingerprintChanged,
                     'revisionsMonotonic' => $revisionMonotonic,
+                    'runtimeSourceTransitionValid' => $runtimeSourceTransitionValid,
                     'baseline' => [
                         'formRevision' => $left['formRevision'],
                         'bindingRevision' => $left['bindingRevision'],
                         'publishedRevision' => $left['publishedRevision'],
                         'compileHash' => $left['compileHash'],
                         'schemaFingerprint' => $left['schemaFingerprint'],
+                        'runtimeSource' => $left['runtimeSource'],
                     ],
                     'candidate' => [
                         'formRevision' => $right['formRevision'],
@@ -390,6 +464,7 @@ final class Phase5aParityContractService
                         'publishedRevision' => $right['publishedRevision'],
                         'compileHash' => $right['compileHash'],
                         'schemaFingerprint' => $right['schemaFingerprint'],
+                        'runtimeSource' => $right['runtimeSource'],
                     ],
                     'issues' => $transitionIssues,
                 ];
@@ -468,6 +543,8 @@ final class Phase5aParityContractService
     {
         $allowedKeys = [
             'productId',
+            'runtimeState',
+            'runtimeSource',
             'prices',
             'selectedStageIds',
             'routeProductId',
@@ -484,6 +561,76 @@ final class Phase5aParityContractService
             if (!is_string($key) || !in_array($key, $allowedKeys, true)) {
                 throw new \InvalidArgumentException($field . ' contains unsupported fields');
             }
+        }
+
+        $productId = (int)($product['productId'] ?? 0);
+        if (array_key_exists('runtimeState', $product) && !is_string($product['runtimeState'])) {
+            throw new \InvalidArgumentException($field . '.runtimeState must be a string');
+        }
+        $runtimeState = array_key_exists('runtimeState', $product)
+            ? (string)$product['runtimeState']
+            : 'available';
+        if (!in_array($runtimeState, ['available', 'unavailable'], true)) {
+            throw new \InvalidArgumentException($field . '.runtimeState is not supported');
+        }
+        $runtimeSource = array_key_exists('runtimeSource', $product)
+            ? $product['runtimeSource']
+            : null;
+        if ($runtimeState === 'unavailable') {
+            if ($productId !== self::UNAVAILABLE_RUNTIME_PRODUCT_ID) {
+                throw new \InvalidArgumentException(
+                    $field . '.runtimeState=unavailable is supported only for product 5058'
+                );
+            }
+            if ($runtimeSource !== 'none') {
+                throw new \InvalidArgumentException($field . '.runtimeSource must be none when unavailable');
+            }
+            foreach (['prices', 'selectedStageIds'] as $emptyListField) {
+                if (!array_key_exists($emptyListField, $product) || $product[$emptyListField] !== []) {
+                    throw new \InvalidArgumentException(
+                        $field . '.' . $emptyListField . ' must be an explicit empty list when unavailable'
+                    );
+                }
+            }
+            foreach ([
+                'routeProductId',
+                'reopenSelection',
+                'basketReprice',
+                'basketFingerprint',
+                'schemaFingerprint',
+                'compileHash',
+                'formRevision',
+                'bindingRevision',
+                'publishedRevision',
+            ] as $nullField) {
+                if (!array_key_exists($nullField, $product) || $product[$nullField] !== null) {
+                    throw new \InvalidArgumentException(
+                        $field . '.' . $nullField . ' must be explicit null when unavailable'
+                    );
+                }
+            }
+
+            return [
+                'productId' => $productId,
+                'runtimeState' => 'unavailable',
+                'runtimeSource' => 'none',
+                'prices' => [],
+                'selectedStageIds' => [],
+                'routeProductId' => null,
+                'reopenSelection' => null,
+                'basketReprice' => null,
+                'basketFingerprint' => null,
+                'schemaFingerprint' => null,
+                'compileHash' => null,
+                'formRevision' => null,
+                'bindingRevision' => null,
+                'publishedRevision' => null,
+            ];
+        }
+        if ($runtimeSource !== null
+            && (!is_string($runtimeSource)
+                || !in_array($runtimeSource, self::AVAILABLE_RUNTIME_SOURCES, true))) {
+            throw new \InvalidArgumentException($field . '.runtimeSource is not supported for an available runtime');
         }
 
         $prices = $product['prices'] ?? null;
@@ -568,7 +715,9 @@ final class Phase5aParityContractService
         }
 
         return [
-            'productId' => (int)$product['productId'],
+            'productId' => $productId,
+            'runtimeState' => 'available',
+            'runtimeSource' => $runtimeSource,
             'prices' => $normalizedPrices,
             'selectedStageIds' => $normalizedStageIds,
             'routeProductId' => $routeProductId,
@@ -848,6 +997,8 @@ final class Phase5aParityContractService
     private function normalizeGoldenProduct(int $productId, bool $allowed, array $capture): array
     {
         $required = [
+            'runtimeState',
+            'runtimeSource',
             'prices',
             'selectedStageIds',
             'routeProductId',
@@ -862,7 +1013,7 @@ final class Phase5aParityContractService
         ];
         $missing = [];
         foreach ($required as $field) {
-            if (!$this->hasGoldenAssertion($productId, $field, $capture[$field] ?? null)) {
+            if (!$this->hasGoldenAssertion($productId, $field, $capture)) {
                 $missing[] = $field;
             }
         }
@@ -872,7 +1023,7 @@ final class Phase5aParityContractService
         $captureError = trim((string)($capture['captureError'] ?? ''));
         $mismatches = [];
         foreach ($baseline as $field => $expectedValue) {
-            if ($expectedValue === null || !array_key_exists($field, $capture)) {
+            if (!array_key_exists($field, $capture)) {
                 continue;
             }
             if ($this->differencePaths($expectedValue, $capture[$field], $field) !== []) {
@@ -903,8 +1054,40 @@ final class Phase5aParityContractService
         ];
     }
 
-    private function hasGoldenAssertion(int $productId, string $field, $value): bool
+    /** @param array<string,mixed> $capture */
+    private function hasGoldenAssertion(int $productId, string $field, array $capture): bool
     {
+        $hasValue = array_key_exists($field, $capture);
+        $value = $hasValue ? $capture[$field] : null;
+        $runtimeState = array_key_exists('runtimeState', $capture)
+            ? (string)$capture['runtimeState']
+            : 'available';
+        $runtimeSource = $capture['runtimeSource'] ?? null;
+        $isUnavailable = $productId === self::UNAVAILABLE_RUNTIME_PRODUCT_ID
+            && $runtimeState === 'unavailable'
+            && $runtimeSource === 'none';
+
+        if ($field === 'runtimeState') {
+            return $productId === self::UNAVAILABLE_RUNTIME_PRODUCT_ID
+                ? $hasValue && $value === 'unavailable'
+                : (!$hasValue || $value === 'available');
+        }
+        if ($field === 'runtimeSource') {
+            if ($productId === self::UNAVAILABLE_RUNTIME_PRODUCT_ID) {
+                return $hasValue && $value === 'none';
+            }
+            return !$hasValue
+                || (is_string($value) && in_array($value, self::AVAILABLE_RUNTIME_SOURCES, true));
+        }
+        if ($runtimeState === 'unavailable' && !$isUnavailable) {
+            return false;
+        }
+        if ($isUnavailable) {
+            if ($field === 'prices' || $field === 'selectedStageIds') {
+                return $hasValue && $value === [];
+            }
+            return $hasValue && $value === null;
+        }
         if ($field === 'prices' || $field === 'selectedStageIds') {
             return is_array($value) && $value !== [];
         }

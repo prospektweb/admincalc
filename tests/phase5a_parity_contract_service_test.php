@@ -71,6 +71,9 @@ $completeCapture = [
     'selectedStageIds' => [12758],
     'routeProductId' => 4267,
     'reopenSelection' => [
+        'CALC_PROP_COLOR_SCHEME' => '4+0',
+        'CALC_PROP_DENSITY_PAPER' => 'MAX',
+        'CALC_PROP_FORMAT' => '90x50',
         'CALC_PROP_METHOD' => 'OFSET',
         'CALC_PROP_TYPE_PAPER' => 'mel-paper',
     ],
@@ -339,6 +342,8 @@ foreach ((array)($productionFixture['products'] ?? []) as $product) {
     $assert(
         array_diff([
             'productId',
+            'runtimeState',
+            'runtimeSource',
             'prices',
             'selectedStageIds',
             'routeProductId',
@@ -360,14 +365,45 @@ $assert(
     'The baseline must preserve currently proven production price and reopen evidence'
 );
 $assert(
-    ($productionFixture['provenance']['kind'] ?? '') === 'production_partial'
-        && ($productionFixture['provenance']['productionCaptureRequiredBeforeRelease'] ?? false) === true,
-    'Partial production evidence must fail closed until authorized live capture fills every assertion'
+    ($productionFixture['provenance']['kind'] ?? '') === 'production'
+        && ($productionFixture['provenance']['productionCaptureRequiredBeforeRelease'] ?? true) === false,
+    'Authorized live capture must promote the versioned baseline to production evidence'
 );
 $assert(
-    ($productionFixture['products'][0]['captureError'] ?? '') === 'FRONTCALC_FAMILY_OFFER_SEED_INVALID'
-        && ($productionFixture['products'][2]['captureError'] ?? '') === 'load_success_false_unstructured',
-    'Known production load failures must stay explicit in the fail-closed golden evidence'
+    ($productionFixture['products'][0]['prices'][0]['price'] ?? 0.0) === 12520.0
+        && ($productionFixture['products'][0]['selectedStageIds'] ?? []) !== []
+        && ($productionFixture['products'][0]['basketFingerprint'] ?? '') !== ''
+        && ($productionFixture['products'][2]['runtimeState'] ?? '') === 'unavailable'
+        && ($productionFixture['products'][2]['runtimeSource'] ?? '') === 'none'
+        && ($productionFixture['products'][2]['prices'] ?? null) === []
+        && array_key_exists('schemaFingerprint', $productionFixture['products'][2])
+        && $productionFixture['products'][2]['schemaFingerprint'] === null,
+    'The production fixture must preserve positive live evidence and the exact product-5058 negative runtime'
+);
+$productionCaptures = [];
+foreach ((array)($productionFixture['products'] ?? []) as $product) {
+    if (!is_array($product) || !is_int($product['productId'] ?? null)) {
+        continue;
+    }
+    $productId = (int)$product['productId'];
+    unset($product['productId']);
+    $productionCaptures[$productId] = $product;
+}
+$productionBuild = (new Phase5aParityContractService(
+    $presetLoader,
+    $dependencyLoader,
+    static fn(int $presetId, array $productIds): array => [
+        'mode' => 'versioned_fixture',
+        'baselineKind' => 'production',
+        'captures' => $productionCaptures,
+    ]
+))->build();
+$assert(
+    ($productionBuild['goldenParity']['valid'] ?? false) === true
+        && array_column($productionBuild['goldenParity']['products'] ?? [], 'status')
+            === ['matched', 'matched', 'matched', 'matched', 'matched']
+        && ($productionBuild['runtimeBoundary']['calcServerChangeRequired'] ?? true) === false,
+    'The exact versioned production fixture must pass all five golden products and close the runtime boundary'
 );
 
 $fixturePath = __DIR__ . '/fixtures/phase5a_golden_harness_v1.json';
@@ -386,8 +422,28 @@ $assert(
 
 $observedProduct = static function (int $productId): array {
     $isPilot = $productId === 4267;
+    if ($productId === 5058) {
+        return [
+            'productId' => 5058,
+            'runtimeState' => 'unavailable',
+            'runtimeSource' => 'none',
+            'prices' => [],
+            'selectedStageIds' => [],
+            'routeProductId' => null,
+            'reopenSelection' => null,
+            'basketReprice' => null,
+            'basketFingerprint' => null,
+            'schemaFingerprint' => null,
+            'compileHash' => null,
+            'formRevision' => null,
+            'bindingRevision' => null,
+            'publishedRevision' => null,
+        ];
+    }
     return [
         'productId' => $productId,
+        'runtimeState' => 'available',
+        'runtimeSource' => 'family',
         'prices' => [['quantity' => 100, 'price' => (float)$productId, 'currency' => 'RUB']],
         'selectedStageIds' => [12758, 12744],
         'routeProductId' => $productId,
@@ -418,6 +474,7 @@ $candidatePublished = $baselineObservation;
 $candidatePublished['products'][0]['publishedRevision'] = 3;
 $candidatePublished['products'][0]['schemaFingerprint'] = hash('sha256', 'schema-4267-published');
 $candidatePublished['products'][0]['compileHash'] = hash('sha256', 'compile-4267-published');
+$candidatePublished['products'][0]['runtimeSource'] = 'form_first';
 $publishedComparison = $service->compare($baselineObservation, $candidatePublished);
 $assert(
     ($publishedComparison['valid'] ?? false) === true
@@ -480,6 +537,74 @@ try {
 $assert(
     $invalidNonPilotTypesRejected,
     'Non-pilot products must use explicit null for form-first authoring metadata'
+);
+
+$missingUnavailableFact = $baselineObservation;
+unset($missingUnavailableFact['products'][2]['schemaFingerprint']);
+$missingUnavailableFactRejected = false;
+try {
+    $service->compare($missingUnavailableFact, $baselineObservation);
+} catch (InvalidArgumentException $exception) {
+    $missingUnavailableFactRejected = true;
+}
+$assert(
+    $missingUnavailableFactRejected,
+    'The unavailable runtime baseline must contain every explicit empty/null assertion'
+);
+
+$unavailablePositiveProduct = $baselineObservation;
+$unavailablePositiveProduct['products'][1] = $baselineObservation['products'][2];
+$unavailablePositiveProduct['products'][1]['productId'] = 4403;
+$unavailablePositiveRejected = false;
+try {
+    $service->compare($unavailablePositiveProduct, $baselineObservation);
+} catch (InvalidArgumentException $exception) {
+    $unavailablePositiveRejected = true;
+}
+$assert(
+    $unavailablePositiveRejected,
+    'Only the proven catalog-only product 5058 may use the unavailable runtime state'
+);
+
+$fabricatedPositiveBaseline = $baselineObservation;
+$fabricatedPositiveBaseline['products'][2] = $observedProduct(12727);
+$fabricatedPositiveBaseline['products'][2]['productId'] = 5058;
+$fabricatedPositiveBaselineRejected = false;
+try {
+    $service->compare($fabricatedPositiveBaseline, $fabricatedPositiveBaseline);
+} catch (InvalidArgumentException $exception) {
+    $fabricatedPositiveBaselineRejected = true;
+}
+$assert(
+    $fabricatedPositiveBaselineRejected,
+    'The comparator must reject a fabricated positive baseline for product 5058'
+);
+
+$availableCandidate = $baselineObservation;
+$availableCandidate['products'][2] = $observedProduct(12727);
+$availableCandidate['products'][2]['productId'] = 5058;
+$availableCandidateComparison = $service->compare($baselineObservation, $availableCandidate);
+$assert(
+    ($availableCandidateComparison['valid'] ?? true) === false
+        && in_array(
+            'products.5058.runtimeState',
+            $availableCandidateComparison['products'][2]['mismatches'] ?? [],
+            true
+        ),
+    'A newly available product-5058 runtime must be reported as a parity change, not waived'
+);
+
+$emptyPositivePrices = $baselineObservation;
+$emptyPositivePrices['products'][1]['prices'] = [];
+$emptyPositivePricesRejected = false;
+try {
+    $service->compare($emptyPositivePrices, $baselineObservation);
+} catch (InvalidArgumentException $exception) {
+    $emptyPositivePricesRejected = true;
+}
+$assert(
+    $emptyPositivePricesRejected,
+    'Positive FrontCalc products must retain strict non-empty price assertions'
 );
 
 echo "Phase 5A parity contract service tests passed\n";

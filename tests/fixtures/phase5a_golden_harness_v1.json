@@ -10,6 +10,8 @@
   "products": [
     {
       "productId": 4267,
+      "runtimeState": "available",
+      "runtimeSource": "family",
       "prices": [{ "quantity": 1000, "price": 4267.0, "currency": "RUB" }],
       "selectedStageIds": [12758],
       "routeProductId": 4267,
@@ -24,6 +26,8 @@
     },
     {
       "productId": 4403,
+      "runtimeState": "available",
+      "runtimeSource": "family",
       "prices": [{ "quantity": 100, "price": 4403.0, "currency": "RUB" }],
       "selectedStageIds": [12758],
       "routeProductId": 4403,
@@ -38,13 +42,15 @@
     },
     {
       "productId": 5058,
-      "prices": [{ "quantity": 100, "price": 5058.0, "currency": "RUB" }],
-      "selectedStageIds": [12758],
-      "routeProductId": 5058,
-      "reopenSelection": { "CALC_PROP_METHOD": "DIGITAL" },
-      "basketReprice": { "quantity": 100, "before": 5058.0, "after": 5058.0, "currency": "RUB" },
-      "basketFingerprint": "386c37b39e85b4f917d603f201db43dc96fab57f235fd240e594abf95d9f85e6",
-      "schemaFingerprint": "8a64509130c3c2f7c20e753a4890360f8db8908d16d91e0ad9ff105bf1d3ee82",
+      "runtimeState": "unavailable",
+      "runtimeSource": "none",
+      "prices": [],
+      "selectedStageIds": [],
+      "routeProductId": null,
+      "reopenSelection": null,
+      "basketReprice": null,
+      "basketFingerprint": null,
+      "schemaFingerprint": null,
       "compileHash": null,
       "formRevision": null,
       "bindingRevision": null,
@@ -52,6 +58,8 @@
     },
     {
       "productId": 12727,
+      "runtimeState": "available",
+      "runtimeSource": "family",
       "prices": [
         { "quantity": 50, "price": 410.0, "currency": "RUB" },
         { "quantity": 100, "price": 530.0, "currency": "RUB" },
@@ -72,6 +80,8 @@
     },
     {
       "productId": 12764,
+      "runtimeState": "available",
+      "runtimeSource": "family",
       "prices": [{ "quantity": 100, "price": 12764.0, "currency": "RUB" }],
       "selectedStageIds": [12758],
       "routeProductId": 12764,
