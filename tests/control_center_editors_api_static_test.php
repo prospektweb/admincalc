@@ -84,6 +84,35 @@ $assert(
 
 $assert(strpos($parityService, "public const CONTRACT = 'prospektweb.calc.form-first-parity/v1'") !== false, 'Dependency matrix must have a versioned contract');
 $assert(strpos($parityService, 'public const GOLDEN_PRODUCT_IDS = [4267, 4403, 5058, 12727, 12764]') !== false, 'Golden parity must gate the exact five pilot products');
+$defaultPresetLoaderOffset = strpos(
+    $parityService,
+    '$this->presetLoader = $presetLoader ?? static function (int $presetId): array {'
+);
+$defaultPresetIblockOffset = strpos(
+    $parityService,
+    "if (!\\Bitrix\\Main\\Loader::includeModule('iblock')) {",
+    $defaultPresetLoaderOffset === false ? 0 : $defaultPresetLoaderOffset
+);
+$defaultPresetResolverOffset = strpos(
+    $parityService,
+    "return (new CatalogTreeService())->presetLoadOptions(['presetId' => \$presetId]);",
+    $defaultPresetLoaderOffset === false ? 0 : $defaultPresetLoaderOffset
+);
+$defaultPresetFailureOffset = strpos(
+    $parityService,
+    "throw new \\RuntimeException('The iblock module is not available');",
+    $defaultPresetIblockOffset === false ? 0 : $defaultPresetIblockOffset
+);
+$assert(
+    $defaultPresetLoaderOffset !== false
+        && $defaultPresetIblockOffset !== false
+        && $defaultPresetResolverOffset !== false
+        && $defaultPresetFailureOffset !== false
+        && $defaultPresetLoaderOffset < $defaultPresetIblockOffset
+        && $defaultPresetIblockOffset < $defaultPresetResolverOffset
+        && $defaultPresetFailureOffset < $defaultPresetResolverOffset,
+    'The parity default preset loader must own a fail-closed iblock bootstrap before catalog access'
+);
 $assert(
     strpos($parityService, "'calcServerChangeRequired' => \$dependency['matrix']['valid'] && \$goldenValid ? false : null") !== false
         && strpos($parityService, "\$dependency['matrix']['valid'] && \$goldenValid") !== false,

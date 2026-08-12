@@ -89,6 +89,10 @@ final class Phase5aParityContractService
         ?callable $goldenLoader = null
     ) {
         $this->presetLoader = $presetLoader ?? static function (int $presetId): array {
+            if (!\Bitrix\Main\Loader::includeModule('iblock')) {
+                throw new \RuntimeException('The iblock module is not available');
+            }
+
             return (new CatalogTreeService())->presetLoadOptions(['presetId' => $presetId]);
         };
         $this->dependencyLoader = $dependencyLoader ?? static function (int $presetId, array $allowedProductIds): array {
