@@ -251,11 +251,45 @@ $legacyRuntime = $runtimeClassifier->invoke(null, [
 ]);
 $emptyRuntime = $runtimeClassifier->invoke(null, ['source' => 'none', 'schema' => []]);
 $malformedRuntime = $runtimeClassifier->invoke(null, ['source' => 'product', 'schema' => []]);
+$defaultRuntime = $runtimeClassifier->invoke(null, [
+    'source' => 'default',
+    'schema' => [
+        'version' => 2,
+        'fields' => [['property_code' => 'CALC_PROP_VOLUME', 'required' => true]],
+    ],
+]);
+$legacyDefaultRuntime = $runtimeClassifier->invoke(null, [
+    'source' => 'default',
+    'schema' => [
+        'version' => 1,
+        'fields' => [['property_code' => 'CALC_PROP_VOLUME']],
+    ],
+]);
+$malformedDefaultRuntime = $runtimeClassifier->invoke(null, [
+    'source' => 'default',
+    'schema' => ['version' => 2],
+]);
+$emptyDefaultRuntime = $runtimeClassifier->invoke(null, [
+    'source' => 'default',
+    'schema' => ['version' => 2, 'fields' => []],
+]);
+$scalarFieldDefaultRuntime = $runtimeClassifier->invoke(null, [
+    'source' => 'default',
+    'schema' => ['version' => 2, 'fields' => [123]],
+]);
 $assert(
     ($legacyRuntime['state'] ?? '') === 'supported'
         && ($emptyRuntime['state'] ?? '') === 'empty'
         && ($malformedRuntime['state'] ?? '') === 'invalid',
     'The exact runtime scanner must include legacy v1, accept proven source=none as empty, and reject malformed sources'
+);
+$assert(
+    ($defaultRuntime['state'] ?? '') === 'supported'
+        && ($legacyDefaultRuntime['state'] ?? '') === 'invalid'
+        && ($malformedDefaultRuntime['state'] ?? '') === 'invalid'
+        && ($emptyDefaultRuntime['state'] ?? '') === 'invalid'
+        && ($scalarFieldDefaultRuntime['state'] ?? '') === 'invalid',
+    'Configured default is supported only as a complete v2 effective runtime'
 );
 $runtimeScanner = new ReflectionMethod(Phase5aParityContractService::class, 'scanRuntimeSchema');
 $legacyConsumers = [];
