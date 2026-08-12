@@ -238,6 +238,46 @@ try {
 }
 $assert($incompleteContractRejected, 'An incomplete dependency matrix must never become a compiler authority');
 
+$runtimeClassifier = new ReflectionMethod(
+    Phase5aParityContractService::class,
+    'classifyEffectiveRuntimeResult'
+);
+$legacyRuntime = $runtimeClassifier->invoke(null, [
+    'source' => 'product',
+    'schema' => [
+        'version' => 1,
+        'fields' => [['property_code' => 'CALC_PROP_METHOD', 'required' => true]],
+    ],
+]);
+$emptyRuntime = $runtimeClassifier->invoke(null, ['source' => 'none', 'schema' => []]);
+$malformedRuntime = $runtimeClassifier->invoke(null, ['source' => 'product', 'schema' => []]);
+$assert(
+    ($legacyRuntime['state'] ?? '') === 'supported'
+        && ($emptyRuntime['state'] ?? '') === 'empty'
+        && ($malformedRuntime['state'] ?? '') === 'invalid',
+    'The exact runtime scanner must include legacy v1, accept proven source=none as empty, and reject malformed sources'
+);
+$runtimeScanner = new ReflectionMethod(Phase5aParityContractService::class, 'scanRuntimeSchema');
+$legacyConsumers = [];
+$legacyRequiredCodes = [];
+$runtimeScanner->invokeArgs(null, [
+    7716,
+    'product',
+    [
+        'version' => 1,
+        'fields' => [
+            ['property_code' => 'CALC_PROP_VOLUME'],
+            ['property_code' => 'CALC_PROP_OPTIONAL', 'required' => false],
+        ],
+    ],
+    &$legacyConsumers,
+    &$legacyRequiredCodes,
+]);
+$assert(
+    $legacyRequiredCodes === ['CALC_PROP_VOLUME'],
+    'RuntimeSchema v1 fields without an explicit required flag must retain their required-by-default semantics'
+);
+
 $products = $first['goldenParity']['products'] ?? [];
 $assert(
     array_column($products, 'productId') === Phase5aParityContractService::GOLDEN_PRODUCT_IDS,

@@ -111,6 +111,12 @@ $assert(
     strpos($parityService, 'getProductIblockId()') === false,
     'Dependency capture must not read the unrelated legacy AdminCalc product iblock option'
 );
+$assert(
+    strpos($parityService, "in_array(\$version, [1, 2], true)") !== false
+        && strpos($parityService, "\$source === 'none' && \$schema === []") !== false
+        && strpos($parityService, "&& !array_key_exists('required', \$field)") !== false,
+    'Dependency capture must scan active RuntimeSchema v1 and treat the exact empty resolver state as proven'
+);
 
 $assert(strpos($host, "'editors' => '/bitrix/tools/prospektweb.calc/control_center_editors.php'") !== false, 'Bootstrap must expose the editors endpoint');
 $assert(strpos($host, "'controlCenterInstanceId' => \$controlCenterInstanceId") !== false, 'Bootstrap must issue a per-page instance token');

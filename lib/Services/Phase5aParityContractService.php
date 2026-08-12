@@ -1156,19 +1156,23 @@ final class Phase5aParityContractService
                 $unresolvedSources[] = 'effective_runtime:product:' . $productId . ':load_failed';
                 continue;
             }
-            $source = (string)($resolved['source'] ?? '');
-            $schema = is_array($resolved['schema'] ?? null) ? $resolved['schema'] : [];
-            if (!in_array($source, ['family', 'template', 'product', 'product_override', 'form_first'], true)
-                || (int)($schema['version'] ?? 0) !== 2
-                || !is_array($schema['fields'] ?? null)) {
+            $runtime = self::classifyEffectiveRuntimeResult(is_array($resolved) ? $resolved : []);
+            if ($runtime['state'] === 'empty') {
+                // A product can be in the preset allowlist without an
+                // individual/template runtime. The exact public resolver has
+                // proved that there are no UI/runtime consumers to scan; this
+                // is not an unknown dependency source.
+                continue;
+            }
+            if ($runtime['state'] !== 'supported') {
                 $complete = false;
                 $unresolvedSources[] = 'effective_runtime:product:' . $productId . ':invalid_workspace';
                 continue;
             }
             self::scanRuntimeSchema(
                 $productId,
-                $source,
-                $schema,
+                $runtime['source'],
+                $runtime['schema'],
                 $consumers,
                 $requiredPropertyCodes
             );
@@ -1179,6 +1183,34 @@ final class Phase5aParityContractService
                 $categoryStatus[$category]['scanned'] = true;
             }
         }
+    }
+
+    /**
+     * RuntimeSchema v1 remains active for part of preset 12740. Its public
+     * fields are still dependency consumers and must be scanned instead of
+     * making the v2 authoring pilot unavailable. Only the resolver's exact
+     * `source=none` + empty-schema result is a proven zero-consumer state.
+     *
+     * @param array<string,mixed> $resolved
+     * @return array{state:string,source:string,schema:array<string,mixed>}
+     */
+    private static function classifyEffectiveRuntimeResult(array $resolved): array
+    {
+        $source = (string)($resolved['source'] ?? '');
+        $schema = is_array($resolved['schema'] ?? null) ? $resolved['schema'] : [];
+        if ($source === 'none' && $schema === []) {
+            return ['state' => 'empty', 'source' => $source, 'schema' => $schema];
+        }
+
+        $supportedSources = ['family', 'template', 'product', 'product_override', 'form_first'];
+        $version = (int)($schema['version'] ?? 0);
+        if (in_array($source, $supportedSources, true)
+            && in_array($version, [1, 2], true)
+            && is_array($schema['fields'] ?? null)) {
+            return ['state' => 'supported', 'source' => $source, 'schema' => $schema];
+        }
+
+        return ['state' => 'invalid', 'source' => $source, 'schema' => $schema];
     }
 
     /**
@@ -1193,7 +1225,9 @@ final class Phase5aParityContractService
         array &$consumers,
         array &$requiredPropertyCodes
     ): void {
-        $source = 'frontcalc.effective_runtime_v2:' . $runtimeSource;
+        $source = 'frontcalc.effective_runtime_v'
+            . (int)($schema['version'] ?? 0)
+            . ':' . $runtimeSource;
         foreach ($schema['fields'] as $fieldIndex => $field) {
             if (!is_array($field)) {
                 continue;
@@ -1212,7 +1246,10 @@ final class Phase5aParityContractService
                 'products.' . $productId . '.FRONTCALC_SELECTION_JSON.' . $propertyCode,
                 'declared'
             );
-            if (($field['required'] ?? false) === true) {
+            $isRequired = ($field['required'] ?? false) === true
+                || ((int)($schema['version'] ?? 0) === 1
+                    && !array_key_exists('required', $field));
+            if ($isRequired) {
                 $requiredPropertyCodes[] = $propertyCode;
             }
             if (trim((string)($field['seed_property_code'] ?? '')) !== '') {
