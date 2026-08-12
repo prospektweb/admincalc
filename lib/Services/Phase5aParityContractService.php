@@ -100,7 +100,19 @@ final class Phase5aParityContractService
                 if (class_exists($providerClass)) {
                     $provider = new $providerClass();
                     if (is_callable([$provider, 'capturePhase5aGoldenParity'])) {
-                        $result = $provider->capturePhase5aGoldenParity($presetId, $productIds, $productIds);
+                        try {
+                            $result = $provider->capturePhase5aGoldenParity(
+                                $presetId,
+                                $productIds,
+                                $productIds
+                            );
+                        } catch (\Throwable $exception) {
+                            // Live capture is an optional read-only accelerator.
+                            // A product-specific capture failure must fall back
+                            // to the versioned partial fixture, whose invalid
+                            // golden gate remains explicit and fail-closed.
+                            $result = null;
+                        }
                         if (is_array($result)
                             && (string)($result['contract'] ?? '')
                                 === 'prospektweb.frontcalc.phase5a-golden-parity/v1'

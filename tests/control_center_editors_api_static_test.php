@@ -104,6 +104,12 @@ $assert(
 );
 $assert(strpos($parityService, "'readOnly' => true") !== false, 'Golden capture must be explicitly read-only');
 $assert(
+    strpos($parityService, '$provider->capturePhase5aGoldenParity(') !== false
+        && strpos($parityService, 'catch (\Throwable $exception)') !== false
+        && strpos($parityService, '$result = null;') !== false,
+    'An unavailable optional live golden capture must fall back to the fail-closed versioned fixture'
+);
+$assert(
     strpos($parityService, "Option::get(\n            'prospektweb.frontcalc',\n            'PRODUCTS_IBLOCK_ID'") !== false,
     'Dependency capture must use the exact public FrontCalc product iblock authority'
 );
