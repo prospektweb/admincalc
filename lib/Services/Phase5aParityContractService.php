@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Prospektweb\Calc\Services;
 
-use Prospektweb\Calc\Config\ConfigManager;
-
 /**
  * Read-only, deterministic Phase 5A dependency and golden-capture contract.
  *
@@ -1130,7 +1128,14 @@ final class Phase5aParityContractService
             $unresolvedSources[] = 'effective_runtime:resolver_unavailable';
             return;
         }
-        $productsIblockId = (int)(new ConfigManager())->getProductIblockId();
+        // The public FrontCalc runtime owns this context and stores it under
+        // PRODUCTS_IBLOCK_ID. AdminCalc's legacy singular PRODUCT_IBLOCK_ID is
+        // unrelated and can legitimately be unset on the same installation.
+        $productsIblockId = (int)\Bitrix\Main\Config\Option::get(
+            'prospektweb.frontcalc',
+            'PRODUCTS_IBLOCK_ID',
+            '0'
+        );
         $propertyCode = trim((string)\Bitrix\Main\Config\Option::get(
             'prospektweb.frontcalc',
             'CALC_PROPERTY_CODE',

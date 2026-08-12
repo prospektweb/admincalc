@@ -103,6 +103,14 @@ $assert(
     'The browser request must not be allowed to supply dependency authority'
 );
 $assert(strpos($parityService, "'readOnly' => true") !== false, 'Golden capture must be explicitly read-only');
+$assert(
+    strpos($parityService, "Option::get(\n            'prospektweb.frontcalc',\n            'PRODUCTS_IBLOCK_ID'") !== false,
+    'Dependency capture must use the exact public FrontCalc product iblock authority'
+);
+$assert(
+    strpos($parityService, 'getProductIblockId()') === false,
+    'Dependency capture must not read the unrelated legacy AdminCalc product iblock option'
+);
 
 $assert(strpos($host, "'editors' => '/bitrix/tools/prospektweb.calc/control_center_editors.php'") !== false, 'Bootstrap must expose the editors endpoint');
 $assert(strpos($host, "'controlCenterInstanceId' => \$controlCenterInstanceId") !== false, 'Bootstrap must issue a per-page instance token');
