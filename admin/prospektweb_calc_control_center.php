@@ -120,6 +120,7 @@ $appVersion = is_file($appIndexPath) ? (string)filemtime($appIndexPath) : '1';
 $iframeUrl = '/local/apps/prospektweb.calc/index.html?' . http_build_query([
     'mode' => 'control-center',
     'v' => $appVersion,
+    'pwProductId' => max(0, (int)($_GET['pwProductId'] ?? 0)),
 ]);
 
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';

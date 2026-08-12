@@ -97,8 +97,8 @@ namespace {
     $assert(strlen((string)$initial['revision']) === 64, 'Catalog revision must be SHA-256');
     $assert($repeat['revision'] === $initial['revision'], 'Unchanged catalogs must have a stable revision');
     $assert(count($initial['modules']) === 6, 'Catalog must expose exactly six canonical modules');
-    $assert($initial['summary']['capabilities'] === 8, 'Catalog capability summary must match the allowlist');
-    $assert($initial['summary']['mutableCapabilities'] === 2, 'Only existing provider guards may be mutable');
+    $assert($initial['summary']['capabilities'] === 13, 'Catalog capability summary must match the allowlist');
+    $assert($initial['summary']['mutableCapabilities'] === 7, 'Provider-owned feature guards must be mutable');
 
     $moduleIds = array_column($initial['modules'], 'id');
     $assert(in_array('prospektweb.layoutfiles', $moduleIds, true), 'Canonical layoutfiles module ID must be used');
@@ -107,9 +107,13 @@ namespace {
     $propertyDescriptions = $findCapability($initial, 'storefront.property_descriptions');
     $companySuggestions = $findCapability($initial, 'storefront.checkout.company_suggestions');
     $calculator = $findCapability($initial, 'storefront.calculator');
+    $mobileDescription = $findCapability($initial, 'mobile.catalog.section_description_expand');
+    $massProperties = $findCapability($initial, 'admin.offers.mass_property_editor');
     $assert($propertyDescriptions['enabled'] === true && $propertyDescriptions['mutable'] === true, 'Property descriptions must default to enabled and be mutable');
     $assert($companySuggestions['enabled'] === true && $companySuggestions['mutable'] === true, 'Company suggestions must default to enabled and be mutable');
     $assert($calculator['mutable'] === false && $calculator['state'] === 'managed-later', 'Ungarded calculator capability must be honestly marked for later management');
+    $assert($mobileDescription['group'] === 'Мобильная версия' && strpos($mobileDescription['tooltip'], 'SEO-описания') !== false, 'Mobile description switch must expose its dedicated group and exact help');
+    $assert($massProperties['mutable'] === true && $massProperties['enabled'] === true, 'Mass offer property editor must be guarded and enabled by default');
 
     $updated = $service->setCapability(
         'storefront.property_descriptions',
