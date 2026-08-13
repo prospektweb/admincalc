@@ -168,6 +168,7 @@ $assert(strpos($host, 'event.source === editorIframe.contentWindow') !== false, 
 $assert(strpos($host, "message.type === 'CLOSE_CONTROL_CENTER_EDITOR'") !== false, 'Host must support the typed editor close event');
 $assert(strpos($host, 'message.payload.editorInstanceId === activeEditor.id') !== false, 'Close messages must echo the active editor token');
 $assert(strpos($host, "'pwProductId' => max(0, (int)(\$_GET['pwProductId'] ?? 0))") !== false, 'Trusted host must forward the contextual product ID into the isolated SPA query');
+$assert(strpos($host, "\$_GET['pwRoute']") !== false && strpos($host, "'storefront-calculators'") !== false && strpos($host, "\$iframeUrl .= '#/'") !== false, 'Trusted host must forward only an allowlisted contextual workspace route into the iframe hash');
 $assert(strpos($host, "sendToControlCenter('EDITOR_CLOSED'") !== false, 'The SPA must receive the agreed editor-closed result');
 $assert(strpos($host, 'Number.isSafeInteger(payload.presetId)') !== false && strpos($host, 'Number.isSafeInteger(payload.productId)') !== false, 'Launch IDs must be safe integers');
 $assert(strpos($host, "hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId', 'productId', 'offerIds'])") !== false, 'Calculation launches must reject unknown payload keys');
@@ -194,6 +195,6 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== fal
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
 $assert(strpos($diagnostic, "'lib/Services/Phase5aParityContractService.php'") !== false, 'Diagnostics must verify the Phase 5A parity service');
-$assert(strpos($version, "'VERSION' => '1.7.1'") !== false, 'Phase 5A transport must publish a coherent module version');
+$assert(strpos($version, "'VERSION' => '1.7.2'") !== false, 'Phase 5A transport must publish a coherent module version');
 
 echo "Control center editors API static tests passed\n";

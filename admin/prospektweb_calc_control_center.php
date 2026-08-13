@@ -117,11 +117,26 @@ $allowedAdminPaths = [
 
 $appIndexPath = $_SERVER['DOCUMENT_ROOT'] . '/local/apps/prospektweb.calc/index.html';
 $appVersion = is_file($appIndexPath) ? (string)filemtime($appIndexPath) : '1';
+$requestedEmbeddedRoute = trim((string)($_GET['pwRoute'] ?? ''));
+$allowedEmbeddedRoutes = [
+    'presets',
+    'storefront-calculators',
+    'settings',
+    'diagnostics',
+    'batch-recalculation',
+    'capabilities',
+];
+$embeddedRoute = in_array($requestedEmbeddedRoute, $allowedEmbeddedRoutes, true)
+    ? $requestedEmbeddedRoute
+    : '';
 $iframeUrl = '/local/apps/prospektweb.calc/index.html?' . http_build_query([
     'mode' => 'control-center',
     'v' => $appVersion,
     'pwProductId' => max(0, (int)($_GET['pwProductId'] ?? 0)),
 ]);
+if ($embeddedRoute !== '') {
+    $iframeUrl .= '#/' . rawurlencode($embeddedRoute);
+}
 
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';
 ?>

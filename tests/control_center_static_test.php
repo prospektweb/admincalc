@@ -63,6 +63,13 @@ $iframeUrlSource = ($iframeUrlSourceStart === false || $iframeUrlSourceEnd === f
     ? ''
     : substr($page, $iframeUrlSourceStart, $iframeUrlSourceEnd - $iframeUrlSourceStart);
 $assert($iframeUrlSource !== '' && strpos($iframeUrlSource, 'sessid') === false, 'The iframe URL must never expose the Bitrix session token');
+$assert(
+    strpos($page, "\$_GET['pwRoute']") !== false
+        && strpos($page, "'storefront-calculators'") !== false
+        && strpos($page, "in_array(\$requestedEmbeddedRoute, \$allowedEmbeddedRoutes, true)") !== false
+        && strpos($iframeUrlSource, "\$iframeUrl .= '#/' . rawurlencode(\$embeddedRoute)") !== false,
+    'Context links must deep-link only to a strictly allowlisted route inside the control-center iframe'
+);
 $assert(strpos($page, 'Object.prototype.hasOwnProperty.call(routeMap, route)') !== false, 'Route keys are checked against the server map');
 $assert(strpos($page, 'new URL(routeMap[route], window.location.origin)') !== false, 'Server routes are resolved against the current origin');
 $assert(strpos($page, 'targetUrl.origin !== window.location.origin') !== false, 'Resolved routes receive a same-origin check');
@@ -92,7 +99,7 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($contextualGenerator, 'window.ProspektwebProductGenerator = ProductGenerator') !== false, 'The contextual offer generator remains available');
-$assert(strpos($appIndex, '33ec9378dd7a') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, 'f72a3ea8778c') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
 $assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') !== false, 'The published bundle contains the storefront editor launch contract');
