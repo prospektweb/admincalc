@@ -32,14 +32,16 @@ standalone_mapper_assert($rounded['selection']['CALC_PROP_OPTIONS'] === ['round-
 
 $euro = $mapper->map([
     'id' => 15349,
-    'productId' => 15344,
+    'productId' => 0,
     'properties' => [
+        'CML2_LINK' => ['VALUE' => '15344'],
         'CALC_PROP_COLOR_SCHEME' => ['VALUE_XML_ID' => ['4+4']],
         'CALC_PROP_VOLUME' => ['VALUE_XML_ID' => ['500']],
     ],
 ]);
 standalone_mapper_assert($euro['selection']['CALC_PROP_FORMAT'] === '85x55', 'euro target profile owns its format');
 standalone_mapper_assert($euro['selection']['CALC_PROP_COLOR_SCHEME'] === '4+4', 'offer colour identifies the target result');
+standalone_mapper_assert($euro['productId'] === 15344, 'CML2_LINK resolves the output carrier when Bitrix omits productId');
 
 $unsupportedRejected = false;
 try {

@@ -45,7 +45,11 @@ final class StandaloneCatalogSelectionMapper
     public function map(array $offer): array
     {
         $offerId = (int)($offer['id'] ?? 0);
+        $properties = is_array($offer['properties'] ?? null) ? $offer['properties'] : [];
         $productId = (int)($offer['productId'] ?? 0);
+        if ($productId <= 0) {
+            $productId = (int)$this->singleValue($properties['CML2_LINK'] ?? null);
+        }
         if ($offerId <= 0 || $productId <= 0) {
             throw new \InvalidArgumentException('Целевое торговое предложение не связано с товаром.');
         }
@@ -55,7 +59,6 @@ final class StandaloneCatalogSelectionMapper
             );
         }
 
-        $properties = is_array($offer['properties'] ?? null) ? $offer['properties'] : [];
         $colour = $this->singleXmlId($properties['CALC_PROP_COLOR_SCHEME'] ?? null);
         $quantityText = $this->singleXmlId($properties['CALC_PROP_VOLUME'] ?? null);
         if ($colour === '') {
@@ -84,6 +87,19 @@ final class StandaloneCatalogSelectionMapper
             return '';
         }
         $value = $property['VALUE_XML_ID'] ?? $property['valueXmlId'] ?? '';
+        if (is_array($value)) {
+            $value = reset($value);
+        }
+        return is_scalar($value) ? trim((string)$value) : '';
+    }
+
+    /** @param mixed $property */
+    private function singleValue($property): string
+    {
+        if (!is_array($property)) {
+            return '';
+        }
+        $value = $property['VALUE'] ?? $property['value'] ?? '';
         if (is_array($value)) {
             $value = reset($value);
         }
