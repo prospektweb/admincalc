@@ -707,14 +707,92 @@ class BatchRecalculateService
     public function computeStateHash(array $initPayload): string
     {
         // Сериализуем весь payload, который влияет на расчёт
+        $selectedOffers = [];
+        foreach ((array)($initPayload['selectedOffers'] ?? []) as $offer) {
+            if (is_array($offer)) {
+                $selectedOffers[] = $this->normalizeOfferForStateHash($offer);
+            }
+        }
+
         $stateData = [
+            'schemaVersion' => 2,
             'elementsStore' => $initPayload['elementsStore'] ?? [],
-            'selectedOffers' => $initPayload['selectedOffers'] ?? [],
+            'selectedOffers' => $selectedOffers,
             'preset' => $initPayload['preset'] ?? [],
             'priceTypes' => $initPayload['priceTypes'] ?? [],
         ];
-        
-        return md5(json_encode($stateData, JSON_UNESCAPED_UNICODE));
+
+        return md5(json_encode(
+            $this->canonicalizeStateHashValue($stateData),
+            JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION
+        ));
+    }
+
+    /**
+     * Exclude catalog fields written by the recalculation itself. Otherwise
+     * every successful write changes the next input hash and onlyChanged can
+     * never skip an unchanged offer.
+     *
+     * @param array<string,mixed> $offer
+     * @return array<string,mixed>
+     */
+    private function normalizeOfferForStateHash(array $offer): array
+    {
+        foreach ([
+            'timestampX',
+            'timestamp_x',
+            'modifiedBy',
+            'modified_by',
+            'attributes',
+            'prices',
+            'purchasingPrice',
+            'purchasingCurrency',
+        ] as $outputKey) {
+            unset($offer[$outputKey]);
+        }
+
+        if (isset($offer['catalog']) && is_array($offer['catalog'])) {
+            unset($offer['catalog']['basePrice'], $offer['catalog']['baseCurrency']);
+        }
+
+        if (isset($offer['properties']) && is_array($offer['properties'])) {
+            foreach (['CALC_STATE_HASH', 'COMPLETED_CALCS', 'PARAMETR_VALUES'] as $outputPropertyCode) {
+                unset($offer['properties'][$outputPropertyCode]);
+            }
+        }
+
+        return $offer;
+    }
+
+    /**
+     * Canonicalize associative key order and remove volatile edit metadata.
+     * List order remains significant because calculator arrays are ordered.
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    private function canonicalizeStateHashValue($value)
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        $normalized = [];
+        foreach ($value as $key => $item) {
+            $normalizedKey = strtolower((string)$key);
+            if (in_array($normalizedKey, ['timestampx', 'timestamp_x', 'modifiedby', 'modified_by'], true)) {
+                continue;
+            }
+            $normalized[$key] = $this->canonicalizeStateHashValue($item);
+        }
+
+        $keys = array_keys($normalized);
+        $isList = empty($keys) || $keys === range(0, count($keys) - 1);
+        if (!$isList) {
+            ksort($normalized, SORT_STRING);
+        }
+
+        return $normalized;
     }
 
     /**
