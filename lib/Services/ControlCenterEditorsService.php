@@ -113,14 +113,25 @@ final class ControlCenterEditorsService
             ];
         }
 
+        $supportedCalculationProductIds = StandaloneCatalogSelectionMapper::supportedProductIds();
+        $calculationProducts = array_values(array_filter(
+            $snapshot['products'],
+            static function (array $product) use ($supportedCalculationProductIds): bool {
+                return in_array((int)$product['id'], $supportedCalculationProductIds, true);
+            }
+        ));
+        $calculationOfferCount = array_sum(array_map(static function (array $product): int {
+            return (int)$product['offerCount'];
+        }, $calculationProducts));
+
         return [
             'contract' => self::CONTRACT,
             'focusPresetId' => self::FOCUS_PRESET_ID,
             'calculations' => [[
                 'presetId' => self::FOCUS_PRESET_ID,
                 'presetName' => $snapshot['presetName'],
-                'offerCount' => $snapshot['offerCount'],
-                'products' => $snapshot['products'],
+                'offerCount' => $calculationOfferCount,
+                'products' => $calculationProducts,
             ]],
             'storefront' => [
                 'available' => $frontcalcAvailable,

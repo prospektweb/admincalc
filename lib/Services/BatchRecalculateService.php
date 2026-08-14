@@ -236,6 +236,13 @@ class BatchRecalculateService
             ];
         }
 
+        if ($presetId === StandaloneCatalogSelectionMapper::PRESET_ID) {
+            $supportedProductIds = StandaloneCatalogSelectionMapper::supportedProductIds();
+            $products = array_values(array_filter($products, static function (array $product) use ($supportedProductIds): bool {
+                return in_array((int)$product['id'], $supportedProductIds, true);
+            }));
+        }
+
         $offerCounts = $this->countOffersByProductIds(array_column($products, 'id'));
         foreach ($products as &$product) {
             $product['offerCount'] = $offerCounts[(int)$product['id']] ?? 0;

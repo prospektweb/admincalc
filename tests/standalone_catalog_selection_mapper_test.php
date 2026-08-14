@@ -12,6 +12,10 @@ function standalone_mapper_assert(bool $condition, string $message): void
 }
 
 $mapper = new StandaloneCatalogSelectionMapper();
+standalone_mapper_assert(
+    StandaloneCatalogSelectionMapper::supportedProductIds() === [12727, 12764, 14379, 14380, 15344],
+    'adapter scope is the exact prepared five-product matrix'
+);
 $rounded = $mapper->map([
     'id' => 15326,
     'productId' => 12764,

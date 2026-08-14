@@ -14,6 +14,7 @@ $checks = [
     "dirname(\$documentRoot) . '/.frontcalc-secret'" => 'Production secret must be loaded outside document root',
     "'offerCount' => 0" => 'Every product in batch analysis must expose an offer count',
     'countOffersByProductIds' => 'Product offer counts must come from the SKU relation',
+    'StandaloneCatalogSelectionMapper::supportedProductIds()' => 'Standalone batch analysis must expose only prepared catalog targets',
     'updateOffersFromCalculation($offerResults, true)' => 'Batch writes must require complete positive catalog values',
     'preparePresetInitPayload(' => 'Preset 12740 catalog writes must use the independent preset payload',
     'resolveForPreset(StandaloneCatalogSelectionMapper::PRESET_ID)' => 'Catalog adapter must read the published preset form',

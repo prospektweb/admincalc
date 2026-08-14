@@ -38,6 +38,12 @@ final class StandaloneCatalogSelectionMapper
         15344 => ['CALC_PROP_FORMAT' => '85x55'],
     ];
 
+    /** @return int[] */
+    public static function supportedProductIds(): array
+    {
+        return array_keys(self::PRODUCT_PROFILES);
+    }
+
     /**
      * @param array<string,mixed> $offer Target catalog offer from InitPayloadService.
      * @return array{selection:array<string,mixed>,quantity:int,productId:int,offerId:int,offerName:string}

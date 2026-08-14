@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/lib/Services/StandaloneCatalogSelectionMapper.php';
 require_once dirname(__DIR__) . '/lib/Services/ControlCenterEditorsService.php';
 
 use Prospektweb\Calc\Services\ControlCenterEditorsService;
@@ -268,6 +269,14 @@ $presetLoader = static function (int $presetId): array {
                     ['id' => 102, 'name' => 'Offer B1'],
                 ],
             ],
+            [
+                'id' => 12727,
+                'name' => 'Prepared product',
+                'offers' => [
+                    ['id' => 15320, 'name' => 'Prepared offer 4+0'],
+                    ['id' => 15321, 'name' => 'Prepared offer 4+4'],
+                ],
+            ],
         ],
     ];
 };
@@ -277,8 +286,9 @@ $catalog = $service->getCatalog();
 
 $assert($catalog['contract'] === ControlCenterEditorsService::CONTRACT, 'Catalog contract must be versioned');
 $assert($catalog['focusPresetId'] === 12740, 'Only preset 12740 is in the Phase 4A workspace');
-$assert(($catalog['calculations'][0]['offerCount'] ?? 0) === 4, 'Catalog offer count must come from active server offers');
-$assert(($catalog['calculations'][0]['products'][1]['offers'][1]['id'] ?? 0) === 101, 'Catalog must expose server-authored offer choices');
+$assert(($catalog['calculations'][0]['offerCount'] ?? 0) === 2, 'Calculation catalog must count only adapter-supported active offers');
+$assert(($catalog['calculations'][0]['products'][0]['offers'][1]['id'] ?? 0) === 15321, 'Calculation catalog must expose server-authored choices for prepared products');
+$assert(count($catalog['storefront']['products'] ?? []) === 4, 'Storefront editing must retain the full preset-linked product catalog');
 $assert(($catalog['storefront']['productIblockId'] ?? 0) === 7, 'Storefront launch catalog must expose the configured product iblock');
 $assert(($catalog['storefront']['products'][0]['presetIds'] ?? []) === [12740], 'Storefront products must carry the focus-preset relation');
 $assert(($catalog['storefront']['visualEditorAvailable'] ?? true) === false, 'The visual editor must fail closed without a provider');
@@ -494,7 +504,7 @@ $assert(
     'The service must delegate revisioned template deletion'
 );
 $assert(
-    in_array(['loadWorkspace', 10, 'effective', '', [4267, 10, 11]], $provider->calls, true),
+    in_array(['loadWorkspace', 10, 'effective', '', [4267, 10, 11, 12727]], $provider->calls, true),
     'The provider must receive the current server-authorized product allowlist and load target'
 );
 $aggregateRevision = str_repeat('b', 64);
@@ -553,7 +563,7 @@ foreach ($formFirstCalls as $formFirstCall) {
     $passedContract = $formFirstCall[count($formFirstCall) - 1] ?? null;
     $passedAllowlist = $formFirstCall[count($formFirstCall) - 2] ?? null;
     $assert(
-        $passedAllowlist === [4267, 10, 11]
+        $passedAllowlist === [4267, 10, 11, 12727]
             && is_array($passedContract)
             && ($passedContract['contract'] ?? '') === 'prospektweb.calc.preset-public-inputs/v1'
             && preg_match('/^[a-f0-9]{64}$/D', (string)($passedContract['fingerprint'] ?? '')) === 1,
