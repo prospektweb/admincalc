@@ -15,6 +15,7 @@ use Prospektweb\Calc\Calculator\CalculationHistoryHandler;
 class BatchRecalculateService
 {
     private const MODULE_ID = 'prospektweb.calc';
+    private const PREVIEW_CHUNK_SIZE = 6;
     
     private string $calcServerUrl;
     private int $timeout;
@@ -299,32 +300,49 @@ class BatchRecalculateService
 
         $offerUpdateService = new OfferUpdateService();
 
-        try {
-            $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
-            $initPayload = $this->initPayloadService->prepareInitPayload($offerIds, $siteId);
-            $requestPayload = $this->buildPayloadForOffers($initPayload, $offerIds);
-            $calcResult = $this->callCalcServer($requestPayload);
+        $preview = [
+            'ready' => true,
+            'summary' => ['total' => 0, 'valid' => 0, 'invalid' => 0],
+            'offers' => [],
+            'errors' => [],
+        ];
+        $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
 
-            if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
-                $error = $calcResult['error'] ?? 'Ошибка расчёта на сервере';
-                if (is_array($error)) {
-                    $error = $error['message'] ?? $error['code'] ?? 'Ошибка расчёта на сервере';
+        foreach (array_chunk($offerIds, self::PREVIEW_CHUNK_SIZE) as $offerChunk) {
+            try {
+                $initPayload = $this->initPayloadService->prepareInitPayload($offerChunk, $siteId);
+                $requestPayload = $this->buildPayloadForOffers($initPayload, $offerChunk);
+                $calcResult = $this->callCalcServer($requestPayload);
+
+                if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
+                    $error = $calcResult['error'] ?? 'Ошибка расчёта на сервере';
+                    if (is_array($error)) {
+                        $error = $error['message'] ?? $error['code'] ?? 'Ошибка расчёта на сервере';
+                    }
+                    throw new \RuntimeException((string)$error);
                 }
-                throw new \RuntimeException((string)$error);
+
+                $offerResults = $calcResult['data'] ?? [];
+                if (!is_array($offerResults)) {
+                    throw new \RuntimeException('calc-server вернул некорректный список результатов');
+                }
+
+                $chunkPreview = $offerUpdateService->previewOffersFromCalculation($offerResults, $offerChunk);
+            } catch (\Throwable $e) {
+                $chunkPreview = $offerUpdateService->previewOffersFromCalculation([], $offerChunk);
+                array_unshift($chunkPreview['errors'], ['offerId' => 0, 'message' => $e->getMessage()]);
+                $chunkPreview['ready'] = false;
             }
 
-            $offerResults = $calcResult['data'] ?? [];
-            if (!is_array($offerResults)) {
-                throw new \RuntimeException('calc-server вернул некорректный список результатов');
+            $preview['ready'] = $preview['ready'] && !empty($chunkPreview['ready']);
+            foreach (['total', 'valid', 'invalid'] as $summaryKey) {
+                $preview['summary'][$summaryKey] += (int)($chunkPreview['summary'][$summaryKey] ?? 0);
             }
-
-            return $offerUpdateService->previewOffersFromCalculation($offerResults, $offerIds);
-        } catch (\Throwable $e) {
-            $preview = $offerUpdateService->previewOffersFromCalculation([], $offerIds);
-            array_unshift($preview['errors'], ['offerId' => 0, 'message' => $e->getMessage()]);
-            $preview['ready'] = false;
-            return $preview;
+            $preview['offers'] = array_merge($preview['offers'], $chunkPreview['offers'] ?? []);
+            $preview['errors'] = array_merge($preview['errors'], $chunkPreview['errors'] ?? []);
         }
+
+        return $preview;
     }
 
     /**

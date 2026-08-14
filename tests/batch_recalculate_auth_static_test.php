@@ -16,6 +16,9 @@ $checks = [
     'countOffersByProductIds' => 'Product offer counts must come from the SKU relation',
     'updateOffersFromCalculation($offerResults, true)' => 'Batch writes must require complete positive catalog values',
     '$writeResultsByOfferId' => 'Per-offer write failures must not be reported as recalculated',
+    'private const PREVIEW_CHUNK_SIZE = 6' => 'Preview requests must use a production-proven bounded chunk size',
+    'array_chunk($offerIds, self::PREVIEW_CHUNK_SIZE)' => 'Preview must split larger selections before calling calc-server',
+    '$preview[\'ready\'] = $preview[\'ready\'] && !empty($chunkPreview[\'ready\'])' => 'Every preview chunk must pass before writes are enabled',
 ];
 
 foreach ($checks as $needle => $message) {
