@@ -90,6 +90,40 @@ class InitPayloadService
     }
 
     /**
+     * Prepare the calculation-authoring payload directly from a preset.
+     *
+     * Product and SKU data are deliberately absent: they are output-adapter
+     * concerns and must not be required to open or edit calculation logic.
+     */
+    public function preparePresetPayload(int $presetId, string $siteId): array
+    {
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Некорректный ID пресета');
+        }
+
+        $this->ensureBitrixModulesLoaded();
+        $this->elementsStore = [];
+
+        (new \Prospektweb\Calc\Services\PresetEnrichmentService())
+            ->synchronizePresetCustomFields($presetId);
+
+        $preset = $this->loadPreset($presetId);
+
+        return [
+            'context' => $this->buildContext($siteId),
+            'iblocks' => $this->getIblocks(),
+            'iblocksTree' => $this->buildIblocksTree(),
+            'selectedOffers' => [],
+            'priceTypes' => $this->getPriceTypes(),
+            'preset' => $preset,
+            'product' => null,
+            'elementsStore' => $this->elementsStore ?? [],
+            'elementsSiblings' => $this->buildElementsSiblings($preset),
+            'globalSymbols' => (new \Prospektweb\Calc\Services\GlobalSymbolService())->list($presetId),
+        ];
+    }
+
+    /**
      * Проверяет наличие необходимых модулей Bitrix
      *
      * @throws \RuntimeException

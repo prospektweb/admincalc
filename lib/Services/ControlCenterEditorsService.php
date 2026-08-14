@@ -199,6 +199,21 @@ final class ControlCenterEditorsService
         ];
     }
 
+    public function validatePresetLaunch(int $presetId): array
+    {
+        if ($presetId !== self::FOCUS_PRESET_ID) {
+            throw new \InvalidArgumentException('Only the focus preset can be opened from this workspace');
+        }
+
+        $snapshot = $this->loadSnapshot();
+
+        return [
+            'contract' => self::CONTRACT,
+            'focusPresetId' => self::FOCUS_PRESET_ID,
+            'presetName' => $snapshot['presetName'],
+        ];
+    }
+
     public function validateStorefrontLaunch(int $productId): array
     {
         $authority = $this->resolveStorefrontAuthority($productId);

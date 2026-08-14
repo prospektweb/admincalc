@@ -256,24 +256,29 @@ function handleSaveUserTheme($request): void
 function handleGetInitData($request): void
 {
     $offerIdsRaw = $request->get('offerIds');
+    $presetId = (int)($request->get('presetId') ?? 0);
     $siteId = $request->get('siteId') ?: SITE_ID;
     $force = $request->get('force') === '1' || $request->get('force') === 'true';
 
-    if (empty($offerIdsRaw)) {
-        sendJsonResponse(['error' => 'Missing parameter', 'message' => 'Параметр offerIds обязателен'], 400);
+    if (empty($offerIdsRaw) && $presetId <= 0) {
+        sendJsonResponse(['error' => 'Missing parameter', 'message' => 'Укажите presetId или offerIds'], 400);
     }
 
     $offerIds = parseOfferIds($offerIdsRaw);
 
-    if (empty($offerIds)) {
+    if (!empty($offerIdsRaw) && empty($offerIds)) {
         sendJsonResponse(['error' => 'Invalid parameter', 'message' => 'Некорректные ID торговых предложений'], 400);
     }
 
     try {
         $service = new InitPayloadService();
-        $payload = $service->prepareInitPayload($offerIds, $siteId, $force);
+        $payload = $offerIds !== []
+            ? $service->prepareInitPayload($offerIds, $siteId, $force)
+            : $service->preparePresetPayload($presetId, $siteId);
 
-        logInfo('GetInitData success for offers: ' . implode(',', $offerIds));
+        logInfo($offerIds !== []
+            ? 'GetInitData success for offers: ' . implode(',', $offerIds)
+            : 'GetInitData success for standalone preset: ' . $presetId);
         sendJsonResponse(['success' => true, 'data' => $payload]);
     } catch (\Throwable $e) {
         logError('GetInitData error: ' . $e->getMessage());

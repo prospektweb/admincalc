@@ -33,6 +33,7 @@
                 iframeSelector: config.iframeSelector || '#calc-iframe',
                 ajaxEndpoint: config.ajaxEndpoint || '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
                 offerIds: config.offerIds || [],
+                presetId: Number.isSafeInteger(config.presetId) ? config.presetId : 0,
                 siteId: config.siteId || '',
                 sessid: config.sessid || '',
                 onClose: config.onClose || null,
@@ -60,6 +61,7 @@
                 iframe: config.iframe ? this.describeIframe(config.iframe) : this.config.iframeSelector,
                 ajaxUrl: this.config.ajaxEndpoint,
                 offerIds: this.config.offerIds,
+                presetId: this.config.presetId,
                 hasInitPayload: !!this.config.initPayload,
             });
 
@@ -4841,6 +4843,7 @@
             const url = this.config.ajaxEndpoint +
                 '?action=getInitData' +
                 '&offerIds=' + encodeURIComponent(this.config.offerIds.join(',')) +
+                '&presetId=' + encodeURIComponent(this.config.presetId || '') +
                 '&siteId=' + encodeURIComponent(this.config.siteId) +
                 '&sessid=' + encodeURIComponent(this.config.sessid);
 
@@ -4848,6 +4851,7 @@
             this.logBridge('[BitrixBridge] AJAX getInitData start', {
                 url: url,
                 offerIdsCount: this.config.offerIds.length,
+                presetId: this.config.presetId,
                 siteId: this.config.siteId,
             });
 

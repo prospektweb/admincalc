@@ -37,6 +37,7 @@ if (!Loader::includeModule('prospektweb.calc')) {
 // The editor URL is a launch envelope, not data authority. Resolve every SKU
 // against the configured catalog before initializing the React application.
 $offerIdsRaw = is_string($_GET['offer_ids'] ?? null) ? (string)$_GET['offer_ids'] : '';
+$presetIdRaw = is_string($_GET['preset_id'] ?? null) ? (string)$_GET['preset_id'] : '';
 $controlCenterMode = (string)($_GET['control_center'] ?? '') === 'Y';
 $editorInstanceId = is_string($_GET['editor_instance_id'] ?? null)
     && preg_match('/^[a-f0-9]{32}$/', (string)$_GET['editor_instance_id'])
@@ -50,8 +51,16 @@ $offerIds = preg_match('/^[1-9][0-9]*(?:,[1-9][0-9]*)*$/', $offerIdsRaw)
     ? array_map('intval', explode(',', $offerIdsRaw))
     : [];
 $uniqueOfferIds = array_values(array_unique($offerIds));
+$standalonePresetId = preg_match('/^[1-9][0-9]*$/D', $presetIdRaw) === 1
+    ? (int)$presetIdRaw
+    : 0;
+$isStandalonePresetLaunch = $controlCenterMode
+    && $standalonePresetId > 0
+    && $offerIdsRaw === '';
 
-if (empty($offerIds) || count($offerIds) > 500 || count($uniqueOfferIds) !== count($offerIds)) {
+if ((!$isStandalonePresetLaunch && (empty($offerIds) || count($offerIds) > 500 || count($uniqueOfferIds) !== count($offerIds)))
+    || ($isStandalonePresetLaunch && $standalonePresetId !== 12740)
+    || ($offerIdsRaw !== '' && $presetIdRaw !== '')) {
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php');
     ShowError(Loc::getMessage('PROSPEKTWEB_CALC_NO_OFFERS_SELECTED'));
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php');
@@ -63,12 +72,25 @@ $configManager = new ConfigManager();
 $productIblockId = (int)$configManager->getProductIblockId();
 $skuIblockId = (int)$configManager->getSkuIblockId();
 $validatedProductId = 0;
-$isValidLaunch = $productIblockId > 0
-    && $skuIblockId > 0
-    && Loader::includeModule('iblock')
-    && (!$controlCenterMode || $editorInstanceId !== '');
+$isValidLaunch = Loader::includeModule('iblock')
+    && (!$controlCenterMode || $editorInstanceId !== '')
+    && ($isStandalonePresetLaunch || ($productIblockId > 0 && $skuIblockId > 0));
 
-if ($isValidLaunch) {
+if ($isValidLaunch && $isStandalonePresetLaunch) {
+    $presetIblockId = (int)($configManager->getAllIblockIds()['CALC_PRESETS'] ?? 0);
+    $validatedPreset = $presetIblockId > 0
+        ? \CIBlockElement::GetList(
+            [],
+            ['ID' => $standalonePresetId, 'IBLOCK_ID' => $presetIblockId, 'ACTIVE' => 'Y'],
+            false,
+            ['nTopCount' => 1],
+            ['ID']
+        )->Fetch()
+        : false;
+    $isValidLaunch = is_array($validatedPreset);
+}
+
+if ($isValidLaunch && !$isStandalonePresetLaunch) {
     $foundOfferIds = [];
     $offerFilter = [
         'IBLOCK_ID' => $skuIblockId,
@@ -129,7 +151,7 @@ if ($isValidLaunch && $validatedProductId > 0) {
     $isValidLaunch = is_array($validatedProduct);
 }
 
-if ($isValidLaunch && $controlCenterMode) {
+if ($isValidLaunch && $controlCenterMode && !$isStandalonePresetLaunch) {
     $hasFocusPreset = false;
     $presetCursor = \CIBlockElement::GetProperty(
         $productIblockId,
@@ -171,6 +193,8 @@ if ($productIblockType !== '') {
 
 // Заголовок страницы
 $APPLICATION->SetTitle(Loc::getMessage('PROSPEKTWEB_CALC_PAGE_TITLE'));
+$appIndexPath = $_SERVER['DOCUMENT_ROOT'] . '/local/apps/prospektweb.calc/index.html';
+$appVersion = is_file($appIndexPath) ? (string)filemtime($appIndexPath) : '1';
 
 // Подключение JS интеграции
 Asset::getInstance()->addJs('/local/js/prospektweb.calc/integration.js');
@@ -222,7 +246,7 @@ body {
 <div id="calc-container">
     <iframe 
         id="calc-iframe" 
-        src="/local/apps/prospektweb.calc/index.html?v=f72a3ea8778c"
+        src="/local/apps/prospektweb.calc/index.html?v=<?= htmlspecialcharsbx($appVersion) ?>"
         title="<?= Loc::getMessage('PROSPEKTWEB_CALC_IFRAME_TITLE') ?>">
     </iframe>
 </div>
@@ -242,6 +266,7 @@ document.addEventListener('DOMContentLoaded', function() {
         iframeSelector: '#calc-iframe',
         ajaxEndpoint: '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
         offerIds: <?= json_encode($offerIds) ?>,
+        presetId: <?= json_encode($isStandalonePresetLaunch ? $standalonePresetId : 0) ?>,
         siteId: '<?= SITE_ID ?>',
         sessid: '<?= bitrix_sessid() ?>',
         onClose: function() {
@@ -282,7 +307,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Логирование для отладки
-    console.log('[Calculator Page] Integration initialized with offer IDs:', <?= json_encode($offerIds) ?>);
+    console.log('[Calculator Page] Integration initialized', {
+        presetId: <?= json_encode($isStandalonePresetLaunch ? $standalonePresetId : 0) ?>,
+        offerIds: <?= json_encode($offerIds) ?>
+    });
 });
 </script>
 

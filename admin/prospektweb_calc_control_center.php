@@ -404,47 +404,28 @@ body {
         if (launchPending || activeEditor) {
             return;
         }
-        if (!hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId', 'productId', 'offerIds'])) {
+        if (!hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId'])) {
             return;
         }
         var presetId = Number.isSafeInteger(payload.presetId) ? payload.presetId : 0;
-        var productId = Number.isSafeInteger(payload.productId) ? payload.productId : 0;
-        var offerIds = Array.isArray(payload.offerIds) ? payload.offerIds : [];
-        if (presetId <= 0
-            || productId <= 0
-            || offerIds.length === 0
-            || offerIds.length > 500
-            || offerIds.some(function (offerId) {
-                return !Number.isSafeInteger(offerId) || offerId <= 0;
-            })
-            || new Set(offerIds).size !== offerIds.length) {
+        if (presetId <= 0) {
             return;
         }
 
         launchPending = true;
-        postEditorAction('validate_calculation_launch', {
-            presetId: presetId,
-            productId: productId,
-            offerIds: offerIds
+        postEditorAction('validate_preset_launch', {
+            presetId: presetId
         }).then(function (data) {
-            if (data.focusPresetId !== presetId
-                || data.productId !== productId
-                || !Array.isArray(data.offerIds)
-                || data.offerIds.length === 0
-                || data.offerIds.length > 500
-                || data.offerIds.some(function (offerId) {
-                    return !Number.isSafeInteger(offerId) || offerId <= 0;
-                })
-                || new Set(data.offerIds).size !== data.offerIds.length) {
-                throw new Error('У товара нет активных торговых предложений');
+            if (data.focusPresetId !== presetId || typeof data.presetName !== 'string' || data.presetName === '') {
+                throw new Error('Сервер вернул некорректный пресет');
             }
             var targetUrl = new URL('/bitrix/admin/prospektweb_calc_calculator.php', window.location.origin);
-            targetUrl.searchParams.set('offer_ids', data.offerIds.join(','));
+            targetUrl.searchParams.set('preset_id', String(data.focusPresetId));
             targetUrl.searchParams.set('control_center', 'Y');
             targetUrl.searchParams.set('lang', <?= json_encode($languageId) ?>);
             targetUrl.searchParams.set('IFRAME', 'Y');
             targetUrl.searchParams.set('IFRAME_TYPE', 'SIDE_SLIDER');
-            openOwnedEditor('calculation', 'Редактор калькуляций · ' + data.productName, targetUrl);
+            openOwnedEditor('calculation', 'Редактор пресета · ' + data.presetName, targetUrl);
         }).catch(reportEditorError).finally(function () {
             launchPending = false;
         });

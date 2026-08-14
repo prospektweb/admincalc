@@ -292,6 +292,13 @@ $assert(($calculationLaunch['offerIds'] ?? []) === [100, 101], 'Calculation laun
 $assert(($calculationLaunch['productId'] ?? 0) === 10, 'Calculation launch must preserve the validated product ID');
 $assert(!in_array(102, $calculationLaunch['offerIds'], true), 'Calculation launch must not mix offers from another product');
 
+$presetLaunch = $service->validatePresetLaunch(12740);
+$assert(($presetLaunch['focusPresetId'] ?? 0) === 12740, 'Standalone launch must retain the focus preset');
+$assert(($presetLaunch['presetName'] ?? '') === 'Focus preset', 'Standalone launch must resolve the authoritative preset name');
+$expectInvalid(static function () use ($service): void {
+    $service->validatePresetLaunch(12741);
+}, 'Standalone launch must reject a non-focus preset');
+
 $expectInvalid(static function () use ($service): void {
     $service->validateCalculationLaunch(12741, 10, [100]);
 }, 'A non-focus preset must be rejected');

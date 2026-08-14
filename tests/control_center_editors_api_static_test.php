@@ -26,6 +26,7 @@ $assert(strpos($endpoint, '!$USER || !$USER->IsAdmin()') !== false, 'Editors end
 $assert(strpos($endpoint, "'action' => 'catalog'") === false, 'Endpoint must not fabricate a client action');
 $assert(strpos($endpoint, "\$action === 'catalog'") !== false, 'Editors endpoint must expose the catalog action');
 $assert(strpos($endpoint, "\$action === 'validate_calculation_launch'") !== false, 'Editors endpoint must validate calculation launches');
+$assert(strpos($endpoint, "\$action === 'validate_preset_launch'") !== false, 'Editors endpoint must validate standalone preset launches');
 $assert(strpos($endpoint, "\$action === 'validate_storefront_launch'") !== false, 'Editors endpoint must validate storefront launches');
 $assert(strpos($endpoint, "\$action === 'storefront_load'") !== false, 'Editors endpoint must expose native storefront workspace loading');
 $assert(strpos($endpoint, "\$action === 'storefront_validate'") !== false, 'Editors endpoint must expose native storefront schema validation');
@@ -43,6 +44,7 @@ $assert(strpos($endpoint, "\$action === 'phase5a_parity_compare'") !== false, 'E
 $assert(strpos($endpoint, "\$request['offerIds']") !== false, 'Editors endpoint must accept a bounded selective offer list for validation');
 $assert(strpos($endpoint, "throw new \\InvalidArgumentException('Request contains unsupported fields')") !== false, 'Editors endpoint must reject unknown request fields');
 $assert(strpos($endpoint, 'validateCalculationLaunch($presetId, $productId, $offerIds)') !== false, 'Calculation validation must pass the selective list only to server validation');
+$assert(strpos($endpoint, 'validatePresetLaunch($presetId)') !== false, 'Standalone launch validation must pass only the preset ID');
 $assert(strpos($endpoint, "strlen(\$encoded) > 60000") !== false, 'Structured storefront schemas must have a strict 60 KB transport cap');
 $assert(substr_count($endpoint, "strlen(\$encoded) > 60000") >= 2, 'Form and binding documents must share the strict 60 KB transport cap');
 $assert(strpos($endpoint, "preg_match('/^[a-f0-9]{64}$/D', \$value)") !== false, 'Product mutations must require a SHA-256 individual revision');
@@ -54,6 +56,7 @@ $assert(strpos($service, 'public const FOCUS_PRESET_ID = 12740') !== false, 'Pha
 $assert(strpos($service, "(new CatalogTreeService())->presetLoadOptions(['presetId' => \$presetId])") !== false, 'The catalog must reuse the authoritative preset/product/offer resolver');
 $assert(strpos($service, "'ACTIVE' => 'Y'") === false, 'The launch service must not duplicate lower-level Bitrix queries');
 $assert(strpos($service, 'validateCalculationLaunch(int $presetId, int $productId, array $offerIds)') !== false, 'Calculation launch must validate the selective offer list');
+$assert(strpos($service, 'validatePresetLaunch(int $presetId)') !== false, 'The control center must support product-neutral preset launches');
 $assert(strpos($service, "'offerIds' => \$validatedOfferIds") !== false, 'Validated offer IDs must be derived from the server snapshot');
 $assert(strpos($service, 'MAX_CALCULATION_OFFERS') !== false, 'Server-derived launch URLs must have a bounded offer count');
 $assert(strpos($service, 'Offer IDs must not contain duplicates') !== false, 'Duplicate selective IDs must be rejected');
@@ -159,7 +162,7 @@ $assert(strpos($host, 'message.payload.controlCenterInstanceId !== controlCenter
 $assert(strpos($host, "typeof message !== 'object' || Array.isArray(message)") !== false, 'Host must reject non-object and array message envelopes');
 $assert(strpos($host, "message.type === 'OPEN_CALC_EDITOR'") !== false, 'Host must recognize the typed calculation launch');
 $assert(strpos($host, "message.type === 'OPEN_STOREFRONT_EDITOR'") !== false, 'Host must recognize the typed storefront launch');
-$assert(strpos($host, "postEditorAction('validate_calculation_launch'") !== false, 'Host must revalidate calculation launch server-side');
+$assert(strpos($host, "postEditorAction('validate_preset_launch'") !== false, 'Host must revalidate standalone preset launch server-side');
 $assert(strpos($host, "postEditorAction('validate_storefront_launch'") !== false, 'Host must revalidate storefront launch server-side');
 $assert(strpos($host, "new URL('/bitrix/admin/prospektweb_calc_calculator.php', window.location.origin)") !== false, 'Host must construct the fixed calculator URL');
 $assert(strpos($host, "new URL('/bitrix/admin/prospektweb_frontcalc_editor.php', window.location.origin)") !== false, 'Host must construct the fixed storefront URL');
@@ -170,13 +173,17 @@ $assert(strpos($host, 'message.payload.editorInstanceId === activeEditor.id') !=
 $assert(strpos($host, "'pwProductId' => max(0, (int)(\$_GET['pwProductId'] ?? 0))") !== false, 'Trusted host must forward the contextual product ID into the isolated SPA query');
 $assert(strpos($host, "\$_GET['pwRoute']") !== false && strpos($host, "'storefront-calculators'") !== false && strpos($host, "\$iframeUrl .= '#/'") !== false, 'Trusted host must forward only an allowlisted contextual workspace route into the iframe hash');
 $assert(strpos($host, "sendToControlCenter('EDITOR_CLOSED'") !== false, 'The SPA must receive the agreed editor-closed result');
-$assert(strpos($host, 'Number.isSafeInteger(payload.presetId)') !== false && strpos($host, 'Number.isSafeInteger(payload.productId)') !== false, 'Launch IDs must be safe integers');
-$assert(strpos($host, "hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId', 'productId', 'offerIds'])") !== false, 'Calculation launches must reject unknown payload keys');
+$assert(strpos($host, 'Number.isSafeInteger(payload.presetId)') !== false && strpos($host, 'Number.isSafeInteger(payload.productId)') !== false, 'Preset and storefront IDs must be safe integers');
+$assert(strpos($host, "hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId'])") !== false, 'Standalone preset launches must reject catalog fields and unknown payload keys');
 $assert(strpos($host, "hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'productId'])") !== false, 'Storefront launches must reject unknown payload keys');
 $assert(strpos($host, "window.confirm('Закрыть редактор?") !== false, 'The host close button must warn about unsaved changes');
 $assert(strpos($host, "editorIframe.src = 'about:blank'") !== false, 'Closing the overlay must release its document');
 
 $assert(strpos($calculator, "count(\$uniqueOfferIds) !== count(\$offerIds)") !== false, 'Calculator page must reject duplicate offer IDs');
+$assert(strpos($calculator, '$isStandalonePresetLaunch') !== false, 'Calculator page must support a standalone preset launch envelope');
+$assert(strpos($calculator, '$standalonePresetId !== 12740') !== false, 'Standalone control-center launches must stay scoped to the focus preset');
+$assert(strpos($calculator, "['ID' => \$standalonePresetId, 'IBLOCK_ID' => \$presetIblockId, 'ACTIVE' => 'Y']") !== false, 'Standalone launch must re-resolve the active preset without product or SKU authority');
+$assert(strpos($calculator, 'presetId: <?= json_encode($isStandalonePresetLaunch ? $standalonePresetId : 0) ?>') !== false, 'Standalone preset identity must reach the integration bridge');
 $assert(strpos($calculator, 'if ($controlCenterMode && !$USER->IsAdmin())') !== false, 'Control-center calculator launch must require an administrator');
 $assert(strpos($calculator, 'count($offerIds) > 500') !== false, 'Calculator page must reject oversized offer lists');
 $assert(strpos($calculator, "'IBLOCK_ID' => \$skuIblockId") !== false, 'Calculator page must resolve offers in the configured SKU iblock');
@@ -195,6 +202,6 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== fal
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
 $assert(strpos($diagnostic, "'lib/Services/Phase5aParityContractService.php'") !== false, 'Diagnostics must verify the Phase 5A parity service');
-$assert(strpos($version, "'VERSION' => '1.7.2'") !== false, 'Phase 5A transport must publish a coherent module version');
+$assert(strpos($version, "'VERSION' => '1.7.3'") !== false, 'Standalone preset transport must publish a coherent module version');
 
 echo "Control center editors API static tests passed\n";

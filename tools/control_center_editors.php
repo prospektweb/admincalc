@@ -278,6 +278,16 @@ try {
         ]);
     }
 
+    if ($action === 'validate_preset_launch') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId']);
+        $presetId = $parsePositiveInt($request['presetId'] ?? null, 'presetId');
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->validatePresetLaunch($presetId),
+        ]);
+    }
+
     if ($action === 'validate_storefront_launch') {
         $assertAllowedRequestKeys(['action', 'sessid', 'productId']);
         $productId = $parsePositiveInt($request['productId'] ?? null, 'productId');
