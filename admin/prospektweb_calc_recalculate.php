@@ -316,7 +316,9 @@ $jsMessages = [
         <div id="analysis-container" style="display: none; margin-top: 15px;">
             <h4 style="margin: 0 0 10px 0;">Предварительный анализ</h4>
             <div id="analysis-table"></div>
-            <button type="button" id="confirm-recalc" class="adm-btn adm-btn-save" style="margin-top: 10px;">Запустить задачу</button>
+            <button type="button" id="preview-recalc" class="adm-btn" style="margin-top: 10px;">Проверить расчёт без записи</button>
+            <button type="button" id="confirm-recalc" class="adm-btn adm-btn-save" style="margin: 10px 0 0 8px;">Записать цены, вес и габариты</button>
+            <div id="preview-results" style="display: none; margin-top: 12px;"></div>
         </div>
 
         <div class="progress-container" id="progress-container">
@@ -359,6 +361,7 @@ $jsMessages = [
     var presetSelector = document.getElementById('preset-selector');
     var startBtn = document.getElementById('start-recalc');
     var cancelBtn = document.getElementById('cancel-recalc');
+    var previewBtn = document.getElementById('preview-recalc');
     var confirmBtn = document.getElementById('confirm-recalc');
     var analysisContainer = document.getElementById('analysis-container');
     var analysisTable = document.getElementById('analysis-table');
@@ -367,6 +370,7 @@ $jsMessages = [
     var progressText = document.getElementById('progress-text');
     var progressMessage = document.getElementById('progress-message');
     var resultsContainer = document.getElementById('results-container');
+    var previewResults = document.getElementById('preview-results');
     var frontendLog = document.getElementById('frontend-log');
 
     var requestInFlight = false;
@@ -376,11 +380,14 @@ $jsMessages = [
     var currentPresetProgress = {};
     var serverOfferCountsByPreset = {};
     var currentJobId = readStoredJobId();
+    var previewPassed = false;
+    var previewSelectionSignature = '';
 
     cancelBtn.disabled = true;
+    previewBtn.disabled = true;
     confirmBtn.disabled = true;
 
-    if (!startBtn || !cancelBtn || !confirmBtn || !scopeAll || !scopeSpecific) {
+    if (!startBtn || !cancelBtn || !previewBtn || !confirmBtn || !scopeAll || !scopeSpecific) {
         return;
     }
 
@@ -410,6 +417,7 @@ $jsMessages = [
             alert((config.messages.ERROR || 'Ошибка') + ': ' + (error.message || 'Unknown error'));
             startBtn.disabled = false;
             cancelBtn.disabled = true;
+            previewBtn.disabled = true;
             confirmBtn.disabled = true;
             requestInFlight = false;
         }
@@ -420,7 +428,20 @@ $jsMessages = [
             return;
         }
 
+        if (!previewPassed || previewSelectionSignature !== getSelectionSignature()) {
+            invalidatePreview('Выбор товаров изменился. Повторите проверку без записи.');
+            return;
+        }
+
         runConfirmedRecalculation();
+    });
+
+    previewBtn.addEventListener('click', function() {
+        if (requestInFlight || !preparedPayload) {
+            return;
+        }
+
+        previewRecalculation();
     });
 
     cancelBtn.addEventListener('click', function() {
@@ -475,6 +496,7 @@ $jsMessages = [
             requestInFlight = !data.finished;
             startBtn.disabled = requestInFlight;
             cancelBtn.disabled = false;
+            previewBtn.disabled = true;
             confirmBtn.disabled = true;
             analysisContainer.style.display = 'none';
             renderServerLogs(data.logs || []);
@@ -496,6 +518,7 @@ $jsMessages = [
         requestInFlight = true;
         startBtn.disabled = true;
         cancelBtn.disabled = false;
+        previewBtn.disabled = true;
         confirmBtn.disabled = true;
         appendFrontendLog('Запуск предварительного анализа...');
 
@@ -525,8 +548,67 @@ $jsMessages = [
             renderAnalysis(data.analysis || []);
             analysisContainer.style.display = 'block';
             updateAllSelectedOfferTotals();
-            confirmBtn.disabled = false;
-            appendFrontendLog('Анализ завершён. Подтвердите запуск пересчёта.');
+            previewBtn.disabled = false;
+            invalidatePreview();
+            appendFrontendLog('Анализ завершён. Выполните проверку расчёта без записи.');
+        });
+    }
+
+    function previewRecalculation() {
+        var selectedProducts = collectSelectedProductsByPreset();
+        var signature = getSelectionSignature();
+        if (!hasSelectedProducts(selectedProducts)) {
+            alert('Выберите хотя бы один товар для проверки.');
+            return;
+        }
+
+        requestInFlight = true;
+        startBtn.disabled = true;
+        cancelBtn.disabled = false;
+        previewBtn.disabled = true;
+        confirmBtn.disabled = true;
+        previewPassed = false;
+        previewSelectionSignature = '';
+        previewResults.style.display = 'block';
+        previewResults.innerHTML = '<div class="adm-info-message">Расчёт выполняется без записи в каталог…</div>';
+        appendFrontendLog('Запущена проверка расчёта без записи в каталог...');
+
+        sendApiRequest(preparedPayload.sessid, {
+            action: 'preview',
+            presetIds: preparedPayload.presetIds,
+            productIdsByPreset: selectedProducts,
+            onlyChanged: preparedPayload.onlyChanged,
+            calcServerUrl: preparedPayload.calcServerUrl,
+            timeout: preparedPayload.timeout,
+            sessid: preparedPayload.sessid
+        }, function(err, response, data) {
+            requestInFlight = false;
+            startBtn.disabled = false;
+            cancelBtn.disabled = false;
+            previewBtn.disabled = false;
+
+            if (err) {
+                previewResults.innerHTML = '<div class="adm-info-message adm-info-message-red">Ошибка проверки: ' + escapeHtml(err) + '</div>';
+                appendFrontendLog('Ошибка проверки без записи: ' + err);
+                return;
+            }
+
+            if (!response || response.status < 200 || response.status >= 300 || !data || !data.success) {
+                previewResults.innerHTML = '<div class="adm-info-message adm-info-message-red">Проверка не выполнена.</div>';
+                handleApiError(data, response ? response.status : 0);
+                return;
+            }
+
+            renderPreviewResults(data);
+            previewPassed = Boolean(data.ready) && signature === getSelectionSignature();
+            previewSelectionSignature = previewPassed ? signature : '';
+            confirmBtn.disabled = !previewPassed;
+
+            if (previewPassed) {
+                appendFrontendLog('Проверка завершена: все ТП имеют положительные цены, вес и габариты. Запись разрешена.');
+            } else {
+                appendFrontendLog('Проверка выявила ошибки. Запись в каталог заблокирована.');
+            }
         });
     }
 
@@ -538,6 +620,7 @@ $jsMessages = [
         requestInFlight = true;
         startBtn.disabled = true;
         cancelBtn.disabled = false;
+        previewBtn.disabled = true;
         confirmBtn.disabled = true;
         resultsContainer.style.display = 'none';
         document.getElementById('details-table').innerHTML = '';
@@ -564,7 +647,8 @@ $jsMessages = [
                 requestInFlight = false;
                 startBtn.disabled = false;
                 cancelBtn.disabled = false;
-                confirmBtn.disabled = false;
+                previewBtn.disabled = false;
+                confirmBtn.disabled = !previewPassed;
                 appendFrontendLog('Ошибка запуска: ' + err);
                 alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
                 return;
@@ -574,7 +658,8 @@ $jsMessages = [
                 requestInFlight = false;
                 startBtn.disabled = false;
                 cancelBtn.disabled = false;
-                confirmBtn.disabled = false;
+                previewBtn.disabled = false;
+                confirmBtn.disabled = !previewPassed;
                 handleApiError(data, response ? response.status : 0);
                 return;
             }
@@ -754,6 +839,7 @@ $jsMessages = [
         }
 
         updateSelectedOfferTotal(target.getAttribute('data-preset-id'));
+        invalidatePreview('Выбор товаров изменён. Повторите проверку без записи.');
     });
 
     function collectSelectedProductsByPreset() {
@@ -778,6 +864,90 @@ $jsMessages = [
         }
 
         return selected;
+    }
+
+    function hasSelectedProducts(selected) {
+        var presetIds = Object.keys(selected || {});
+        for (var i = 0; i < presetIds.length; i++) {
+            if ((selected[presetIds[i]] || []).length > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function getSelectionSignature() {
+        var selected = collectSelectedProductsByPreset();
+        var normalized = {};
+        Object.keys(selected).sort().forEach(function(presetId) {
+            normalized[presetId] = (selected[presetId] || []).slice().sort(function(left, right) {
+                return left - right;
+            });
+        });
+        return JSON.stringify(normalized);
+    }
+
+    function invalidatePreview(message) {
+        previewPassed = false;
+        previewSelectionSignature = '';
+        confirmBtn.disabled = true;
+        if (message) {
+            previewResults.style.display = 'block';
+            previewResults.innerHTML = '<div class="adm-info-message">' + escapeHtml(message) + '</div>';
+        } else {
+            previewResults.style.display = 'none';
+            previewResults.innerHTML = '';
+        }
+    }
+
+    function renderPreviewResults(data) {
+        var summary = data.summary || {};
+        var offers = Object.prototype.toString.call(data.offers) === '[object Array]' ? data.offers : [];
+        var errors = Object.prototype.toString.call(data.errors) === '[object Array]' ? data.errors : [];
+        var html = '<div class="adm-info-message' + (data.ready ? '' : ' adm-info-message-red') + '">';
+        html += data.ready
+            ? 'Проверка пройдена: ' + escapeHtml(String(summary.valid || 0)) + ' из ' + escapeHtml(String(summary.total || 0)) + ' ТП готовы к записи.'
+            : 'Проверка не пройдена: ошибок в ТП — ' + escapeHtml(String(summary.invalid || 0)) + '.';
+        html += '</div>';
+
+        if (offers.length > 0) {
+            html += '<table class="results-table"><thead><tr>';
+            html += '<th>ТП</th><th>Розничные цены</th><th>Закупочная</th><th>Ш × Д × В, мм</th><th>Вес, г</th><th>Статус</th>';
+            html += '</tr></thead><tbody>';
+            for (var i = 0; i < offers.length; i++) {
+                var offer = offers[i] || {};
+                var dimensions = offer.dimensions || {};
+                var prices = offer.prices || [];
+                var priceLabels = [];
+                for (var j = 0; j < prices.length; j++) {
+                    var price = prices[j] || {};
+                    priceLabels.push('тип ' + escapeHtml(String(price.typeId || 0)) + ': ' + escapeHtml(String(price.basePrice || 0)) + ' ' + escapeHtml(String(price.currency || 'RUB')));
+                }
+                html += '<tr>';
+                html += '<td>#' + escapeHtml(String(offer.offerId || 0)) + '<br>' + escapeHtml(String(offer.offerName || '')) + '</td>';
+                html += '<td>' + (priceLabels.length ? priceLabels.join('<br>') : '—') + '</td>';
+                html += '<td>' + escapeHtml(String(offer.purchasePrice == null ? '—' : offer.purchasePrice)) + ' ' + escapeHtml(String(offer.currency || 'RUB')) + '</td>';
+                html += '<td>' + escapeHtml(String(dimensions.width == null ? '—' : dimensions.width)) + ' × '
+                    + escapeHtml(String(dimensions.length == null ? '—' : dimensions.length)) + ' × '
+                    + escapeHtml(String(dimensions.height == null ? '—' : dimensions.height)) + '</td>';
+                html += '<td>' + escapeHtml(String(dimensions.weight == null ? '—' : dimensions.weight)) + '</td>';
+                html += '<td style="color:' + (offer.valid ? '#248f24' : '#b00020') + ';">' + (offer.valid ? 'Готово' : escapeHtml((offer.errors || []).join('; '))) + '</td>';
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+        }
+
+        if (errors.length > 0) {
+            html += '<div class="error-list" style="margin-top: 10px;">';
+            for (var k = 0; k < errors.length; k++) {
+                var error = errors[k] || {};
+                html += '<div class="error-item">ТП #' + escapeHtml(String(error.offerId || 0)) + ': ' + escapeHtml(String(error.message || 'Ошибка проверки')) + '</div>';
+            }
+            html += '</div>';
+        }
+
+        previewResults.style.display = 'block';
+        previewResults.innerHTML = html;
     }
 
     function updateAnalysisProgress(details) {
@@ -822,7 +992,8 @@ $jsMessages = [
                     requestInFlight = false;
                     startBtn.disabled = false;
                     cancelBtn.disabled = false;
-                    confirmBtn.disabled = preparedPayload ? false : true;
+                    previewBtn.disabled = true;
+                    confirmBtn.disabled = true;
                     appendFrontendLog('Ошибка шага пересчёта: ' + err);
                     alert((config.messages.REQUEST_ERROR || 'Ошибка запроса') + ': ' + err);
                     return;
@@ -832,7 +1003,8 @@ $jsMessages = [
                     requestInFlight = false;
                     startBtn.disabled = false;
                     cancelBtn.disabled = false;
-                    confirmBtn.disabled = preparedPayload ? false : true;
+                    previewBtn.disabled = true;
+                    confirmBtn.disabled = true;
                     handleApiError(data, response ? response.status : 0);
                     return;
                 }
@@ -844,7 +1016,10 @@ $jsMessages = [
                     requestInFlight = false;
                     startBtn.disabled = false;
                     cancelBtn.disabled = false;
-                    confirmBtn.disabled = false;
+                    previewBtn.disabled = true;
+                    confirmBtn.disabled = true;
+                    previewPassed = false;
+                    previewSelectionSignature = '';
                     appendFrontendLog('Пересчёт завершён.');
                     return;
                 }
@@ -1069,7 +1244,10 @@ $jsMessages = [
 
         startBtn.disabled = false;
         cancelBtn.disabled = true;
+        previewBtn.disabled = true;
         confirmBtn.disabled = true;
+        previewPassed = false;
+        previewSelectionSignature = '';
 
         if (clearPreparedPayload) {
             preparedPayload = null;
@@ -1077,6 +1255,8 @@ $jsMessages = [
 
         analysisContainer.style.display = 'none';
         analysisTable.innerHTML = '';
+        previewResults.style.display = 'none';
+        previewResults.innerHTML = '';
         progressContainer.style.display = 'none';
         setProgress(0, '');
 

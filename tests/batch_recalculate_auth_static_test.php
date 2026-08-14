@@ -14,6 +14,8 @@ $checks = [
     "dirname(\$documentRoot) . '/.frontcalc-secret'" => 'Production secret must be loaded outside document root',
     "'offerCount' => 0" => 'Every product in batch analysis must expose an offer count',
     'countOffersByProductIds' => 'Product offer counts must come from the SKU relation',
+    'updateOffersFromCalculation($offerResults, true)' => 'Batch writes must require complete positive catalog values',
+    '$writeResultsByOfferId' => 'Per-offer write failures must not be reported as recalculated',
 ];
 
 foreach ($checks as $needle => $message) {
@@ -45,6 +47,9 @@ $endpointChecks = [
     "empty(\$requestData['replace'])" => 'Active job replacement must be explicit',
     'validateAnalysisContract($analysis)' => 'Batch endpoint must reject an incomplete analysis contract',
     "'INVALID_ANALYSIS_CONTRACT'" => 'Incomplete product counts must return an explicit contract error',
+    "if (\$action === 'preview')" => 'Batch endpoint must support a non-writing preview action',
+    '$service->previewOffers($offerIds)' => 'Preview must calculate the exact scoped offers',
+    "'ready' => (bool)(\$preview['ready'] ?? false)" => 'Preview must expose a strict write-readiness decision',
 ];
 foreach ($endpointChecks as $needle => $message) {
     if (strpos($endpoint, $needle) === false) {
@@ -64,6 +69,9 @@ foreach ([
     "jobId: currentJobId",
     "setCurrentJobId(data.jobId || '')",
     "data.errorCode === 'JOB_ALREADY_ACTIVE'",
+    "action: 'preview'",
+    'previewSelectionSignature !== getSelectionSignature()',
+    'confirmBtn.disabled = !previewPassed',
 ] as $needle) {
     if (strpos($page, $needle) === false) {
         throw new RuntimeException('Legacy batch UI must preserve hardened job lifecycle: ' . $needle);

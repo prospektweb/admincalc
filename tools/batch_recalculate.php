@@ -513,6 +513,49 @@ if ($action === 'analyze') {
     ]);
 }
 
+if ($action === 'preview') {
+    [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
+    $productIdsByPreset = validateProductIdsByPreset($requestData);
+    $service = new BatchRecalculateService($calcServerUrl, $timeout);
+    $analysis = $service->getPresetAnalysis($presetIds);
+    validateAnalysisContract($analysis);
+
+    $offerIds = [];
+    foreach ($analysis as $row) {
+        $presetId = (int)$row['presetId'];
+        $scopedOfferIds = isset($productIdsByPreset[$presetId])
+            ? $service->getOfferIdsForPresetProducts($presetId, $productIdsByPreset[$presetId])
+            : $service->getOfferIdsForPreset($presetId);
+        $offerIds = array_merge($offerIds, $scopedOfferIds);
+    }
+    $offerIds = array_values(array_unique(array_map('intval', $offerIds)));
+
+    if (count($offerIds) > $maxOffersPerJob) {
+        respondJson(429, [
+            'success' => false,
+            'errorCode' => 'TOO_MANY_OFFERS',
+            'error' => 'Too many offers for one preview. Narrow scope and retry.',
+            'meta' => [
+                'maxOffersPerJob' => $maxOffersPerJob,
+                'requestedOffers' => count($offerIds),
+            ],
+        ]);
+    }
+
+    $preview = $service->previewOffers($offerIds);
+    respondJson(200, [
+        'success' => true,
+        'ready' => (bool)($preview['ready'] ?? false),
+        'summary' => $preview['summary'] ?? [],
+        'offers' => $preview['offers'] ?? [],
+        'errors' => $preview['errors'] ?? [],
+        'meta' => [
+            'onlyChanged' => $onlyChanged,
+            'offerIds' => $offerIds,
+        ],
+    ]);
+}
+
 if ($action === 'start') {
     [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
     $productIdsByPreset = validateProductIdsByPreset($requestData);

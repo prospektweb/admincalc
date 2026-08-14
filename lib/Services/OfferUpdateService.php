@@ -2,6 +2,7 @@
 
 namespace Prospektweb\Calc\Services;
 
+use Bitrix\Main\Application;
 use Bitrix\Main\Loader;
 
 class OfferUpdateService
@@ -17,7 +18,7 @@ class OfferUpdateService
         $this->priceService = new CatalogPriceService();
     }
 
-    public function updateOffersFromCalculation(array $offers): array
+    public function updateOffersFromCalculation(array $offers, bool $requireCompleteCatalogValues = false): array
     {
         $results = [];
         $errors = [];
@@ -35,7 +36,17 @@ class OfferUpdateService
                 continue;
             }
 
+            $transactionStarted = false;
+            $connection = null;
+
             try {
+                if ($requireCompleteCatalogValues) {
+                    $preview = $this->inspectOfferCalculation($offer);
+                    if (!$preview['valid']) {
+                        throw new \RuntimeException(implode('; ', $preview['errors']));
+                    }
+                }
+
                 $elementData = \CIBlockElement::GetByID($offerId)->Fetch();
                 $offerIblockId = (int)($elementData['IBLOCK_ID'] ?? 0);
                 $offerName = trim((string)($offer['offerName'] ?? ''));
@@ -51,6 +62,10 @@ class OfferUpdateService
                 if ($offerIblockId <= 0) {
                     throw new \RuntimeException('Торговое предложение не найдено');
                 }
+
+                $connection = Application::getConnection();
+                $connection->startTransaction();
+                $transactionStarted = true;
 
                 if ($parametrValues !== null) {
                     \CIBlockElement::SetPropertyValuesEx($offerId, $offerIblockId, [
@@ -112,18 +127,11 @@ class OfferUpdateService
                 }
 
                 if (!empty($writeErrors)) {
-                    $message = 'Не сохранены: ' . implode(', ', $writeErrors);
-                    $errors[] = ['offerId' => $offerId, 'message' => $message];
-                    $results[] = [
-                        'offerId' => $offerId,
-                        'status' => 'error',
-                        'message' => $message,
-                        'updatedPurchasingPrice' => $purchasingUpdated,
-                        'updatedDimensions' => $dimensionsUpdated,
-                        'updatedPrices' => $pricesUpdated,
-                    ];
-                    continue;
+                    throw new \RuntimeException('Не сохранены: ' . implode(', ', $writeErrors));
                 }
+
+                $connection->commitTransaction();
+                $transactionStarted = false;
 
                 $results[] = [
                     'offerId' => $offerId,
@@ -134,6 +142,13 @@ class OfferUpdateService
                 ];
                 $updated++;
             } catch (\Throwable $e) {
+                if ($transactionStarted && $connection !== null) {
+                    try {
+                        $connection->rollbackTransaction();
+                    } catch (\Throwable $rollbackError) {
+                        error_log('Offer #' . $offerId . ' rollback failed: ' . $rollbackError->getMessage());
+                    }
+                }
                 $errors[] = ['offerId' => $offerId, 'message' => $e->getMessage()];
                 $results[] = [
                     'offerId' => $offerId,
@@ -156,6 +171,152 @@ class OfferUpdateService
             'updated' => $updated,
             'errors' => $errors,
             'offers' => $results,
+        ];
+    }
+
+    /**
+     * Проверить расчётные результаты без изменения каталога.
+     *
+     * @param array<int, array<string, mixed>> $offers
+     * @param int[] $expectedOfferIds
+     */
+    public function previewOffersFromCalculation(array $offers, array $expectedOfferIds = []): array
+    {
+        $expectedOfferIds = array_values(array_unique(array_filter(array_map('intval', $expectedOfferIds), static function (int $offerId): bool {
+            return $offerId > 0;
+        })));
+
+        $previewOffers = [];
+        $seenOfferIds = [];
+        $errors = [];
+
+        foreach ($offers as $offer) {
+            if (!is_array($offer)) {
+                $errors[] = ['offerId' => 0, 'message' => 'calc-server вернул некорректный результат ТП'];
+                continue;
+            }
+
+            $preview = $this->inspectOfferCalculation($offer);
+            $offerId = (int)$preview['offerId'];
+            if ($offerId > 0) {
+                if (!empty($expectedOfferIds) && !in_array($offerId, $expectedOfferIds, true)) {
+                    $preview['valid'] = false;
+                    $preview['errors'][] = 'calc-server вернул результат незапрошенного ТП';
+                }
+                if (isset($seenOfferIds[$offerId])) {
+                    $preview['valid'] = false;
+                    $preview['errors'][] = 'calc-server вернул дублирующий результат ТП';
+                }
+                $seenOfferIds[$offerId] = true;
+            }
+
+            if (!$preview['valid']) {
+                foreach ($preview['errors'] as $message) {
+                    $errors[] = ['offerId' => $offerId, 'message' => $message];
+                }
+            }
+
+            $previewOffers[] = $preview;
+        }
+
+        foreach ($expectedOfferIds as $expectedOfferId) {
+            if (!isset($seenOfferIds[$expectedOfferId])) {
+                $message = 'В ответе calc-server отсутствует результат ТП';
+                $errors[] = ['offerId' => $expectedOfferId, 'message' => $message];
+                $previewOffers[] = [
+                    'offerId' => $expectedOfferId,
+                    'offerName' => '',
+                    'valid' => false,
+                    'purchasePrice' => null,
+                    'currency' => 'RUB',
+                    'dimensions' => [],
+                    'prices' => [],
+                    'errors' => [$message],
+                ];
+            }
+        }
+
+        usort($previewOffers, static function (array $left, array $right): int {
+            return ((int)$left['offerId']) <=> ((int)$right['offerId']);
+        });
+
+        $valid = count(array_filter($previewOffers, static function (array $offer): bool {
+            return !empty($offer['valid']);
+        }));
+
+        return [
+            'ready' => count($previewOffers) > 0 && $valid === count($previewOffers) && empty($errors),
+            'summary' => [
+                'total' => count($previewOffers),
+                'valid' => $valid,
+                'invalid' => count($previewOffers) - $valid,
+            ],
+            'offers' => $previewOffers,
+            'errors' => $errors,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function inspectOfferCalculation(array $offer): array
+    {
+        $offerId = (int)($offer['offerId'] ?? 0);
+        $purchasePrice = $this->normalizeNumber($offer['purchasePrice'] ?? null);
+        $dimensions = $this->extractDimensions($offer);
+        $rangesByType = $this->buildPriceRangesByType($offer);
+        $prices = [];
+
+        foreach ($rangesByType as $typeId => $ranges) {
+            foreach ($ranges as $range) {
+                $prices[] = [
+                    'typeId' => (int)$typeId,
+                    'basePrice' => (float)$range['price'],
+                    'currency' => (string)$range['currency'],
+                    'quantityFrom' => $range['quantityFrom'],
+                    'quantityTo' => $range['quantityTo'],
+                ];
+            }
+        }
+
+        $errors = [];
+        if ($offerId <= 0) {
+            $errors[] = 'Некорректный offerId';
+        }
+        if ($purchasePrice === null || !is_finite($purchasePrice) || $purchasePrice <= 0) {
+            $errors[] = 'Закупочная цена должна быть положительным конечным числом';
+        }
+        if (empty($prices)) {
+            $errors[] = 'Не рассчитана ни одна положительная цена каталога';
+        }
+        foreach ($prices as $price) {
+            if (!is_finite((float)$price['basePrice']) || (float)$price['basePrice'] <= 0) {
+                $errors[] = 'Цена каталога должна быть положительным конечным числом';
+                break;
+            }
+        }
+
+        foreach (['WIDTH' => 'ширина', 'LENGTH' => 'длина', 'HEIGHT' => 'высота', 'WEIGHT' => 'вес'] as $field => $label) {
+            $value = $dimensions[$field] ?? null;
+            if ($value === null || !is_finite((float)$value) || (float)$value <= 0) {
+                $errors[] = 'Не рассчитан положительный параметр: ' . $label;
+            }
+        }
+
+        return [
+            'offerId' => $offerId,
+            'offerName' => trim((string)($offer['offerName'] ?? '')),
+            'valid' => empty($errors),
+            'purchasePrice' => $purchasePrice,
+            'currency' => (string)($offer['currency'] ?? 'RUB'),
+            'dimensions' => [
+                'width' => $dimensions['WIDTH'] ?? null,
+                'length' => $dimensions['LENGTH'] ?? null,
+                'height' => $dimensions['HEIGHT'] ?? null,
+                'weight' => $dimensions['WEIGHT'] ?? null,
+            ],
+            'prices' => $prices,
+            'errors' => $errors,
         ];
     }
 
