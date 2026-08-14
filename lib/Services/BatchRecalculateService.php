@@ -310,7 +310,7 @@ class BatchRecalculateService
 
         foreach (array_chunk($offerIds, self::PREVIEW_CHUNK_SIZE) as $offerChunk) {
             try {
-                $initPayload = $this->initPayloadService->prepareInitPayload($offerChunk, $siteId);
+                $initPayload = $this->prepareCalculationPayload($offerChunk, $siteId);
                 $requestPayload = $this->buildPayloadForOffers($initPayload, $offerChunk);
                 $calcResult = $this->callCalcServer($requestPayload);
 
@@ -326,6 +326,7 @@ class BatchRecalculateService
                 if (!is_array($offerResults)) {
                     throw new \RuntimeException('calc-server вернул некорректный список результатов');
                 }
+                $offerResults = $this->normalizeStandaloneCatalogPrices($offerResults, $requestPayload);
 
                 $chunkPreview = $offerUpdateService->previewOffersFromCalculation($offerResults, $offerChunk);
             } catch (\Throwable $e) {
@@ -367,7 +368,7 @@ class BatchRecalculateService
 
         try {
             $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
-            $initPayload = $this->initPayloadService->prepareInitPayload($offerIds, $siteId);
+            $initPayload = $this->prepareCalculationPayload($offerIds, $siteId);
 
             $hashesByOfferId = [];
             $offersToProcess = [];
@@ -400,6 +401,7 @@ class BatchRecalculateService
             if (empty($offerResults) || !is_array($offerResults)) {
                 throw new \Exception('Пустой ответ от calc-server');
             }
+            $offerResults = $this->normalizeStandaloneCatalogPrices($offerResults, $requestPayload);
 
             $offerUpdateService = new OfferUpdateService();
             $writeResult = $offerUpdateService->updateOffersFromCalculation($offerResults, true);
@@ -480,6 +482,110 @@ class BatchRecalculateService
         }
 
         return $resultsByOfferId;
+    }
+
+    /**
+     * Preset 12740 is calculated from its published standalone form. Real
+     * products and offers are read only to resolve the output target matrix;
+     * calc-server receives product=null and virtual offers.
+     *
+     * @param int[] $offerIds
+     * @return array<string,mixed>
+     */
+    private function prepareCalculationPayload(array $offerIds, string $siteId): array
+    {
+        $catalogPayload = $this->initPayloadService->prepareInitPayload($offerIds, $siteId);
+        if ((int)($catalogPayload['preset']['id'] ?? 0) !== StandaloneCatalogSelectionMapper::PRESET_ID) {
+            return $catalogPayload;
+        }
+
+        if (!Loader::includeModule('prospektweb.frontcalc')) {
+            throw new \RuntimeException('Для автономной записи требуется модуль prospektweb.frontcalc.');
+        }
+
+        $resolved = (new \Prospektweb\Frontcalc\Service\CalculatorTemplateManager())
+            ->resolveForPreset(StandaloneCatalogSelectionMapper::PRESET_ID);
+        $schema = is_array($resolved['schema'] ?? null) ? $resolved['schema'] : [];
+        if ($schema === [] || (string)($resolved['source'] ?? '') !== 'form_first_preset') {
+            throw new \RuntimeException('Не найдена опубликованная форма пресета 12740.');
+        }
+
+        $runtime = new \Prospektweb\Frontcalc\Service\StandalonePresetRuntime();
+        $schemaCatalog = $runtime->buildSchemaCatalog($schema, StandaloneCatalogSelectionMapper::PRESET_ID);
+        $validator = new \Prospektweb\Frontcalc\Service\CustomSelectionValidator();
+        $builder = new \Prospektweb\Frontcalc\Service\VirtualOfferBatchBuilder();
+        $mapper = new StandaloneCatalogSelectionMapper();
+        $virtualOffers = [];
+
+        foreach ((array)($catalogPayload['selectedOffers'] ?? []) as $targetOffer) {
+            if (!is_array($targetOffer)) {
+                continue;
+            }
+            $mapped = $mapper->map($targetOffer);
+            $validated = $validator->validate(
+                $schema,
+                $mapped['selection'],
+                is_array($schemaCatalog['enumValues'] ?? null) ? $schemaCatalog['enumValues'] : [],
+                is_array($schemaCatalog['presetBuckets'] ?? null) ? $schemaCatalog['presetBuckets'] : []
+            );
+            if (empty($validated['ok'])) {
+                $error = is_array($validated['error'] ?? null) ? $validated['error'] : [];
+                throw new \RuntimeException(
+                    'ТП #' . $mapped['offerId'] . ': '
+                    . (string)($error['message'] ?? 'не удалось сопоставить с опубликованной формой пресета')
+                );
+            }
+            $built = $builder->buildForQuantities(
+                $schema,
+                is_array($validated['values'] ?? null) ? $validated['values'] : [],
+                0,
+                0,
+                [$mapped['quantity']]
+            );
+            if (count($built) !== 1) {
+                throw new \RuntimeException('ТП #' . $mapped['offerId'] . ': не удалось построить точный виртуальный расчёт.');
+            }
+            $virtualOffer = $built[0];
+            $virtualOffer['id'] = $mapped['offerId'];
+            $virtualOffer['name'] = $mapped['offerName'] !== ''
+                ? $mapped['offerName']
+                : 'Расчётное ТП #' . $mapped['offerId'];
+            $virtualOffer['productId'] = 0;
+            $virtualOffer['iblockId'] = 0;
+            $virtualOffers[] = $virtualOffer;
+        }
+
+        if (count($virtualOffers) !== count($offerIds)) {
+            throw new \RuntimeException('Не все выбранные ТП сопоставлены с автономным пресетом 12740.');
+        }
+
+        return (new \Prospektweb\Frontcalc\Calculator\InitPayloadService())->preparePresetInitPayload(
+            StandaloneCatalogSelectionMapper::PRESET_ID,
+            $virtualOffers,
+            $siteId
+        );
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $offerResults
+     * @param array<string,mixed> $requestPayload
+     * @return array<int,array<string,mixed>>
+     */
+    private function normalizeStandaloneCatalogPrices(array $offerResults, array $requestPayload): array
+    {
+        if ((int)($requestPayload['preset']['id'] ?? 0) !== StandaloneCatalogSelectionMapper::PRESET_ID
+            || array_key_exists('product', $requestPayload) && $requestPayload['product'] !== null) {
+            return $offerResults;
+        }
+        if (!Loader::includeModule('prospektweb.frontcalc')) {
+            throw new \RuntimeException('Для автономной записи требуется модуль prospektweb.frontcalc.');
+        }
+
+        return (new StandaloneCatalogPriceNormalizer())->normalize(
+            $offerResults,
+            is_array($requestPayload['priceTypes'] ?? null) ? $requestPayload['priceTypes'] : [],
+            is_array($requestPayload['preset']['prices'] ?? null) ? $requestPayload['preset']['prices'] : []
+        );
     }
 
     /**

@@ -29,6 +29,8 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\PresetEnrichmentService' => 'lib/Services/PresetEnrichmentService.php',
     'Prospektweb\\Calc\\Services\\CatalogPriceService' => 'lib/Services/CatalogPriceService.php',
     'Prospektweb\\Calc\\Services\\OfferUpdateService' => 'lib/Services/OfferUpdateService.php',
+    'Prospektweb\\Calc\\Services\\StandaloneCatalogSelectionMapper' => 'lib/Services/StandaloneCatalogSelectionMapper.php',
+    'Prospektweb\\Calc\\Services\\StandaloneCatalogPriceNormalizer' => 'lib/Services/StandaloneCatalogPriceNormalizer.php',
     'Prospektweb\\Calc\\Services\\SaveAllService' => 'lib/Services/SaveAllService.php',
     'Prospektweb\\Calc\\Services\\BatchRecalculateService' => 'lib/Services/BatchRecalculateService.php',
     'Prospektweb\\Calc\\Services\\ControlCenterSettingsService' => 'lib/Services/ControlCenterSettingsService.php',
