@@ -3,6 +3,7 @@
 namespace Prospektweb\Calc\Handlers;
 
 use Bitrix\Main\Loader;
+use Bitrix\Main\EventManager;
 use Bitrix\Main\Page\Asset;
 use Bitrix\Main\Page\AssetLocation;
 use Bitrix\Main\Application;
@@ -25,6 +26,8 @@ class AdminHandler
      */
     public static function onProlog(): void
     {
+        self::registerAsproCatalogAvailabilityHandler();
+
         if (!defined('ADMIN_SECTION') || ADMIN_SECTION !== true) {
             return;
         }
@@ -77,6 +80,90 @@ class AdminHandler
         if ($isListPage || $isSidepanelList) {
             self::addCalculatorButton();
         }
+    }
+
+    /**
+     * Aspro derives its stock badge only from the numeric catalog quantity.
+     * Calculator offers are made to order, therefore they legitimately have
+     * zero stock with quantity tracking disabled and must remain orderable.
+     */
+    private static function registerAsproCatalogAvailabilityHandler(): void
+    {
+        static $registered = false;
+
+        if ($registered) {
+            return;
+        }
+
+        EventManager::getInstance()->addEventHandlerCompatible(
+            'aspro.premier',
+            'OnAsproGetTotalCountFromCatalog',
+            [self::class, 'onAsproGetTotalCountFromCatalog']
+        );
+        $registered = true;
+    }
+
+    /**
+     * Treat a purchasable, positively priced, non-stock-tracked offer as
+     * available to order without writing fictitious inventory quantities.
+     *
+     * @param array<string,mixed> $item
+     * @param array<string,mixed> $params
+     * @param mixed $totalCount
+     */
+    public static function onAsproGetTotalCountFromCatalog(array $item, array $params, &$totalCount): void
+    {
+        if ((float)$totalCount > 0) {
+            return;
+        }
+
+        $quantityTrace = (string)($item['CATALOG_QUANTITY_TRACE'] ?? $item['PRODUCT']['QUANTITY_TRACE'] ?? '');
+        if ($quantityTrace !== 'N' || !self::isCatalogItemPurchasable($item) || !self::hasPositiveCatalogPrice($item)) {
+            return;
+        }
+
+        $totalCount = 1;
+    }
+
+    /** @param array<string,mixed> $item */
+    private static function isCatalogItemPurchasable(array $item): bool
+    {
+        foreach ([
+            $item['CAN_BUY'] ?? null,
+            $item['CATALOG_AVAILABLE'] ?? null,
+            $item['PRODUCT']['AVAILABLE'] ?? null,
+        ] as $value) {
+            if ($value === true || $value === 1 || $value === '1' || $value === 'Y') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string,mixed> $item */
+    private static function hasPositiveCatalogPrice(array $item): bool
+    {
+        foreach ((array)($item['ITEM_PRICES'] ?? []) as $price) {
+            if ((float)($price['DISCOUNT_PRICE'] ?? $price['PRICE'] ?? 0) > 0) {
+                return true;
+            }
+        }
+
+        foreach (['MIN_PRICE', 'RATIO_PRICE'] as $priceKey) {
+            $price = (array)($item[$priceKey] ?? []);
+            if ((float)($price['DISCOUNT_VALUE'] ?? $price['DISCOUNT_PRICE'] ?? $price['VALUE'] ?? $price['PRICE'] ?? 0) > 0) {
+                return true;
+            }
+        }
+
+        foreach ($item as $key => $value) {
+            if (strpos((string)$key, 'CATALOG_PRICE_') === 0 && is_numeric($value) && (float)$value > 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
