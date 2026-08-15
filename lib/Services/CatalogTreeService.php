@@ -27,8 +27,7 @@ final class CatalogTreeService
             throw new \InvalidArgumentException('Пресет не найден');
         }
 
-        $batch = new BatchRecalculateService('');
-        $products = $batch->getProductsForPreset($presetId);
+        $products = $this->loadProductsForPreset($config, $presetId);
         $skuIblockId = (int)$config->getSkuIblockId();
         foreach ($products as &$product) {
             $offers = [];
@@ -50,6 +49,7 @@ final class CatalogTreeService
                 }
             }
             $product['offers'] = $offers;
+            $product['offerCount'] = count($offers);
         }
         unset($product);
 
@@ -58,6 +58,72 @@ final class CatalogTreeService
             'preset' => ['id' => $presetId, 'name' => (string)$preset['NAME']],
             'products' => $products,
         ];
+    }
+
+    /**
+     * Read the preset's catalog scope without constructing the network-backed
+     * batch recalculation service. The control center only needs Bitrix data.
+     *
+     * @return array<int, array{id:int,name:string,editUrl:string,offerCount:int}>
+     */
+    private function loadProductsForPreset(
+        \Prospektweb\Calc\Config\ConfigManager $config,
+        int $presetId
+    ): array
+    {
+        $productIblockId = (int)$config->getProductIblockId();
+        if ($productIblockId <= 0) {
+            return [];
+        }
+
+        $filter = [
+            'IBLOCK_ID' => $productIblockId,
+            'ACTIVE' => 'Y',
+            'ACTIVE_DATE' => 'Y',
+            'PROPERTY_CALC_PRESET' => $presetId,
+        ];
+        if ($presetId === CatalogAdapterDefinitionService::PRESET_ID) {
+            $supportedProductIds = (new CatalogAdapterDefinitionService())->supportedProductIds();
+            if ($supportedProductIds === []) {
+                return [];
+            }
+            $filter['ID'] = $supportedProductIds;
+        }
+
+        $cursor = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            $filter,
+            false,
+            false,
+            ['ID', 'NAME']
+        );
+        $languageId = defined('LANGUAGE_ID') ? (string)LANGUAGE_ID : 'ru';
+        $productIblockType = 'catalog';
+        $iblock = \CIBlock::GetByID($productIblockId)->Fetch();
+        if ($iblock) {
+            $productIblockType = (string)($iblock['IBLOCK_TYPE_ID'] ?? 'catalog');
+        }
+
+        $products = [];
+        while ($row = $cursor->Fetch()) {
+            $productId = (int)$row['ID'];
+            $products[] = [
+                'id' => $productId,
+                'name' => (string)$row['NAME'],
+                'editUrl' => '/bitrix/admin/iblock_element_edit.php?IBLOCK_ID='
+                    . $productIblockId
+                    . '&ID='
+                    . $productId
+                    . '&type='
+                    . rawurlencode($productIblockType)
+                    . '&lang='
+                    . rawurlencode($languageId)
+                    . '&find_section_section=0&WF=Y',
+                'offerCount' => 0,
+            ];
+        }
+
+        return $products;
     }
 
     public function tree(array $request): array
