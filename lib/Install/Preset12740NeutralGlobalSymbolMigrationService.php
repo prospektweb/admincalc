@@ -332,7 +332,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         $backupRaw = $this->readOptionRaw(self::BACKUP_OPTION, true);
         $this->lockRegistryRows((int)$config['iblockId']);
 
-        $state = $this->loadState($config, $active);
+        $state = $this->loadState($config, $active, true);
         $evidence = self::assertHistoricalEvidence($markerRaw, $backupRaw);
         self::assertCurrentNeutralState($state, $evidence['targetState']);
         return self::buildVerifiedCompletionPlan($state, $evidence);
@@ -359,7 +359,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         $backupRaw = $this->readOptionRaw(self::BACKUP_OPTION, true);
         $this->lockRegistryRows((int)$config['iblockId']);
 
-        $state = $this->loadState($config, $active);
+        $state = $this->loadState($config, $active, true);
         $plan = $this->buildAuditedPlan($state, $markerRaw, $backupRaw);
         $status = (string)($plan['status'] ?? '');
         if ($status === 'complete') {
@@ -506,7 +506,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             self::assertSnapshotUnchanged($initialConfig, $lockedConfig, 'global-symbol iblock configuration');
             self::assertSnapshotUnchanged($initialActive, $lockedActive, 'neutral activation state');
             self::assertExpectedActiveSnapshot($lockedActive, $expectedActive);
-            $currentState = $this->loadState($lockedConfig, $lockedActive);
+            $currentState = $this->loadState($lockedConfig, $lockedActive, true);
             $plan = self::buildPlan($currentState);
             if (!hash_equals((string)$plan['fingerprint'], $expectedFingerprint)) {
                 throw new \RuntimeException('Global symbols changed after audit. Repeat the audit.', 409);
@@ -545,7 +545,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             }
             $this->writeState($plan['_nextState'], (array)$plan['mutations']);
 
-            $readBack = $this->loadState($lockedConfig, $lockedActive);
+            $readBack = $this->loadState($lockedConfig, $lockedActive, true);
             self::assertNeutralStateRows($readBack);
             $verified = self::buildPlan($readBack);
             if (($verified['status'] ?? '') !== 'complete'
@@ -607,7 +607,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             if (($lockedActive['value'] ?? '') !== 'N') {
                 throw new \RuntimeException('Neutral input is active; global-symbol rollback is refused.', 409);
             }
-            $currentState = $this->loadState($lockedConfig, $lockedActive);
+            $currentState = $this->loadState($lockedConfig, $lockedActive, true);
             $currentPlan = self::buildPlan($currentState);
             if (!hash_equals((string)$currentPlan['fingerprint'], $expectedFingerprint)) {
                 throw new \RuntimeException('Global symbols changed after rollback audit.', 409);
@@ -626,7 +626,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
                 throw new \RuntimeException('Global-symbol backup does not match the audited legacy state.');
             }
             $this->writeState($backup['state'], (array)$backupPlan['mutations']);
-            $restored = $this->loadState($lockedConfig, $lockedActive);
+            $restored = $this->loadState($lockedConfig, $lockedActive, true);
             if (!hash_equals((string)($backup['fingerprint'] ?? ''), self::fingerprint($restored))) {
                 throw new \RuntimeException('Global-symbol rollback read-back verification failed.');
             }
@@ -807,7 +807,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     }
 
     /** @return array<string,mixed> */
-    private function loadState(array $config, array $active): array
+    private function loadState(array $config, array $active, bool $forUpdate = false): array
     {
         if (!Loader::includeModule('iblock')) {
             throw new \RuntimeException('The iblock module is required.');
@@ -818,11 +818,16 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             || (int)($iblock['ID'] ?? 0) !== $iblockId
             || (string)($iblock['CODE'] ?? '') !== 'CALC_GLOBAL_VALUES'
             || (string)($iblock['IBLOCK_TYPE_ID'] ?? '') !== 'calculator'
-            || (string)($iblock['ACTIVE'] ?? '') !== 'Y') {
+            || (string)($iblock['ACTIVE'] ?? '') !== 'Y'
+            || (int)($iblock['VERSION'] ?? 0) !== 2) {
             throw new \RuntimeException('The pinned global-symbol iblock identity is invalid.', 409);
         }
         $propertySchema = $this->loadPropertySchema($iblockId);
-        $rows = $this->loadAllRows($iblockId, (int)$propertySchema['INITIAL_VALUE']['id']);
+        $rows = $this->loadAllRows(
+            $iblockId,
+            (int)$propertySchema['INITIAL_VALUE']['id'],
+            $forUpdate
+        );
         usort($rows, static fn(array $left, array $right): int => (int)$left['id'] <=> (int)$right['id']);
         return [
             'presetId' => self::PRESET_ID,
@@ -885,9 +890,19 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     }
 
     /** @return array<int,array<string,mixed>> */
-    private function loadAllRows(int $iblockId, int $initialValuePropertyId): array
+    private function loadAllRows(
+        int $iblockId,
+        int $initialValuePropertyId,
+        bool $forUpdate
+    ): array
     {
         $rows = [];
+        $storageByElementId = $this->loadInitialValueStorageV2(
+            $iblockId,
+            $initialValuePropertyId,
+            $forUpdate
+        );
+        $elementIds = [];
         $iterator = \CIBlockElement::GetList(
             ['ID' => 'ASC'],
             ['IBLOCK_ID' => $iblockId, 'CHECK_PERMISSIONS' => 'N'],
@@ -899,18 +914,19 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             $fields = $element->GetFields();
             $properties = $element->GetProperties();
             $elementId = (int)($fields['ID'] ?? 0);
+            if ($elementId <= 0 || isset($elementIds[$elementId])) {
+                throw new \RuntimeException('Global-symbol element storage identity is invalid.', 409);
+            }
+            $elementIds[$elementId] = true;
+            if (!array_key_exists($elementId, $storageByElementId)) {
+                throw new \RuntimeException('Global-symbol INITIAL_VALUE storage row is missing.', 409);
+            }
             $initialValueProperty = $properties['INITIAL_VALUE'] ?? null;
             if (!is_array($initialValueProperty)) {
                 throw new \RuntimeException('Global-symbol INITIAL_VALUE property is unavailable.', 409);
             }
-            $initialValue = $initialValueProperty['~VALUE']['TEXT']
-                ?? $initialValueProperty['VALUE']['TEXT']
-                ?? $initialValueProperty['~VALUE']
-                ?? $initialValueProperty['VALUE']
-                ?? '';
-            if (is_array($initialValue)) {
-                throw new \RuntimeException('Global-symbol INITIAL_VALUE must be scalar HTML text.', 409);
-            }
+            $initialValueExists = $storageByElementId[$elementId];
+            $initialValue = self::normalizeDecodedInitialValue($initialValueProperty, $initialValueExists);
             $rows[] = [
                 'id' => $elementId,
                 'iblockId' => (int)($fields['IBLOCK_ID'] ?? $iblockId),
@@ -923,42 +939,145 @@ final class Preset12740NeutralGlobalSymbolMigrationService
                 'presetId' => (int)($properties['PRESET_ID']['VALUE'] ?? 0),
                 'kind' => (string)($properties['KIND']['VALUE'] ?? ''),
                 'dataType' => (string)($properties['DATA_TYPE']['VALUE'] ?? ''),
-                'initialValue' => (string)$initialValue,
-                'initialValueExists' => self::hasStoredPropertyValue(
-                    $initialValueProperty,
-                    $elementId,
-                    $initialValuePropertyId
-                ),
+                'initialValue' => $initialValue,
+                'initialValueExists' => $initialValueExists,
             ];
         }
+        self::assertInitialValueStorageCoverage($storageByElementId, array_keys($elementIds));
         return $rows;
     }
 
-    /** @param array<string,mixed> $property */
-    private static function hasStoredPropertyValue(
-        array $property,
-        int $expectedElementId,
-        int $expectedPropertyId
-    ): bool
+    /** @return array{table:string,column:string} */
+    private static function v2InitialValueStorageAuthority(int $iblockId, int $propertyId): array
     {
-        if ($expectedElementId <= 0 || $expectedPropertyId <= 0) {
+        if ($iblockId <= 0 || $propertyId <= 0) {
             throw new \RuntimeException('Global-symbol INITIAL_VALUE storage authority is invalid.', 409);
         }
-        $valueId = $property['PROPERTY_VALUE_ID'] ?? null;
-        if ($valueId === null || $valueId === false || $valueId === '' || $valueId === 0 || $valueId === '0') {
-            return false;
+        return [
+            'table' => 'b_iblock_element_prop_s' . $iblockId,
+            'column' => 'PROPERTY_' . $propertyId,
+        ];
+    }
+
+    /** @return array<int,bool> */
+    private function loadInitialValueStorageV2(
+        int $iblockId,
+        int $propertyId,
+        bool $forUpdate
+    ): array
+    {
+        $authority = self::v2InitialValueStorageAuthority($iblockId, $propertyId);
+        $connection = Application::getConnection();
+        if (!method_exists($connection, 'isTableExists')
+            || !$connection->isTableExists($authority['table'])) {
+            throw new \RuntimeException('Global-symbol INITIAL_VALUE storage table is unavailable.', 409);
         }
-        if (is_int($valueId)) {
-            if ($valueId > 0) {
-                return true;
+        $tableFields = $connection->getTableFields($authority['table']);
+        self::assertV2InitialValueStorageSchema($tableFields, $authority);
+
+        $cursor = $connection->query(
+            'SELECT IBLOCK_ELEMENT_ID, ' . $authority['column'] . ' AS INITIAL_VALUE_RAW'
+            . ' FROM ' . $authority['table']
+            . ' ORDER BY IBLOCK_ELEMENT_ID'
+            . ($forUpdate ? ' FOR UPDATE' : '')
+        );
+        $rows = [];
+        while (($row = $cursor->fetch()) !== false) {
+            if (!is_array($row)) {
+                throw new \RuntimeException('Global-symbol INITIAL_VALUE storage row is invalid.', 409);
             }
-        } elseif (is_string($valueId) && ctype_digit($valueId) && (int)$valueId > 0) {
-            return true;
-        } elseif (is_string($valueId)
-            && hash_equals($expectedElementId . ':' . $expectedPropertyId, $valueId)) {
-            return true;
+            $rows[] = $row;
         }
-        throw new \RuntimeException('Global-symbol INITIAL_VALUE storage identity is invalid.', 409);
+        return self::normalizeInitialValueStorageRows($rows);
+    }
+
+    /** @param mixed $tableFields @param array{table:string,column:string} $authority */
+    private static function assertV2InitialValueStorageSchema($tableFields, array $authority): void
+    {
+        if (!is_array($tableFields)
+            || !array_key_exists('IBLOCK_ELEMENT_ID', $tableFields)
+            || !array_key_exists($authority['column'], $tableFields)) {
+            throw new \RuntimeException('Global-symbol INITIAL_VALUE storage column is unavailable.', 409);
+        }
+    }
+
+    /** @param array<int,array<string,mixed>> $rows @return array<int,bool> */
+    private static function normalizeInitialValueStorageRows(array $rows): array
+    {
+        $storage = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)
+                || !array_key_exists('IBLOCK_ELEMENT_ID', $row)
+                || !array_key_exists('INITIAL_VALUE_RAW', $row)) {
+                throw new \RuntimeException('Global-symbol INITIAL_VALUE storage row is invalid.', 409);
+            }
+            $rawElementId = $row['IBLOCK_ELEMENT_ID'];
+            if (is_int($rawElementId)) {
+                $elementId = $rawElementId;
+            } elseif (is_string($rawElementId)
+                && ctype_digit($rawElementId)
+                && (string)(int)$rawElementId === $rawElementId) {
+                $elementId = (int)$rawElementId;
+            } else {
+                $elementId = 0;
+            }
+            $rawValue = $row['INITIAL_VALUE_RAW'];
+            if ($elementId <= 0
+                || array_key_exists($elementId, $storage)
+                || ($rawValue !== null && !is_scalar($rawValue))) {
+                throw new \RuntimeException('Global-symbol INITIAL_VALUE storage row is invalid.', 409);
+            }
+            $storage[$elementId] = $rawValue !== null;
+        }
+        ksort($storage, SORT_NUMERIC);
+        return $storage;
+    }
+
+    /** @param array<int,bool> $storageByElementId @param array<int,int> $elementIds */
+    private static function assertInitialValueStorageCoverage(array $storageByElementId, array $elementIds): void
+    {
+        $storageIds = array_keys($storageByElementId);
+        $elementIds = array_values(array_map('intval', $elementIds));
+        sort($storageIds, SORT_NUMERIC);
+        sort($elementIds, SORT_NUMERIC);
+        if ($storageIds !== $elementIds) {
+            throw new \RuntimeException('Global-symbol INITIAL_VALUE storage membership is invalid.', 409);
+        }
+    }
+
+    /** @param array<string,mixed> $property */
+    private static function normalizeDecodedInitialValue(array $property, bool $storageExists): string
+    {
+        $found = false;
+        $decoded = null;
+        foreach (['~VALUE', 'VALUE'] as $valueKey) {
+            if (!array_key_exists($valueKey, $property)) {
+                continue;
+            }
+            $decoded = $property[$valueKey];
+            if (is_array($decoded)) {
+                if (!array_key_exists('TEXT', $decoded)
+                    || (array_key_exists('TYPE', $decoded) && !is_string($decoded['TYPE']))) {
+                    throw new \RuntimeException('Global-symbol INITIAL_VALUE decoded shape is invalid.', 409);
+                }
+                $decoded = $decoded['TEXT'];
+            }
+            $found = true;
+            break;
+        }
+        if (!$found) {
+            throw new \RuntimeException('Global-symbol INITIAL_VALUE decoded value is unavailable.', 409);
+        }
+        if ($storageExists) {
+            if (!is_string($decoded)) {
+                throw new \RuntimeException('Global-symbol INITIAL_VALUE storage does not match its decoded value.', 409);
+            }
+            return $decoded;
+        }
+        if (!in_array($decoded, [null, false, ''], true)) {
+            throw new \RuntimeException('Global-symbol INITIAL_VALUE storage does not match its decoded value.', 409);
+        }
+        return '';
     }
 
     /** @param array<string,mixed> $state @param array<int,array<string,mixed>> $mutations */

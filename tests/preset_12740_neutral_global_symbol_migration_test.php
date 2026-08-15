@@ -644,38 +644,146 @@ $fingerprintMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigratio
 $fingerprintMethod->setAccessible(true);
 $runtimeRowsMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'runtimeRowsFromState');
 $runtimeRowsMethod->setAccessible(true);
-$storedValueMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'hasStoredPropertyValue');
-$storedValueMethod->setAccessible(true);
+$storageAuthorityMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'v2InitialValueStorageAuthority');
+$storageAuthorityMethod->setAccessible(true);
+$storageSchemaMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'assertV2InitialValueStorageSchema');
+$storageSchemaMethod->setAccessible(true);
+$normalizeStorageMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'normalizeInitialValueStorageRows');
+$normalizeStorageMethod->setAccessible(true);
+$storageCoverageMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'assertInitialValueStorageCoverage');
+$storageCoverageMethod->setAccessible(true);
+$normalizeDecodedMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'normalizeDecodedInitialValue');
+$normalizeDecodedMethod->setAccessible(true);
 $assert(
-    $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => false], 12777, 763) === false
-        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => null], 12777, 763) === false
-        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => ''], 12777, 763) === false
-        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => '0'], 12777, 763) === false
-        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => 0], 12777, 763) === false
-        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => '321'], 12777, 763) === true
-        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => 321], 12777, 763) === true
-        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => '12777:763'], 12777, 763) === true,
-    'raw Bitrix PROPERTY_VALUE_ID distinguishes absence, legacy numeric storage and exact VERSION=2 storage'
+    $storageAuthorityMethod->invoke(null, 77, 763) === [
+        'table' => 'b_iblock_element_prop_s77',
+        'column' => 'PROPERTY_763',
+    ],
+    'VERSION=2 presence is read only from the exact pinned single-property table and column'
 );
-try {
-    $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => ['321']], 12777, 763);
-    $assert(false, 'invalid INITIAL_VALUE storage identity shape must fail closed');
-} catch (Throwable $error) {
-    $assert($error->getCode() === 409, 'invalid INITIAL_VALUE storage identity shape is rejected');
-}
-foreach (['12778:763', '12777:764', '012777:763', '12777:0763', '12777:763 '] as $mismatchedValueId) {
+$storageSchemaMethod->invoke(null, [
+    'IBLOCK_ELEMENT_ID' => new stdClass(),
+    'PROPERTY_763' => new stdClass(),
+], $storageAuthorityMethod->invoke(null, 77, 763));
+foreach ([
+    ['PROPERTY_763' => new stdClass()],
+    ['IBLOCK_ELEMENT_ID' => new stdClass()],
+    ['IBLOCK_ELEMENT_ID' => new stdClass(), 'PROPERTY_764' => new stdClass()],
+] as $invalidStorageSchema) {
     try {
-        $storedValueMethod->invoke(
+        $storageSchemaMethod->invoke(
             null,
-            ['PROPERTY_VALUE_ID' => $mismatchedValueId],
-            12777,
-            763
+            $invalidStorageSchema,
+            $storageAuthorityMethod->invoke(null, 77, 763)
         );
-        $assert(false, 'mismatched VERSION=2 INITIAL_VALUE storage identity must fail closed');
+        $assert(false, 'missing or mismatched VERSION=2 storage column must fail closed');
     } catch (Throwable $error) {
-        $assert($error->getCode() === 409, 'mismatched VERSION=2 storage identity is rejected');
+        $assert($error->getCode() === 409, 'missing or mismatched VERSION=2 storage column is rejected');
     }
 }
+foreach ([[0, 763], [77, 0], [-1, 763]] as [$badIblockId, $badPropertyId]) {
+    try {
+        $storageAuthorityMethod->invoke(null, $badIblockId, $badPropertyId);
+        $assert(false, 'invalid direct-storage authority must fail closed');
+    } catch (Throwable $error) {
+        $assert($error->getCode() === 409, 'invalid direct-storage authority is rejected');
+    }
+}
+
+$storageShape = $normalizeStorageMethod->invoke(null, [
+    ['IBLOCK_ELEMENT_ID' => '1', 'INITIAL_VALUE_RAW' => null],
+    ['IBLOCK_ELEMENT_ID' => '2', 'INITIAL_VALUE_RAW' => '0'],
+    ['IBLOCK_ELEMENT_ID' => 3, 'INITIAL_VALUE_RAW' => 'false'],
+    ['IBLOCK_ELEMENT_ID' => '4', 'INITIAL_VALUE_RAW' => serialize(['TEXT' => '""', 'TYPE' => 'TEXT'])],
+    ['IBLOCK_ELEMENT_ID' => '5', 'INITIAL_VALUE_RAW' => false],
+]);
+$assert(
+    $storageShape === [1 => false, 2 => true, 3 => true, 4 => true, 5 => true],
+    'only SQL NULL means absence; stored zero, false text, HTML serialization and strict false remain present'
+);
+$storageCoverageMethod->invoke(null, $storageShape, [5, 4, 3, 2, 1]);
+foreach ([
+    [['IBLOCK_ELEMENT_ID' => 1]],
+    [['INITIAL_VALUE_RAW' => null]],
+    [
+        ['IBLOCK_ELEMENT_ID' => 1, 'INITIAL_VALUE_RAW' => null],
+        ['IBLOCK_ELEMENT_ID' => '1', 'INITIAL_VALUE_RAW' => '0'],
+    ],
+    [['IBLOCK_ELEMENT_ID' => 1, 'INITIAL_VALUE_RAW' => []]],
+    [['IBLOCK_ELEMENT_ID' => '01', 'INITIAL_VALUE_RAW' => null]],
+] as $invalidStorageRows) {
+    try {
+        $normalizeStorageMethod->invoke(null, $invalidStorageRows);
+        $assert(false, 'missing, duplicate or invalid direct-storage rows must fail closed');
+    } catch (Throwable $error) {
+        $assert($error->getCode() === 409, 'invalid direct-storage rows are rejected');
+    }
+}
+foreach ([[1, 2, 3, 4], [1, 2, 3, 4, 5, 6]] as $mismatchedElementIds) {
+    try {
+        $storageCoverageMethod->invoke(null, $storageShape, $mismatchedElementIds);
+        $assert(false, 'missing or extra direct-storage membership must fail closed');
+    } catch (Throwable $error) {
+        $assert($error->getCode() === 409, 'direct-storage membership mismatch is rejected');
+    }
+}
+
+$decodedHtml = static fn(string $formula): array => [
+    '~VALUE' => ['TEXT' => $formula, 'TYPE' => 'TEXT'],
+    'VALUE' => ['TEXT' => $formula, 'TYPE' => 'TEXT'],
+];
+foreach (['0', 'false', '""', 'get(input, "values.volume")'] as $storedFormula) {
+    $assert(
+        $normalizeDecodedMethod->invoke(null, $decodedHtml($storedFormula), true) === $storedFormula,
+        'stored decoded formula remains byte-distinct from absence: ' . $storedFormula
+    );
+}
+$assert(
+    $normalizeDecodedMethod->invoke(null, ['~VALUE' => false, 'VALUE' => false], false) === '',
+    'strict decoded false is accepted only when direct SQL storage proves absence'
+);
+foreach ([
+    [['~VALUE' => false, 'VALUE' => false], true],
+    [$decodedHtml('0'), false],
+    [[], false],
+    [['~VALUE' => ['TYPE' => 'TEXT']], true],
+    [['~VALUE' => ['TEXT' => '0', 'TYPE' => false]], true],
+] as [$decodedProperty, $physicalExists]) {
+    try {
+        $normalizeDecodedMethod->invoke(null, $decodedProperty, $physicalExists);
+        $assert(false, 'decoded/direct INITIAL_VALUE storage mismatch must fail closed');
+    } catch (Throwable $error) {
+        $assert($error->getCode() === 409, 'decoded/direct INITIAL_VALUE mismatch is rejected');
+    }
+}
+
+$legacyStorageRows = [];
+foreach ($legacyState['rows'] as $row) {
+    $legacyStorageRows[] = [
+        'IBLOCK_ELEMENT_ID' => (string)$row['id'],
+        'INITIAL_VALUE_RAW' => ($row['initialValueExists'] ?? false) === true
+            ? serialize(['TEXT' => (string)$row['initialValue'], 'TYPE' => 'TEXT'])
+            : null,
+    ];
+}
+$legacyStorage = $normalizeStorageMethod->invoke(null, $legacyStorageRows);
+$assert(
+    count(array_filter($legacyStorage, static fn(bool $exists): bool => !$exists)) === 10
+        && count(array_filter($legacyStorage, static fn(bool $exists): bool => $exists)) === 27,
+    'production-shaped direct storage has exactly ten absent initializers and twenty-seven existing formulas'
+);
+$targetStorageRows = [];
+foreach ($next['rows'] as $row) {
+    $targetStorageRows[] = [
+        'IBLOCK_ELEMENT_ID' => (string)$row['id'],
+        'INITIAL_VALUE_RAW' => serialize(['TEXT' => (string)$row['initialValue'], 'TYPE' => 'TEXT']),
+    ];
+}
+$targetStorage = $normalizeStorageMethod->invoke(null, $targetStorageRows);
+$assert(
+    count(array_filter($targetStorage, static fn(bool $exists): bool => $exists)) === 37,
+    'post-migration direct storage preserves all formulas including 0, false and empty-string literals'
+);
 $prospectiveRuntimeRows = $runtimeRowsMethod->invoke(null, $next);
 $assert(
     is_array($prospectiveRuntimeRows)
@@ -1096,10 +1204,20 @@ $assert(strpos($source, "SELECT ID FROM b_iblock_element WHERE IBLOCK_ID=") !== 
 $assert(strpos($source, "b_iblock_element_prop_s") !== false && strpos($source, "b_iblock_element_prop_m") !== false, 'migration locks both versioned property tables');
 $assert(strpos($source, "Global-symbol migration option delete read-back failed.") !== false, 'rollback verifies marker deletion by direct database read-back');
 $assert(
-    strpos($source, "'initialValueExists' => self::hasStoredPropertyValue(") !== false
-        && strpos($source, '$expectedElementId . \':\' . $expectedPropertyId') !== false
+    strpos($source, "'table' => 'b_iblock_element_prop_s' . \$iblockId") !== false
+        && strpos($source, "'column' => 'PROPERTY_' . \$propertyId") !== false
+        && strpos($source, 'getTableFields($authority[\'table\'])') !== false
+        && strpos($source, "array_key_exists('INITIAL_VALUE_RAW', \$row)") !== false
+        && strpos($source, '$rawValue !== null') !== false
+        && strpos($source, 'PROPERTY_VALUE_ID') === false
         && strpos($source, 'if ($initialValueExists === false)') !== false,
-    'state snapshots validate legacy and exact VERSION=2 physical presence before clear-only rollback'
+    'state presence comes only from pinned VERSION=2 SQL storage and rollback keeps clear-only absence'
+);
+$assert(
+    strpos($source, "|| (int)(\$iblock['VERSION'] ?? 0) !== 2") !== false
+        && strpos($source, ". (\$forUpdate ? ' FOR UPDATE' : '')") !== false
+        && substr_count($source, '$this->loadState($lockedConfig, $lockedActive, true)') >= 4,
+    'production storage is VERSION=2-only and every transaction-locked reread is a current storage read'
 );
 $assert(
     strpos($source, '$calc = $this->readOptionSnapshot(self::MODULE_ID, self::CONFIG_OPTION, $forUpdate, false);') !== false,
