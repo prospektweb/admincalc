@@ -77,7 +77,10 @@ foreach ([
     'CatalogCalculationWriteService.php',
     'OfferUpdateService.php',
     'StandaloneCatalogSelectionMapper.php',
+    'CatalogCalcPropertyMigrationService.php',
     'Preset12740NeutralInputMigrationService.php',
+    'GlobalCodeRefactorService.php',
+    'GlobalSymbolService.php',
 ] as $criticalFile) {
     $assert(strpos($diagnostic, $criticalFile) !== false, $criticalFile . ' is covered by module file diagnostics');
 }

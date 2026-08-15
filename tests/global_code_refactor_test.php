@@ -1,5 +1,7 @@
 <?php
 
+require_once dirname(__DIR__) . '/lib/Services/NeutralFormulaPolicy.php';
+require_once dirname(__DIR__) . '/lib/Install/Preset12740NeutralGlobalSymbolMigrationService.php';
 require_once dirname(__DIR__) . '/lib/Services/GlobalCodeRefactorService.php';
 require_once dirname(__DIR__) . '/lib/Services/GlobalSymbolService.php';
 
@@ -51,7 +53,7 @@ if ($normalize->invoke($symbols, ' sheet_width_mm ') !== 'sheet_width_mm') {
     fwrite(STDERR, "FAILED: explicit global code must be normalized without changing its identifier\n");
     exit(1);
 }
-foreach (['1width', 'ширина', 'get'] as $invalidCode) {
+foreach (['1width', 'ширина', 'get', 'input', 'stage_42', '__Proto__'] as $invalidCode) {
     try {
         $normalize->invoke($symbols, $invalidCode);
         fwrite(STDERR, "FAILED: invalid or reserved global code {$invalidCode} was accepted\n");

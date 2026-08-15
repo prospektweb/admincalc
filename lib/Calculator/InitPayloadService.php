@@ -57,73 +57,18 @@ class InitPayloadService
             throw new \Exception('Список торговых предложений не может быть пустым');
         }
 
-        $this->ensureBitrixModulesLoaded();
-
-        (new \Prospektweb\Calc\Install\SchemaRepairService())
-            ->ensureOfferNamingAndMarginSchema();
-
-        (new \Prospektweb\Calc\Install\CatalogPropertyCodeMigrationService())
-            ->migrateForOffers($offerIds);
-
-        // Загружаем информацию о ТП
-        $selectedOffers = $this->loadOffers($offerIds);
-        
-        // Анализируем состояние CALC_PRESET у ТП
-        $analysis = $this->analyzeBundles($selectedOffers);
-        
-        // Определяем presetId
-        $presetId = $analysis['bundleId'];
-        $productId = (int)($analysis['productId'] ?? 0);
-        
-        if ($presetId === null || $forceCreatePreset) {
-            // Создаём новый постоянный preset
-            $bundleHandler = new BundleHandler();
-            $presetId = $bundleHandler->createPreset($offerIds);
-        }
-        
-        $this->elementsStore = [];
-
-        // Самовосстановление устаревшего списка дополнительных полей до загрузки preset.
-        (new \Prospektweb\Calc\Services\PresetEnrichmentService())->synchronizePresetCustomFields((int)$presetId);
-
-        // Загружаем preset с данными
-        $preset = $this->loadPreset($presetId);
-
-        // Загружаем товар, из которого получен presetId
-        $product = $this->loadProduct($productId);
-
-        // Собираем контекст
-        $context = $this->buildContext($siteId);
-
-        // Собираем информацию об инфоблоках
-        $iblocks = $this->getIblocks();
-
-        // Формируем payload
-        $payload = [
-            'context' => $context,
-            'iblocks' => $iblocks,
-            'iblocksTree' => $this->buildIblocksTree(),
-            'selectedOffers' => $selectedOffers,
-            'priceTypes' => $this->getPriceTypes(),
-            'preset' => $preset,
-            'product' => $product,
-            'elementsStore' => $this->elementsStore ?? [],
-            'elementsSiblings' => $this->buildElementsSiblings($preset),
-            'globalSymbols' => (new \Prospektweb\Calc\Services\GlobalSymbolService())->listReadOnly((int)$presetId),
-        ];
-
-        if ((int)$presetId === \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID) {
-            $payload['editorRuntime'] = $this->buildEditorRuntime(
-                (int)$presetId,
-                $selectedOffers,
-                is_array($product) ? $product : null,
-                'catalog'
+        if ($forceCreatePreset) {
+            throw new \RuntimeException(
+                'Preset creation from offers is disabled; preset 12740 is the only supported calculation contract.',
+                409
             );
         }
 
-        return $payload;
+        // Every offer-backed editor refresh now re-enters the same pinned,
+        // read-only preset-12740 path as the initial launch. It cannot fall
+        // back to schema repair, product context or offer-authored formulas.
+        return $this->prepareNeutralInitPayloadReadOnly(0, $offerIds, $siteId, false);
     }
-
     /**
      * Prepare the calculation-authoring payload directly from a preset.
      *
@@ -238,13 +183,18 @@ class InitPayloadService
 
         // Missing/N is an intentional pre-cutover authoring state. Any other
         // raw value remains corruption and fails before INIT is emitted.
-        $this->parseAdapterAuthoringNeutralInputOption(
-            $this->readOptionValueDirect('prospektweb.calc', 'PRESET_12740_NEUTRAL_INPUT_ACTIVE')
+        $neutralInputRequired = $this->parseAdapterAuthoringNeutralInputOption(
+            $this->readOptionStateDirect('prospektweb.calc', 'PRESET_12740_NEUTRAL_INPUT_ACTIVE')
         );
 
         $globalSymbolIblockId = $this->resolvePinnedGlobalSymbolIblockId($runtimeConfigSnapshot);
         $globalSymbols = (new \Prospektweb\Calc\Services\GlobalSymbolService())
             ->listReadOnlyFromIblockId($globalSymbolIblockId, $neutralPresetId);
+        if ($neutralInputRequired === true) {
+            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+                $globalSymbols
+            );
+        }
 
         $this->elementsStore = [];
         $preset = $this->loadPreset($neutralPresetId);
@@ -304,6 +254,9 @@ class InitPayloadService
         if ($presetId !== \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID) {
             throw new \InvalidArgumentException('Pinned standalone runtime is available only for preset 12740.');
         }
+        \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+            $globalSymbols
+        );
 
         $this->ensureBitrixModulesLoaded();
         $this->pinnedRuntimeIblockIds = $this->buildPinnedRuntimeIblockMap($runtimeConfigSnapshot);
@@ -443,13 +396,13 @@ class InitPayloadService
                     (string)$adapterOptionState['value']
                 );
             }
-            $neutralInputRaw = $this->readOptionValueDirect(
+            $neutralInputState = $this->readOptionStateDirect(
                 'prospektweb.calc',
                 'PRESET_12740_NEUTRAL_INPUT_ACTIVE'
             );
             $pinnedNeutralInputRequired = $allowInactiveNeutralInputForAdapterAuthoring
-                ? $this->parseAdapterAuthoringNeutralInputOption($neutralInputRaw)
-                : $this->parseNeutralInputOption($neutralInputRaw);
+                ? $this->parseAdapterAuthoringNeutralInputOption($neutralInputState)
+                : $this->parseNeutralInputOption($neutralInputState);
             $globalSymbolService = new \Prospektweb\Calc\Services\GlobalSymbolService();
             $pinnedGlobalSymbolIblockId = $this->resolvePinnedGlobalSymbolIblockId(
                 $pinnedRuntimeConfigSnapshot
@@ -463,6 +416,11 @@ class InitPayloadService
             throw new \RuntimeException(
                 'Catalog calculation requires PRESET_12740_NEUTRAL_INPUT_ACTIVE=Y.',
                 409
+            );
+        }
+        if ($pinnedNeutralInputRequired === true) {
+            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+                $pinnedGlobalSymbols
             );
         }
 
@@ -857,14 +815,25 @@ class InitPayloadService
         if ($runtimeConfigSnapshot === null) {
             $runtimeConfigSnapshot = array_fill_keys($keys, null);
             $result = Application::getConnection()->query(
-                "SELECT MODULE_ID, NAME, VALUE FROM b_option WHERE "
+                "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE "
                 . "((MODULE_ID='prospektweb.frontcalc' OR MODULE_ID='prospektweb.calc') "
-                . "AND NAME='IBLOCK_CALC_GLOBAL_VALUES') "
+                . "AND UPPER(NAME)='IBLOCK_CALC_GLOBAL_VALUES') "
                 . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME"
             );
             while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
-                $key = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '')
-                    . ':' . (string)($row['NAME'] ?? $row['name'] ?? '');
+                $moduleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+                $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
+                $siteId = array_key_exists('SITE_ID', $row)
+                    ? $row['SITE_ID']
+                    : ($row['site_id'] ?? null);
+                $canonicalName = strtoupper($actualName);
+                if (!in_array($moduleId, ['prospektweb.frontcalc', 'prospektweb.calc'], true)
+                    || $canonicalName !== 'IBLOCK_CALC_GLOBAL_VALUES'
+                    || $actualName !== trim($actualName)
+                    || !in_array($siteId, [null, ''], true)) {
+                    throw new \RuntimeException('Global-symbol iblock option authority is invalid.', 409);
+                }
+                $key = $moduleId . ':' . $canonicalName;
                 if (!array_key_exists($key, $runtimeConfigSnapshot)
                     || $runtimeConfigSnapshot[$key] !== null) {
                     throw new \RuntimeException('Global-symbol iblock option authority is ambiguous.', 409);
@@ -872,11 +841,23 @@ class InitPayloadService
                 $runtimeConfigSnapshot[$key] = (string)($row['VALUE'] ?? $row['value'] ?? '');
             }
         }
+        $resolvedIds = [];
         foreach ($keys as $key) {
-            $iblockId = (int)($runtimeConfigSnapshot[$key] ?? 0);
-            if ($iblockId > 0) {
-                return $iblockId;
+            $raw = $runtimeConfigSnapshot[$key] ?? null;
+            if ($raw === null) {
+                continue;
             }
+            $value = (string)$raw;
+            if (preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
+                throw new \RuntimeException('IBLOCK_CALC_GLOBAL_VALUES authority is invalid.', 409);
+            }
+            $resolvedIds[(int)$value] = true;
+        }
+        if (count($resolvedIds) > 1) {
+            throw new \RuntimeException('IBLOCK_CALC_GLOBAL_VALUES authorities disagree.', 409);
+        }
+        if ($resolvedIds !== []) {
+            return (int)array_key_first($resolvedIds);
         }
         throw new \RuntimeException('IBLOCK_CALC_GLOBAL_VALUES is not configured for catalog calculation.');
     }
@@ -907,11 +888,30 @@ class InitPayloadService
             }
 
             $iblockId = 0;
-            foreach ($keys as $key) {
-                $candidate = (int)($snapshot[$key] ?? 0);
-                if ($candidate > 0) {
-                    $iblockId = $candidate;
-                    break;
+            if ($code === 'CALC_GLOBAL_VALUES') {
+                $resolvedIds = [];
+                foreach ($keys as $key) {
+                    $raw = $snapshot[$key] ?? null;
+                    if ($raw === null) {
+                        continue;
+                    }
+                    $value = (string)$raw;
+                    if (preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
+                        throw new \RuntimeException('Runtime source ' . $code . ' has an invalid option authority.', 409);
+                    }
+                    $resolvedIds[(int)$value] = true;
+                }
+                if (count($resolvedIds) > 1) {
+                    throw new \RuntimeException('Runtime source ' . $code . ' option authorities disagree.', 409);
+                }
+                $iblockId = $resolvedIds === [] ? 0 : (int)array_key_first($resolvedIds);
+            } else {
+                foreach ($keys as $key) {
+                    $candidate = (int)($snapshot[$key] ?? 0);
+                    if ($candidate > 0) {
+                        $iblockId = $candidate;
+                        break;
+                    }
                 }
             }
             if ($iblockId <= 0) {
@@ -990,10 +990,10 @@ class InitPayloadService
         return $state['exists'] === true && $state['value'] !== '';
     }
 
-    private function parseNeutralInputOption(string $raw): bool
+    /** @param array{exists:bool,value:string} $state */
+    private function parseNeutralInputOption(array $state): bool
     {
-        $raw = strtoupper(trim($raw));
-        if ($raw === 'Y') {
+        if ($state['exists'] === true && $state['value'] === 'Y') {
             return true;
         }
         throw new \RuntimeException(
@@ -1004,16 +1004,16 @@ class InitPayloadService
 
     /** Adapter authoring may precede the neutral-input cutover, but the raw
      * mode must still be explicit and transactionally pinned. */
-    private function parseAdapterAuthoringNeutralInputOption(string $raw): bool
+    /** @param array{exists:bool,value:string} $state */
+    private function parseAdapterAuthoringNeutralInputOption(array $state): bool
     {
-        $raw = strtoupper(trim($raw));
-        if ($raw === 'Y') {
-            return true;
-        }
-        if ($raw === 'N') {
+        if ($state['exists'] !== true) {
             return false;
         }
-        if ($raw === '') {
+        if ($state['value'] === 'Y') {
+            return true;
+        }
+        if ($state['value'] === 'N') {
             return false;
         }
         throw new \RuntimeException(

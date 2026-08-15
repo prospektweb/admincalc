@@ -10,16 +10,27 @@ use Prospektweb\Calc\Config\ConfigManager;
  */
 final class CalculatorContractService
 {
+    /** @var array<string,int> */
+    private array $pinnedIblockIds;
+
+    private bool $pinnedAuthority;
+
+    /** @param array<string,int>|null $pinnedIblockIds */
+    public function __construct(?array $pinnedIblockIds = null)
+    {
+        $this->pinnedAuthority = $pinnedIblockIds !== null;
+        $this->pinnedIblockIds = $pinnedIblockIds ?? [];
+    }
+
     public function inspect(int $settingsId): array
     {
         if ($settingsId <= 0 || !Loader::includeModule('iblock')) {
             return ['status' => 'error', 'message' => 'Не удалось проверить зависимости калькулятора'];
         }
 
-        $config = new ConfigManager();
-        $stageIblockId = $config->getIblockId('CALC_STAGES');
-        $detailIblockId = $config->getIblockId('CALC_DETAILS');
-        $presetIblockId = $config->getIblockId('CALC_PRESETS');
+        $stageIblockId = $this->iblockId('CALC_STAGES');
+        $detailIblockId = $this->iblockId('CALC_DETAILS');
+        $presetIblockId = $this->iblockId('CALC_PRESETS');
         if ($stageIblockId <= 0 || $detailIblockId <= 0 || $presetIblockId <= 0) {
             return ['status' => 'error', 'message' => 'Не найдены инфоблоки контрактов калькулятора'];
         }
@@ -114,9 +125,8 @@ final class CalculatorContractService
             return ['status' => 'error', 'message' => 'Не указан калькулятор или этап'];
         }
 
-        $config = new ConfigManager();
-        $stageIblockId = $config->getIblockId('CALC_STAGES');
-        $settingsIblockId = $config->getIblockId('CALC_SETTINGS');
+        $stageIblockId = $this->iblockId('CALC_STAGES');
+        $settingsIblockId = $this->iblockId('CALC_SETTINGS');
         if ($stageIblockId <= 0 || $settingsIblockId <= 0) {
             return ['status' => 'error', 'message' => 'Не найдены инфоблоки калькуляторов или этапов'];
         }
@@ -299,6 +309,10 @@ final class CalculatorContractService
             return true;
         }
 
+        if ($this->pinnedAuthority) {
+            return false;
+        }
+
         $property = new \CIBlockProperty();
         return (int)$property->Add([
             'IBLOCK_ID' => $iblockId,
@@ -310,6 +324,14 @@ final class CalculatorContractService
             'MULTIPLE_CNT' => $multiple ? 1 : 5,
             'SORT' => $sort,
         ]) > 0;
+    }
+
+    private function iblockId(string $code): int
+    {
+        if ($this->pinnedAuthority) {
+            return (int)($this->pinnedIblockIds[$code] ?? 0);
+        }
+        return (new ConfigManager())->getIblockId($code);
     }
 
     private function copyPropertyValue(array $property)

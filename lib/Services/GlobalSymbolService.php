@@ -12,16 +12,12 @@ final class GlobalSymbolService
     private const TYPES = ['auto', 'string', 'number', 'boolean', 'array', 'object'];
     private const KINDS = ['constant', 'variable'];
     private const CODE_PATTERN = '/^[A-Za-z_][A-Za-z0-9_]*$/';
-    private const RESERVED_CODES = [
-        'if', 'round', 'ceil', 'floor', 'min', 'max', 'abs', 'trim', 'lower', 'upper',
-        'len', 'contains', 'replace', 'tonumber', 'tostring', 'split', 'join', 'get',
-        'getprice', 'regexmatch', 'regexextract', 'true', 'false', 'null', 'undefined',
-        'offer', 'product', 'calculator', 'operation', 'operationvariant', 'equipment',
-        'material', 'materialvariant', 'stage', 'preset',
-    ];
 
     public function list(int $presetId = 0): array
     {
+        if ($presetId === NeutralFormulaPolicy::PRESET_ID) {
+            return $this->listNeutralPresetReadOnly();
+        }
         $iblockId = $this->ensureStorage();
         if ($presetId > 0) {
             $this->claimLegacyRows($iblockId, $presetId);
@@ -36,12 +32,26 @@ final class GlobalSymbolService
      */
     public function listReadOnly(int $presetId = 0): array
     {
+        if ($presetId === NeutralFormulaPolicy::PRESET_ID) {
+            return $this->listNeutralPresetReadOnly();
+        }
         $iblockId = $this->storageIblockIdReadOnly();
         if ($iblockId <= 0) {
             return [];
         }
 
         return $this->readRows($iblockId, $presetId);
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function listNeutralPresetReadOnly(): array
+    {
+        $authority = (new NeutralFormulaPolicy())->readNeutralContractAuthority();
+        $iblockId = (int)($authority['globalIblockId'] ?? 0);
+        if ($iblockId <= 0) {
+            return [];
+        }
+        return $this->listReadOnlyFromIblockId($iblockId, NeutralFormulaPolicy::PRESET_ID);
     }
 
     /**
@@ -91,21 +101,26 @@ final class GlobalSymbolService
             $filter,
             false,
             false,
-            ['ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'IBLOCK_ID']
+            ['ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'IBLOCK_ID', 'ACTIVE']
         );
         while ($element = $iterator->GetNextElement()) {
             $fields = $element->GetFields();
             $properties = $element->GetProperties();
-            $kind = (string)($properties['KIND']['VALUE'] ?? 'constant');
-            $dataType = (string)($properties['DATA_TYPE']['VALUE'] ?? 'auto');
+            $kind = (string)($properties['KIND']['VALUE'] ?? '');
+            $dataType = (string)($properties['DATA_TYPE']['VALUE'] ?? '');
             $result[] = [
                 'id' => (int)$fields['ID'],
                 'iblockId' => $iblockId,
+                'presetId' => (int)($properties['PRESET_ID']['VALUE'] ?? 0),
+                'active' => (string)($fields['ACTIVE'] ?? ''),
                 'code' => (string)$fields['CODE'],
                 'title' => (string)$fields['NAME'],
                 'description' => (string)($fields['~PREVIEW_TEXT'] ?? $fields['PREVIEW_TEXT'] ?? ''),
-                'kind' => in_array($kind, self::KINDS, true) ? $kind : 'constant',
-                'dataType' => in_array($dataType, self::TYPES, true) ? $dataType : 'auto',
+                // Runtime/save guards must observe the stored authority
+                // exactly; normalizing corrupt metadata could make an invalid
+                // required identity appear contract-compliant.
+                'kind' => $kind,
+                'dataType' => $dataType,
                 'initialValue' => (string)($properties['INITIAL_VALUE']['~VALUE']['TEXT']
                     ?? $properties['INITIAL_VALUE']['VALUE']['TEXT']
                     ?? $properties['INITIAL_VALUE']['VALUE']
@@ -127,20 +142,62 @@ final class GlobalSymbolService
         if ($presetId <= 0) {
             throw new \InvalidArgumentException('Не указан пресет глобальных значений');
         }
-        $iblockId = $this->ensureStorage();
-        $propertyIds = [
-            'KIND' => $this->propertyId($iblockId, 'KIND'),
-            'DATA_TYPE' => $this->propertyId($iblockId, 'DATA_TYPE'),
-            'INITIAL_VALUE' => $this->propertyId($iblockId, 'INITIAL_VALUE'),
-            'PRESET_ID' => $this->propertyId($iblockId, 'PRESET_ID'),
-        ];
-        $reservedCodes = $this->collectCalculatorNamespaceCodes();
-        foreach ($this->list($presetId) as $existingRow) {
-            $reservedCodes[strtolower((string)$existingRow['code'])] = true;
-        }
+        // Schema provisioning is an installer responsibility. Legacy
+        // non-12740 callers may still provision before the write transaction;
+        // preset 12740 must resolve only its directly locked option authority.
+        $preprovisionedIblockId = $presetId === NeutralFormulaPolicy::PRESET_ID
+            ? 0
+            : $this->ensureStorage();
         $connection = Application::getConnection();
         $connection->startTransaction();
         try {
+            $authority = null;
+            $neutralContractProtected = false;
+            if ($presetId === NeutralFormulaPolicy::PRESET_ID) {
+                $authority = (new NeutralFormulaPolicy())->lockNeutralContractAuthority($connection);
+                if (($authority['recoveryProtected'] ?? false) === true) {
+                    throw new \RuntimeException(
+                        'Preset 12740 global registry is frozen while retained rollback evidence is pending reapply.',
+                        409
+                    );
+                }
+                $neutralContractProtected = $authority['active'] || $authority['markerExists'];
+            }
+            if ($neutralContractProtected) {
+                $iblockId = (int)($authority['globalIblockId'] ?? 0);
+                if ($iblockId <= 0) {
+                    throw new \RuntimeException('Protected neutral registry authority is missing.', 409);
+                }
+            } else {
+                $iblockId = is_array($authority) ? (int)($authority['globalIblockId'] ?? 0) : 0;
+                if ($iblockId <= 0) {
+                    $iblockId = $preprovisionedIblockId;
+                }
+                if ($iblockId <= 0) {
+                    throw new \RuntimeException(
+                        'Preset 12740 global-symbol storage must be provisioned and pinned before authoring.',
+                        409
+                    );
+                }
+                $this->claimLegacyRows($iblockId, $presetId);
+            }
+            $propertyIds = [
+                'KIND' => $this->propertyId($iblockId, 'KIND'),
+                'DATA_TYPE' => $this->propertyId($iblockId, 'DATA_TYPE'),
+                'INITIAL_VALUE' => $this->propertyId($iblockId, 'INITIAL_VALUE'),
+                'PRESET_ID' => $this->propertyId($iblockId, 'PRESET_ID'),
+            ];
+            $reservedCodes = $this->collectCalculatorNamespaceCodes(
+                is_array($authority)
+                    ? (array)$authority['iblockIds']
+                    : null
+            );
+            foreach ($this->readRows($iblockId, $presetId) as $existingRow) {
+                $reservedCodes[strtolower((string)$existingRow['code'])] = true;
+            }
+            if ($neutralContractProtected) {
+                $this->assertNeutralRowsBeforeWrite($rows, $iblockId, $presetId);
+            }
         foreach ($rows as $rowIndex => $row) {
             if (!is_array($row)) {
                 throw new \InvalidArgumentException('Глобальное значение должно быть объектом');
@@ -152,6 +209,9 @@ final class GlobalSymbolService
             $kind = (string)($row['kind'] ?? 'constant');
             $dataType = (string)($row['dataType'] ?? 'auto');
             $initialValue = (string)($row['initialValue'] ?? '');
+            if ($neutralContractProtected) {
+                NeutralFormulaPolicy::assertFormula($initialValue, 'global symbol ' . ($requestedCode ?: '#' . ($rowIndex + 1)));
+            }
             if ($title === '') {
                 throw new \InvalidArgumentException('Укажите название глобального значения');
             }
@@ -237,12 +297,68 @@ final class GlobalSymbolService
                 ));
             }
         }
+        $storedSymbols = $this->readRows($iblockId, $presetId);
+        if ($neutralContractProtected) {
+            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+                $storedSymbols
+            );
+        }
         $connection->commitTransaction();
         } catch (\Throwable $error) {
             $connection->rollbackTransaction();
             throw $error;
         }
-        return ['status' => 'ok', 'symbols' => $this->list($presetId)];
+        return ['status' => 'ok', 'symbols' => $storedSymbols];
+    }
+
+    /** @param array<int,mixed> $rows */
+    private function assertNeutralRowsBeforeWrite(array $rows, int $iblockId, int $presetId): void
+    {
+        $currentRows = $this->readRows($iblockId, $presetId);
+        $prospectiveById = [];
+        foreach ($currentRows as $currentRow) {
+            $currentId = (int)($currentRow['id'] ?? 0);
+            if ($currentId <= 0 || isset($prospectiveById[$currentId])) {
+                throw new \RuntimeException('Neutral global-symbol registry identity is invalid.', 409);
+            }
+            $prospectiveById[$currentId] = $currentRow;
+        }
+        $submittedIds = [];
+        foreach ($rows as $rowIndex => $row) {
+            if (!is_array($row)) {
+                throw new \InvalidArgumentException('Neutral global-symbol row must be an object.', 409);
+            }
+            $initialValue = (string)($row['initialValue'] ?? '');
+            NeutralFormulaPolicy::assertFormula($initialValue, 'global symbol #' . ($rowIndex + 1));
+            $id = (int)($row['id'] ?? 0);
+            if ($id <= 0) {
+                // New extra symbols receive their identity during Add(). They
+                // do not satisfy any of the fourteen required identities.
+                continue;
+            }
+            if (isset($submittedIds[$id])) {
+                throw new \InvalidArgumentException('Neutral global-symbol row is submitted more than once.', 409);
+            }
+            $submittedIds[$id] = true;
+            $existing = $prospectiveById[$id] ?? null;
+            if (!is_array($existing)) {
+                throw new \RuntimeException('Neutral global-symbol row for update was not found.', 409);
+            }
+            $requestedCode = $this->normalizeRequestedCode($row['code'] ?? '');
+            $storedCode = (string)($existing['code'] ?? '');
+            if ($requestedCode !== '' && $requestedCode !== $storedCode) {
+                throw new \RuntimeException('Required neutral global-symbol identities cannot be renamed by save.', 409);
+            }
+            $prospectiveById[$id] = array_merge($existing, [
+                'code' => $storedCode,
+                'kind' => (string)($row['kind'] ?? 'constant'),
+                'dataType' => (string)($row['dataType'] ?? 'auto'),
+                'initialValue' => $initialValue,
+            ]);
+        }
+        \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+            array_values($prospectiveById)
+        );
     }
 
     private function normalizeRequestedCode($value): string
@@ -252,7 +368,7 @@ final class GlobalSymbolService
         if (!preg_match(self::CODE_PATTERN, $code)) {
             throw new \InvalidArgumentException('Код должен начинаться с латинской буквы или _ и содержать только латиницу, цифры и _');
         }
-        if (in_array(strtolower($code), self::RESERVED_CODES, true)) {
+        if (\Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::isReservedGlobalCode($code)) {
             throw new \InvalidArgumentException('Код ' . $code . ' зарезервирован языком формул');
         }
         return $code;
@@ -357,7 +473,9 @@ final class GlobalSymbolService
         $slug = trim($slug, '_');
         $slug = $slug !== '' ? substr($slug, 0, 80) : 'global_value';
         if (preg_match('/^[0-9]/', $slug)) $slug = 'value_' . $slug;
-        if (in_array($slug, self::RESERVED_CODES, true)) $slug = 'global_' . $slug;
+        if (\Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::isReservedGlobalCode($slug)) {
+            $slug = 'global_' . $slug;
+        }
         $code = $slug;
         $suffix = 2;
         do {
@@ -372,11 +490,19 @@ final class GlobalSymbolService
      * Global identifiers share the formula namespace with every calculator
      * input and local variable. Legacy preset declarations also reserve names.
      */
-    private function collectCalculatorNamespaceCodes(): array
+    private function collectCalculatorNamespaceCodes(?array $pinnedIblockIds = null): array
     {
         $used = [];
-        $config = new ConfigManager();
-        $settingsIblockId = $config->getIblockId('CALC_SETTINGS');
+        $config = $pinnedIblockIds === null ? new ConfigManager() : null;
+        $settingsIblockId = $pinnedIblockIds === null
+            ? $config->getIblockId('CALC_SETTINGS')
+            : (int)($pinnedIblockIds['CALC_SETTINGS'] ?? 0);
+        $presetsIblockId = $pinnedIblockIds === null
+            ? $config->getIblockId('CALC_PRESETS')
+            : (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+        if ($pinnedIblockIds !== null && ($settingsIblockId <= 0 || $presetsIblockId <= 0)) {
+            throw new \RuntimeException('Pinned neutral formula storages are invalid.', 409);
+        }
         if ($settingsIblockId > 0) {
             $iterator = \CIBlockElement::GetList([], ['IBLOCK_ID' => $settingsIblockId], false, false, ['ID']);
             while ($element = $iterator->Fetch()) {
@@ -399,7 +525,6 @@ final class GlobalSymbolService
                 }
             }
         }
-        $presetsIblockId = $config->getIblockId('CALC_PRESETS');
         if ($presetsIblockId > 0) {
             $iterator = \CIBlockElement::GetList([], ['IBLOCK_ID' => $presetsIblockId], false, false, ['ID']);
             while ($element = $iterator->Fetch()) {

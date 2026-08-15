@@ -568,13 +568,13 @@ $assert(!isset(CatalogCalculationWriteService::publicPreview($preview)['_project
 
 $apply = $service->apply(12740, [15320], $result, 's1', $preview['fingerprint'], 1);
 $assert($apply['contract'] === CatalogCalculationWriteService::APPLY_CONTRACT && $apply['applied'] === true, 'matching CAS applies');
-$assert($events === ['calculate', 'calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'write', 'commit'], 'remote calculation finishes before apply locks catalog and exact runtime sources');
+$assert($events === ['calculate', 'calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'write', 'commit'], 'remote calculation finishes before apply locks options, catalog and exact runtime sources');
 $assert($current[15320]['purchasingPrice'] === 410.25 && $current[15320]['prices'][0]['price'] === 530.0, 'apply writes the projected state');
 $events = [];
 $writesBeforeReplay = $writeCount;
 $replay = $service->apply(12740, [15320], $result, 's1', $preview['fingerprint'], 1);
 $assert(($replay['replayed'] ?? false) === true && ($replay['applied'] ?? false) === true, 'lost-response replay returns the durable applied receipt');
-$assert($events === ['adapter-lock', 'begin', 'lock', 'option-lock', 'commit'], 'receipt replay verifies the locked current target without a network calculation or write');
+$assert($events === ['adapter-lock', 'begin', 'option-lock', 'lock', 'commit'], 'receipt replay verifies the locked current target without a network calculation or write');
 $assert($writeCount === $writesBeforeReplay, 'exact replay never writes twice');
 $receiptName = array_key_first($receipts);
 $assert(is_string($receiptName), 'the completed write stores a durable receipt');
@@ -587,7 +587,7 @@ $expectFailure(
     'an expired exact replay requires a new preview instead of writing again',
     409
 );
-$assert($events === ['adapter-lock', 'begin', 'lock', 'option-lock', 'rollback'], 'expired replay fails under locks');
+$assert($events === ['adapter-lock', 'begin', 'option-lock', 'lock', 'rollback'], 'expired replay fails under locks');
 $assert($writeCount === $writesBeforeReplay, 'expired replay never reaches the catalog writer');
 $receipts[$receiptName]['createdAt'] = gmdate('c');
 $current[15320]['attributes']['weight'] = 121.0;
@@ -599,7 +599,7 @@ $expectFailure(
     'a receipt cannot replay after its written target changes',
     409
 );
-$assert($events === ['adapter-lock', 'begin', 'lock', 'option-lock', 'rollback'], 'changed replay target fails under catalog locks');
+$assert($events === ['adapter-lock', 'begin', 'option-lock', 'lock', 'rollback'], 'changed replay target fails under catalog locks');
 $assert($writeCount === $writesBeforeReplay, 'changed replay target never writes');
 $current[15320]['attributes']['weight'] = 120.0;
 $assert($service->preview(12740, [15320], $result, 's1')['summary']['changedFields'] === 0, 'readback is idempotent');
@@ -647,7 +647,7 @@ $expectFailure(
 );
 $mutateScenarioOnLock = false;
 $scenarioVolume = 100;
-$assert($events === ['calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'rollback'], 'parent input drift is caught after exact rows are locked and before write');
+$assert($events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'rollback'], 'parent input drift is caught after exact rows are locked and before write');
 $assert($writeCount === $writesBeforeParentDrift, 'parent input drift never reaches writer');
 
 $runtimeStatePreview = $service->preview(12740, [15320], $result, 's1');
@@ -663,7 +663,7 @@ $expectFailure(
 );
 $mutatePublicationOnRuntimeLock = false;
 $runtimeSourceVersion = 1;
-$assert($events === ['calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'rollback'], 'runtime source drift is caught under exact source locks before write');
+$assert($events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'rollback'], 'runtime source drift is caught under exact source locks before write');
 $assert($writeCount === $writesBeforeRuntimeDrift, 'runtime source drift never reaches writer');
 
 $globalStatePreview = $service->preview(12740, [15320], $result, 's1');
@@ -678,7 +678,7 @@ $expectFailure(
 );
 $mutateGlobalOnRuntimeLock = false;
 $globalSymbolVersion = 1;
-$assert($events === ['calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'rollback'], 'global symbols are checked after their rows are locked');
+$assert($events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'rollback'], 'global symbols are checked after their rows are locked');
 
 $siblingStatePreview = $service->preview(12740, [15320], $result, 's1');
 $events = [];
@@ -692,7 +692,7 @@ $expectFailure(
 );
 $mutateSiblingOnRuntimeLock = false;
 $siblingVersion = 1;
-$assert($events === ['calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'rollback'], 'sibling sources are checked after their rows are locked');
+$assert($events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'rollback'], 'sibling sources are checked after their rows are locked');
 
 $measureStatePreview = $service->preview(12740, [15320], $result, 's1');
 $events = [];
@@ -706,7 +706,7 @@ $expectFailure(
 );
 $mutateMeasureOnRuntimeLock = false;
 $measureAuthorityVersion = 1;
-$assert($events === ['calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'rollback'], 'measure and property authorities are checked after exact source locks');
+$assert($events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'rollback'], 'measure and property authorities are checked after exact source locks');
 
 $globalMetadataStatePreview = $service->preview(12740, [15320], $result, 's1');
 $events = [];
@@ -720,7 +720,7 @@ $expectFailure(
 );
 $mutateGlobalMetadataOnRuntimeLock = false;
 $globalPropertyAuthorityVersion = 1;
-$assert($events === ['calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'rollback'], 'global-symbol metadata is checked after its property and enum rows are locked');
+$assert($events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'rollback'], 'global-symbol metadata is checked after its property and enum rows are locked');
 
 $neutralStatePreview = $service->preview(12740, [15320], $result, 's1');
 $events = [];
@@ -734,7 +734,7 @@ $expectFailure(
 );
 $mutateNeutralOnOptionLock = false;
 $neutralInputRequired = true;
-$assert($events === ['calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'rollback'], 'neutral-input option is re-read only after its row lock');
+$assert($events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'rollback'], 'neutral-input option is re-read only after its row lock');
 
 $configStatePreview = $service->preview(12740, [15320], $result, 's1');
 $events = [];
@@ -748,7 +748,10 @@ $expectFailure(
 );
 $mutateConfigOnOptionLock = false;
 $runtimeConfigVersion = 1;
-$assert($events === ['calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'rollback'], 'ConfigManager options are compared from direct DB state only after their rows are locked');
+$assert(
+    $events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'rollback'],
+    'ConfigManager options are rejected immediately under the option lock before catalog/source locks: ' . json_encode($events)
+);
 
 $calcServerUrlStatePreview = $service->preview(12740, [15320], $result, 's1');
 $events = [];
@@ -762,7 +765,7 @@ $expectFailure(
 );
 $mutateCalcServerUrlOnOptionLock = false;
 $calcServerUrlVersion = 1;
-$assert($events === ['calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'rollback'], 'calc-server URL is pinned in the direct option snapshot and compared under lock');
+$assert($events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'rollback'], 'calc-server URL is pinned in the direct option snapshot and rejected under the first lock');
 
 $runtimeSkuIblockId = 16;
 $events = [];
@@ -871,7 +874,7 @@ $batchSkip = $service->applyAuthoritativeBatch(
     $batchRequestId
 );
 $assert(($batchSkip['offers'][0]['status'] ?? '') === 'skipped', 'onlyChanged skips only after locked catalog/result CAS proves an idempotent target');
-$assert($events === ['adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'commit'], 'onlyChanged decision is made under catalog and runtime locks');
+$assert($events === ['adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'commit'], 'onlyChanged decision is made under catalog and runtime locks');
 $assert($writeCount === $writesBeforeBatchSkip, 'locked onlyChanged skip performs no write');
 $events = [];
 $batchReplay = $service->replayAuthoritativeBatch(
@@ -884,7 +887,7 @@ $batchReplay = $service->replayAuthoritativeBatch(
     $batchRequestId
 );
 $assert(($batchReplay['replayed'] ?? false) === true, 'a lost batch response is recovered from the durable transaction receipt');
-$assert($events === ['adapter-lock', 'begin', 'lock', 'option-lock', 'commit'], 'batch receipt replay verifies the target without calc-server or a catalog write');
+$assert($events === ['adapter-lock', 'begin', 'option-lock', 'lock', 'commit'], 'batch receipt replay verifies the target without calc-server or a catalog write');
 $assert($writeCount === $writesBeforeBatchSkip, 'batch receipt replay never writes twice');
 
 $current[15320]['prices'][0]['price'] = 531.0;
@@ -904,7 +907,7 @@ $expectFailure(
     'a batch receipt cannot replay after its written target changes',
     409
 );
-$assert($events === ['adapter-lock', 'begin', 'lock', 'option-lock', 'rollback'], 'changed batch replay target fails under catalog locks');
+$assert($events === ['adapter-lock', 'begin', 'option-lock', 'lock', 'rollback'], 'changed batch replay target fails under catalog locks');
 $events = [];
 $expectFailure(
     static function () use ($service, $authority, $approvedBatchStates, $approvedBatchResults): void {
@@ -959,7 +962,7 @@ $expectFailure(
     },
     'a partial writer result aborts the whole transaction'
 );
-$assert($events === ['calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'write', 'rollback'], 'writer failure rolls back the outer transaction');
+$assert($events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'write', 'rollback'], 'writer failure rolls back the outer transaction');
 
 $failWrite = false;
 $skipMutation = true;
@@ -972,6 +975,14 @@ $expectFailure(
     },
     'a successful API response without matching readback is rejected'
 );
-$assert($events === ['calculate', 'calculate', 'adapter-lock', 'begin', 'lock', 'runtime-lock', 'option-lock', 'write', 'rollback'], 'failed readback rolls back before commit');
+$assert($events === ['calculate', 'calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'write', 'rollback'], 'failed readback rolls back before commit');
+
+$writerSource = file_get_contents(dirname(__DIR__) . '/lib/Services/CatalogCalculationWriteService.php');
+$assert(
+    is_string($writerSource)
+        && substr_count($writerSource, 'ORDER BY MODULE_ID, NAME, SITE_ID') >= 6
+        && strpos($writerSource, 'ORDER BY MODULE_ID, NAME FOR UPDATE') === false,
+    'all global option snapshots, locks and duplicate checks use one deterministic module/name/site order'
+);
 
 echo "Catalog calculation write service tests passed\n";

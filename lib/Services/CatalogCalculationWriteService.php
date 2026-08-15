@@ -77,6 +77,9 @@ final class CatalogCalculationWriteService
     /** @var mixed */
     private $transactionConnection;
 
+    /** @var array<string,string|null>|null */
+    private ?array $lockedRuntimeConfigSnapshot = null;
+
     private ?BatchRecalculateService $batchRecalculateService = null;
 
     /** @param array<string,callable> $adapters */
@@ -93,25 +96,45 @@ final class CatalogCalculationWriteService
      */
     public function captureRuntimeConfigSnapshot(): array
     {
+        if ($this->lockedRuntimeConfigSnapshot !== null) {
+            return $this->lockedRuntimeConfigSnapshot;
+        }
         if (isset($this->adapters['capture_runtime_config'])) {
             $snapshot = call_user_func($this->adapters['capture_runtime_config']);
             return $this->normalizeRuntimeConfigSnapshot(is_array($snapshot) ? $snapshot : []);
         }
 
-        $snapshot = [];
         $conditions = [];
         foreach (self::RUNTIME_CONFIG_OPTION_KEYS as $moduleId => $names) {
             foreach ($names as $name) {
-                $snapshot[$moduleId . ':' . $name] = null;
                 $conditions[] = "(MODULE_ID='" . $moduleId . "' AND NAME='" . $name . "')";
             }
         }
         $connection = $this->transactionConnection ?? Application::getConnection();
         $result = $connection->query(
-            'SELECT MODULE_ID, NAME, VALUE FROM b_option WHERE (' . implode(' OR ', $conditions)
-            . ") AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME"
+            'SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE (' . implode(' OR ', $conditions)
+            . ") AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME, SITE_ID"
         );
+        $rows = [];
         while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
+            $rows[] = $row;
+        }
+        return $this->runtimeConfigSnapshotFromRows($rows);
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<string,string|null>
+     */
+    private function runtimeConfigSnapshotFromRows(array $rows): array
+    {
+        $snapshot = [];
+        foreach (self::RUNTIME_CONFIG_OPTION_KEYS as $moduleId => $names) {
+            foreach ($names as $name) {
+                $snapshot[$moduleId . ':' . $name] = null;
+            }
+        }
+        foreach ($rows as $row) {
             $moduleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
             $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
             // Bitrix option names in long-lived installations may be stored in
@@ -346,10 +369,10 @@ final class CatalogCalculationWriteService
             try {
                 $this->beginTransaction();
                 $transactionStarted = true;
+                $this->lockRuntimeOptionRows();
                 if ($offerIds !== []) {
                     $this->lockCatalogRows($offerIds, $preflightProductIds);
                 }
-                $this->lockRuntimeOptionRows();
                 $lockedNeutralInputState = $this->readLockedNeutralInputState();
                 if ($lockedNeutralInputState !== $preflightNeutralInputState) {
                     throw new \RuntimeException(
@@ -542,13 +565,13 @@ final class CatalogCalculationWriteService
             try {
                 $this->beginTransaction();
                 $transactionStarted = true;
+                $this->lockRuntimeOptionRows($authoritative['provenance']['runtimeConfigSnapshot']);
+                $existingReceipt = $this->loadReceipt($receiptName, true);
                 $this->lockCatalogRows(
                     $offerIds,
                     is_array($preflight['_productIds'] ?? null) ? $preflight['_productIds'] : []
                 );
                 $this->lockRuntimeSourceRows($authoritative['provenance']['runtimeLocks']);
-                $this->lockRuntimeOptionRows($authoritative['provenance']['runtimeConfigSnapshot']);
-                $existingReceipt = $this->loadReceipt($receiptName, true);
                 if (is_array($existingReceipt)) {
                     $response = $this->validateBatchReplayReceiptUnderLocks(
                         $existingReceipt,
@@ -685,19 +708,18 @@ final class CatalogCalculationWriteService
         int $actorUserId,
         string $receiptName
     ): array {
+        $normalizedCalculation = $this->validateAuthoritativeCalculation(
+            $authoritativeCalculation,
+            $offerIds
+        );
         $transactionStarted = false;
         try {
             $this->beginTransaction();
             $transactionStarted = true;
-            $this->lockCatalogRows($offerIds, $productIds);
-            $normalizedCalculation = $this->validateAuthoritativeCalculation(
-                $authoritativeCalculation,
-                $offerIds
-            );
-            $this->lockRuntimeSourceRows($normalizedCalculation['provenance']['runtimeLocks']);
             $this->lockRuntimeOptionRows($normalizedCalculation['provenance']['runtimeConfigSnapshot']);
-
             $existingReceipt = $this->loadReceipt($receiptName, true);
+            $this->lockCatalogRows($offerIds, $productIds);
+            $this->lockRuntimeSourceRows($normalizedCalculation['provenance']['runtimeLocks']);
             if (is_array($existingReceipt)) {
                 $response = $this->validateReplayReceiptUnderLocks(
                     $existingReceipt,
@@ -1655,13 +1677,32 @@ final class CatalogCalculationWriteService
                 'prospektweb.calc:IBLOCK_' . $code,
             ];
         }
-        foreach ($candidates as $candidate) {
-            $value = (int)($snapshot[$candidate] ?? 0);
-            if ($value > 0) {
-                return $value;
+        if ($code !== 'CALC_GLOBAL_VALUES') {
+            foreach ($candidates as $candidate) {
+                $value = (int)($snapshot[$candidate] ?? 0);
+                if ($value > 0) {
+                    return $value;
+                }
             }
+            return 0;
         }
-        return 0;
+
+        $resolvedIds = [];
+        foreach ($candidates as $candidate) {
+            $raw = $snapshot[$candidate] ?? null;
+            if ($raw === null) {
+                continue;
+            }
+            $value = (string)$raw;
+            if (preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
+                throw new \RuntimeException('Runtime source ' . $code . ' has an invalid option authority.', 409);
+            }
+            $resolvedIds[(int)$value] = true;
+        }
+        if (count($resolvedIds) > 1) {
+            throw new \RuntimeException('Runtime source ' . $code . ' option authorities disagree.', 409);
+        }
+        return $resolvedIds === [] ? 0 : (int)array_key_first($resolvedIds);
     }
 
     /** @param array<string,mixed> $locks @return array<string,mixed> */
@@ -1928,31 +1969,41 @@ final class CatalogCalculationWriteService
         string $siteId,
         string $expectedFingerprint
     ): ?array {
-        if (!is_array($this->loadReceipt($receiptName, false))) {
+        $preflightReceipt = $this->loadReceipt($receiptName, false);
+        if (!is_array($preflightReceipt)) {
             return null;
         }
+        $preflightProductIds = is_array($preflightReceipt['productIds'] ?? null)
+            ? $preflightReceipt['productIds']
+            : [];
 
         return $this->withAdapterMutationLock(function () use (
             $receiptName,
             $actorUserId,
             $offerIds,
             $siteId,
-            $expectedFingerprint
+            $expectedFingerprint,
+            $preflightProductIds
         ): ?array {
             $transactionStarted = false;
             try {
                 $this->beginTransaction();
                 $transactionStarted = true;
-                $receipt = $this->loadReceipt($receiptName, false);
+                $this->lockRuntimeOptionRows();
+                $receipt = $this->loadReceipt($receiptName, true);
                 if (!is_array($receipt)) {
                     $this->commitTransaction();
                     $transactionStarted = false;
                     return null;
                 }
                 $productIds = is_array($receipt['productIds'] ?? null) ? $receipt['productIds'] : [];
+                if ($productIds !== $preflightProductIds) {
+                    throw new \RuntimeException(
+                        'Catalog write receipt product membership changed before replay.',
+                        409
+                    );
+                }
                 $this->lockCatalogRows($offerIds, $productIds);
-                $this->lockRuntimeOptionRows();
-                $receipt = $this->loadReceipt($receiptName, true);
                 if (!is_array($receipt)) {
                     throw new \RuntimeException('Идемпотентная квитанция исчезла во время проверки.', 409);
                 }
@@ -2074,9 +2125,13 @@ final class CatalogCalculationWriteService
         array $approvedStates,
         array $approvedResults
     ): ?array {
-        if (!is_array($this->loadReceipt($receiptName, false))) {
+        $preflightReceipt = $this->loadReceipt($receiptName, false);
+        if (!is_array($preflightReceipt)) {
             return null;
         }
+        $preflightProductIds = is_array($preflightReceipt['productIds'] ?? null)
+            ? $preflightReceipt['productIds']
+            : [];
 
         return $this->withAdapterMutationLock(function () use (
             $receiptName,
@@ -2085,22 +2140,28 @@ final class CatalogCalculationWriteService
             $offerIds,
             $siteId,
             $approvedStates,
-            $approvedResults
+            $approvedResults,
+            $preflightProductIds
         ): ?array {
             $transactionStarted = false;
             try {
                 $this->beginTransaction();
                 $transactionStarted = true;
-                $receipt = $this->loadReceipt($receiptName, false);
+                $this->lockRuntimeOptionRows();
+                $receipt = $this->loadReceipt($receiptName, true);
                 if (!is_array($receipt)) {
                     $this->commitTransaction();
                     $transactionStarted = false;
                     return null;
                 }
                 $productIds = is_array($receipt['productIds'] ?? null) ? $receipt['productIds'] : [];
+                if ($productIds !== $preflightProductIds) {
+                    throw new \RuntimeException(
+                        'Catalog batch receipt product membership changed before replay.',
+                        409
+                    );
+                }
                 $this->lockCatalogRows($offerIds, $productIds);
-                $this->lockRuntimeOptionRows();
-                $receipt = $this->loadReceipt($receiptName, true);
                 if (!is_array($receipt)) {
                     throw new \RuntimeException('The batch write receipt disappeared during replay.', 409);
                 }
@@ -2244,6 +2305,7 @@ final class CatalogCalculationWriteService
         $connection = $this->transactionConnection ?? Application::getConnection();
         $sql = "SELECT VALUE FROM b_option WHERE MODULE_ID='prospektweb.calc' AND NAME='"
             . $name . "' AND (SITE_ID IS NULL OR SITE_ID='')"
+            . ' ORDER BY MODULE_ID, NAME, SITE_ID'
             . ($forUpdate ? ' FOR UPDATE' : '');
         $result = $connection->query($sql);
         $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
@@ -2429,15 +2491,16 @@ final class CatalogCalculationWriteService
         }
         $pattern = '^' . $prefix . '[a-f0-9]{24}$';
         $result = $this->transactionConnection->query(
-            "SELECT NAME, VALUE FROM b_option WHERE MODULE_ID='" . self::RECEIPT_MODULE_ID
+            "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE MODULE_ID='" . self::RECEIPT_MODULE_ID
             . "' AND (SITE_ID IS NULL OR SITE_ID='') AND BINARY NAME REGEXP '" . $pattern
-            . "' ORDER BY NAME LIMIT " . (self::RECEIPT_MAX_COUNT_PER_TYPE + 2) . ' FOR UPDATE'
+            . "' ORDER BY MODULE_ID, NAME, SITE_ID LIMIT "
+            . (self::RECEIPT_MAX_COUNT_PER_TYPE + 2) . ' FOR UPDATE'
         );
         $rows = [];
         while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
             $rows[] = [
                 'moduleId' => self::RECEIPT_MODULE_ID,
-                'siteId' => null,
+                'siteId' => $row['SITE_ID'] ?? $row['site_id'] ?? null,
                 'name' => (string)($row['NAME'] ?? $row['name'] ?? ''),
                 'value' => (string)($row['VALUE'] ?? $row['value'] ?? ''),
             ];
@@ -2652,7 +2715,7 @@ final class CatalogCalculationWriteService
         );
         $adapterRaw = $adapterState['value'];
         $adapterPersisted = $adapterState['exists'] === true && $adapterRaw !== '';
-        $neutralInputRaw = $this->readLockedOptionValue(
+        $neutralInputState = $this->readLockedOptionState(
             'prospektweb.calc',
             'PRESET_12740_NEUTRAL_INPUT_ACTIVE'
         );
@@ -2676,8 +2739,8 @@ final class CatalogCalculationWriteService
         );
         $adapter = $adapterOverride ?? $storedAdapter;
         $neutralInputRequired = $allowInactiveNeutralInputForAdapterAuthoring
-            ? $this->parseAdapterAuthoringNeutralInputOption($neutralInputRaw)
-            : $this->parseNeutralInputOption($neutralInputRaw);
+            ? $this->parseAdapterAuthoringNeutralInputOption($neutralInputState)
+            : $this->parseNeutralInputOption($neutralInputState);
         $runtimeConfigSnapshot = $this->captureRuntimeConfigSnapshot();
         $globalSymbolService = new GlobalSymbolService();
         $globalSymbolIblockId = $this->effectiveRuntimeConfigIblockId(
@@ -2806,7 +2869,7 @@ final class CatalogCalculationWriteService
                 throw new \RuntimeException('Locked form authoring adapter returned invalid data.');
             }
             $authoring['neutralInputRequired'] = $this->parseAdapterAuthoringNeutralInputOption(
-                $this->readLockedOptionValue(
+                $this->readLockedOptionState(
                     'prospektweb.calc',
                     'PRESET_12740_NEUTRAL_INPUT_ACTIVE'
                 )
@@ -2829,7 +2892,7 @@ final class CatalogCalculationWriteService
             'prospektweb.frontcalc',
             'FORM_FIRST_PRESET_12740'
         );
-        $neutralInputRequired = $this->parseAdapterAuthoringNeutralInputOption($this->readLockedOptionValue(
+        $neutralInputRequired = $this->parseAdapterAuthoringNeutralInputOption($this->readLockedOptionState(
             'prospektweb.calc',
             'PRESET_12740_NEUTRAL_INPUT_ACTIVE'
         ));
@@ -2913,7 +2976,8 @@ final class CatalogCalculationWriteService
         $escapedRaw = $helper->forSql($raw);
         $result = $this->transactionConnection->query(
             "SELECT VALUE FROM b_option WHERE MODULE_ID='prospektweb.calc' "
-            . "AND NAME='CATALOG_ADAPTER_12740' AND (SITE_ID IS NULL OR SITE_ID='') FOR UPDATE"
+            . "AND NAME='CATALOG_ADAPTER_12740' AND (SITE_ID IS NULL OR SITE_ID='') "
+            . 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE'
         );
         $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
         $duplicate = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
@@ -2972,7 +3036,8 @@ final class CatalogCalculationWriteService
         $result = $this->transactionConnection->query(
             "SELECT VALUE FROM b_option WHERE MODULE_ID='" . $moduleId
             . "' AND NAME='" . $name
-            . "' AND (SITE_ID IS NULL OR SITE_ID='') FOR UPDATE"
+            . "' AND (SITE_ID IS NULL OR SITE_ID='') "
+            . 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE'
         );
         $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
         $duplicate = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
@@ -2985,10 +3050,10 @@ final class CatalogCalculationWriteService
         ];
     }
 
-    private function parseNeutralInputOption(string $raw): bool
+    /** @param array{exists:bool,value:string} $state */
+    private function parseNeutralInputOption(array $state): bool
     {
-        $raw = strtoupper(trim($raw));
-        if ($raw === 'Y') {
+        if ($state['exists'] === true && $state['value'] === 'Y') {
             return true;
         }
         throw new \RuntimeException(
@@ -2997,16 +3062,16 @@ final class CatalogCalculationWriteService
         );
     }
 
-    private function parseAdapterAuthoringNeutralInputOption(string $raw): bool
+    /** @param array{exists:bool,value:string} $state */
+    private function parseAdapterAuthoringNeutralInputOption(array $state): bool
     {
-        $raw = strtoupper(trim($raw));
-        if ($raw === 'Y') {
-            return true;
-        }
-        if ($raw === 'N') {
+        if ($state['exists'] !== true) {
             return false;
         }
-        if ($raw === '') {
+        if ($state['value'] === 'Y') {
+            return true;
+        }
+        if ($state['value'] === 'N') {
             return false;
         }
         throw new \RuntimeException(
@@ -3032,7 +3097,7 @@ final class CatalogCalculationWriteService
         $result = $connection->query(
             "SELECT VALUE FROM b_option WHERE MODULE_ID='prospektweb.calc' "
             . "AND NAME='PRESET_12740_NEUTRAL_INPUT_ACTIVE' "
-            . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY NAME"
+            . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME, SITE_ID"
         );
         $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
         $duplicate = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
@@ -3063,7 +3128,7 @@ final class CatalogCalculationWriteService
     /** @param mixed $raw */
     private function normalizeAdapterAuthoringNeutralInputState($raw): string
     {
-        $raw = strtoupper(trim((string)$raw));
+        $raw = (string)$raw;
         if (in_array($raw, ['Y', 'N', 'MISSING'], true)) {
             return $raw;
         }
@@ -3131,6 +3196,7 @@ final class CatalogCalculationWriteService
 
     private function beginTransaction(): void
     {
+        $this->lockedRuntimeConfigSnapshot = null;
         if (isset($this->adapters['begin_transaction'])) {
             call_user_func($this->adapters['begin_transaction']);
             return;
@@ -3143,6 +3209,7 @@ final class CatalogCalculationWriteService
     {
         if (isset($this->adapters['commit_transaction'])) {
             call_user_func($this->adapters['commit_transaction']);
+            $this->lockedRuntimeConfigSnapshot = null;
             return;
         }
         if ($this->transactionConnection === null) {
@@ -3150,18 +3217,21 @@ final class CatalogCalculationWriteService
         }
         $this->transactionConnection->commitTransaction();
         $this->transactionConnection = null;
+        $this->lockedRuntimeConfigSnapshot = null;
     }
 
     private function rollbackTransaction(): void
     {
         if (isset($this->adapters['rollback_transaction'])) {
             call_user_func($this->adapters['rollback_transaction']);
+            $this->lockedRuntimeConfigSnapshot = null;
             return;
         }
         if ($this->transactionConnection !== null) {
             $this->transactionConnection->rollbackTransaction();
             $this->transactionConnection = null;
         }
+        $this->lockedRuntimeConfigSnapshot = null;
     }
 
     /** @param int[] $offerIds @param int[] $productIds */
@@ -3272,11 +3342,24 @@ final class CatalogCalculationWriteService
         }
     }
 
-    /** Lock option-backed runtime pins after source rows (shared lock order). */
-    private function lockRuntimeOptionRows(array $expectedConfigSnapshot = []): void
+    /** Lock option-backed runtime pins before every mutable/source row. */
+    private function lockRuntimeOptionRows(array $expectedConfigSnapshot = []): array
     {
+        $lockedSnapshot = null;
         if (isset($this->adapters['lock_runtime_options'])) {
-            call_user_func($this->adapters['lock_runtime_options'], $expectedConfigSnapshot);
+            $adapterSnapshot = call_user_func($this->adapters['lock_runtime_options'], $expectedConfigSnapshot);
+            if (is_array($adapterSnapshot)) {
+                $lockedSnapshot = $this->normalizeRuntimeConfigSnapshot($adapterSnapshot);
+            } elseif (isset($this->adapters['capture_runtime_config'])) {
+                $adapterSnapshot = call_user_func($this->adapters['capture_runtime_config']);
+                $lockedSnapshot = $this->normalizeRuntimeConfigSnapshot(is_array($adapterSnapshot) ? $adapterSnapshot : []);
+            } elseif ($expectedConfigSnapshot !== []) {
+                // A test/integration adapter owns the physical lock and the
+                // comparison. Retain the exact reviewed snapshot so later
+                // pinned resolvers cannot perform an ordinary read in the
+                // transaction.
+                $lockedSnapshot = $this->normalizeRuntimeConfigSnapshot($expectedConfigSnapshot);
+            }
         } else {
             if ($this->transactionConnection === null) {
                 throw new \RuntimeException('Runtime options cannot be locked outside a transaction.');
@@ -3291,21 +3374,26 @@ final class CatalogCalculationWriteService
                     $conditions[] = "(MODULE_ID='" . $moduleId . "' AND NAME='" . $name . "')";
                 }
             }
-            $this->selectForUpdate(
-                'SELECT MODULE_ID, NAME, VALUE FROM b_option WHERE (' . implode(' OR ', $conditions)
-                . ") AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME FOR UPDATE"
+            $lockedRows = $this->selectForUpdate(
+                'SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE (' . implode(' OR ', $conditions)
+                . ") AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE"
             );
+            $lockedSnapshot = $this->runtimeConfigSnapshotFromRows($lockedRows);
         }
+        if ($lockedSnapshot === null) {
+            throw new \RuntimeException('Locked runtime configuration snapshot is unavailable.', 409);
+        }
+        $this->lockedRuntimeConfigSnapshot = $lockedSnapshot;
         if ($expectedConfigSnapshot !== []) {
             $expectedConfigSnapshot = $this->normalizeRuntimeConfigSnapshot($expectedConfigSnapshot);
-            $actualConfigSnapshot = $this->captureRuntimeConfigSnapshot();
             if (!hash_equals(
                 self::canonicalEncode($expectedConfigSnapshot),
-                self::canonicalEncode($actualConfigSnapshot)
+                self::canonicalEncode($lockedSnapshot)
             )) {
                 throw new \RuntimeException('ConfigManager options changed after calc-server calculation.', 409);
             }
         }
+        return $lockedSnapshot;
     }
 
     /** @param array<string,mixed> $runtimeLocks */

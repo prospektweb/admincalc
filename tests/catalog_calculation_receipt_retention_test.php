@@ -308,7 +308,7 @@ $source = file_get_contents(dirname(__DIR__) . '/lib/Services/CatalogCalculation
 $assert(is_string($source), 'receipt writer source is readable');
 $assert(strpos($source, "NAME REGEXP '") !== false
     && strpos($source, 'RECEIPT_MAX_COUNT_PER_TYPE + 2') !== false
-    && strpos($source, "ORDER BY NAME LIMIT ") !== false
+    && strpos($source, "ORDER BY MODULE_ID, NAME, SITE_ID LIMIT ") !== false
     && strpos($source, ' FOR UPDATE') !== false,
     'production retention reads are exact-prefix, row-locked and hard-capped');
 $assert(strpos($source, "DELETE FROM b_option WHERE MODULE_ID='") !== false

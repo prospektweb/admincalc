@@ -81,8 +81,7 @@ if (
 $cloneAction = $slice($elementDataService, "case 'cloneDetail':", "case 'changeProductType':");
 if (
     $cloneAction === ''
-    || strpos($cloneAction, 'enrichPresetFromProductRoots') === false
-    || strpos($cloneAction, "'initPayload'") === false
+    || substr_count($cloneAction, 'enrichStructuralResultPinned') !== 2
 ) {
     throw new RuntimeException('Cloning must atomically return the complete updated topology');
 }
@@ -151,8 +150,9 @@ if (
     $removeAction === ''
     || strpos($removeAction, 'removeTopLevelDetail') === false
     || strpos($removeAction, 'getPresetRootDetailIds') === false
-    || strpos($removeAction, 'enrichPresetFromProductRoots') === false
+    || strpos($removeAction, 'enrichStructuralResultPinned') === false
     || strpos($removeAction, 'enrichPresetFromDetails') !== false
+    || strpos($elementDataService, 'enrichPresetFromProductRoots') === false
 ) {
     throw new RuntimeException('Deletion must support root columns and preserve remaining roots');
 }

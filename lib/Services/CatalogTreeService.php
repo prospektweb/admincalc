@@ -6,6 +6,16 @@ namespace Prospektweb\Calc\Services;
 
 final class CatalogTreeService
 {
+    /** Directory-only surfaces exposed by the generic tree editor. */
+    private const MUTABLE_IBLOCK_CODES = [
+        'CALC_CUSTOM_FIELDS',
+        'CALC_MATERIALS',
+        'CALC_MATERIALS_VARIANTS',
+        'CALC_OPERATIONS',
+        'CALC_OPERATIONS_VARIANTS',
+        'CALC_EQUIPMENT',
+    ];
+
     public function presetLoadOptions(array $request): array
     {
         $this->assertAdmin();
@@ -181,6 +191,7 @@ final class CatalogTreeService
     {
         $this->assertAdmin();
         $iblock = $this->resolveIblock($request);
+        $this->assertMutableDirectoryIblock($iblock);
         $iblockId = (int)$iblock['ID'];
         $elementId = (int)($request['elementId'] ?? 0);
         $sectionId = $this->validateSection($iblockId, (int)($request['sectionId'] ?? 0));
@@ -228,6 +239,7 @@ final class CatalogTreeService
     {
         $this->assertAdmin();
         $iblock = $this->resolveIblock($request);
+        $this->assertMutableDirectoryIblock($iblock);
         $iblockId = (int)$iblock['ID'];
         $sectionId = (int)($request['sectionId'] ?? 0);
         $parentId = $this->validateSection($iblockId, (int)($request['parentSectionId'] ?? 0));
@@ -272,6 +284,7 @@ final class CatalogTreeService
     {
         $this->assertAdmin();
         $iblock = $this->resolveIblock($request);
+        $this->assertMutableDirectoryIblock($iblock);
         $iblockId = (int)$iblock['ID'];
         $nodeType = (string)($request['nodeType'] ?? '');
         $nodeId = (int)($request['nodeId'] ?? 0);
@@ -311,6 +324,18 @@ final class CatalogTreeService
             throw new \RuntimeException('Инфоблок не найден или его код изменился');
         }
         return $iblock;
+    }
+
+    /** @param array<string,mixed> $iblock */
+    private function assertMutableDirectoryIblock(array $iblock): void
+    {
+        $code = (string)($iblock['CODE'] ?? '');
+        if (!in_array($code, self::MUTABLE_IBLOCK_CODES, true)) {
+            throw new \RuntimeException(
+                'The generic catalog tree editor cannot mutate executable calculator iblock ' . ($code ?: '<unknown>') . '.',
+                409
+            );
+        }
     }
 
     private function normalizeElement(array $row, string $iblockCode): array

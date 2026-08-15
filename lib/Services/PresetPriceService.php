@@ -2,9 +2,9 @@
 
 namespace Prospektweb\Calc\Services;
 
+use Bitrix\Main\Application;
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Config\ConfigManager;
-use Prospektweb\Calc\Config\SettingsManager;
 use Prospektweb\Calc\Services\CatalogPriceService;
 
 /**
@@ -17,10 +17,9 @@ class PresetPriceService
     private const PRICE_PROFILE_POLICY_PROPERTY = 'PRICE_PROFILE_POLICY_JSON';
     private const PRICE_PROFILE_POLICY_SCHEMA = 'prospektweb.calc.conditional-price-profiles/v1';
     private int $presetsIblockId;
-    private ConfigManager $configManager;
-    private SettingsManager $settingsManager;
 
-    public function __construct()
+    /** @param array<string,int>|null $pinnedIblockIds */
+    public function __construct(?array $pinnedIblockIds = null)
     {
         if (!Loader::includeModule('iblock')) {
             throw new \RuntimeException('Требуется модуль Bitrix iblock');
@@ -30,9 +29,12 @@ class PresetPriceService
             throw new \RuntimeException('Требуется модуль Bitrix catalog');
         }
 
-        $this->configManager = new ConfigManager();
-        $this->settingsManager = new SettingsManager();
-        $this->presetsIblockId = $this->configManager->getIblockId('CALC_PRESETS');
+        $this->presetsIblockId = $pinnedIblockIds !== null
+            ? (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0)
+            : (new ConfigManager())->getIblockId('CALC_PRESETS');
+        if ($this->presetsIblockId <= 0) {
+            throw new \RuntimeException('Preset-price iblock authority is invalid.', 409);
+        }
     }
 
 
@@ -53,6 +55,8 @@ class PresetPriceService
                     'message' => 'Не указан ID пресета',
                 ];
             }
+
+            $this->assertAndLockPreset($presetId);
 
             $normalizedPolicy = $priceProfilePolicy === null ? null : $this->normalizePriceProfilePolicy($priceProfilePolicy);
             $catalogPriceService = new CatalogPriceService();
@@ -101,6 +105,20 @@ class PresetPriceService
                 'status' => 'error',
                 'message' => $e->getMessage(),
             ];
+        }
+    }
+
+    private function assertAndLockPreset(int $presetId): void
+    {
+        $preset = Application::getConnection()->query(
+            'SELECT ID FROM b_iblock_element WHERE ID = ' . $presetId
+                . ' AND IBLOCK_ID = ' . $this->presetsIblockId . ' FOR UPDATE'
+        )->fetch();
+        if (!is_array($preset)) {
+            throw new \RuntimeException(
+                'Price preset must belong to the exact pinned CALC_PRESETS iblock.',
+                409
+            );
         }
     }
 

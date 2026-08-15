@@ -32,22 +32,55 @@ class BundleHandler
      * @return int ID созданного preset'а
      * @throws \Exception
      */
-    public function createPreset(array $offerIds, ?string $name = null): int
+    public function createPreset(
+        array $offerIds,
+        ?string $name = null,
+        ?int $pinnedPresetsIblockId = null
+    ): int
     {
         // 1. Получить ID товара из первого ТП (все ТП принадлежат одному товару)
-        $productId = $this->getProductIdFromOffer($offerIds[0]);
+        $offerIds = array_values(array_unique(array_filter(array_map('intval', $offerIds), static function (int $id): bool {
+            return $id > 0;
+        })));
+        if ($offerIds === []) {
+            throw new \InvalidArgumentException('At least one offer is required.', 400);
+        }
+        $productId = $this->resolveSingleProductIdFromOffers($offerIds);
         
         if ($productId <= 0) {
             throw new \Exception('Не удалось определить товар для ТП');
         }
         
-        $iblockId = $this->configManager->getIblockId('CALC_PRESETS');
+        if ($pinnedPresetsIblockId === null) {
+            throw new \RuntimeException(
+                'Preset creation requires the locked neutral authority.',
+                409
+            );
+        }
+        $iblockId = $pinnedPresetsIblockId;
         
         if ($iblockId <= 0) {
             throw new \Exception('Инфоблок CALC_PRESETS не настроен');
         }
         
         // 2. Создать элемент пресета
+        $productIblockId = $this->resolveElementIblockId($productId);
+        if ($productIblockId <= 0) {
+            throw new \RuntimeException('Product does not exist.', 409);
+        }
+        $existingPresetId = $this->getElementLinkPropertyId(
+            $productIblockId,
+            $productId,
+            'CALC_PRESET'
+        );
+        if ($existingPresetId > 0) {
+            throw new \RuntimeException(
+                'The product already has calculator preset #' . $existingPresetId
+                    . '; automatic replacement is forbidden.',
+                409
+            );
+        }
+
         $el = new \CIBlockElement();
         $presetName = $name ?: 'Новый пресет ' . date('Y-m-d H:i:s');
         $presetId = $el->Add([
@@ -65,11 +98,13 @@ class BundleHandler
         }
         
         // 3. Привязать пресет к ТОВАРУ (не к ТП!)
-        $productIblockId = $this->configManager->getProductIblockId();
-        
         \CIBlockElement::SetPropertyValuesEx($productId, $productIblockId, [
             'CALC_PRESET' => $presetId,
         ]);
+
+        if ($this->getElementLinkPropertyId($productIblockId, $productId, 'CALC_PRESET') !== (int)$presetId) {
+            throw new \RuntimeException('Preset binding readback mismatch.', 409);
+        }
         
         return (int)$presetId;
     }
@@ -732,21 +767,38 @@ class BundleHandler
      */
     private function getProductIdFromOffer(int $offerId): int
     {
-        $skuIblockId = $this->configManager->getSkuIblockId();
-        
+        if ($offerId <= 0) {
+            return 0;
+        }
         $rsOffer = \CIBlockElement::GetList(
             [],
-            ['ID' => $offerId, 'IBLOCK_ID' => $skuIblockId],
+            ['ID' => $offerId],
             false,
             ['nTopCount' => 1],
-            ['ID', 'PROPERTY_CML2_LINK']
+            ['ID', 'IBLOCK_ID']
         );
-        
-        if ($offer = $rsOffer->Fetch()) {
-            return (int)($offer['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+        $offer = $rsOffer->Fetch();
+        $offerIblockId = (int)($offer['IBLOCK_ID'] ?? 0);
+        if ($offerIblockId <= 0) {
+            return 0;
         }
-        
-        return 0;
+
+        return $this->getElementLinkPropertyId($offerIblockId, $offerId, 'CML2_LINK');
+    }
+
+    private function resolveElementIblockId(int $elementId): int
+    {
+        if ($elementId <= 0) {
+            return 0;
+        }
+        $row = \CIBlockElement::GetList(
+            [],
+            ['ID' => $elementId],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'IBLOCK_ID']
+        )->Fetch();
+        return (int)($row['IBLOCK_ID'] ?? 0);
     }
 
     private function getElementPropertyValuesForClone(int $elementId, int $iblockId): array

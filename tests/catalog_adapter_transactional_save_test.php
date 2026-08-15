@@ -325,7 +325,7 @@ $assert($savedDefault['catalogAdapter']['revision'] === $initial['revision'], 'f
 $assert(($savedDefault['editorRuntime']['catalogMapping']['adapterPersisted'] ?? null) === true, 'first save response confirms exact persisted adapter state');
 $assert($persistenceStates === [false, false, true], 'absent adapter stays explicit through preflight and becomes persisted only after locked readback');
 $assert($events === [
-    'preflight', 'adapter-lock', 'begin', 'catalog-lock', 'option-lock',
+    'preflight', 'adapter-lock', 'begin', 'option-lock', 'catalog-lock',
     'locked-preview', 'write-adapter', 'fresh', 'commit',
 ], 'unchanged first save uses the complete transactional validation path');
 
@@ -343,7 +343,7 @@ $assert(($savedN['initData']['_neutralInputRequired'] ?? null) === false, 'inact
 $assert(($savedN['editorRuntime']['catalogMapping']['adapterPersisted'] ?? null) === true, 'save response confirms exact persisted adapter state');
 $assert($persistenceStates === [true, true, true], 'subsequent saves preserve persisted authority through every resolver pass');
 $assert($events === [
-    'preflight', 'adapter-lock', 'begin', 'catalog-lock', 'option-lock',
+    'preflight', 'adapter-lock', 'begin', 'option-lock', 'catalog-lock',
     'locked-preview', 'write-adapter', 'fresh', 'commit',
 ], 'candidate preview, option write and fresh readback share one catalog/options transaction');
 

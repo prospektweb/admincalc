@@ -15,12 +15,23 @@ class DetailHandler
     private int $stagesIblockId;
     private int $presetsIblockId;
     
-    public function __construct()
+    /** @param array<string,int>|null $pinnedIblockIds */
+    public function __construct(?array $pinnedIblockIds = null)
     {
         if (! Loader::includeModule('iblock')) {
             throw new \RuntimeException('Требуется модуль Bitrix iblock');
         }
-        
+
+        if (is_array($pinnedIblockIds)) {
+            $this->detailsIblockId = (int)($pinnedIblockIds['CALC_DETAILS'] ?? 0);
+            $this->stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+            $this->presetsIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+            if ($this->detailsIblockId <= 0 || $this->stagesIblockId <= 0 || $this->presetsIblockId <= 0) {
+                throw new \RuntimeException('Pinned detail topology is invalid.', 409);
+            }
+            return;
+        }
+
         $configManager = new \Prospektweb\Calc\Config\ConfigManager();
         
         $this->detailsIblockId = $configManager->getIblockId('CALC_DETAILS');
@@ -2100,9 +2111,14 @@ class DetailHandler
      * @param array $sorting Новый порядок ID этапов
      * @return array Ответ об успешности операции
      */
-    public function changeSortStage(int $detailId, array $sorting): array
+    public function changeSortStage(
+        int $detailId,
+        array $sorting,
+        bool $manageTransaction = true
+    ): array
     {
         $connection = null;
+        $transactionStarted = false;
         try {
             if ($detailId <= 0) {
                 return [
@@ -2143,10 +2159,17 @@ class DetailHandler
             }
 
             $connection = \Bitrix\Main\Application::getConnection();
-            $connection->startTransaction();
-            $connection->queryExecute(
-                'SELECT ID FROM b_iblock_element WHERE ID = ' . $detailId . ' FOR UPDATE'
-            );
+            if ($manageTransaction) {
+                $connection->startTransaction();
+                $transactionStarted = true;
+            }
+            $lockedDetail = $connection->query(
+                'SELECT ID FROM b_iblock_element WHERE ID = ' . $detailId
+                    . ' AND IBLOCK_ID = ' . $this->detailsIblockId . ' FOR UPDATE'
+            )->fetch();
+            if (!is_array($lockedDetail)) {
+                throw new \RuntimeException('Detail does not belong to the pinned CALC_DETAILS iblock.', 409);
+            }
             $previousSorting = $readStageIds();
             $expected = $previousSorting;
             $submitted = $sorting;
@@ -2156,7 +2179,10 @@ class DetailHandler
                 throw new \RuntimeException('Состав этапов изменился. Обновите данные и повторите сортировку');
             }
             if ($previousSorting === $sorting) {
-                $connection->commitTransaction();
+                if ($transactionStarted) {
+                    $connection->commitTransaction();
+                    $transactionStarted = false;
+                }
                 return ['status' => 'ok', 'detailId' => $detailId, 'sorting' => $sorting];
             }
 
@@ -2171,7 +2197,10 @@ class DetailHandler
             if ($readStageIds() !== $sorting) {
                 throw new \RuntimeException('Битрикс не сохранил точный порядок этапов');
             }
-            $connection->commitTransaction();
+            if ($transactionStarted) {
+                $connection->commitTransaction();
+                $transactionStarted = false;
+            }
 
             return [
                 'status' => 'ok',
@@ -2180,7 +2209,10 @@ class DetailHandler
             ];
             
         } catch (\Throwable $e) {
-            if ($connection) {
+            if (!$manageTransaction) {
+                throw $e;
+            }
+            if ($connection && $transactionStarted) {
                 try {
                     $connection->rollbackTransaction();
                 } catch (\Throwable $rollbackError) {
@@ -2348,9 +2380,11 @@ class DetailHandler
         int $sourceDetailId,
         int $targetDetailId,
         array $sourceSorting,
-        array $targetSorting
+        array $targetSorting,
+        bool $manageTransaction = true
     ): array {
         $connection = null;
+        $transactionStarted = false;
         try {
             $readStageIds = function (int $detailId): array {
                 $result = [];
@@ -2402,7 +2436,10 @@ class DetailHandler
             }
 
             $connection = \Bitrix\Main\Application::getConnection();
-            $connection->startTransaction();
+            if ($manageTransaction) {
+                $connection->startTransaction();
+                $transactionStarted = true;
+            }
             $lockedDetailIds = [$sourceDetailId, $targetDetailId];
             sort($lockedDetailIds);
             $connection->queryExecute(
@@ -2442,7 +2479,10 @@ class DetailHandler
             if ($savedSourceSorting !== $sourceSorting || $savedTargetSorting !== $targetSorting) {
                 throw new \RuntimeException('Не удалось целиком сохранить перенос этапа');
             }
-            $connection->commitTransaction();
+            if ($transactionStarted) {
+                $connection->commitTransaction();
+                $transactionStarted = false;
+            }
 
             return [
                 'status' => 'ok',
@@ -2453,7 +2493,10 @@ class DetailHandler
                 'targetSorting' => $targetSorting,
             ];
         } catch (\Throwable $e) {
-            if ($connection) {
+            if (!$manageTransaction) {
+                throw $e;
+            }
+            if ($connection && $transactionStarted) {
                 try {
                     $connection->rollbackTransaction();
                 } catch (\Throwable $rollbackError) {

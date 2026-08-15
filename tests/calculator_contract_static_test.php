@@ -17,7 +17,12 @@ $assert(strpos($service, 'collectDetailTreeIds') !== false, 'contract impact map
 $assert(strpos($service, "'stageIds' => array_map('intval', array_keys(\$presetStageIds))") !== false, 'each preset receives only its own affected stages');
 $assert(strpos($service, 'if ($focusStageId > 0)') !== false, 'preset editor links never emit a zero stage focus');
 $assert(strpos($service, "ensureStringProperty") !== false, 'contract blocking property is prepared without destructive schema repair');
-$assert(strpos($elementData, "\$propertyCode === 'GLOBAL_DEPENDENCIES'") !== false, 'global dependency property is prepared on first save');
+$assert(
+    strpos($elementData, "\$allowedSettingsProperties = ['LOGIC_JSON', 'PARAMS', 'GLOBAL_DEPENDENCIES']") !== false
+        && strpos($elementData, "'=CODE' => \$propertyCode") !== false
+        && strpos($elementData, 'must be provisioned before authoring') !== false,
+    'global dependency writes require the exact pre-provisioned pinned property'
+);
 $assert(strpos($detailHandler, 'array_splice($updatedPresetDetails, $origPos + 1, 0, [$newDetailId])') !== false, 'top-level duplication inserts an adjacent independent detail');
 $assert(strpos($detailHandler, "createDetailElement(\$bindingName, 'BINDING')") === false, 'top-level duplication no longer creates a legacy binding');
 $assert(strpos($integration, 'Array.isArray(requestPayload.selectedIds)') !== false, 'hierarchical multi-select can submit several selected detail ids');

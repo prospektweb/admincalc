@@ -34,10 +34,10 @@ $checks = [
     [$offerUpdateService, '($entry[\'writeToOffer\'] ?? true) !== false', 'Disabled calculated parameters must not be written to PARAMETR_VALUES'],
     [$calculator, "this.expandCalculatorDialog(dialog);", 'Calculator dialog must request expanded mode after Show'],
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
-    [$calculator, "index.html?v=c183dff42007", 'Embedded calculator must load the current frontend release without stale HTML cache'],
+    [$calculator, "index.html?v=e32a8de7320f", 'Embedded calculator must load the current frontend release without stale HTML cache'],
     [$calculatorPage, "\$appVersion = is_file(\$appIndexPath) ? (string)filemtime(\$appIndexPath) : '1';", 'Standalone calculator page must derive its cache key from the deployed app'],
-    [$appIndex, "assets/index.js?v=c183dff42007", 'App HTML must load the current JavaScript bundle without stale asset cache'],
-    [$appIndex, "assets/style.css?v=c183dff42007", 'App HTML must load the current stylesheet without stale asset cache'],
+    [$appIndex, "assets/index.js?v=e32a8de7320f", 'App HTML must load the current JavaScript bundle without stale asset cache'],
+    [$appIndex, "assets/style.css?v=e32a8de7320f", 'App HTML must load the current stylesheet without stale asset cache'],
     [$calculatorPage, "overflow: hidden !important;", 'Standalone calculator page must not expose the taller Bitrix admin document scrollbar'],
     [$calculatorPage, 'z-index: 2147483647;', 'Standalone calculator must cover every Bitrix admin chrome layer'],
     [$calculatorPage, "document.body.appendChild(container);", 'Standalone calculator must escape the Bitrix workarea stacking context'],
@@ -178,8 +178,8 @@ $checks = [
     [$detailHandler, 'count($sourceSorting) !== count(array_unique($sourceSorting))', 'Cross-detail move must reject duplicate stage IDs'],
     [$detailHandler, '$connection->startTransaction()', 'Stage mutations must run inside a database transaction'],
     [$detailHandler, '$connection->rollbackTransaction()', 'Failed stage mutations must roll back'],
-    [$integration, "this.sendPwrtMessage('PROCESS_MESSAGE', {", 'Committed stage mutations must have a correlated success acknowledgement even when enrichment fails'],
-    [$elementDataService, "'enrichmentWarning'", 'Enrichment failure must not relabel an already committed stage mutation as failed'],
+    [$integration, "this.sendPwrtMessage('PROCESS_MESSAGE', {", 'Stage mutations must have a correlated completion acknowledgement'],
+    [$elementDataService, 'enrichStructuralResultPinned', 'Sort mutations and derived enrichment must complete atomically'],
     [$elementDataService, "case 'changeRootDetailSort':", 'Root detail-column order must be handled by the server'],
     [$elementDataService, "'CALC_DETAILS' => \$sorting", 'Root detail-column order must be written exactly'],
 ];
@@ -224,10 +224,11 @@ $changeSettingsHandler = $changeSettingsStart !== false && $changeSettingsEnd !=
     : '';
 if (
     $changeSettingsHandler === ''
-    || strpos($changeSettingsHandler, 'getProductRootsFromPreset') === false
-    || strpos($changeSettingsHandler, 'enrichPresetFromProductRoots') === false
+    || strpos($changeSettingsHandler, 'enrichStructuralResultPinned') === false
     || strpos($changeSettingsHandler, 'getFirstDetailFromPreset') !== false
     || strpos($changeSettingsHandler, 'enrichPresetFromDetails') !== false
+    || strpos($elementDataService, 'getProductRootsFromPreset') === false
+    || strpos($elementDataService, 'enrichPresetFromProductRoots') === false
 ) {
     throw new RuntimeException('Changing a stage calculator must preserve every ordered root of a complex product');
 }
@@ -239,8 +240,7 @@ $addDetailHandler = $addDetailStart !== false && $addDetailEnd !== false
     : '';
 if (
     $addDetailHandler === ''
-    || strpos($addDetailHandler, "'rootDetailIds'") === false
-    || strpos($addDetailHandler, 'enrichPresetFromProductRoots') === false
+    || strpos($addDetailHandler, 'enrichStructuralResultPinned') === false
     || strpos($addDetailHandler, 'enrichPresetFromDetails') !== false
 ) {
     throw new RuntimeException('Creating a detail must append it without replacing the complex product topology');

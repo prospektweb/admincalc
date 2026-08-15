@@ -27,7 +27,8 @@ $checks = [
         && strpos($refactor, 'startTransaction()') !== false
         && strpos($refactor, 'replaceIdentifiers(') !== false,
     'init exposes symbols scoped to the current preset' => strpos($init, "'globalSymbols'") !== false
-        && strpos($init, 'GlobalSymbolService())->listReadOnly((int)$presetId)') !== false,
+        && strpos($init, 'GlobalSymbolService())') !== false
+        && strpos($init, 'listReadOnlyFromIblockId(') !== false,
     'runtime reads of global symbols never create storage or claim legacy rows' => strpos($globals, 'public function listReadOnly(') !== false
         && strpos($globals, 'return $this->readRows($iblockId, $presetId);') !== false,
     'global registry owns every row by preset and filters scoped reads' => strpos($globals, "'PRESET_ID', 'Пресет'") !== false
@@ -60,8 +61,8 @@ $checks = [
         && strpos($groups, 'Подгруппа должна принадлежать родительской группе') !== false
         && strpos($groups, 'SetPropertyValues(') !== false
         && strpos($groups, 'Группы этапов не были записаны в пресет') !== false,
-    'stage-group property lookup uses the supported legacy code filter' => strpos($groups, "'CODE' => self::PROPERTY_CODE") !== false
-        && strpos($groups, "'=CODE' => self::PROPERTY_CODE") === false,
+    'stage-group property lookup uses exact pinned identity and legacy provisioning filters' => strpos($groups, "'CODE' => self::PROPERTY_CODE") !== false
+        && strpos($groups, "'=CODE' => self::PROPERTY_CODE") !== false,
     'stage conditions persist ordered exclusive branches with mandatory else' => strpos($groups, "'kind' => \$kind") !== false
         && strpos($groups, "'branches' => \$branches") !== false
         && strpos($groups, "\$elseCount !== 1") !== false

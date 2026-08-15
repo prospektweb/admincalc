@@ -108,6 +108,19 @@ $assert($complete['status'] === 'complete' && $complete['ready'] === true, 'the 
 $assert($complete['mutations'] === [] && $complete['neutralReferenceCount'] === 8, 'a complete snapshot requires all eight neutral references');
 $assert($complete['fingerprint'] === $plan['nextFingerprint'], 'the read-back fingerprint matches the planned target');
 
+$multipleEncoder = new ReflectionMethod(Preset12740NeutralInputMigrationService::class, 'encodeMultiplePropertyRows');
+$multipleEncoder->setAccessible(true);
+$encodedRows = $multipleEncoder->invoke(null, [
+    ['VALUE' => 'first', 'DESCRIPTION' => 'input.values.first'],
+    ['VALUE' => 'second', 'DESCRIPTION' => 'input.values.second'],
+]);
+$assert(
+    array_keys($encodedRows) === ['n0', 'n1']
+        && ($encodedRows['n0']['DESCRIPTION'] ?? '') === 'input.values.first'
+        && ($encodedRows['n1']['DESCRIPTION'] ?? '') === 'input.values.second',
+    'Bitrix multi-value writes use new-value keys and preserve every VALUE/DESCRIPTION pair'
+);
+
 $canonicalMethod = new ReflectionMethod(Preset12740NeutralInputMigrationService::class, 'encodeCanonical');
 $canonicalMethod->setAccessible(true);
 $evidenceMethod = new ReflectionMethod(Preset12740NeutralInputMigrationService::class, 'assertCompletionEvidence');
@@ -119,6 +132,74 @@ $backup = [
     'state' => $state,
 ];
 $backupRaw = $canonicalMethod->invoke(null, $backup);
+$resolveBackupMethod = new ReflectionMethod(
+    Preset12740NeutralInputMigrationService::class,
+    'resolveBackupRaw'
+);
+$resolveBackupMethod->setAccessible(true);
+$assert(
+    $resolveBackupMethod->invoke(null, $backup, $backupRaw) === $backupRaw,
+    'retained V1 backup bytes are reused unchanged on an exact re-apply'
+);
+$rollbackResumeMethod = new ReflectionMethod(
+    Preset12740NeutralInputMigrationService::class,
+    'assertRollbackResumeEvidence'
+);
+$rollbackResumeMethod->setAccessible(true);
+$rollbackResumePlan = $rollbackResumeMethod->invoke(
+    null,
+    $state,
+    ['exists' => true, 'value' => 'N'],
+    ['exists' => false, 'value' => ''],
+    ['exists' => true, 'value' => $backupRaw]
+);
+$assert(
+    ($rollbackResumePlan['rollbackResumeReady'] ?? false) === true
+        && ($rollbackResumePlan['status'] ?? '') === 'pending'
+        && count((array)($rollbackResumePlan['mutations'] ?? [])) === 8,
+    'a committed V1 rollback with exact retained backup is a safe V2-only resume point'
+);
+$expectRollbackResumeFailure = static function (
+    array $candidateState,
+    array $active,
+    array $markerState,
+    array $backupState
+) use ($assert, $rollbackResumeMethod): void {
+    try {
+        $rollbackResumeMethod->invoke(null, $candidateState, $active, $markerState, $backupState);
+    } catch (Throwable $error) {
+        return;
+    }
+    $assert(false, 'rollback resume evidence must fail closed when any V1 authority drifts');
+};
+$expectRollbackResumeFailure(
+    $state,
+    ['exists' => true, 'value' => ' Y '],
+    ['exists' => false, 'value' => ''],
+    ['exists' => true, 'value' => $backupRaw]
+);
+$expectRollbackResumeFailure(
+    $state,
+    ['exists' => true, 'value' => 'N'],
+    ['exists' => true, 'value' => ''],
+    ['exists' => true, 'value' => $backupRaw]
+);
+$changedRestoredState = $state;
+$changedRestoredState['globals']['GLOBAL_CONSTANTS'][0]['DESCRIPTION'] .= ' ';
+$expectRollbackResumeFailure(
+    $changedRestoredState,
+    ['exists' => true, 'value' => 'N'],
+    ['exists' => false, 'value' => ''],
+    ['exists' => true, 'value' => $backupRaw]
+);
+$alteredBackup = $backup;
+$alteredBackup['unexpected'] = true;
+try {
+    $resolveBackupMethod->invoke(null, $alteredBackup, $backupRaw);
+    $assert(false, 'same-fingerprint backup with altered body must fail before migration writes');
+} catch (Throwable $error) {
+    $assert(true, 'retained V1 backup authority is byte-exact, not fingerprint-only');
+}
 $marker = [
     'contract' => Preset12740NeutralInputMigrationService::CONTRACT,
     'presetId' => 12740,
@@ -143,6 +224,15 @@ $expectEvidenceFailure = static function (array $candidateMarker, string $candid
 $corruptMarker = $marker;
 $corruptMarker['backupHash'] = str_repeat('0', 64);
 $expectEvidenceFailure($corruptMarker, $backupRaw);
+$reformattedBackupRaw = json_encode(
+    $backup,
+    JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+);
+$assert(is_string($reformattedBackupRaw), 'reformatted evidence fixture is encodable');
+$expectEvidenceFailure(
+    $marker,
+    $reformattedBackupRaw
+);
 $expectEvidenceFailure([], '');
 
 $normalizeConfigMethod = new ReflectionMethod(
@@ -154,17 +244,20 @@ $configSnapshot = $normalizeConfigMethod->invoke(null, [
     ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42', 'SITE_ID' => null],
     ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => ''],
     ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
+    ['NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
 ]);
 $assert(
     ($configSnapshot['presetIblockId'] ?? 0) === 41
         && ($configSnapshot['detailsIblockId'] ?? 0) === 43
+        && ($configSnapshot['settingsIblockId'] ?? 0) === 44
         && ($configSnapshot['stagesIblockId'] ?? 0) === 42,
-    'the direct global config snapshot pins the exact three migration iblocks'
+    'the direct global config snapshot pins the exact four migration and activation iblocks'
 );
 $assert(
     array_keys((array)($configSnapshot['options'] ?? [])) === [
         'IBLOCK_CALC_DETAILS',
         'IBLOCK_CALC_PRESETS',
+        'IBLOCK_CALC_SETTINGS',
         'IBLOCK_CALC_STAGES',
     ],
     'the raw config authority is canonicalized independently of database row order'
@@ -172,11 +265,13 @@ $assert(
 $lowercaseConfigSnapshot = $normalizeConfigMethod->invoke(null, [
     ['NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => null],
     ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
     ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
 ]);
 $assert(
     ($lowercaseConfigSnapshot['presetIblockId'] ?? 0) === 41
         && ($lowercaseConfigSnapshot['detailsIblockId'] ?? 0) === 50
+        && ($lowercaseConfigSnapshot['settingsIblockId'] ?? 0) === 44
         && ($lowercaseConfigSnapshot['stagesIblockId'] ?? 0) === 42,
     'the production lowercase global option rows resolve through Bitrix case-insensitive authority'
 );
@@ -184,6 +279,7 @@ $assert(
     ($lowercaseConfigSnapshot['rowIdentities'] ?? []) === [
         'IBLOCK_CALC_DETAILS' => ['name' => 'iblock_calc_details', 'siteId' => null],
         'IBLOCK_CALC_PRESETS' => ['name' => 'iblock_calc_presets', 'siteId' => null],
+        'IBLOCK_CALC_SETTINGS' => ['name' => 'iblock_calc_settings', 'siteId' => null],
         'IBLOCK_CALC_STAGES' => ['name' => 'iblock_calc_stages', 'siteId' => null],
     ],
     'the migration CAS snapshot preserves the exact lowercase database row identities'
@@ -204,12 +300,14 @@ $expectConfigFailure([
     ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
     ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
     ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '99', 'SITE_ID' => ''],
+    ['NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
     ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42', 'SITE_ID' => null],
 ], 'duplicate NULL/empty-site config authorities are rejected');
 $expectConfigFailure([
     ['NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => null],
     ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
     ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '99', 'SITE_ID' => ''],
+    ['NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
     ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
 ], 'mixed-case rows colliding on one canonical Bitrix option authority are rejected');
 $expectConfigFailure([
@@ -219,18 +317,30 @@ $expectConfigFailure([
 $expectConfigFailure([
     ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
     ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
+    ['NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
     ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42-cache-poison', 'SITE_ID' => null],
 ], 'a non-canonical config authority is rejected');
 $expectConfigFailure([
     ['NAME' => 'iblock_calc_details ', 'VALUE' => '50', 'SITE_ID' => null],
     ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
     ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
 ], 'a whitespace option-name alias is rejected instead of being trimmed');
 $expectConfigFailure([
     ['NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => 's1'],
     ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
     ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
 ], 'a site-scoped option row cannot become the global migration authority');
+$invalidRawValues = ['', ' ', ' 42 ', '042'];
+foreach ($invalidRawValues as $invalidRawValue) {
+    $expectConfigFailure([
+        ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
+        ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
+        ['NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
+        ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => $invalidRawValue, 'SITE_ID' => null],
+    ], 'a non-exact raw iblock authority is rejected: ' . json_encode($invalidRawValue));
+}
 
 $membershipMethod = new ReflectionMethod(
     Preset12740NeutralInputMigrationService::class,
@@ -325,22 +435,45 @@ foreach (['apply' => $applySource, 'rollback' => $rollbackSource] as $method => 
         $method . ' locks, rereads and CAS-checks config before loading state through pinned iblock ids'
     );
     if ($method === 'apply') {
+        $optionLock = strpos($methodSource, '$this->lockNeutralOptionAuthorities();');
+        $v2Gate = strpos($methodSource, '->assertActivationReadyLocked(true);');
         $activate = strpos($methodSource, "\$this->setGlobalOption(self::ACTIVE_OPTION, 'Y');");
         $assert(
-            is_int($activate) && $configCas < $activate,
-            'neutral runtime activation cannot precede the raw config CAS check'
+            is_int($optionLock) && is_int($v2Gate) && is_int($lockRows) && is_int($activate)
+                && $transactionStart < $optionLock && $optionLock < $v2Gate
+                && $v2Gate < $lockRows && $configCas < $activate,
+            'the full neutral option superset precedes V2 registry and V1 formula rows before activation'
+        );
+        $assert(
+            strpos($methodSource, '->assertActivationReady();') === false,
+            'V1 activation never relies on a non-locking V2 evidence read'
+        );
+    } else {
+        $optionLock = strpos($methodSource, '$this->lockNeutralOptionAuthorities();');
+        $v2RollbackGate = strpos($methodSource, '->assertV1RollbackReadyLocked(true);');
+        $assert(
+            is_int($optionLock) && is_int($v2RollbackGate) && is_int($lockRows)
+                && $transactionStart < $optionLock
+                && $optionLock < $v2RollbackGate
+                && $v2RollbackGate < $lockRows,
+            'V1 rollback locks and revalidates exact V2 recovery evidence before any V1 formula row'
         );
     }
 }
-$readOptionStart = strpos($serviceSource, 'private function readOptionRaw(');
+$readOptionStart = strpos($serviceSource, 'private function readOptionState(');
+$readOptionRawStart = strpos($serviceSource, 'private function readOptionRaw(');
 $setGlobalStart = strpos($serviceSource, 'private function setGlobalOption(');
-$assert(is_int($readOptionStart) && is_int($setGlobalStart), 'raw option reader boundary is discoverable');
-$readOptionSource = substr($serviceSource, $readOptionStart, $setGlobalStart - $readOptionStart);
+$assert(
+    is_int($readOptionStart) && is_int($readOptionRawStart) && is_int($setGlobalStart),
+    'presence-aware raw option reader boundary is discoverable'
+);
+$readOptionSource = substr($serviceSource, $readOptionStart, $readOptionRawStart - $readOptionStart);
 $assert(
     strpos($readOptionSource, "AND (SITE_ID IS NULL OR SITE_ID='')") !== false
         && strpos($readOptionSource, "(\$forUpdate ? ' FOR UPDATE' : '')") !== false
-        && strpos($readOptionSource, '$duplicate') !== false,
-    'raw option values are global-only, duplicate-rejecting and optionally locked without Bitrix cache'
+        && strpos($readOptionSource, '$duplicate') !== false
+        && strpos($readOptionSource, "['exists' => false") !== false,
+    'raw option values preserve missing versus empty, reject duplicates and optionally lock without Bitrix cache'
 );
 $loadStateStart = strpos($serviceSource, 'private function loadBitrixState(');
 $writeStateStart = strpos($serviceSource, 'private function writeAffectedState(');
@@ -364,14 +497,45 @@ $assert(
     'rollback deletes only the global marker and cannot erase per-site variants'
 );
 $lockStart = strpos($serviceSource, 'private function lockElements(');
+$optionLockStart = strpos($serviceSource, 'private function lockNeutralOptionAuthorities(');
 $evidenceStart = strpos($serviceSource, 'private static function assertCompletionEvidence(');
-$assert(is_int($lockStart) && is_int($evidenceStart), 'migration lock boundary is discoverable');
-$lockSource = substr($serviceSource, $lockStart, $evidenceStart - $lockStart);
 $assert(
-    strpos($lockSource, "'IBLOCK_CALC_DETAILS','IBLOCK_CALC_PRESETS','IBLOCK_CALC_STAGES'") !== false
+    is_int($lockStart) && is_int($optionLockStart) && is_int($evidenceStart),
+    'migration element and option lock boundaries are discoverable'
+);
+$lockSource = substr($serviceSource, $optionLockStart, $evidenceStart - $optionLockStart);
+$assert(
+    strpos($lockSource, "'IBLOCK_CALC_DETAILS'") !== false
+        && strpos($lockSource, "'IBLOCK_CALC_GLOBAL_VALUES'") !== false
+        && strpos($lockSource, "'IBLOCK_CALC_PRESETS'") !== false
+        && strpos($lockSource, "'IBLOCK_CALC_SETTINGS'") !== false
+        && strpos($lockSource, "'IBLOCK_CALC_STAGES'") !== false
+        && strpos($lockSource, "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1'") !== false
+        && strpos($lockSource, "'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1'") !== false
         && strpos($lockSource, "AND (SITE_ID IS NULL OR SITE_ID='')") !== false
         && strpos($lockSource, 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE') !== false,
-    'the shared deterministic option-lock order includes all three global config authorities'
+    'the deterministic option-lock superset includes all V1, V2 and formula/config authorities'
+);
+$elementLockSource = substr($serviceSource, $lockStart, $optionLockStart - $lockStart);
+$assert(
+    strpos($elementLockSource, 'b_option') === false
+        && strpos($elementLockSource, 'b_iblock_element') !== false,
+    'V1 formula element locks cannot acquire a late option row after the V2 registry lock'
+);
+$policySource = file_get_contents(dirname(__DIR__) . '/lib/Services/NeutralFormulaPolicy.php');
+$assert(
+    is_string($policySource)
+        && strpos($policySource, 'ConfigManager') === false
+        && strpos($policySource, 'CalculatorContractService') === false
+        && strpos($policySource, 'ORDER BY MODULE_ID, NAME, SITE_ID') !== false
+        && strpos($policySource, "(\$forUpdate ? ' FOR UPDATE' : '')") !== false,
+    'activation and protected authoring use direct ordered option authorities, never warm config caches'
+);
+$assert(
+    strpos($serviceSource, 'public function assertCompletionReady(): array') !== false
+        && strpos($serviceSource, 'public function assertRollbackResumeReady(): array') !== false
+        && strpos($serviceSource, 'self::assertCompletionEvidence(') !== false,
+    'operational read-only gates cover both completed V1 evidence and an exact retained-backup rollback resume state'
 );
 
 echo "Preset 12740 neutral-input migration tests passed\n";

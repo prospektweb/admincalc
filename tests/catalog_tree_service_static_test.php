@@ -45,6 +45,26 @@ if (substr_count($service, "'ACTIVE_DATE' => 'Y'") < 1) {
 if (!str_contains($service, 'StandaloneCatalogSelectionMapper::supportedProductIds()')) {
     throw new RuntimeException('Preset 12740 authoring catalog must retain the fixed prepared-product allowlist');
 }
+foreach ([
+    'CALC_CUSTOM_FIELDS',
+    'CALC_MATERIALS',
+    'CALC_MATERIALS_VARIANTS',
+    'CALC_OPERATIONS',
+    'CALC_OPERATIONS_VARIANTS',
+    'CALC_EQUIPMENT',
+] as $mutableDirectoryCode) {
+    if (!str_contains($service, "'{$mutableDirectoryCode}'")) {
+        throw new RuntimeException("Generic catalog mutation allowlist misses {$mutableDirectoryCode}");
+    }
+}
+if (substr_count($service, '$this->assertMutableDirectoryIblock($iblock);') !== 3) {
+    throw new RuntimeException('All three generic catalog mutation methods must enforce the directory-only allowlist');
+}
+foreach (['CALC_PRESETS', 'CALC_DETAILS', 'CALC_STAGES', 'CALC_SETTINGS', 'CALC_GLOBAL_VALUES'] as $executableCode) {
+    if (preg_match('/MUTABLE_IBLOCK_CODES\s*=\s*\[[^\]]*\x27' . preg_quote($executableCode, '/') . '\x27/s', $service) === 1) {
+        throw new RuntimeException("Executable iblock {$executableCode} must not enter the generic mutation allowlist");
+    }
+}
 if (!str_contains($batchService, '$this->catalogAdapterService->supportedProductIds()')) {
     throw new RuntimeException('Batch calculation must retain the current persisted adapter scope');
 }

@@ -18,7 +18,6 @@ use Prospektweb\Calc\Calculator\InitPayloadService;
 use Prospektweb\Calc\Calculator\ElementDataService;
 use Prospektweb\Calc\Calculator\SaveHandler;
 use Prospektweb\Calc\Calculator\BundleHandler;
-use Prospektweb\Calc\Services\SyncVariantsHandler;
 
 // Constants
 const LOG_FILE = '/local/logs/prospektweb.calc.ajax.log';
@@ -102,21 +101,10 @@ if ($pwrtMessage) {
     try {
         switch ($messageType) {
             case 'SYNC_VARIANTS_REQUEST':
-                $handler = new SyncVariantsHandler();
-                $result = $handler->handle($payload);
-                
-                $response = [
-                    'protocol' => 'pwrt-v1',
-                    'source' => 'bitrix',
-                    'target' => 'prospektweb.calc',
-                    'type' => 'SYNC_VARIANTS_RESPONSE',
-                    'requestId' => $requestId,
-                    'payload' => $result,
-                    'timestamp' => time(),
-                ];
-                
-                sendJsonResponse($response);
-                break;
+                throw new \RuntimeException(
+                    'Legacy SYNC_VARIANTS_REQUEST is disabled; use explicit editor operations.',
+                    409
+                );
             
             case 'SAVE_CALCULATION_REQUEST':
                 throw new \RuntimeException('USE_CATALOG_WRITE_PREVIEW_APPLY', 409);
@@ -235,16 +223,13 @@ try {
             break;
 
         case 'save':
-            handleSave($request);
-            break;
+            throw new \RuntimeException('Legacy save endpoint is disabled.', 410);
 
         case 'saveBundle':
-            handleSaveBundle($request);
-            break;
+            throw new \RuntimeException('Legacy saveBundle endpoint is disabled.', 410);
 
         case 'finalizeBundle':
-            handleFinalizeBundle($request);
-            break;
+            throw new \RuntimeException('Legacy finalizeBundle endpoint is disabled.', 410);
 
         case 'refreshData':
             handleRefreshData($request);
@@ -726,8 +711,23 @@ function handleCreateAndAssignPreset($request): void
     }
 
     try {
-        $bundleHandler = new BundleHandler();
-        $presetId = $bundleHandler->createPreset($offerIds);
+        $neutralPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
+        $presetId = $neutralPolicy->withActiveAuthorityLock(static function (
+            bool $protected,
+            array $pinnedIblockIds
+        ) use ($offerIds): int {
+            if ($protected) {
+                throw new \RuntimeException(
+                    'Automatic preset creation is disabled after preset 12740 neutral migration begins.',
+                    409
+                );
+            }
+            $presetsIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+            if ($presetsIblockId <= 0) {
+                throw new \RuntimeException('Pinned preset authority is missing.', 409);
+            }
+            return (new BundleHandler())->createPreset($offerIds, null, $presetsIblockId);
+        });
         
         logInfo('CreateAndAssignPreset success for offers: ' . implode(',', $offerIds) . ', presetId=' . $presetId);
         
@@ -740,7 +740,11 @@ function handleCreateAndAssignPreset($request): void
         ]);
     } catch (\Throwable $e) {
         logError('CreateAndAssignPreset error: ' . $e->getMessage());
-        sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
+        $statusCode = (int)$e->getCode();
+        if (!in_array($statusCode, [400, 409], true)) {
+            $statusCode = 500;
+        }
+        sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], $statusCode);
     }
 }
 
@@ -890,75 +894,87 @@ function handleEnrichPreset($request): void
 
     $detailIds = is_array($detailIdsRaw) ? $detailIdsRaw : explode(',', (string)$detailIdsRaw);
     $detailIds = array_map('intval', $detailIds);
-    $detailIds = array_filter($detailIds, function($id) { return $id > 0; });
+    $detailIds = array_values(array_filter($detailIds, function($id) { return $id > 0; }));
 
     if (empty($detailIds)) {
         sendJsonResponse(['error' => 'Invalid parameter', 'message' => 'Некорректные ID деталей'], 400);
     }
 
     try {
-        $detailHandler = new \Prospektweb\Calc\Services\DetailHandler();
-        $rootDetailId = null;
-
-        // Логика определения корневой детали
-        if (count($detailIds) === 1 && !$binding) {
-            // 1 деталь + binding=false → используем выбранную деталь
-            $rootDetailId = $detailIds[0];
-        } elseif (count($detailIds) >= 1 && $binding) {
-            // 1+ деталей + binding=true → создаём скрепление (старая + новые)
-            $allDetailIds = $detailIds;
-            
-            // Добавляем существующую деталь, если она есть
+        $offerIds = parseOfferIds($offerIdsRaw);
+        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
+        $enrichmentResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+            bool $protected,
+            array $pinnedIblockIds
+        ) use (
+            $neutralFormulaPolicy,
+            $presetId,
+            $detailIds,
+            $binding,
+            $existingDetailId,
+            $offerIds
+        ): array {
+            $subjectDetailIds = $detailIds;
             if ($existingDetailId > 0) {
-                $allDetailIds = array_merge([$existingDetailId], $detailIds);
+                $subjectDetailIds[] = $existingDetailId;
             }
-            
-            $allDetailIds = array_unique($allDetailIds);
-            
-            // Если только одна деталь, не создаём скрепление
-            if (count($allDetailIds) === 1) {
-                $rootDetailId = $allDetailIds[0];
-            } else {
+            $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                $presetId,
+                $subjectDetailIds,
+                $protected,
+                'preset enrichment'
+            );
+
+            $detailHandler = new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds);
+            $rootDetailId = 0;
+            if (count($detailIds) === 1 && !$binding) {
+                $rootDetailId = (int)$detailIds[0];
+            } elseif (count($detailIds) >= 1 && $binding) {
+                $allDetailIds = $existingDetailId > 0
+                    ? array_merge([$existingDetailId], $detailIds)
+                    : $detailIds;
+                $allDetailIds = array_values(array_unique(array_map('intval', $allDetailIds)));
+                if (count($allDetailIds) === 1) {
+                    $rootDetailId = (int)$allDetailIds[0];
+                } else {
+                    $groupResult = $detailHandler->addGroup([
+                        'detailIds' => $allDetailIds,
+                        'offerIds' => [],
+                    ]);
+                    if (($groupResult['status'] ?? '') !== 'ok') {
+                        throw new \RuntimeException(
+                            (string)($groupResult['message'] ?? 'Не удалось создать скрепление')
+                        );
+                    }
+                    $rootDetailId = (int)($groupResult['group']['id'] ?? 0);
+                }
+            } elseif (count($detailIds) >= 2 && !$binding) {
                 $groupResult = $detailHandler->addGroup([
-                    'detailIds' => $allDetailIds,
+                    'detailIds' => $detailIds,
                     'offerIds' => [],
                 ]);
-                
-                if ($groupResult['status'] !== 'ok') {
-                    sendJsonResponse([
-                        'error' => 'Group creation failed',
-                        'message' => $groupResult['message'] ?? 'Не удалось создать скрепление'
-                    ], 500);
+                if (($groupResult['status'] ?? '') !== 'ok') {
+                    throw new \RuntimeException(
+                        (string)($groupResult['message'] ?? 'Не удалось создать скрепление')
+                    );
                 }
-                
-                $rootDetailId = $groupResult['group']['id'];
+                $rootDetailId = (int)($groupResult['group']['id'] ?? 0);
             }
-        } elseif (count($detailIds) >= 2 && !$binding) {
-            // 2+ деталей + binding=false → создаём скрепление (только новые)
-            $groupResult = $detailHandler->addGroup([
-                'detailIds' => $detailIds,
-                'offerIds' => [],
-            ]);
-            
-            if ($groupResult['status'] !== 'ok') {
-                sendJsonResponse([
-                    'error' => 'Group creation failed',
-                    'message' => $groupResult['message'] ?? 'Не удалось создать скрепление'
-                ], 500);
+            if ($rootDetailId <= 0) {
+                throw new \InvalidArgumentException(
+                    'Некорректные параметры для создания/обогащения',
+                    400
+                );
             }
-            
-            $rootDetailId = $groupResult['group']['id'];
-        } else {
-            sendJsonResponse([
-                'error' => 'Invalid parameters',
-                'message' => 'Некорректные параметры для создания/обогащения'
-            ], 400);
-        }
 
-        // Обогащаем пресет
-        $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
-        $offerIds = parseOfferIds($offerIdsRaw);
-        $initPayload = $enrichmentService->enrichPresetFromDetails($presetId, $rootDetailId, $offerIds);
+            return [
+                'rootDetailId' => $rootDetailId,
+                'initPayload' => (new \Prospektweb\Calc\Services\PresetEnrichmentService($pinnedIblockIds))
+                    ->enrichPresetFromDetails($presetId, $rootDetailId, $offerIds),
+            ];
+        });
+        $rootDetailId = (int)$enrichmentResult['rootDetailId'];
+        $initPayload = $enrichmentResult['initPayload'];
 
         logInfo(sprintf(
             'EnrichPreset success: presetId=%d, rootDetailId=%d, binding=%s',
@@ -973,7 +989,11 @@ function handleEnrichPreset($request): void
         ]);
     } catch (\Throwable $e) {
         logError('EnrichPreset error: ' . $e->getMessage());
-        sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
+        $statusCode = (int)$e->getCode();
+        sendJsonResponse(
+            ['error' => resolveErrorType($e), 'message' => $e->getMessage()],
+            in_array($statusCode, [400, 403, 405, 409], true) ? $statusCode : 500
+        );
     }
 }
 
@@ -991,8 +1011,20 @@ function handleClearPreset($request): void
     }
 
     try {
-        $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
-        $enrichmentService->clearPreset($presetId);
+        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
+        $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+            bool $protected,
+            array $pinnedIblockIds
+        ) use ($neutralFormulaPolicy, $presetId): void {
+            $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                $presetId,
+                [],
+                $protected,
+                'preset clearing'
+            );
+            (new \Prospektweb\Calc\Services\PresetEnrichmentService($pinnedIblockIds))
+                ->clearPreset($presetId);
+        });
 
         logInfo(sprintf('ClearPreset success: presetId=%d', $presetId));
 
@@ -1007,7 +1039,11 @@ function handleClearPreset($request): void
         ]);
     } catch (\Throwable $e) {
         logError('ClearPreset error: ' . $e->getMessage());
-        sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
+        $statusCode = (int)$e->getCode();
+        sendJsonResponse(
+            ['error' => resolveErrorType($e), 'message' => $e->getMessage()],
+            in_array($statusCode, [400, 403, 405, 409], true) ? $statusCode : 500
+        );
     }
 }
 
@@ -1023,8 +1059,17 @@ function handleClonePreset($request): void
     }
 
     try {
-        $bundleHandler = new BundleHandler();
-        $newPresetId = $bundleHandler->clonePreset($presetId);
+        $policy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
+        $newPresetId = $policy->withActiveAuthorityLock(static function (
+            bool $protected
+        ) use ($presetId): int {
+            \Prospektweb\Calc\Services\NeutralFormulaPolicy::assertCloneAllowed(
+                $presetId,
+                $protected,
+                'preset graph'
+            );
+            return (new BundleHandler())->clonePreset($presetId);
+        });
 
         logInfo(sprintf('ClonePreset success: presetId=%d, newPresetId=%d', $presetId, $newPresetId));
 
@@ -1037,7 +1082,11 @@ function handleClonePreset($request): void
         ]);
     } catch (\Throwable $e) {
         logError('ClonePreset error: ' . $e->getMessage());
-        sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
+        $statusCode = (int)$e->getCode();
+        sendJsonResponse(
+            ['error' => resolveErrorType($e), 'message' => $e->getMessage()],
+            in_array($statusCode, [400, 403, 405, 409], true) ? $statusCode : 500
+        );
     }
 }
 

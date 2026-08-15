@@ -9,18 +9,53 @@ final class StageGroupService
     private const MODULE_ID = 'prospektweb.calc';
     private const PROPERTY_CODE = 'STAGE_GROUPS';
 
-    public function save(array $request): array
+    private int $presetsIblockId;
+    private int $detailsIblockId;
+    private int $stagesIblockId;
+    private bool $pinnedAuthority = false;
+
+    /** @param array<string,int>|null $pinnedIblockIds */
+    public function __construct(?array $pinnedIblockIds = null)
+    {
+        if ($pinnedIblockIds !== null) {
+            $this->pinnedAuthority = true;
+            $this->presetsIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+            $this->detailsIblockId = (int)($pinnedIblockIds['CALC_DETAILS'] ?? 0);
+            $this->stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+        } else {
+            $this->presetsIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_PRESETS', 0);
+            $this->detailsIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_DETAILS', 0);
+            $this->stagesIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_STAGES', 0);
+        }
+        if ($this->presetsIblockId <= 0 || $this->detailsIblockId <= 0 || $this->stagesIblockId <= 0) {
+            throw new \RuntimeException('Stage-group iblock authority is invalid.', 409);
+        }
+    }
+
+    public function save(array $request, bool $manageTransaction = true): array
     {
         global $USER;
         if (!$USER || !$USER->IsAdmin()) throw new \RuntimeException('Недостаточно прав для изменения групп этапов');
         $presetId = (int)($request['presetId'] ?? 0);
         $groups = is_array($request['groups'] ?? null) ? $request['groups'] : [];
         if ($presetId <= 0 || count($groups) > 100) throw new \InvalidArgumentException('Некорректный пресет или количество групп');
-        $iblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_PRESETS', 0);
+        $iblockId = $this->presetsIblockId;
         if ($iblockId <= 0 || !\CIBlockElement::GetList([], ['ID' => $presetId, 'IBLOCK_ID' => $iblockId], false, ['nTopCount' => 1], ['ID'])->Fetch()) {
             throw new \RuntimeException('Пресет не найден');
         }
-        $this->ensureProperty($iblockId);
+        if ($this->pinnedAuthority) {
+            if (!\CIBlockProperty::GetList([], [
+                'IBLOCK_ID' => $iblockId,
+                '=CODE' => self::PROPERTY_CODE,
+            ])->Fetch()) {
+                throw new \RuntimeException(
+                    'Stage-group property must be provisioned before protected authoring.',
+                    409
+                );
+            }
+        } else {
+            $this->ensureProperty($iblockId);
+        }
         $stageTopology = $this->collectPresetStageTopology($presetId, $iblockId);
         $normalized = [];
         $groupIds = [];
@@ -173,7 +208,9 @@ final class StageGroupService
         }
         $json = json_encode(['version' => 3, 'groups' => $clean], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         $connection = \Bitrix\Main\Application::getConnection();
-        $connection->startTransaction();
+        if ($manageTransaction) {
+            $connection->startTransaction();
+        }
         try {
             \CIBlockElement::SetPropertyValues($presetId, $iblockId, [], self::PROPERTY_CODE);
             \CIBlockElement::SetPropertyValuesEx($presetId, $iblockId, [
@@ -192,9 +229,13 @@ final class StageGroupService
                 ?? $storedProperties[self::PROPERTY_CODE]['VALUE']
                 ?? '');
             if ($storedText !== $json) throw new \RuntimeException('Группы этапов не были записаны в пресет');
-            $connection->commitTransaction();
+            if ($manageTransaction) {
+                $connection->commitTransaction();
+            }
         } catch (\Throwable $error) {
-            $connection->rollbackTransaction();
+            if ($manageTransaction) {
+                $connection->rollbackTransaction();
+            }
             throw $error;
         }
         return ['status' => 'ok', 'groups' => $clean];
@@ -226,7 +267,7 @@ final class StageGroupService
         foreach ($this->propertyIds($presetIblockId, $presetId, 'CALC_STAGES') as $position => $stageId) {
             $topology[(int)$stageId] = ['container' => 'preset:' . $presetId, 'position' => $position];
         }
-        $detailsIblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_CALC_DETAILS', 0);
+        $detailsIblockId = $this->detailsIblockId;
         if ($detailsIblockId <= 0) return $topology;
         $queue = $this->propertyIds($presetIblockId, $presetId, 'CALC_DETAILS');
         $visited = [];

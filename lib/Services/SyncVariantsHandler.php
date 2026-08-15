@@ -20,6 +20,15 @@ class SyncVariantsHandler
     ];
     
     private array $errors = [];
+
+    /** @var array<string,int> */
+    private array $pinnedIblockIds;
+
+    /** @param array<string,int>|null $pinnedIblockIds */
+    public function __construct(?array $pinnedIblockIds = null)
+    {
+        $this->pinnedIblockIds = $pinnedIblockIds ?? [];
+    }
     
     /**
      * Обработать запрос синхронизации
@@ -350,6 +359,13 @@ class SyncVariantsHandler
      */
     private function getIblockId(string $code): int
     {
+        if ($this->pinnedIblockIds !== []) {
+            $id = (int)($this->pinnedIblockIds[$code] ?? 0);
+            if ($id <= 0) {
+                throw new \RuntimeException('Pinned sync-variants iblock authority is invalid.', 409);
+            }
+            return $id;
+        }
         return (int)Option::get(self::MODULE_ID, 'IBLOCK_' . $code, 0);
     }
 

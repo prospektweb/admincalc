@@ -29,6 +29,7 @@ final class Preset12740NeutralInputMigrationService
     private const CONFIG_OPTION_TO_STATE_KEY = [
         'IBLOCK_CALC_DETAILS' => 'detailsIblockId',
         'IBLOCK_CALC_PRESETS' => 'presetIblockId',
+        'IBLOCK_CALC_SETTINGS' => 'settingsIblockId',
         'IBLOCK_CALC_STAGES' => 'stagesIblockId',
     ];
 
@@ -43,6 +44,59 @@ final class Preset12740NeutralInputMigrationService
         $plan = self::buildPlan($this->loadBitrixState($publishedRaw, $configSnapshot));
         unset($plan['_nextState']);
         return $plan;
+    }
+
+    /**
+     * Read-only evidence gate for operational runners and diagnostics.
+     *
+     * A merely neutral-looking state is not enough: the exact legacy backup
+     * and the matching migration marker must reproduce the current eight
+     * rewritten references. No option, iblock or publication row is changed.
+     *
+     * @return array<string,mixed>
+     */
+    public function assertCompletionReady(): array
+    {
+        $configSnapshot = $this->readConfigSnapshot(false);
+        $publishedRaw = $this->readOptionRaw(
+            'prospektweb.frontcalc',
+            'FORM_FIRST_PRESET_12740',
+            false
+        );
+        $plan = self::buildPlan($this->loadBitrixState($publishedRaw, $configSnapshot));
+        self::assertCompletionEvidence(
+            $plan,
+            $this->readOptionRaw(self::MODULE_ID, self::MARKER_OPTION, false),
+            $this->readOptionRaw(self::MODULE_ID, self::BACKUP_OPTION, false)
+        );
+        unset($plan['_nextState']);
+        return $plan;
+    }
+
+    /**
+     * Read-only recovery gate for the operational two-phase rollback runner.
+     *
+     * V1 deliberately retains its immutable backup after restoring the legacy
+     * state. If the process stops before V2 rollback, this proves that V1 is
+     * already restored exactly and that resuming with V2-only rollback is safe.
+     *
+     * @return array<string,mixed>
+     */
+    public function assertRollbackResumeReady(): array
+    {
+        $configSnapshot = $this->readConfigSnapshot(false);
+        $publishedRaw = $this->readOptionRaw(
+            'prospektweb.frontcalc',
+            'FORM_FIRST_PRESET_12740',
+            false
+        );
+        $currentState = $this->loadBitrixState($publishedRaw, $configSnapshot);
+        return self::assertRollbackResumeEvidence(
+            $currentState,
+            $this->readOptionState(self::MODULE_ID, self::ACTIVE_OPTION, false),
+            $this->readOptionState(self::MODULE_ID, self::MARKER_OPTION, false),
+            $this->readOptionState(self::MODULE_ID, self::BACKUP_OPTION, false)
+        );
     }
 
     public function apply(string $expectedFingerprint): array
@@ -65,6 +119,12 @@ final class Preset12740NeutralInputMigrationService
         try {
             $connection->startTransaction();
             $transactionStarted = true;
+            $this->lockNeutralOptionAuthorities();
+            // Lock and re-read V2 authorities/registry before any V1 source
+            // row. This keeps the shared options -> iblock order and makes the
+            // later ACTIVE=Y write depend on an exact in-transaction V2 gate.
+            $globalActivationPlan = (new Preset12740NeutralGlobalSymbolMigrationService())
+                ->assertActivationReadyLocked(true);
             $this->lockElements($initialState);
             $lockedConfigSnapshot = $this->readConfigSnapshot(true);
             self::assertConfigSnapshotUnchanged($initialConfigSnapshot, $lockedConfigSnapshot);
@@ -87,6 +147,11 @@ final class Preset12740NeutralInputMigrationService
                     $this->readOptionRaw(self::MODULE_ID, self::MARKER_OPTION, true),
                     $this->readOptionRaw(self::MODULE_ID, self::BACKUP_OPTION, true)
                 );
+                (new \Prospektweb\Calc\Services\NeutralFormulaPolicy())
+                    ->assertCurrentPresetAuthoringStateSafe(
+                        $lockedConfigSnapshot,
+                        (int)($globalActivationPlan['globalIblockId'] ?? 0)
+                    );
                 $this->setGlobalOption(self::ACTIVE_OPTION, 'Y');
                 $connection->commitTransaction();
                 $transactionStarted = false;
@@ -106,7 +171,7 @@ final class Preset12740NeutralInputMigrationService
                 'fingerprint' => (string)$plan['fingerprint'],
                 'state' => $currentState,
             ];
-            $this->storeBackup($backup);
+            $backupRaw = $this->storeBackup($backup);
             $this->writeAffectedState($plan['_nextState'], (array)$plan['mutations']);
 
             $readBack = $this->loadBitrixState($lockedPublishedRaw, $lockedConfigSnapshot);
@@ -122,9 +187,19 @@ final class Preset12740NeutralInputMigrationService
                 'presetId' => self::PRESET_ID,
                 'beforeFingerprint' => (string)$plan['fingerprint'],
                 'afterFingerprint' => (string)$verified['fingerprint'],
-                'backupHash' => hash('sha256', self::encodeCanonical($backup)),
+                'backupHash' => hash('sha256', $backupRaw),
                 'appliedAt' => gmdate('c'),
             ]));
+            self::assertCompletionEvidence(
+                $verified,
+                $this->readOptionRaw(self::MODULE_ID, self::MARKER_OPTION, true),
+                $this->readOptionRaw(self::MODULE_ID, self::BACKUP_OPTION, true)
+            );
+            (new \Prospektweb\Calc\Services\NeutralFormulaPolicy())
+                ->assertCurrentPresetAuthoringStateSafe(
+                    $lockedConfigSnapshot,
+                    (int)($globalActivationPlan['globalIblockId'] ?? 0)
+                );
             $this->setGlobalOption(self::ACTIVE_OPTION, 'Y');
             $connection->commitTransaction();
             $transactionStarted = false;
@@ -160,6 +235,9 @@ final class Preset12740NeutralInputMigrationService
         try {
             $connection->startTransaction();
             $transactionStarted = true;
+            $this->lockNeutralOptionAuthorities();
+            (new Preset12740NeutralGlobalSymbolMigrationService())
+                ->assertV1RollbackReadyLocked(true);
             $this->lockElements($initialState);
             $lockedConfigSnapshot = $this->readConfigSnapshot(true);
             self::assertConfigSnapshotUnchanged($initialConfigSnapshot, $lockedConfigSnapshot);
@@ -576,18 +654,57 @@ final class Preset12740NeutralInputMigrationService
 
         foreach (array_keys($globalPropertyCodes) as $propertyCode) {
             $rows = (array)($state['globals'][$propertyCode] ?? []);
+            // Bitrix may keep the old DESCRIPTION when the VALUE is unchanged.
+            // Clear the complete multi-value property first so rollback and
+            // re-apply persist the audited formula/path descriptions exactly.
+            \CIBlockElement::SetPropertyValues(
+                self::PRESET_ID,
+                $presetIblockId,
+                [],
+                (string)$propertyCode
+            );
             \CIBlockElement::SetPropertyValuesEx(self::PRESET_ID, $presetIblockId, [
-                (string)$propertyCode => $rows !== [] ? array_values($rows) : false,
+                (string)$propertyCode => $rows !== []
+                    ? self::encodeMultiplePropertyRows($rows)
+                    : false,
             ]);
         }
         foreach ($state['stages'] as $stage) {
             if (!isset($stageIds[(int)$stage['id']])) {
                 continue;
             }
+            \CIBlockElement::SetPropertyValues(
+                (int)$stage['id'],
+                $stagesIblockId,
+                [],
+                'INPUTS'
+            );
             \CIBlockElement::SetPropertyValuesEx((int)$stage['id'], $stagesIblockId, [
-                'INPUTS' => $stage['rows'] !== [] ? array_values($stage['rows']) : false,
+                'INPUTS' => $stage['rows'] !== []
+                    ? self::encodeMultiplePropertyRows((array)$stage['rows'])
+                    : false,
             ]);
         }
+    }
+
+    /**
+     * Bitrix treats a zero-based numeric array as a list of scalar values and
+     * drops DESCRIPTION for these multi-value properties. New-value keys keep
+     * each VALUE/DESCRIPTION pair intact after the preceding explicit clear.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<string,array<string,mixed>>
+     */
+    private static function encodeMultiplePropertyRows(array $rows): array
+    {
+        $encoded = [];
+        foreach (array_values($rows) as $index => $row) {
+            if (!is_array($row)) {
+                throw new \InvalidArgumentException('Invalid preset-12740 multi-value property row.');
+            }
+            $encoded['n' . $index] = $row;
+        }
+        return $encoded;
     }
 
     /** @param array<string,mixed> $state */
@@ -636,12 +753,25 @@ final class Preset12740NeutralInputMigrationService
             }
         }
 
-        $connection->queryExecute(
+    }
+
+    private function lockNeutralOptionAuthorities(): void
+    {
+        // Acquire the exact superset needed by V1 activation, V2 evidence and
+        // formula writers in one deterministic pass. No registry/formula row
+        // may be locked before this query, otherwise writers can form an
+        // options <-> global-registry cycle with activation.
+        Application::getConnection()->queryExecute(
             "SELECT MODULE_ID, NAME, SITE_ID FROM b_option WHERE ("
-            . "(MODULE_ID='prospektweb.frontcalc' AND NAME='FORM_FIRST_PRESET_12740') OR "
-            . "(MODULE_ID='prospektweb.calc' AND NAME IN ('PRESET_12740_NEUTRAL_INPUT_BACKUP_V1',"
-            . "'PRESET_12740_NEUTRAL_INPUT_MIGRATION_V1','PRESET_12740_NEUTRAL_INPUT_ACTIVE',"
-            . "'IBLOCK_CALC_DETAILS','IBLOCK_CALC_PRESETS','IBLOCK_CALC_STAGES'))) "
+            . "(MODULE_ID='prospektweb.frontcalc' AND UPPER(NAME) IN "
+            . "('FORM_FIRST_PRESET_12740','IBLOCK_CALC_GLOBAL_VALUES')) OR "
+            . "(MODULE_ID='prospektweb.calc' AND UPPER(NAME) IN ("
+            . "'IBLOCK_CALC_DETAILS','IBLOCK_CALC_GLOBAL_VALUES','IBLOCK_CALC_PRESETS',"
+            . "'IBLOCK_CALC_SETTINGS','IBLOCK_CALC_STAGES',"
+            . "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1',"
+            . "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',"
+            . "'PRESET_12740_NEUTRAL_INPUT_ACTIVE','PRESET_12740_NEUTRAL_INPUT_BACKUP_V1',"
+            . "'PRESET_12740_NEUTRAL_INPUT_MIGRATION_V1'))) "
             . "AND (SITE_ID IS NULL OR SITE_ID='') "
             . 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE'
         );
@@ -670,7 +800,8 @@ final class Preset12740NeutralInputMigrationService
             || !is_array($backup)
             || (string)($backup['contract'] ?? '') !== self::CONTRACT
             || (int)($backup['presetId'] ?? 0) !== self::PRESET_ID
-            || !is_array($backup['state'] ?? null)) {
+            || !is_array($backup['state'] ?? null)
+            || !hash_equals(self::encodeCanonical($backup), $backupRaw)) {
             throw new \RuntimeException(
                 'Preset 12740 is neutral but has no matching verified migration marker and backup.'
             );
@@ -681,7 +812,7 @@ final class Preset12740NeutralInputMigrationService
         if (preg_match('/^[a-f0-9]{64}$/D', $beforeFingerprint) !== 1
             || preg_match('/^[a-f0-9]{64}$/D', $backupHash) !== 1
             || !hash_equals($beforeFingerprint, (string)($backup['fingerprint'] ?? ''))
-            || !hash_equals($backupHash, hash('sha256', self::encodeCanonical($backup)))) {
+            || !hash_equals($backupHash, hash('sha256', $backupRaw))) {
             throw new \RuntimeException('Preset 12740 migration evidence is incomplete or corrupted.');
         }
 
@@ -696,7 +827,58 @@ final class Preset12740NeutralInputMigrationService
     }
 
     /**
-     * Read the three migration topology authorities without either Bitrix
+     * @param array<string,mixed> $currentState
+     * @param array<string,mixed> $activeOption
+     * @param array<string,mixed> $markerOption
+     * @param array<string,mixed> $backupOption
+     * @return array<string,mixed>
+     */
+    private static function assertRollbackResumeEvidence(
+        array $currentState,
+        array $activeOption,
+        array $markerOption,
+        array $backupOption
+    ): array {
+        if (($activeOption['exists'] ?? false) !== true || ($activeOption['value'] ?? null) !== 'N') {
+            throw new \RuntimeException('Preset 12740 rollback resume requires exact ACTIVE=N evidence.', 409);
+        }
+        if (($markerOption['exists'] ?? false) !== false) {
+            throw new \RuntimeException('Preset 12740 rollback resume requires the V1 marker to be absent.', 409);
+        }
+        $backupRaw = ($backupOption['exists'] ?? false) === true
+            ? (string)($backupOption['value'] ?? '')
+            : '';
+        $backup = $backupRaw !== '' ? json_decode($backupRaw, true) : null;
+        if (!is_array($backup)
+            || !hash_equals(self::encodeCanonical($backup), $backupRaw)
+            || (string)($backup['contract'] ?? '') !== self::CONTRACT
+            || (int)($backup['presetId'] ?? 0) !== self::PRESET_ID
+            || !is_array($backup['state'] ?? null)) {
+            throw new \RuntimeException('Preset 12740 retained rollback backup is unavailable or non-canonical.', 409);
+        }
+
+        $currentPlan = self::buildPlan($currentState);
+        $backupPlan = self::buildPlan($backup['state']);
+        $backupFingerprint = (string)($backup['fingerprint'] ?? '');
+        if (($currentPlan['status'] ?? '') !== 'pending'
+            || ($currentPlan['ready'] ?? false) !== true
+            || count((array)($currentPlan['mutations'] ?? [])) !== self::EXPECTED_MUTATION_COUNT
+            || ($backupPlan['status'] ?? '') !== 'pending'
+            || ($backupPlan['ready'] ?? false) !== true
+            || count((array)($backupPlan['mutations'] ?? [])) !== self::EXPECTED_MUTATION_COUNT
+            || preg_match('/^[a-f0-9]{64}$/D', $backupFingerprint) !== 1
+            || !hash_equals($backupFingerprint, (string)($backupPlan['fingerprint'] ?? ''))
+            || !hash_equals($backupFingerprint, (string)($currentPlan['fingerprint'] ?? ''))
+            || !hash_equals(self::encodeCanonical($backup['state']), self::encodeCanonical($currentState))) {
+            throw new \RuntimeException('Preset 12740 current state does not exactly match the retained rollback backup.', 409);
+        }
+        unset($currentPlan['_nextState']);
+        $currentPlan['rollbackResumeReady'] = true;
+        return $currentPlan;
+    }
+
+    /**
+     * Read the four migration/activation topology authorities without either Bitrix
      * Option's process cache or ConfigManager's process-static cache.
      *
      * @return array<string,mixed>
@@ -706,7 +888,8 @@ final class Preset12740NeutralInputMigrationService
         $rows = [];
         $result = Application::getConnection()->query(
             "SELECT NAME, VALUE, SITE_ID FROM b_option WHERE MODULE_ID='prospektweb.calc' "
-            . "AND NAME IN ('IBLOCK_CALC_DETAILS','IBLOCK_CALC_PRESETS','IBLOCK_CALC_STAGES') "
+            . "AND UPPER(NAME) IN ('IBLOCK_CALC_DETAILS','IBLOCK_CALC_PRESETS',"
+            . "'IBLOCK_CALC_SETTINGS','IBLOCK_CALC_STAGES') "
             . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY NAME, SITE_ID"
             . ($forUpdate ? ' FOR UPDATE' : '')
         );
@@ -756,11 +939,10 @@ final class Preset12740NeutralInputMigrationService
                 throw new \RuntimeException('Preset 12740 migration iblock topology is incomplete.', 409);
             }
             $raw = (string)$rawByName[$name]['value'];
-            $normalized = trim($raw);
-            $iblockId = (int)$normalized;
-            if (preg_match('/^[1-9][0-9]*$/D', $normalized) !== 1
+            $iblockId = (int)$raw;
+            if (preg_match('/^[1-9][0-9]*$/D', $raw) !== 1
                 || $iblockId <= 0
-                || (string)$iblockId !== $normalized) {
+                || (string)$iblockId !== $raw) {
                 throw new \RuntimeException('Preset 12740 migration iblock topology is invalid.', 409);
             }
             $snapshot['options'][$name] = $raw;
@@ -788,13 +970,14 @@ final class Preset12740NeutralInputMigrationService
         }
     }
 
-    /** Read exactly one global row without Bitrix Option's process cache. */
-    private function readOptionRaw(string $moduleId, string $name, bool $forUpdate): string
+    /** @return array{exists:bool,value:string} */
+    private function readOptionState(string $moduleId, string $name, bool $forUpdate): array
     {
         $escape = static fn(string $value): string => str_replace("'", "''", $value);
         $result = Application::getConnection()->query(
-            "SELECT VALUE FROM b_option WHERE MODULE_ID='" . $escape($moduleId)
+            "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE MODULE_ID='" . $escape($moduleId)
              . "' AND NAME='" . $escape($name) . "' AND (SITE_ID IS NULL OR SITE_ID='')"
+             . ' ORDER BY NAME, SITE_ID'
              . ($forUpdate ? ' FOR UPDATE' : '')
         );
         $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
@@ -802,7 +985,22 @@ final class Preset12740NeutralInputMigrationService
         if (is_array($duplicate)) {
             throw new \RuntimeException('Duplicate global preset 12740 migration option row.', 409);
         }
-        return is_array($row) ? (string)($row['VALUE'] ?? $row['value'] ?? '') : '';
+        if (!is_array($row)) {
+            return ['exists' => false, 'value' => ''];
+        }
+        $actualModule = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+        $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
+        $siteId = $row['SITE_ID'] ?? $row['site_id'] ?? null;
+        if ($actualModule !== $moduleId || $actualName !== $name || !in_array($siteId, [null, ''], true)) {
+            throw new \RuntimeException('Unexpected global preset 12740 migration option authority.', 409);
+        }
+        return ['exists' => true, 'value' => (string)($row['VALUE'] ?? $row['value'] ?? '')];
+    }
+
+    /** Read exactly one global row without Bitrix Option's process cache. */
+    private function readOptionRaw(string $moduleId, string $name, bool $forUpdate): string
+    {
+        return (string)$this->readOptionState($moduleId, $name, $forUpdate)['value'];
     }
 
     private function setGlobalOption(string $name, string $value): void
@@ -827,23 +1025,29 @@ final class Preset12740NeutralInputMigrationService
     }
 
     /** @param array<string,mixed> $backup */
-    private function storeBackup(array $backup): void
+    private function storeBackup(array $backup): string
     {
-        $encoded = self::encodeCanonical($backup);
         $existing = $this->readOptionRaw(self::MODULE_ID, self::BACKUP_OPTION, true);
+        $encoded = self::resolveBackupRaw($backup, $existing);
         if ($existing !== '') {
-            $decoded = json_decode($existing, true);
-            if (!is_array($decoded)
-                || (string)($decoded['fingerprint'] ?? '') !== (string)$backup['fingerprint']) {
-                throw new \RuntimeException('A different preset 12740 neutral-input backup already exists.');
-            }
-            return;
+            return $existing;
         }
         $this->setGlobalOption(self::BACKUP_OPTION, $encoded);
         $readBack = $this->readOptionRaw(self::MODULE_ID, self::BACKUP_OPTION, true);
-        if (!hash_equals(hash('sha256', $encoded), hash('sha256', $readBack))) {
+        if (!hash_equals($encoded, $readBack)) {
             throw new \RuntimeException('Unable to verify the preset 12740 neutral-input backup.');
         }
+        return $readBack;
+    }
+
+    /** @param array<string,mixed> $backup */
+    private static function resolveBackupRaw(array $backup, string $existing): string
+    {
+        $encoded = self::encodeCanonical($backup);
+        if ($existing !== '' && !hash_equals($encoded, $existing)) {
+            throw new \RuntimeException('A different preset 12740 neutral-input backup already exists.');
+        }
+        return $existing !== '' ? $existing : $encoded;
     }
 
     /** @return int[] */

@@ -906,6 +906,9 @@ final class CatalogCalcPropertyMigrationService
         bool $applySemanticFixes = false,
         bool $allowLegacyPresetBreakage = false
     ): array {
+        // Fail before taking a recovery snapshot or advancing the phase. The
+        // authoritative check is repeated under the write transaction below.
+        $this->assertLegacyGlobalRewriteAllowed($presetId);
         if ($applySemanticFixes) {
             throw new \InvalidArgumentException(
                 'Semantic fixes require the separate apply_semantic_fixes phase and a new audited fingerprint'
@@ -934,10 +937,11 @@ final class CatalogCalcPropertyMigrationService
                 . self::canonicalJson($baseOfferVerification['errors'])
             );
         }
-        $this->setMigrationPhase('parity_started');
         $connection = Application::getConnection();
         $connection->startTransaction();
         try {
+            $this->assertLegacyGlobalRewriteAllowed($presetId, true);
+            $this->setMigrationPhase('parity_started');
             $this->ensureTargetProperties();
             $this->copyProductValuesToOffers();
             $this->migrateDescriptions();
@@ -1015,6 +1019,9 @@ final class CatalogCalcPropertyMigrationService
         string $expectedFingerprint,
         bool $allowLegacyPresetBreakage = false
     ): array {
+        // Do not produce a misleading fresh snapshot for a migration which is
+        // no longer allowed to own preset-12740 formulas.
+        $this->assertLegacyGlobalRewriteAllowed($presetId);
         $audit = $this->audit($presetId, true, $allowLegacyPresetBreakage);
         $this->assertFingerprint($expectedFingerprint, (string)$audit['fingerprint']);
         if ($audit['conflicts'] !== []) {
@@ -1029,7 +1036,9 @@ final class CatalogCalcPropertyMigrationService
         $connection = Application::getConnection();
         $connection->startTransaction();
         try {
+            $this->assertLegacyGlobalRewriteAllowed($presetId, true);
             $this->writeSemanticFormulas(
+                $presetId,
                 true,
                 (array)($audit['presetRefactor']['globalWritePlans'] ?? [])
             );
@@ -1075,6 +1084,9 @@ final class CatalogCalcPropertyMigrationService
         string $expectedFingerprint,
         bool $allowLegacyPresetBreakage = false
     ): array {
+        // The dedicated neutral rollback owns recovery after cut-over; this
+        // legacy rollback must stop before snapshotting or changing phase.
+        $this->assertLegacyGlobalRewriteAllowed($presetId);
         $audit = $this->audit($presetId, true, $allowLegacyPresetBreakage);
         $this->assertFingerprint($expectedFingerprint, (string)$audit['fingerprint']);
         $semanticVerification = $this->verify($presetId, true, $allowLegacyPresetBreakage);
@@ -1086,7 +1098,9 @@ final class CatalogCalcPropertyMigrationService
         $connection = Application::getConnection();
         $connection->startTransaction();
         try {
+            $this->assertLegacyGlobalRewriteAllowed($presetId, true);
             $this->writeSemanticFormulas(
+                $presetId,
                 false,
                 (array)($audit['presetRefactor']['globalWritePlans'] ?? [])
             );
@@ -3631,6 +3645,7 @@ final class CatalogCalcPropertyMigrationService
         string $aiContextSourceSha256
     ): void
     {
+        $this->assertLegacyGlobalRewriteAllowed($presetId, true);
         $config = new ConfigManager();
         $globalsIblockId = $config->getIblockId('CALC_GLOBAL_VALUES');
         foreach ($globalWritePlans as $plan) {
@@ -3692,8 +3707,9 @@ final class CatalogCalcPropertyMigrationService
         $this->refactorAiContext($aiContextSourceSha256);
     }
 
-    private function writeSemanticFormulas(bool $enabled, array $globalWritePlans): void
+    private function writeSemanticFormulas(int $presetId, bool $enabled, array $globalWritePlans): void
     {
+        $this->assertLegacyGlobalRewriteAllowed($presetId, true);
         $globalsIblockId = (new ConfigManager())->getIblockId('CALC_GLOBAL_VALUES');
         $designer = self::expectedGlobalFormula(12793);
         if (!$enabled) {
@@ -3721,6 +3737,65 @@ final class CatalogCalcPropertyMigrationService
                 throw new \RuntimeException('Semantic global formula CAS mismatch on #' . $elementId);
             }
             $this->writeSinglePropertyText($globalsIblockId, $elementId, 'INITIAL_VALUE', $formula);
+        }
+    }
+
+    /**
+     * This historical catalogue migration owns offer-root formulas. Once the
+     * independent preset is active (or its recoverable global migration has
+     * evidence), replaying this tool would silently reintroduce product/SKU
+     * dependencies. Only the dedicated neutral rollback may remove that gate.
+     */
+    private function assertLegacyGlobalRewriteAllowed(int $presetId, bool $forUpdate = false): void
+    {
+        if ($presetId !== self::DEFAULT_PRESET_ID) {
+            return;
+        }
+        $connection = Application::getConnection();
+        $cursor = $connection->query(
+            "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option "
+            . "WHERE MODULE_ID='prospektweb.calc' AND UPPER(NAME) IN ("
+            . "'PRESET_12740_NEUTRAL_INPUT_ACTIVE',"
+            . "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1') "
+            . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME, SITE_ID"
+            . ($forUpdate ? ' FOR UPDATE' : '')
+        );
+        $values = [];
+        while ($row = $cursor->fetch()) {
+            $actualName = (string)($row['NAME'] ?? '');
+            $canonicalName = strtoupper($actualName);
+            if ((string)($row['MODULE_ID'] ?? '') !== self::MODULE_ID
+                || $actualName !== trim($actualName)
+                || !in_array($canonicalName, [
+                    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+                    'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',
+                ], true)
+                || array_key_exists($canonicalName, $values)
+                || !array_key_exists('SITE_ID', $row)
+                || !in_array($row['SITE_ID'], [null, ''], true)) {
+                throw new \RuntimeException('Neutral global rewrite authority is invalid.', 409);
+            }
+            $values[$canonicalName] = (string)($row['VALUE'] ?? '');
+        }
+        $active = (string)($values['PRESET_12740_NEUTRAL_INPUT_ACTIVE'] ?? 'N');
+        $markerExists = array_key_exists(
+            'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',
+            $values
+        );
+        $neutralMarker = $markerExists
+            ? (string)$values['PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1']
+            : '';
+        if (!in_array($active, ['N', 'Y'], true)) {
+            throw new \RuntimeException('Neutral activation authority is invalid.', 409);
+        }
+        if ($markerExists && trim($neutralMarker) === '') {
+            throw new \RuntimeException('Neutral global migration marker is invalid.', 409);
+        }
+        if ($active === 'Y' || $markerExists) {
+            throw new \RuntimeException(
+                'Legacy catalogue migration cannot rewrite global formulas of neutral preset 12740.',
+                409
+            );
         }
     }
 

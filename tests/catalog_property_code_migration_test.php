@@ -80,9 +80,10 @@ foreach (['CALC_COLORS', 'CALC_COLOR', 'CALC_PROP_COLOR'] as $code) {
 if (
     strpos($serviceSource, "Update((int)\$legacy['ID'], ['CODE' => self::TARGET_CODE])") === false
     || strpos($serviceSource, 'migrateStageOptionReferences()') === false
-    || strpos($payloadSource, 'CatalogPropertyCodeMigrationService') === false
+    || strpos($payloadSource, 'prepareNeutralInitPayloadReadOnly') === false
+    || strpos($payloadSource, 'CatalogPropertyCodeMigrationService') !== false
 ) {
-    fwrite(STDERR, "FAILED: property ID preservation or automatic reference migration is disconnected\n");
+    fwrite(STDERR, "FAILED: property migration is not explicit or neutral INIT still mutates schema\n");
     exit(1);
 }
 foreach (['USER_TYPE_SETTINGS', 'DIRECTORY_ITEMS', 'UF_XML_ID', 'UF_FILE'] as $contractToken) {

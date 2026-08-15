@@ -20,20 +20,40 @@ class PresetEnrichmentService
     private int $presetsIblockId;
     private int $operationsVariantsIblockId;
     private int $materialsVariantsIblockId;
+    private bool $neutralAuthorityPinned = false;
 
-    public function __construct()
+    /** @param array<string,int>|null $pinnedIblockIds */
+    public function __construct(?array $pinnedIblockIds = null)
     {
         if (!Loader::includeModule('iblock')) {
             throw new \RuntimeException('Требуется модуль Bitrix iblock');
         }
 
-        $configManager = new ConfigManager();
-        $this->detailsIblockId = $configManager->getIblockId('CALC_DETAILS');
-        $this->stagesIblockId = $configManager->getIblockId('CALC_STAGES');
-        $this->settingsIblockId = $configManager->getIblockId('CALC_SETTINGS');
-        $this->presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
-        $this->operationsVariantsIblockId = $configManager->getIblockId('CALC_OPERATIONS_VARIANTS');
-        $this->materialsVariantsIblockId = $configManager->getIblockId('CALC_MATERIALS_VARIANTS');
+        if ($pinnedIblockIds !== null) {
+            $this->neutralAuthorityPinned = true;
+            $this->detailsIblockId = (int)($pinnedIblockIds['CALC_DETAILS'] ?? 0);
+            $this->stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+            $this->settingsIblockId = (int)($pinnedIblockIds['CALC_SETTINGS'] ?? 0);
+            $this->presetsIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+            $this->operationsVariantsIblockId = (int)($pinnedIblockIds['CALC_OPERATIONS_VARIANTS'] ?? 0);
+            $this->materialsVariantsIblockId = (int)($pinnedIblockIds['CALC_MATERIALS_VARIANTS'] ?? 0);
+            if ($this->detailsIblockId <= 0
+                || $this->stagesIblockId <= 0
+                || $this->settingsIblockId <= 0
+                || $this->presetsIblockId <= 0
+                || $this->operationsVariantsIblockId <= 0
+                || $this->materialsVariantsIblockId <= 0) {
+                throw new \RuntimeException('Pinned preset-enrichment iblock authority is invalid.', 409);
+            }
+        } else {
+            $configManager = new ConfigManager();
+            $this->detailsIblockId = $configManager->getIblockId('CALC_DETAILS');
+            $this->stagesIblockId = $configManager->getIblockId('CALC_STAGES');
+            $this->settingsIblockId = $configManager->getIblockId('CALC_SETTINGS');
+            $this->presetsIblockId = $configManager->getIblockId('CALC_PRESETS');
+            $this->operationsVariantsIblockId = $configManager->getIblockId('CALC_OPERATIONS_VARIANTS');
+            $this->materialsVariantsIblockId = $configManager->getIblockId('CALC_MATERIALS_VARIANTS');
+        }
     }
 
     /**
@@ -47,6 +67,25 @@ class PresetEnrichmentService
      */
     public function enrichPresetFromDetails(int $presetId, int $rootDetailId, array $offerIds = []): array
     {
+        if ($presetId === NeutralFormulaPolicy::PRESET_ID && !$this->neutralAuthorityPinned) {
+            $policy = new NeutralFormulaPolicy();
+            return $policy->withActiveAuthorityLock(static function (
+                bool $protected,
+                array $pinnedIblockIds
+            ) use ($policy, $presetId, $rootDetailId, $offerIds): array {
+                $policy->assertStructuralMutationAllowed(
+                    $presetId,
+                    [$rootDetailId],
+                    $protected,
+                    'preset enrichment'
+                );
+                return (new self($pinnedIblockIds))->enrichPresetFromDetails(
+                    $presetId,
+                    $rootDetailId,
+                    $offerIds
+                );
+            });
+        }
         if ($presetId <= 0) {
             throw new \Exception('Некорректный ID пресета');
         }
@@ -84,6 +123,25 @@ class PresetEnrichmentService
     public function enrichPresetFromProductRoots(int $presetId, array $rootDetailIds, array $offerIds = []): array
     {
         $rootDetailIds = array_values(array_unique(array_filter(array_map('intval', $rootDetailIds))));
+        if ($presetId === NeutralFormulaPolicy::PRESET_ID && !$this->neutralAuthorityPinned) {
+            $policy = new NeutralFormulaPolicy();
+            return $policy->withActiveAuthorityLock(static function (
+                bool $protected,
+                array $pinnedIblockIds
+            ) use ($policy, $presetId, $rootDetailIds, $offerIds): array {
+                $policy->assertStructuralMutationAllowed(
+                    $presetId,
+                    $rootDetailIds,
+                    $protected,
+                    'preset product-root enrichment'
+                );
+                return (new self($pinnedIblockIds))->enrichPresetFromProductRoots(
+                    $presetId,
+                    $rootDetailIds,
+                    $offerIds
+                );
+            });
+        }
         if ($presetId <= 0 || empty($rootDetailIds)) {
             throw new \InvalidArgumentException('Некорректная структура продукта');
         }
@@ -546,6 +604,22 @@ class PresetEnrichmentService
      */
     public function clearPreset(int $presetId): void
     {
+        if ($presetId === NeutralFormulaPolicy::PRESET_ID && !$this->neutralAuthorityPinned) {
+            $policy = new NeutralFormulaPolicy();
+            $policy->withActiveAuthorityLock(static function (
+                bool $protected,
+                array $pinnedIblockIds
+            ) use ($policy, $presetId): void {
+                $policy->assertStructuralMutationAllowed(
+                    $presetId,
+                    [],
+                    $protected,
+                    'preset clearing'
+                );
+                (new self($pinnedIblockIds))->clearPreset($presetId);
+            });
+            return;
+        }
         if ($presetId <= 0) {
             throw new \Exception('Некорректный ID пресета');
         }
@@ -580,8 +654,17 @@ class PresetEnrichmentService
      * @return void
      * @throws \Exception
      */
-    public function addStageToPreset(int $presetId, int $stageId): void
+    public function addStageToPreset(int $presetId, int $stageId, ?int $pinnedPresetsIblockId = null): void
     {
+        $presetsIblockId = $pinnedPresetsIblockId ?? $this->presetsIblockId;
+        self::addStageToPresetPinned($presetId, $stageId, $presetsIblockId);
+    }
+
+    public static function addStageToPresetPinned(int $presetId, int $stageId, int $presetsIblockId): void
+    {
+        if ($presetsIblockId <= 0) {
+            throw new \RuntimeException('Pinned preset iblock authority is invalid.', 409);
+        }
         if ($presetId <= 0 || $stageId <= 0) {
             throw new \Exception('Некорректные параметры');
         }
@@ -589,7 +672,7 @@ class PresetEnrichmentService
         // Получаем текущие этапы пресета
         $currentStages = [];
         $rs = \CIBlockElement::GetProperty(
-            $this->presetsIblockId,
+            $presetsIblockId,
             $presetId,
             [],
             ['CODE' => 'CALC_STAGES']
@@ -607,7 +690,7 @@ class PresetEnrichmentService
         }
 
         // Обновляем свойство CALC_STAGES
-        \CIBlockElement::SetPropertyValuesEx($presetId, $this->presetsIblockId, [
+        \CIBlockElement::SetPropertyValuesEx($presetId, $presetsIblockId, [
             'CALC_STAGES' => $currentStages,
         ]);
     }
@@ -621,8 +704,26 @@ class PresetEnrichmentService
      * @return void
      * @throws \Exception
      */
-    public function updateStageProperty(int $stageId, string $propertyCode, $value): void
+    public function updateStageProperty(
+        int $stageId,
+        string $propertyCode,
+        $value,
+        ?int $pinnedStagesIblockId = null
+    ): void
     {
+        $stagesIblockId = $pinnedStagesIblockId ?? $this->stagesIblockId;
+        self::updateStagePropertyPinned($stageId, $propertyCode, $value, $stagesIblockId);
+    }
+
+    public static function updateStagePropertyPinned(
+        int $stageId,
+        string $propertyCode,
+        $value,
+        int $stagesIblockId
+    ): void {
+        if ($stagesIblockId <= 0) {
+            throw new \RuntimeException('Pinned stage iblock authority is invalid.', 409);
+        }
         if ($stageId <= 0) {
             throw new \Exception('Некорректный ID этапа');
         }
@@ -632,7 +733,7 @@ class PresetEnrichmentService
         }
 
         // Обновляем свойство этапа
-        \CIBlockElement::SetPropertyValuesEx($stageId, $this->stagesIblockId, [
+        \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
             $propertyCode => $value,
         ]);
     }
@@ -660,9 +761,17 @@ class PresetEnrichmentService
             return [];
         }
 
+        $presetsIblockId = $this->presetsIblockId;
+        if ($presetId === NeutralFormulaPolicy::PRESET_ID && !$this->neutralAuthorityPinned) {
+            $authority = (new NeutralFormulaPolicy())->readNeutralContractAuthority();
+            $presetsIblockId = (int)($authority['iblockIds']['CALC_PRESETS'] ?? 0);
+            if ($presetsIblockId <= 0) {
+                throw new \RuntimeException('Pinned neutral preset authority is invalid.', 409);
+            }
+        }
         $rootIds = [];
         $rs = \CIBlockElement::GetProperty(
-            $this->presetsIblockId,
+            $presetsIblockId,
             $presetId,
             ['sort' => 'asc'],
             ['CODE' => 'CALC_DETAILS']
