@@ -241,10 +241,10 @@ $normalizeConfigMethod = new ReflectionMethod(
 );
 $normalizeConfigMethod->setAccessible(true);
 $configSnapshot = $normalizeConfigMethod->invoke(null, [
-    ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42', 'SITE_ID' => null],
-    ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => ''],
-    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
-    ['NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => ''],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
 ]);
 $assert(
     ($configSnapshot['presetIblockId'] ?? 0) === 41
@@ -263,10 +263,10 @@ $assert(
     'the raw config authority is canonicalized independently of database row order'
 );
 $lowercaseConfigSnapshot = $normalizeConfigMethod->invoke(null, [
-    ['NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => null],
-    ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
-    ['NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
-    ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
 ]);
 $assert(
     ($lowercaseConfigSnapshot['presetIblockId'] ?? 0) === 41
@@ -277,10 +277,10 @@ $assert(
 );
 $assert(
     ($lowercaseConfigSnapshot['rowIdentities'] ?? []) === [
-        'IBLOCK_CALC_DETAILS' => ['name' => 'iblock_calc_details', 'siteId' => null],
-        'IBLOCK_CALC_PRESETS' => ['name' => 'iblock_calc_presets', 'siteId' => null],
-        'IBLOCK_CALC_SETTINGS' => ['name' => 'iblock_calc_settings', 'siteId' => null],
-        'IBLOCK_CALC_STAGES' => ['name' => 'iblock_calc_stages', 'siteId' => null],
+        'IBLOCK_CALC_DETAILS' => ['moduleId' => 'prospektweb.calc', 'name' => 'iblock_calc_details', 'siteId' => null],
+        'IBLOCK_CALC_PRESETS' => ['moduleId' => 'prospektweb.calc', 'name' => 'iblock_calc_presets', 'siteId' => null],
+        'IBLOCK_CALC_SETTINGS' => ['moduleId' => 'prospektweb.calc', 'name' => 'iblock_calc_settings', 'siteId' => null],
+        'IBLOCK_CALC_STAGES' => ['moduleId' => 'prospektweb.calc', 'name' => 'iblock_calc_stages', 'siteId' => null],
     ],
     'the migration CAS snapshot preserves the exact lowercase database row identities'
 );
@@ -297,50 +297,163 @@ $expectConfigFailure = static function (array $rows, string $message) use (
     $assert(false, $message);
 };
 $expectConfigFailure([
-    ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
-    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
-    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '99', 'SITE_ID' => ''],
-    ['NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
-    ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '99', 'SITE_ID' => ''],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42', 'SITE_ID' => null],
 ], 'duplicate NULL/empty-site config authorities are rejected');
 $expectConfigFailure([
-    ['NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => null],
-    ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
-    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '99', 'SITE_ID' => ''],
-    ['NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
-    ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '99', 'SITE_ID' => ''],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
 ], 'mixed-case rows colliding on one canonical Bitrix option authority are rejected');
 $expectConfigFailure([
-    ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
-    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
 ], 'an incomplete config authority is rejected');
 $expectConfigFailure([
-    ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
-    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
-    ['NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
-    ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42-cache-poison', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42-cache-poison', 'SITE_ID' => null],
 ], 'a non-canonical config authority is rejected');
 $expectConfigFailure([
-    ['NAME' => 'iblock_calc_details ', 'VALUE' => '50', 'SITE_ID' => null],
-    ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
-    ['NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
-    ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_details ', 'VALUE' => '50', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
 ], 'a whitespace option-name alias is rejected instead of being trimmed');
 $expectConfigFailure([
-    ['NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => 's1'],
-    ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
-    ['NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
-    ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => 's1'],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
 ], 'a site-scoped option row cannot become the global migration authority');
+$expectConfigFailure([
+    ['MODULE_ID' => 'PROSPEKTWEB.CALC', 'NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_settings', 'VALUE' => '44', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
+], 'module ids remain exact even when the database collation is case-insensitive');
 $invalidRawValues = ['', ' ', ' 42 ', '042'];
 foreach ($invalidRawValues as $invalidRawValue) {
     $expectConfigFailure([
-        ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
-        ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
-        ['NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
-        ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => $invalidRawValue, 'SITE_ID' => null],
+        ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
+        ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
+        ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_SETTINGS', 'VALUE' => '44', 'SITE_ID' => null],
+        ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => $invalidRawValue, 'SITE_ID' => null],
     ], 'a non-exact raw iblock authority is rejected: ' . json_encode($invalidRawValue));
 }
+
+$normalizeOptionMethod = new ReflectionMethod(
+    Preset12740NeutralInputMigrationService::class,
+    'normalizeOptionStateRows'
+);
+$normalizeOptionMethod->setAccessible(true);
+$lowercaseActive = $normalizeOptionMethod->invoke(
+    null,
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+    [[
+        'MODULE_ID' => 'prospektweb.calc',
+        'NAME' => 'preset_12740_neutral_input_active',
+        'VALUE' => 'Y',
+        'SITE_ID' => null,
+    ]]
+);
+$assert(
+    ($lowercaseActive['exists'] ?? false) === true
+        && ($lowercaseActive['value'] ?? '') === 'Y'
+        && ($lowercaseActive['moduleId'] ?? '') === 'prospektweb.calc'
+        && ($lowercaseActive['name'] ?? '') === 'preset_12740_neutral_input_active'
+        && array_key_exists('siteId', $lowercaseActive)
+        && $lowercaseActive['siteId'] === null,
+    'a singleton production lowercase ACTIVE row resolves while retaining its exact raw identity'
+);
+$lowercaseBackup = $normalizeOptionMethod->invoke(
+    null,
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1',
+    [[
+        'MODULE_ID' => 'prospektweb.calc',
+        'NAME' => 'preset_12740_neutral_input_backup_v1',
+        'VALUE' => $backupRaw,
+        'SITE_ID' => '',
+    ]]
+);
+$assert(
+    ($lowercaseBackup['exists'] ?? false) === true
+        && hash_equals($backupRaw, (string)($lowercaseBackup['value'] ?? ''))
+        && ($lowercaseBackup['name'] ?? '') === 'preset_12740_neutral_input_backup_v1'
+        && ($lowercaseBackup['siteId'] ?? null) === '',
+    'retained V1 backup bytes and the empty-site row identity survive direct lowercase read-back'
+);
+try {
+    $normalizeOptionMethod->invoke(
+        null,
+        'prospektweb.calc',
+        'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1',
+        [[
+            'MODULE_ID' => 'prospektweb.calc',
+            'NAME' => 'preset_12740_neutral_input_backup_v1',
+            'VALUE' => '',
+            'SITE_ID' => null,
+        ]]
+    );
+    $assert(false, 'an existing empty backup row must not be conflated with absence or overwritten');
+} catch (Throwable $error) {
+    $assert($error->getCode() === 409, 'an existing empty backup row fails closed as corrupt evidence');
+}
+$expectOptionFailure = static function (
+    string $moduleId,
+    string $name,
+    array $rows,
+    string $message
+) use ($assert, $normalizeOptionMethod): void {
+    try {
+        $normalizeOptionMethod->invoke(null, $moduleId, $name, $rows);
+    } catch (Throwable $error) {
+        $assert(in_array($error->getCode(), [0, 409], true), $message . ' fails closed');
+        return;
+    }
+    $assert(false, $message);
+};
+$expectOptionFailure(
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+    [
+        ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'preset_12740_neutral_input_active', 'VALUE' => 'Y', 'SITE_ID' => null],
+        ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'PRESET_12740_NEUTRAL_INPUT_ACTIVE', 'VALUE' => 'N', 'SITE_ID' => ''],
+    ],
+    'mixed-case NULL/empty-site duplicates cannot become one canonical ACTIVE authority'
+);
+$expectOptionFailure(
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+    [['MODULE_ID' => 'prospektweb.calc', 'NAME' => ' preset_12740_neutral_input_active ', 'VALUE' => 'Y', 'SITE_ID' => null]],
+    'whitespace option aliases are rejected rather than trimmed'
+);
+$expectOptionFailure(
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+    [['MODULE_ID' => 'Prospektweb.calc', 'NAME' => 'preset_12740_neutral_input_active', 'VALUE' => 'Y', 'SITE_ID' => null]],
+    'module id case remains exact on a case-insensitive database'
+);
+$expectOptionFailure(
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+    [['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'preset_12740_neutral_input_active', 'VALUE' => 'Y', 'SITE_ID' => 's1']],
+    'site-scoped ACTIVE rows are rejected instead of ignored'
+);
+$expectOptionFailure(
+    'prospektweb.calc',
+    'ARBITRARY_OPTION',
+    [],
+    'the generic normalizer cannot be widened to arbitrary option names'
+);
 
 $membershipMethod = new ReflectionMethod(
     Preset12740NeutralInputMigrationService::class,
@@ -460,20 +573,26 @@ foreach (['apply' => $applySource, 'rollback' => $rollbackSource] as $method => 
         );
     }
 }
+$normalizeOptionStart = strpos($serviceSource, 'private static function normalizeOptionStateRows(');
 $readOptionStart = strpos($serviceSource, 'private function readOptionState(');
 $readOptionRawStart = strpos($serviceSource, 'private function readOptionRaw(');
 $setGlobalStart = strpos($serviceSource, 'private function setGlobalOption(');
 $assert(
-    is_int($readOptionStart) && is_int($readOptionRawStart) && is_int($setGlobalStart),
+    is_int($normalizeOptionStart) && is_int($readOptionStart)
+        && is_int($readOptionRawStart) && is_int($setGlobalStart),
     'presence-aware raw option reader boundary is discoverable'
 );
+$normalizeOptionSource = substr($serviceSource, $normalizeOptionStart, $readOptionStart - $normalizeOptionStart);
 $readOptionSource = substr($serviceSource, $readOptionStart, $readOptionRawStart - $readOptionStart);
 $assert(
-    strpos($readOptionSource, "AND (SITE_ID IS NULL OR SITE_ID='')") !== false
+    strpos($readOptionSource, 'UPPER(TRIM(NAME))') !== false
+        && strpos($readOptionSource, "AND (SITE_ID IS NULL OR SITE_ID='')") === false
         && strpos($readOptionSource, "(\$forUpdate ? ' FOR UPDATE' : '')") !== false
-        && strpos($readOptionSource, '$duplicate') !== false
-        && strpos($readOptionSource, "['exists' => false") !== false,
-    'raw option values preserve missing versus empty, reject duplicates and optionally lock without Bitrix cache'
+        && strpos($readOptionSource, 'self::normalizeOptionStateRows(') !== false
+        && strpos($normalizeOptionSource, 'strtoupper($actualName) !== $name') !== false
+        && strpos($normalizeOptionSource, 'is_array($normalized)') !== false
+        && strpos($normalizeOptionSource, "'exists' => false") !== false,
+    'raw option values canonicalize exact allowlisted names, preserve missing versus empty, reject every duplicate/scoped row and optionally lock without Bitrix cache'
 );
 $loadStateStart = strpos($serviceSource, 'private function loadBitrixState(');
 $writeStateStart = strpos($serviceSource, 'private function writeAffectedState(');
@@ -490,11 +609,33 @@ $assert(
 $deleteGlobalStart = strpos($serviceSource, 'private function deleteGlobalOption(');
 $storeBackupStart = strpos($serviceSource, 'private function storeBackup(');
 $assert(is_int($deleteGlobalStart) && is_int($storeBackupStart), 'global option delete boundary is discoverable');
+$setGlobalSource = substr($serviceSource, $setGlobalStart, $deleteGlobalStart - $setGlobalStart);
+$assert(
+    substr_count($setGlobalSource, 'readOptionState(') >= 2
+        && strpos($setGlobalSource, 'IMMUTABLE_EVIDENCE_OPTION_NAMES') !== false
+        && strpos($setGlobalSource, 'Option::set(') !== false
+        && strpos($setGlobalSource, "\$before['name']") !== false
+        && strpos($setGlobalSource, "\$before['siteId']") !== false,
+    'V1 writes validate immutable evidence before mutation and preserve the exact raw option identity on read-back'
+);
 $deleteGlobalSource = substr($serviceSource, $deleteGlobalStart, $storeBackupStart - $deleteGlobalStart);
 $assert(
     strpos($deleteGlobalSource, 'Option::delete') === false
-        && strpos($deleteGlobalSource, "AND (SITE_ID IS NULL OR SITE_ID='')") !== false,
-    'rollback deletes only the global marker and cannot erase per-site variants'
+        && strpos($deleteGlobalSource, 'BINARY MODULE_ID=') !== false
+        && strpos($deleteGlobalSource, 'BINARY NAME=') !== false
+        && strpos($deleteGlobalSource, '$snapshot[\'siteId\'] === null') !== false
+        && substr_count($deleteGlobalSource, 'readOptionState(') >= 2,
+    'rollback deletes only the validated raw marker row identity and verifies absence by presence, not empty value'
+);
+$resolveBackupStart = strpos($serviceSource, 'private static function resolveBackupRaw(');
+$storeBackupSource = is_int($resolveBackupStart)
+    ? substr($serviceSource, $storeBackupStart, $resolveBackupStart - $storeBackupStart)
+    : '';
+$assert(
+    strpos($storeBackupSource, 'readOptionState(') !== false
+        && strpos($storeBackupSource, "['exists']") !== false
+        && strpos($storeBackupSource, '$existing ===') !== false,
+    'retained V1 backup reuse is presence-aware and cannot overwrite an existing empty authority'
 );
 $lockStart = strpos($serviceSource, 'private function lockElements(');
 $optionLockStart = strpos($serviceSource, 'private function lockNeutralOptionAuthorities(');
@@ -512,9 +653,10 @@ $assert(
         && strpos($lockSource, "'IBLOCK_CALC_STAGES'") !== false
         && strpos($lockSource, "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1'") !== false
         && strpos($lockSource, "'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1'") !== false
-        && strpos($lockSource, "AND (SITE_ID IS NULL OR SITE_ID='')") !== false
+        && strpos($lockSource, 'UPPER(TRIM(NAME))') !== false
+        && strpos($lockSource, "AND (SITE_ID IS NULL OR SITE_ID='')") === false
         && strpos($lockSource, 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE') !== false,
-    'the deterministic option-lock superset includes all V1, V2 and formula/config authorities'
+    'the deterministic option-lock superset includes all V1, V2 and formula/config authorities, including aliases that must fail closed'
 );
 $elementLockSource = substr($serviceSource, $lockStart, $optionLockStart - $lockStart);
 $assert(

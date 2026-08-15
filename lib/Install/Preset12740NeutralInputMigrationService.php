@@ -33,6 +33,28 @@ final class Preset12740NeutralInputMigrationService
         'IBLOCK_CALC_STAGES' => 'stagesIblockId',
     ];
 
+    /** @var array<string,list<string>> */
+    private const OPTION_NAMES_BY_MODULE = [
+        'prospektweb.calc' => [
+            'IBLOCK_CALC_DETAILS',
+            'IBLOCK_CALC_PRESETS',
+            'IBLOCK_CALC_SETTINGS',
+            'IBLOCK_CALC_STAGES',
+            self::ACTIVE_OPTION,
+            self::BACKUP_OPTION,
+            self::MARKER_OPTION,
+        ],
+        'prospektweb.frontcalc' => [
+            'FORM_FIRST_PRESET_12740',
+        ],
+    ];
+
+    /** @var list<string> */
+    private const IMMUTABLE_EVIDENCE_OPTION_NAMES = [
+        self::BACKUP_OPTION,
+        self::MARKER_OPTION,
+    ];
+
     public function audit(): array
     {
         $configSnapshot = $this->readConfigSnapshot(false);
@@ -763,16 +785,15 @@ final class Preset12740NeutralInputMigrationService
         // options <-> global-registry cycle with activation.
         Application::getConnection()->queryExecute(
             "SELECT MODULE_ID, NAME, SITE_ID FROM b_option WHERE ("
-            . "(MODULE_ID='prospektweb.frontcalc' AND UPPER(NAME) IN "
+            . "(MODULE_ID='prospektweb.frontcalc' AND UPPER(TRIM(NAME)) IN "
             . "('FORM_FIRST_PRESET_12740','IBLOCK_CALC_GLOBAL_VALUES')) OR "
-            . "(MODULE_ID='prospektweb.calc' AND UPPER(NAME) IN ("
+            . "(MODULE_ID='prospektweb.calc' AND UPPER(TRIM(NAME)) IN ("
             . "'IBLOCK_CALC_DETAILS','IBLOCK_CALC_GLOBAL_VALUES','IBLOCK_CALC_PRESETS',"
             . "'IBLOCK_CALC_SETTINGS','IBLOCK_CALC_STAGES',"
             . "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1',"
             . "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',"
             . "'PRESET_12740_NEUTRAL_INPUT_ACTIVE','PRESET_12740_NEUTRAL_INPUT_BACKUP_V1',"
             . "'PRESET_12740_NEUTRAL_INPUT_MIGRATION_V1'))) "
-            . "AND (SITE_ID IS NULL OR SITE_ID='') "
             . 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE'
         );
     }
@@ -887,10 +908,10 @@ final class Preset12740NeutralInputMigrationService
     {
         $rows = [];
         $result = Application::getConnection()->query(
-            "SELECT NAME, VALUE, SITE_ID FROM b_option WHERE MODULE_ID='prospektweb.calc' "
-            . "AND UPPER(NAME) IN ('IBLOCK_CALC_DETAILS','IBLOCK_CALC_PRESETS',"
+            "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE MODULE_ID='prospektweb.calc' "
+            . "AND UPPER(TRIM(NAME)) IN ('IBLOCK_CALC_DETAILS','IBLOCK_CALC_PRESETS',"
             . "'IBLOCK_CALC_SETTINGS','IBLOCK_CALC_STAGES') "
-            . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY NAME, SITE_ID"
+            . "ORDER BY MODULE_ID, NAME, SITE_ID"
             . ($forUpdate ? ' FOR UPDATE' : '')
         );
         while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
@@ -907,13 +928,16 @@ final class Preset12740NeutralInputMigrationService
     {
         $rawByName = [];
         foreach ($rows as $row) {
+            $actualModule = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
             $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
             // Bitrix Option lookups on the production b_option collation are
             // case-insensitive. Canonicalize only ASCII case for the exact
             // allowlist; do not trim or accept aliases that the runtime probe
             // did not establish as equivalent authorities.
             $canonicalName = strtoupper($actualName);
-            if (!array_key_exists($canonicalName, self::CONFIG_OPTION_TO_STATE_KEY)) {
+            if ($actualModule !== self::MODULE_ID
+                || $actualName !== trim($actualName)
+                || !array_key_exists($canonicalName, self::CONFIG_OPTION_TO_STATE_KEY)) {
                 throw new \RuntimeException('Unexpected preset 12740 migration config option row.', 409);
             }
             $hasSiteId = array_key_exists('SITE_ID', $row) || array_key_exists('site_id', $row);
@@ -927,6 +951,7 @@ final class Preset12740NeutralInputMigrationService
                 throw new \RuntimeException('Duplicate global preset 12740 migration config option row.', 409);
             }
             $rawByName[$canonicalName] = [
+                'moduleId' => $actualModule,
                 'name' => $actualName,
                 'siteId' => $siteId,
                 'value' => (string)($row['VALUE'] ?? $row['value'] ?? ''),
@@ -947,6 +972,7 @@ final class Preset12740NeutralInputMigrationService
             }
             $snapshot['options'][$name] = $raw;
             $snapshot['rowIdentities'][$name] = [
+                'moduleId' => (string)$rawByName[$name]['moduleId'],
                 'name' => (string)$rawByName[$name]['name'],
                 'siteId' => $rawByName[$name]['siteId'],
             ];
@@ -970,31 +996,79 @@ final class Preset12740NeutralInputMigrationService
         }
     }
 
-    /** @return array{exists:bool,value:string} */
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array{exists:bool,moduleId:string,name:string,siteId:mixed,value:string}
+     */
+    private static function normalizeOptionStateRows(string $moduleId, string $name, array $rows): array
+    {
+        self::assertAllowedOptionRequest($moduleId, $name);
+        $normalized = null;
+        foreach ($rows as $row) {
+            $actualModule = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+            $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
+            $hasSiteId = array_key_exists('SITE_ID', $row) || array_key_exists('site_id', $row);
+            $siteId = array_key_exists('SITE_ID', $row)
+                ? $row['SITE_ID']
+                : ($row['site_id'] ?? null);
+            if ($actualModule !== $moduleId
+                || $actualName !== trim($actualName)
+                || strtoupper($actualName) !== $name
+                || !$hasSiteId
+                || !in_array($siteId, [null, ''], true)) {
+                throw new \RuntimeException('Unexpected global preset 12740 migration option authority.', 409);
+            }
+            if (is_array($normalized)) {
+                throw new \RuntimeException('Duplicate global preset 12740 migration option row.', 409);
+            }
+            $value = (string)($row['VALUE'] ?? $row['value'] ?? '');
+            if ((in_array($name, self::IMMUTABLE_EVIDENCE_OPTION_NAMES, true) && trim($value) === '')
+                || ($name === self::ACTIVE_OPTION && !in_array($value, ['N', 'Y'], true))) {
+                throw new \RuntimeException('Invalid global preset 12740 migration option value.', 409);
+            }
+            $normalized = [
+                'exists' => true,
+                'moduleId' => $actualModule,
+                'name' => $actualName,
+                'siteId' => $siteId,
+                'value' => $value,
+            ];
+        }
+        return $normalized ?? [
+            'exists' => false,
+            'moduleId' => $moduleId,
+            'name' => $name,
+            'siteId' => null,
+            'value' => '',
+        ];
+    }
+
+    private static function assertAllowedOptionRequest(string $moduleId, string $name): void
+    {
+        if (!array_key_exists($moduleId, self::OPTION_NAMES_BY_MODULE)
+            || !in_array($name, self::OPTION_NAMES_BY_MODULE[$moduleId], true)) {
+            throw new \InvalidArgumentException('Unsupported preset 12740 option authority request.');
+        }
+    }
+
+    /** @return array{exists:bool,moduleId:string,name:string,siteId:mixed,value:string} */
     private function readOptionState(string $moduleId, string $name, bool $forUpdate): array
     {
+        self::assertAllowedOptionRequest($moduleId, $name);
         $escape = static fn(string $value): string => str_replace("'", "''", $value);
         $result = Application::getConnection()->query(
             "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE MODULE_ID='" . $escape($moduleId)
-             . "' AND NAME='" . $escape($name) . "' AND (SITE_ID IS NULL OR SITE_ID='')"
-             . ' ORDER BY NAME, SITE_ID'
+             . "' AND UPPER(TRIM(NAME))='" . $escape($name) . "'"
+             . ' ORDER BY MODULE_ID, NAME, SITE_ID'
              . ($forUpdate ? ' FOR UPDATE' : '')
         );
-        $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
-        $duplicate = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
-        if (is_array($duplicate)) {
-            throw new \RuntimeException('Duplicate global preset 12740 migration option row.', 409);
+        $rows = [];
+        while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
+            if (is_array($row)) {
+                $rows[] = $row;
+            }
         }
-        if (!is_array($row)) {
-            return ['exists' => false, 'value' => ''];
-        }
-        $actualModule = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
-        $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
-        $siteId = $row['SITE_ID'] ?? $row['site_id'] ?? null;
-        if ($actualModule !== $moduleId || $actualName !== $name || !in_array($siteId, [null, ''], true)) {
-            throw new \RuntimeException('Unexpected global preset 12740 migration option authority.', 409);
-        }
-        return ['exists' => true, 'value' => (string)($row['VALUE'] ?? $row['value'] ?? '')];
+        return self::normalizeOptionStateRows($moduleId, $name, $rows);
     }
 
     /** Read exactly one global row without Bitrix Option's process cache. */
@@ -1005,21 +1079,37 @@ final class Preset12740NeutralInputMigrationService
 
     private function setGlobalOption(string $name, string $value): void
     {
+        $before = $this->readOptionState(self::MODULE_ID, $name, true);
+        if (($before['exists'] ?? false) === true
+            && in_array($name, self::IMMUTABLE_EVIDENCE_OPTION_NAMES, true)
+            && !hash_equals((string)$before['value'], $value)) {
+            throw new \RuntimeException('A different preset 12740 migration evidence option already exists.', 409);
+        }
         Option::set(self::MODULE_ID, $name, $value);
-        $readBack = $this->readOptionRaw(self::MODULE_ID, $name, true);
-        if (!hash_equals(hash('sha256', $value), hash('sha256', $readBack))) {
+        $after = $this->readOptionState(self::MODULE_ID, $name, true);
+        $readBack = (string)$after['value'];
+        if (($after['exists'] ?? false) !== true
+            || !hash_equals(hash('sha256', $value), hash('sha256', $readBack))
+            || (($before['exists'] ?? false) === true
+                && (!hash_equals((string)$before['name'], (string)$after['name'])
+                    || $before['siteId'] !== $after['siteId']))) {
             throw new \RuntimeException('Unable to verify the global preset 12740 migration option.');
         }
     }
 
     private function deleteGlobalOption(string $moduleId, string $name): void
     {
+        $snapshot = $this->readOptionState($moduleId, $name, true);
+        if (($snapshot['exists'] ?? false) !== true) {
+            return;
+        }
         $escape = static fn(string $value): string => str_replace("'", "''", $value);
+        $sitePredicate = $snapshot['siteId'] === null ? 'SITE_ID IS NULL' : "SITE_ID=''";
         Application::getConnection()->queryExecute(
-            "DELETE FROM b_option WHERE MODULE_ID='" . $escape($moduleId)
-            . "' AND NAME='" . $escape($name) . "' AND (SITE_ID IS NULL OR SITE_ID='')"
+            "DELETE FROM b_option WHERE BINARY MODULE_ID='" . $escape((string)$snapshot['moduleId'])
+            . "' AND BINARY NAME='" . $escape((string)$snapshot['name']) . "' AND " . $sitePredicate
         );
-        if ($this->readOptionRaw($moduleId, $name, true) !== '') {
+        if (($this->readOptionState($moduleId, $name, true)['exists'] ?? false) === true) {
             throw new \RuntimeException('Unable to delete the global preset 12740 migration option.');
         }
     }
@@ -1027,9 +1117,13 @@ final class Preset12740NeutralInputMigrationService
     /** @param array<string,mixed> $backup */
     private function storeBackup(array $backup): string
     {
-        $existing = $this->readOptionRaw(self::MODULE_ID, self::BACKUP_OPTION, true);
+        $existingState = $this->readOptionState(self::MODULE_ID, self::BACKUP_OPTION, true);
+        $existing = (string)$existingState['value'];
         $encoded = self::resolveBackupRaw($backup, $existing);
-        if ($existing !== '') {
+        if (($existingState['exists'] ?? false) === true) {
+            if ($existing === '' || !hash_equals($encoded, $existing)) {
+                throw new \RuntimeException('A retained preset 12740 neutral-input backup is invalid.');
+            }
             return $existing;
         }
         $this->setGlobalOption(self::BACKUP_OPTION, $encoded);

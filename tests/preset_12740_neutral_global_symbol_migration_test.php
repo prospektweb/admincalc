@@ -344,6 +344,8 @@ $normalizeActiveMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigr
 $normalizeActiveMethod->setAccessible(true);
 $normalizeConfigMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'normalizeConfigAuthorities');
 $normalizeConfigMethod->setAccessible(true);
+$normalizeOptionMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'normalizeOptionSnapshotRows');
+$normalizeOptionMethod->setAccessible(true);
 $retainedBackupMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'assertRetainedBackupMatchesState');
 $retainedBackupMethod->setAccessible(true);
 $prepareBackupMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'prepareBackupRaw');
@@ -357,6 +359,158 @@ $backup = [
     'state' => $legacyState,
 ];
 $backupRaw = $canonicalMethod->invoke(null, $backup);
+$lowercaseActive = $normalizeOptionMethod->invoke(
+    null,
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+    [[
+        'MODULE_ID' => 'prospektweb.calc',
+        'NAME' => 'preset_12740_neutral_input_active',
+        'VALUE' => 'Y',
+        'SITE_ID' => null,
+    ]],
+    true
+);
+$assert(
+    ($lowercaseActive['exists'] ?? false) === true
+        && ($lowercaseActive['value'] ?? '') === 'Y'
+        && ($lowercaseActive['name'] ?? '') === 'preset_12740_neutral_input_active'
+        && ($lowercaseActive['moduleId'] ?? '') === 'prospektweb.calc'
+        && array_key_exists('siteId', $lowercaseActive)
+        && $lowercaseActive['siteId'] === null,
+    'V2 accepts one production lowercase ACTIVE row and retains its exact database identity'
+);
+$lowercaseBackup = $normalizeOptionMethod->invoke(
+    null,
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1',
+    [[
+        'MODULE_ID' => 'prospektweb.calc',
+        'NAME' => 'preset_12740_neutral_global_symbols_backup_v1',
+        'VALUE' => $backupRaw,
+        'SITE_ID' => '',
+    ]],
+    true
+);
+$assert(
+    hash_equals($backupRaw, (string)($lowercaseBackup['value'] ?? ''))
+        && ($lowercaseBackup['name'] ?? '') === 'preset_12740_neutral_global_symbols_backup_v1'
+        && ($lowercaseBackup['siteId'] ?? null) === '',
+    'V2 retained backup read-back preserves both byte content and lowercase empty-site row identity'
+);
+$expectOptionFailure = static function (
+    string $moduleId,
+    string $name,
+    array $rows,
+    bool $required,
+    string $message
+) use ($assert, $normalizeOptionMethod): void {
+    try {
+        $normalizeOptionMethod->invoke(null, $moduleId, $name, $rows, $required);
+    } catch (Throwable $error) {
+        $assert(in_array($error->getCode(), [0, 409], true), $message . ' fails closed');
+        return;
+    }
+    $assert(false, $message);
+};
+$expectOptionFailure(
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+    [
+        ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'preset_12740_neutral_input_active', 'VALUE' => 'Y', 'SITE_ID' => null],
+        ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'PRESET_12740_NEUTRAL_INPUT_ACTIVE', 'VALUE' => 'N', 'SITE_ID' => ''],
+    ],
+    false,
+    'V2 rejects mixed-case duplicate global rows across NULL and empty SITE_ID'
+);
+$expectOptionFailure(
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+    [['MODULE_ID' => 'prospektweb.calc', 'NAME' => ' preset_12740_neutral_input_active ', 'VALUE' => 'Y', 'SITE_ID' => null]],
+    false,
+    'V2 rejects whitespace option-name aliases'
+);
+$expectOptionFailure(
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+    [['MODULE_ID' => 'Prospektweb.calc', 'NAME' => 'preset_12740_neutral_input_active', 'VALUE' => 'Y', 'SITE_ID' => null]],
+    false,
+    'V2 requires exact module-id case'
+);
+$expectOptionFailure(
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+    [['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'preset_12740_neutral_input_active', 'VALUE' => 'Y', 'SITE_ID' => 's1']],
+    false,
+    'V2 rejects site-scoped authorities instead of ignoring them'
+);
+$expectOptionFailure(
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1',
+    [['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'preset_12740_neutral_global_symbols_backup_v1', 'VALUE' => '', 'SITE_ID' => null]],
+    false,
+    'V2 rejects an existing empty retained backup instead of overwriting it as if absent'
+);
+$expectOptionFailure(
+    'prospektweb.calc',
+    'ARBITRARY_OPTION',
+    [],
+    false,
+    'V2 direct reader remains closed to arbitrary option names'
+);
+$expectOptionFailure(
+    'prospektweb.calc',
+    'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',
+    [],
+    true,
+    'V2 required evidence row absence is distinguishable from an empty value'
+);
+
+$policyClass = new ReflectionClass(\Prospektweb\Calc\Services\NeutralFormulaPolicy::class);
+$normalizePolicyOptions = $policyClass->getMethod('normalizeOptionAuthorityRows');
+$normalizePolicyOptions->setAccessible(true);
+$policyAllowlist = $policyClass->getConstant('CONTRACT_OPTION_NAMES_BY_MODULE');
+$policyLowercase = $normalizePolicyOptions->invoke(null, [[
+    'MODULE_ID' => 'prospektweb.calc',
+    'NAME' => 'preset_12740_neutral_input_active',
+    'VALUE' => 'Y',
+    'SITE_ID' => null,
+]], $policyAllowlist);
+$assert(
+    ($policyLowercase['valuesByModule']['prospektweb.calc']['PRESET_12740_NEUTRAL_INPUT_ACTIVE'] ?? '') === 'Y'
+        && ($policyLowercase['rowIdentities']['prospektweb.calc:PRESET_12740_NEUTRAL_INPUT_ACTIVE']['name'] ?? '')
+            === 'preset_12740_neutral_input_active',
+    'neutral authoring policy accepts lowercase singleton authority while preserving its raw name'
+);
+$expectPolicyFailure = static function (array $rows, string $message) use (
+    $assert,
+    $normalizePolicyOptions,
+    $policyAllowlist
+): void {
+    try {
+        $normalizePolicyOptions->invoke(null, $rows, $policyAllowlist);
+    } catch (Throwable $error) {
+        $assert($error->getCode() === 409, $message . ' fails closed');
+        return;
+    }
+    $assert(false, $message);
+};
+$expectPolicyFailure([
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'preset_12740_neutral_input_active', 'VALUE' => 'Y', 'SITE_ID' => null],
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'PRESET_12740_NEUTRAL_INPUT_ACTIVE', 'VALUE' => 'N', 'SITE_ID' => ''],
+], 'neutral authoring rejects canonical mixed-case NULL/empty-site duplicates');
+$expectPolicyFailure([
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => ' preset_12740_neutral_input_active ', 'VALUE' => 'Y', 'SITE_ID' => null],
+], 'neutral authoring rejects whitespace aliases');
+$expectPolicyFailure([
+    ['MODULE_ID' => 'Prospektweb.calc', 'NAME' => 'preset_12740_neutral_input_active', 'VALUE' => 'Y', 'SITE_ID' => null],
+], 'neutral authoring preserves exact module-id case');
+$expectPolicyFailure([
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'preset_12740_neutral_input_active', 'VALUE' => 'Y', 'SITE_ID' => 's1'],
+], 'neutral authoring rejects site-scoped option authority');
+$expectPolicyFailure([
+    ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'ARBITRARY_OPTION', 'VALUE' => 'Y', 'SITE_ID' => null],
+], 'neutral authoring normalizer cannot accept arbitrary option names');
 $marker = [
     'contract' => Preset12740NeutralGlobalSymbolMigrationService::CONTRACT,
     'presetId' => 12740,
@@ -567,11 +721,41 @@ $assert(
     strpos($source, '$calc = $this->readOptionSnapshot(self::MODULE_ID, self::CONFIG_OPTION, $forUpdate, false);') !== false,
     'either calc or frontcalc may own the pinned global-iblock authority, while disagreement still fails closed'
 );
+$v2ReadStart = strpos($source, 'private function readOptionSnapshot(');
+$v2ReadRawStart = strpos($source, 'private function readOptionRaw(');
+$v2SetStart = strpos($source, 'private function setGlobalOption(');
+$v2DeleteStart = strpos($source, 'private function deleteGlobalOption(');
+$assert(
+    is_int($v2ReadStart) && is_int($v2ReadRawStart) && is_int($v2SetStart) && is_int($v2DeleteStart),
+    'V2 direct option read/write boundaries are discoverable'
+);
+$v2ReadSource = substr($source, $v2ReadStart, $v2ReadRawStart - $v2ReadStart);
+$v2SetSource = substr($source, $v2SetStart, $v2DeleteStart - $v2SetStart);
+$v2DeleteSource = substr($source, $v2DeleteStart, strpos($source, '/**', $v2DeleteStart) - $v2DeleteStart);
+$assert(
+    strpos($v2ReadSource, 'UPPER(TRIM(NAME))') !== false
+        && strpos($v2ReadSource, "AND (SITE_ID IS NULL OR SITE_ID='')") === false
+        && strpos($v2ReadSource, 'self::normalizeOptionSnapshotRows(') !== false
+        && strpos($v2SetSource, 'IMMUTABLE_EVIDENCE_OPTION_NAMES') !== false
+        && strpos($v2SetSource, "\$before['name']") !== false
+        && strpos($v2SetSource, "\$before['siteId']") !== false
+        && strpos($v2DeleteSource, 'BINARY MODULE_ID=') !== false
+        && strpos($v2DeleteSource, 'BINARY NAME=') !== false,
+    'V2 evidence readers and writers reject aliases/scoped rows and preserve the validated raw identity without cache'
+);
 
 $inputMigrationSource = file_get_contents(dirname(__DIR__) . '/lib/Install/Preset12740NeutralInputMigrationService.php');
 $legacyMigrationSource = file_get_contents(dirname(__DIR__) . '/lib/Install/CatalogCalcPropertyMigrationService.php');
 $globalServiceSource = file_get_contents(dirname(__DIR__) . '/lib/Services/GlobalSymbolService.php');
 $initSource = file_get_contents(dirname(__DIR__) . '/lib/Calculator/InitPayloadService.php');
+$policySource = file_get_contents(dirname(__DIR__) . '/lib/Services/NeutralFormulaPolicy.php');
+$assert(
+    is_string($policySource)
+        && substr_count($policySource, 'UPPER(TRIM(NAME))') >= 4
+        && strpos($policySource, 'normalizeOptionAuthorityRows(') !== false
+        && strpos($policySource, "AND (SITE_ID IS NULL OR SITE_ID='')") === false,
+    'neutral formula authorities inspect lowercase and whitespace-colliding rows, including scoped rows that must fail closed'
+);
 $assert(
     is_string($inputMigrationSource)
         && substr_count($inputMigrationSource, '->assertActivationReadyLocked(true);') === 1

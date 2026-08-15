@@ -19,6 +19,44 @@ final class NeutralFormulaPolicy
     private const INPUT_BACKUP_OPTION = 'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1';
     private const GLOBAL_BACKUP_OPTION = 'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1';
 
+    /** @var array<string,list<string>> */
+    private const CONTRACT_OPTION_NAMES_BY_MODULE = [
+        'prospektweb.calc' => [
+            'IBLOCK_CALC_DETAILS',
+            'IBLOCK_CALC_PRESETS',
+            'IBLOCK_CALC_SETTINGS',
+            'IBLOCK_CALC_STAGES',
+            'IBLOCK_CALC_GLOBAL_VALUES',
+            'IBLOCK_CALC_OPERATIONS_VARIANTS',
+            'IBLOCK_CALC_MATERIALS_VARIANTS',
+            'IBLOCK_CALC_EQUIPMENT',
+            'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1',
+            'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',
+            'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+            'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1',
+        ],
+        'prospektweb.frontcalc' => [
+            'IBLOCK_CALC_GLOBAL_VALUES',
+        ],
+    ];
+
+    /** @var array<string,list<string>> */
+    private const FORMULA_OPTION_NAMES_BY_MODULE = [
+        'prospektweb.calc' => [
+            'IBLOCK_CALC_DETAILS',
+            'IBLOCK_CALC_PRESETS',
+            'IBLOCK_CALC_SETTINGS',
+            'IBLOCK_CALC_STAGES',
+        ],
+    ];
+
+    /** @var array<string,list<string>> */
+    private const ACTIVE_OPTION_NAMES_BY_MODULE = [
+        'prospektweb.calc' => [
+            'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+        ],
+    ];
+
     /** @var array<string,int>|null */
     private ?array $lockedIblockIds = null;
 
@@ -954,7 +992,7 @@ final class NeutralFormulaPolicy
         $cursor = $connection->query(
             "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option "
             . "WHERE ((MODULE_ID='prospektweb.calc' "
-            . "AND UPPER(NAME) IN ('IBLOCK_CALC_DETAILS','IBLOCK_CALC_PRESETS',"
+            . "AND UPPER(TRIM(NAME)) IN ('IBLOCK_CALC_DETAILS','IBLOCK_CALC_PRESETS',"
             . "'IBLOCK_CALC_SETTINGS','IBLOCK_CALC_STAGES','IBLOCK_CALC_GLOBAL_VALUES',"
             . "'IBLOCK_CALC_OPERATIONS_VARIANTS','IBLOCK_CALC_MATERIALS_VARIANTS',"
             . "'IBLOCK_CALC_EQUIPMENT',"
@@ -963,46 +1001,19 @@ final class NeutralFormulaPolicy
             . "'PRESET_12740_NEUTRAL_INPUT_ACTIVE',"
             . "'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1')) "
             . "OR (MODULE_ID='prospektweb.frontcalc' "
-            . "AND UPPER(NAME)='IBLOCK_CALC_GLOBAL_VALUES')) "
-            . "AND (SITE_ID IS NULL OR SITE_ID='') "
+            . "AND UPPER(TRIM(NAME))='IBLOCK_CALC_GLOBAL_VALUES')) "
             . 'ORDER BY MODULE_ID, NAME, SITE_ID'
             . ($forUpdate ? ' FOR UPDATE' : '')
         );
-        $values = [];
-        $calcValues = [];
+        $rows = [];
         while ($row = $cursor->fetch()) {
-            $moduleId = (string)($row['MODULE_ID'] ?? '');
-            $actualName = (string)($row['NAME'] ?? '');
-            $canonicalName = strtoupper($actualName);
-            $allowed = $moduleId === 'prospektweb.calc'
-                ? [
-                    'IBLOCK_CALC_DETAILS',
-                    'IBLOCK_CALC_PRESETS',
-                    'IBLOCK_CALC_SETTINGS',
-                    'IBLOCK_CALC_STAGES',
-                    'IBLOCK_CALC_GLOBAL_VALUES',
-                    'IBLOCK_CALC_OPERATIONS_VARIANTS',
-                    'IBLOCK_CALC_MATERIALS_VARIANTS',
-                    'IBLOCK_CALC_EQUIPMENT',
-                    'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1',
-                    'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',
-                    'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
-                    'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1',
-                ]
-                : ($moduleId === 'prospektweb.frontcalc' ? ['IBLOCK_CALC_GLOBAL_VALUES'] : []);
-            $authorityKey = $moduleId . ':' . $canonicalName;
-            if ($actualName !== trim($actualName)
-                || !in_array($canonicalName, $allowed, true)
-                || array_key_exists($authorityKey, $values)
-                || !array_key_exists('SITE_ID', $row)
-                || !in_array($row['SITE_ID'], [null, ''], true)) {
-                throw new \RuntimeException('Neutral contract option authority is invalid.', 409);
-            }
-            $values[$authorityKey] = (string)($row['VALUE'] ?? '');
-            if ($moduleId === 'prospektweb.calc') {
-                $calcValues[$canonicalName] = (string)($row['VALUE'] ?? '');
+            if (is_array($row)) {
+                $rows[] = $row;
             }
         }
+        $normalized = self::normalizeOptionAuthorityRows($rows, self::CONTRACT_OPTION_NAMES_BY_MODULE);
+        $valuesByModule = (array)$normalized['valuesByModule'];
+        $calcValues = (array)($valuesByModule['prospektweb.calc'] ?? []);
         $activeValue = (string)($calcValues['PRESET_12740_NEUTRAL_INPUT_ACTIVE'] ?? 'N');
         if (!in_array($activeValue, ['N', 'Y'], true)) {
             throw new \RuntimeException('Neutral activation authority is invalid.', 409);
@@ -1050,10 +1061,11 @@ final class NeutralFormulaPolicy
             'prospektweb.calc:IBLOCK_CALC_GLOBAL_VALUES',
             'prospektweb.frontcalc:IBLOCK_CALC_GLOBAL_VALUES',
         ] as $authorityKey) {
-            if (!array_key_exists($authorityKey, $values)) {
+            [$moduleId, $optionName] = explode(':', $authorityKey, 2);
+            if (!array_key_exists($optionName, (array)($valuesByModule[$moduleId] ?? []))) {
                 continue;
             }
-            $raw = (string)$values[$authorityKey];
+            $raw = (string)$valuesByModule[$moduleId][$optionName];
             if (preg_match('/^[1-9][0-9]*$/D', $raw) !== 1 || (string)(int)$raw !== $raw) {
                 throw new \RuntimeException('Global-symbol iblock option authority is invalid.', 409);
             }
@@ -1083,29 +1095,18 @@ final class NeutralFormulaPolicy
         $cursor = Application::getConnection()->query(
             "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option "
             . "WHERE MODULE_ID='prospektweb.calc' "
-            . "AND UPPER(NAME) IN ('IBLOCK_CALC_DETAILS','IBLOCK_CALC_PRESETS',"
+            . "AND UPPER(TRIM(NAME)) IN ('IBLOCK_CALC_DETAILS','IBLOCK_CALC_PRESETS',"
             . "'IBLOCK_CALC_SETTINGS','IBLOCK_CALC_STAGES') "
-            . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME, SITE_ID"
+            . "ORDER BY MODULE_ID, NAME, SITE_ID"
         );
-        $values = [];
+        $rows = [];
         while ($row = $cursor->fetch()) {
-            $actualName = (string)($row['NAME'] ?? '');
-            $canonicalName = strtoupper($actualName);
-            if ((string)($row['MODULE_ID'] ?? '') !== 'prospektweb.calc'
-                || $actualName !== trim($actualName)
-                || !in_array($canonicalName, [
-                    'IBLOCK_CALC_DETAILS',
-                    'IBLOCK_CALC_PRESETS',
-                    'IBLOCK_CALC_SETTINGS',
-                    'IBLOCK_CALC_STAGES',
-                ], true)
-                || isset($values[$canonicalName])
-                || !array_key_exists('SITE_ID', $row)
-                || !in_array($row['SITE_ID'], [null, ''], true)) {
-                throw new \RuntimeException('Neutral formula iblock authority is invalid.', 409);
+            if (is_array($row)) {
+                $rows[] = $row;
             }
-            $values[$canonicalName] = (string)($row['VALUE'] ?? '');
         }
+        $normalized = self::normalizeOptionAuthorityRows($rows, self::FORMULA_OPTION_NAMES_BY_MODULE);
+        $values = (array)($normalized['valuesByModule']['prospektweb.calc'] ?? []);
         return self::requiredIblockIdsFromValues($values);
     }
 
@@ -1134,28 +1135,76 @@ final class NeutralFormulaPolicy
         $cursor = $connection->query(
             "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option "
             . "WHERE MODULE_ID='prospektweb.calc' "
-            . "AND UPPER(NAME)='PRESET_12740_NEUTRAL_INPUT_ACTIVE' "
-            . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY NAME, SITE_ID"
+            . "AND UPPER(TRIM(NAME))='PRESET_12740_NEUTRAL_INPUT_ACTIVE' "
+            . "ORDER BY MODULE_ID, NAME, SITE_ID"
             . ($forUpdate ? ' FOR UPDATE' : '')
         );
-        $row = $cursor->fetch();
-        if ($cursor->fetch() !== false) {
-            throw new \RuntimeException('Duplicate neutral activation authority.', 409);
+        $rows = [];
+        while (($row = $cursor->fetch()) !== false) {
+            if (is_array($row)) {
+                $rows[] = $row;
+            }
         }
-        if ($row === false) {
+        $normalized = self::normalizeOptionAuthorityRows($rows, self::ACTIVE_OPTION_NAMES_BY_MODULE);
+        $values = (array)($normalized['valuesByModule']['prospektweb.calc'] ?? []);
+        if (!array_key_exists('PRESET_12740_NEUTRAL_INPUT_ACTIVE', $values)) {
             return false;
         }
-        $name = (string)($row['NAME'] ?? '');
-        $value = (string)($row['VALUE'] ?? '');
-        if ((string)($row['MODULE_ID'] ?? '') !== 'prospektweb.calc'
-            || strtoupper($name) !== 'PRESET_12740_NEUTRAL_INPUT_ACTIVE'
-            || $name !== trim($name)
-            || !array_key_exists('SITE_ID', $row)
-            || !in_array($row['SITE_ID'], [null, ''], true)
-            || !in_array($value, ['N', 'Y'], true)) {
+        $value = (string)$values['PRESET_12740_NEUTRAL_INPUT_ACTIVE'];
+        if (!in_array($value, ['N', 'Y'], true)) {
             throw new \RuntimeException('Neutral activation authority is invalid.', 409);
         }
         return $value === 'Y';
+    }
+
+    /**
+     * Canonicalize only ASCII option-name case against a call-site-owned exact
+     * allowlist. Raw database NAME/SITE_ID identities are retained for audit
+     * and CAS callers; aliases, scoped rows and canonical duplicates fail.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @param array<string,list<string>> $allowedByModule
+     * @return array{valuesByModule:array<string,array<string,string>>,rowIdentities:array<string,array<string,mixed>>}
+     */
+    private static function normalizeOptionAuthorityRows(array $rows, array $allowedByModule): array
+    {
+        $valuesByModule = [];
+        $rowIdentities = [];
+        foreach ($rows as $row) {
+            $moduleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+            $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
+            $canonicalName = strtoupper($actualName);
+            $hasSiteId = array_key_exists('SITE_ID', $row) || array_key_exists('site_id', $row);
+            $siteId = array_key_exists('SITE_ID', $row)
+                ? $row['SITE_ID']
+                : ($row['site_id'] ?? null);
+            $allowedNames = $allowedByModule[$moduleId] ?? [];
+            $authorityKey = $moduleId . ':' . $canonicalName;
+            if (!array_key_exists($moduleId, $allowedByModule)
+                || $actualName !== trim($actualName)
+                || !in_array($canonicalName, $allowedNames, true)
+                || array_key_exists($canonicalName, $valuesByModule[$moduleId] ?? [])
+                || !$hasSiteId
+                || !in_array($siteId, [null, ''], true)) {
+                throw new \RuntimeException('Neutral contract option authority is invalid.', 409);
+            }
+            $valuesByModule[$moduleId][$canonicalName] = (string)($row['VALUE'] ?? $row['value'] ?? '');
+            $rowIdentities[$authorityKey] = [
+                'moduleId' => $moduleId,
+                'name' => $actualName,
+                'siteId' => $siteId,
+            ];
+        }
+        ksort($valuesByModule, SORT_STRING);
+        foreach ($valuesByModule as &$moduleValues) {
+            ksort($moduleValues, SORT_STRING);
+        }
+        unset($moduleValues);
+        ksort($rowIdentities, SORT_STRING);
+        return [
+            'valuesByModule' => $valuesByModule,
+            'rowIdentities' => $rowIdentities,
+        ];
     }
 
     private function assertStageFormulaSurfaces(int $stageId, ?int $settingsId): void

@@ -29,6 +29,25 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     private const BACKUP_OPTION = 'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1';
     private const MARKER_OPTION = 'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1';
 
+    /** @var array<string,list<string>> */
+    private const OPTION_NAMES_BY_MODULE = [
+        'prospektweb.calc' => [
+            self::CONFIG_OPTION,
+            self::ACTIVE_OPTION,
+            self::BACKUP_OPTION,
+            self::MARKER_OPTION,
+        ],
+        'prospektweb.frontcalc' => [
+            self::CONFIG_OPTION,
+        ],
+    ];
+
+    /** @var list<string> */
+    private const IMMUTABLE_EVIDENCE_OPTION_NAMES = [
+        self::BACKUP_OPTION,
+        self::MARKER_OPTION,
+    ];
+
     /** @var list<string> */
     private const RESERVED_GLOBAL_CODES = [
         'if', 'round', 'ceil', 'floor', 'min', 'max', 'abs', 'trim', 'lower', 'upper',
@@ -764,9 +783,9 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     {
         Application::getConnection()->queryExecute(
             "SELECT MODULE_ID, NAME, SITE_ID FROM b_option WHERE "
-            . "(((MODULE_ID='prospektweb.calc' OR MODULE_ID='prospektweb.frontcalc') AND UPPER(NAME)='IBLOCK_CALC_GLOBAL_VALUES') OR "
-            . "(MODULE_ID='prospektweb.calc' AND UPPER(NAME) IN ('PRESET_12740_NEUTRAL_INPUT_ACTIVE','PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1','PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1'))) "
-            . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE"
+            . "(((MODULE_ID='prospektweb.calc' OR MODULE_ID='prospektweb.frontcalc') AND UPPER(TRIM(NAME))='IBLOCK_CALC_GLOBAL_VALUES') OR "
+            . "(MODULE_ID='prospektweb.calc' AND UPPER(TRIM(NAME)) IN ('PRESET_12740_NEUTRAL_INPUT_ACTIVE','PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1','PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1'))) "
+            . "ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE"
         );
     }
 
@@ -876,42 +895,89 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         return $snapshot;
     }
 
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<string,mixed>
+     */
+    private static function normalizeOptionSnapshotRows(
+        string $moduleId,
+        string $name,
+        array $rows,
+        bool $required
+    ): array {
+        self::assertAllowedOptionRequest($moduleId, $name);
+        $snapshot = null;
+        foreach ($rows as $row) {
+            $actualModule = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+            $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
+            $hasSiteId = array_key_exists('SITE_ID', $row) || array_key_exists('site_id', $row);
+            $siteId = array_key_exists('SITE_ID', $row)
+                ? $row['SITE_ID']
+                : ($row['site_id'] ?? null);
+            if ($actualModule !== $moduleId
+                || $actualName !== trim($actualName)
+                || strtoupper($actualName) !== $name
+                || !$hasSiteId
+                || !in_array($siteId, [null, ''], true)) {
+                throw new \RuntimeException('Unexpected global option authority.', 409);
+            }
+            if (is_array($snapshot)) {
+                throw new \RuntimeException('Duplicate global option authority.', 409);
+            }
+            $value = (string)($row['VALUE'] ?? $row['value'] ?? '');
+            if ((in_array($name, self::IMMUTABLE_EVIDENCE_OPTION_NAMES, true) && trim($value) === '')
+                || ($name === self::ACTIVE_OPTION && !in_array($value, ['N', 'Y'], true))) {
+                throw new \RuntimeException('Invalid global option authority value.', 409);
+            }
+            $snapshot = [
+                'exists' => true,
+                'moduleId' => $actualModule,
+                'name' => $actualName,
+                'siteId' => $siteId,
+                'value' => $value,
+            ];
+        }
+        if (is_array($snapshot)) {
+            return $snapshot;
+        }
+        if ($required) {
+            throw new \RuntimeException('Required global option authority is missing.', 409);
+        }
+        return [
+            'exists' => false,
+            'moduleId' => $moduleId,
+            'name' => $name,
+            'siteId' => null,
+            'value' => '',
+        ];
+    }
+
+    private static function assertAllowedOptionRequest(string $moduleId, string $name): void
+    {
+        if (!array_key_exists($moduleId, self::OPTION_NAMES_BY_MODULE)
+            || !in_array($name, self::OPTION_NAMES_BY_MODULE[$moduleId], true)) {
+            throw new \InvalidArgumentException('Unsupported neutral global-symbol option authority request.');
+        }
+    }
+
     /** @return array<string,mixed> */
     private function readOptionSnapshot(string $moduleId, string $name, bool $forUpdate, bool $required): array
     {
+        self::assertAllowedOptionRequest($moduleId, $name);
         $connection = Application::getConnection();
         $helper = $connection->getSqlHelper();
         $sql = "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE MODULE_ID='"
-            . $helper->forSql($moduleId) . "' AND UPPER(NAME)='" . $helper->forSql(strtoupper($name)) . "'"
-            . " AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY NAME, SITE_ID"
+            . $helper->forSql($moduleId) . "' AND UPPER(TRIM(NAME))='" . $helper->forSql($name) . "'"
+            . " ORDER BY MODULE_ID, NAME, SITE_ID"
             . ($forUpdate ? ' FOR UPDATE' : '');
         $cursor = $connection->query($sql);
-        $row = $cursor->fetch();
-        $duplicate = $cursor->fetch();
-        if ($duplicate !== false) {
-            throw new \RuntimeException('Duplicate global option authority.', 409);
-        }
-        if ($row === false) {
-            if ($required) {
-                throw new \RuntimeException('Required global option authority is missing.', 409);
+        $rows = [];
+        while (($row = $cursor->fetch()) !== false) {
+            if (is_array($row)) {
+                $rows[] = $row;
             }
-            return ['exists' => false, 'moduleId' => $moduleId, 'name' => $name, 'siteId' => null, 'value' => ''];
         }
-        $actualName = (string)($row['NAME'] ?? '');
-        if ((string)($row['MODULE_ID'] ?? '') !== $moduleId
-            || strtoupper($actualName) !== strtoupper($name)
-            || $actualName !== trim($actualName)
-            || !array_key_exists('SITE_ID', $row)
-            || !in_array($row['SITE_ID'], [null, ''], true)) {
-            throw new \RuntimeException('Unexpected global option authority.', 409);
-        }
-        return [
-            'exists' => true,
-            'moduleId' => $moduleId,
-            'name' => $actualName,
-            'siteId' => $row['SITE_ID'],
-            'value' => (string)($row['VALUE'] ?? ''),
-        ];
+        return self::normalizeOptionSnapshotRows($moduleId, $name, $rows, $required);
     }
 
     private function readOptionRaw(string $name, bool $forUpdate): string
@@ -921,21 +987,34 @@ final class Preset12740NeutralGlobalSymbolMigrationService
 
     private function setGlobalOption(string $name, string $value): void
     {
+        $before = $this->readOptionSnapshot(self::MODULE_ID, $name, true, false);
+        if (($before['exists'] ?? false) === true
+            && in_array($name, self::IMMUTABLE_EVIDENCE_OPTION_NAMES, true)
+            && !hash_equals((string)$before['value'], $value)) {
+            throw new \RuntimeException('A different global-symbol migration evidence option already exists.', 409);
+        }
         Option::set(self::MODULE_ID, $name, $value);
-        $stored = $this->readOptionRaw($name, false);
-        if (!hash_equals($value, $stored)) {
+        $after = $this->readOptionSnapshot(self::MODULE_ID, $name, true, true);
+        if (!hash_equals($value, (string)$after['value'])
+            || (($before['exists'] ?? false) === true
+                && (!hash_equals((string)$before['name'], (string)$after['name'])
+                    || $before['siteId'] !== $after['siteId']))) {
             throw new \RuntimeException('Global-symbol migration option read-back failed.');
         }
     }
 
     private function deleteGlobalOption(string $name): void
     {
+        $snapshot = $this->readOptionSnapshot(self::MODULE_ID, $name, true, false);
+        if (($snapshot['exists'] ?? false) !== true) {
+            return;
+        }
         $connection = Application::getConnection();
         $helper = $connection->getSqlHelper();
+        $sitePredicate = $snapshot['siteId'] === null ? 'SITE_ID IS NULL' : "SITE_ID=''";
         $connection->queryExecute(
-            "DELETE FROM b_option WHERE MODULE_ID='" . $helper->forSql(self::MODULE_ID)
-            . "' AND UPPER(NAME)='" . $helper->forSql(strtoupper($name))
-            . "' AND (SITE_ID IS NULL OR SITE_ID='')"
+            "DELETE FROM b_option WHERE BINARY MODULE_ID='" . $helper->forSql((string)$snapshot['moduleId'])
+            . "' AND BINARY NAME='" . $helper->forSql((string)$snapshot['name']) . "' AND " . $sitePredicate
         );
         $readBack = $this->readOptionSnapshot(self::MODULE_ID, $name, false, false);
         if (($readBack['exists'] ?? false) === true) {
