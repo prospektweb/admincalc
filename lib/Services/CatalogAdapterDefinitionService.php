@@ -1163,9 +1163,34 @@ final class CatalogAdapterDefinitionService
         if (isset($this->adapters['get_option'])) {
             return (string)call_user_func($this->adapters['get_option'], self::OPTION_PREFIX . $presetId, '');
         }
-        return class_exists(Option::class)
-            ? (string)Option::get(self::MODULE_ID, self::OPTION_PREFIX . $presetId, '')
-            : '';
+        if (!class_exists(Application::class)) {
+            return '';
+        }
+
+        // Adapter saves are committed through direct SQL so they can share the
+        // catalog transaction and row locks. Reading through Option::get here
+        // would reintroduce Bitrix's persistent managed-cache and could keep an
+        // absent/default adapter visible after a successful first save.
+        $expectedName = self::OPTION_PREFIX . $presetId;
+        $result = Application::getConnection()->query(
+            "SELECT MODULE_ID, NAME, VALUE FROM b_option WHERE MODULE_ID='" . self::MODULE_ID
+            . "' AND NAME='" . $expectedName
+            . "' AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME"
+        );
+        $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
+        $duplicate = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
+        if (is_array($duplicate)) {
+            throw new \RuntimeException('Duplicate global catalog adapter option row.', 409);
+        }
+        if (!is_array($row)) {
+            return '';
+        }
+        $actualModuleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+        $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
+        if ($actualModuleId !== self::MODULE_ID || strtoupper($actualName) !== $expectedName) {
+            throw new \RuntimeException('Unexpected global catalog adapter option row.');
+        }
+        return (string)($row['VALUE'] ?? $row['value'] ?? '');
     }
 
     private function setRaw(int $presetId, string $raw): void
