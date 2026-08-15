@@ -169,6 +169,25 @@ $assert(
     ],
     'the raw config authority is canonicalized independently of database row order'
 );
+$lowercaseConfigSnapshot = $normalizeConfigMethod->invoke(null, [
+    ['NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => null],
+    ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
+]);
+$assert(
+    ($lowercaseConfigSnapshot['presetIblockId'] ?? 0) === 41
+        && ($lowercaseConfigSnapshot['detailsIblockId'] ?? 0) === 50
+        && ($lowercaseConfigSnapshot['stagesIblockId'] ?? 0) === 42,
+    'the production lowercase global option rows resolve through Bitrix case-insensitive authority'
+);
+$assert(
+    ($lowercaseConfigSnapshot['rowIdentities'] ?? []) === [
+        'IBLOCK_CALC_DETAILS' => ['name' => 'iblock_calc_details', 'siteId' => null],
+        'IBLOCK_CALC_PRESETS' => ['name' => 'iblock_calc_presets', 'siteId' => null],
+        'IBLOCK_CALC_STAGES' => ['name' => 'iblock_calc_stages', 'siteId' => null],
+    ],
+    'the migration CAS snapshot preserves the exact lowercase database row identities'
+);
 $expectConfigFailure = static function (array $rows, string $message) use (
     $assert,
     $normalizeConfigMethod
@@ -182,20 +201,36 @@ $expectConfigFailure = static function (array $rows, string $message) use (
     $assert(false, $message);
 };
 $expectConfigFailure([
-    ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43'],
+    ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
     ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
     ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '99', 'SITE_ID' => ''],
-    ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42'],
+    ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42', 'SITE_ID' => null],
 ], 'duplicate NULL/empty-site config authorities are rejected');
 $expectConfigFailure([
-    ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43'],
-    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41'],
+    ['NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => null],
+    ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '99', 'SITE_ID' => ''],
+    ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
+], 'mixed-case rows colliding on one canonical Bitrix option authority are rejected');
+$expectConfigFailure([
+    ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
+    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
 ], 'an incomplete config authority is rejected');
 $expectConfigFailure([
-    ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43'],
-    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41'],
-    ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42-cache-poison'],
+    ['NAME' => 'IBLOCK_CALC_DETAILS', 'VALUE' => '43', 'SITE_ID' => null],
+    ['NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41', 'SITE_ID' => null],
+    ['NAME' => 'IBLOCK_CALC_STAGES', 'VALUE' => '42-cache-poison', 'SITE_ID' => null],
 ], 'a non-canonical config authority is rejected');
+$expectConfigFailure([
+    ['NAME' => 'iblock_calc_details ', 'VALUE' => '50', 'SITE_ID' => null],
+    ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
+], 'a whitespace option-name alias is rejected instead of being trimmed');
+$expectConfigFailure([
+    ['NAME' => 'iblock_calc_details', 'VALUE' => '50', 'SITE_ID' => 's1'],
+    ['NAME' => 'iblock_calc_presets', 'VALUE' => '41', 'SITE_ID' => null],
+    ['NAME' => 'iblock_calc_stages', 'VALUE' => '42', 'SITE_ID' => null],
+], 'a site-scoped option row cannot become the global migration authority');
 
 $membershipMethod = new ReflectionMethod(
     Preset12740NeutralInputMigrationService::class,

@@ -724,22 +724,38 @@ final class Preset12740NeutralInputMigrationService
     {
         $rawByName = [];
         foreach ($rows as $row) {
-            $name = (string)($row['NAME'] ?? $row['name'] ?? '');
-            if (!array_key_exists($name, self::CONFIG_OPTION_TO_STATE_KEY)) {
+            $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
+            // Bitrix Option lookups on the production b_option collation are
+            // case-insensitive. Canonicalize only ASCII case for the exact
+            // allowlist; do not trim or accept aliases that the runtime probe
+            // did not establish as equivalent authorities.
+            $canonicalName = strtoupper($actualName);
+            if (!array_key_exists($canonicalName, self::CONFIG_OPTION_TO_STATE_KEY)) {
                 throw new \RuntimeException('Unexpected preset 12740 migration config option row.', 409);
             }
-            if (array_key_exists($name, $rawByName)) {
+            $hasSiteId = array_key_exists('SITE_ID', $row) || array_key_exists('site_id', $row);
+            $siteId = array_key_exists('SITE_ID', $row)
+                ? $row['SITE_ID']
+                : ($row['site_id'] ?? null);
+            if (!$hasSiteId || !in_array($siteId, [null, ''], true)) {
+                throw new \RuntimeException('Preset 12740 migration config option row is not global.', 409);
+            }
+            if (array_key_exists($canonicalName, $rawByName)) {
                 throw new \RuntimeException('Duplicate global preset 12740 migration config option row.', 409);
             }
-            $rawByName[$name] = (string)($row['VALUE'] ?? $row['value'] ?? '');
+            $rawByName[$canonicalName] = [
+                'name' => $actualName,
+                'siteId' => $siteId,
+                'value' => (string)($row['VALUE'] ?? $row['value'] ?? ''),
+            ];
         }
 
-        $snapshot = ['options' => []];
+        $snapshot = ['options' => [], 'rowIdentities' => []];
         foreach (self::CONFIG_OPTION_TO_STATE_KEY as $name => $stateKey) {
             if (!array_key_exists($name, $rawByName)) {
                 throw new \RuntimeException('Preset 12740 migration iblock topology is incomplete.', 409);
             }
-            $raw = $rawByName[$name];
+            $raw = (string)$rawByName[$name]['value'];
             $normalized = trim($raw);
             $iblockId = (int)$normalized;
             if (preg_match('/^[1-9][0-9]*$/D', $normalized) !== 1
@@ -748,9 +764,14 @@ final class Preset12740NeutralInputMigrationService
                 throw new \RuntimeException('Preset 12740 migration iblock topology is invalid.', 409);
             }
             $snapshot['options'][$name] = $raw;
+            $snapshot['rowIdentities'][$name] = [
+                'name' => (string)$rawByName[$name]['name'],
+                'siteId' => $rawByName[$name]['siteId'],
+            ];
             $snapshot[$stateKey] = $iblockId;
         }
         ksort($snapshot['options'], SORT_STRING);
+        ksort($snapshot['rowIdentities'], SORT_STRING);
         return $snapshot;
     }
 
