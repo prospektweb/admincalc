@@ -111,14 +111,44 @@ $assert($complete['fingerprint'] === $plan['nextFingerprint'], 'the read-back fi
 $multipleEncoder = new ReflectionMethod(Preset12740NeutralInputMigrationService::class, 'encodeMultiplePropertyRows');
 $multipleEncoder->setAccessible(true);
 $encodedRows = $multipleEncoder->invoke(null, [
-    ['VALUE' => 'first', 'DESCRIPTION' => 'input.values.first'],
-    ['VALUE' => 'second', 'DESCRIPTION' => 'input.values.second'],
+    ['DESCRIPTION' => 'input.values.first', 'VALUE' => 'first'],
+    ['DESCRIPTION' => 'input.values.second', 'VALUE' => 'second'],
 ]);
 $assert(
-    array_keys($encodedRows) === ['n0', 'n1']
-        && ($encodedRows['n0']['DESCRIPTION'] ?? '') === 'input.values.first'
-        && ($encodedRows['n1']['DESCRIPTION'] ?? '') === 'input.values.second',
-    'Bitrix multi-value writes use new-value keys and preserve every VALUE/DESCRIPTION pair'
+    array_keys($encodedRows) === [0, 1]
+        && array_keys($encodedRows[0]) === ['VALUE', 'DESCRIPTION']
+        && array_keys($encodedRows[1]) === ['VALUE', 'DESCRIPTION']
+        && ($encodedRows[0]['DESCRIPTION'] ?? '') === 'input.values.first'
+        && ($encodedRows[1]['DESCRIPTION'] ?? '') === 'input.values.second',
+    'Bitrix multi-value writes rebuild the documented numeric list and strict VALUE/DESCRIPTION key order'
+);
+$normalizeLikeProductionSetPropertyValuesEx = static function (array $values): array {
+    $normalized = [];
+    foreach ($values as $value) {
+        if (!is_array($value)) {
+            $normalized[] = ['VALUE' => $value, 'DESCRIPTION' => ''];
+            continue;
+        }
+        $keys = array_keys($value);
+        // This is the order-sensitive non-file multiple-value branch in the
+        // installed Bitrix core. A DESCRIPTION,VALUE row is silently skipped.
+        if (($keys[0] ?? null) === 'VALUE' && ($keys[1] ?? null) === 'DESCRIPTION') {
+            $normalized[] = [
+                'VALUE' => $value['VALUE'],
+                'DESCRIPTION' => $value['DESCRIPTION'],
+            ];
+        } elseif (count($keys) === 1 && $keys[0] === 'VALUE') {
+            $normalized[] = ['VALUE' => $value['VALUE'], 'DESCRIPTION' => ''];
+        }
+    }
+    return $normalized;
+};
+$assert(
+    $normalizeLikeProductionSetPropertyValuesEx($encodedRows) === [
+        ['VALUE' => 'first', 'DESCRIPTION' => 'input.values.first'],
+        ['VALUE' => 'second', 'DESCRIPTION' => 'input.values.second'],
+    ],
+    'the encoder survives the exact order-sensitive SetPropertyValuesEx normalization used in production'
 );
 
 $canonicalMethod = new ReflectionMethod(Preset12740NeutralInputMigrationService::class, 'encodeCanonical');
@@ -132,6 +162,31 @@ $backup = [
     'state' => $state,
 ];
 $backupRaw = $canonicalMethod->invoke(null, $backup);
+$decodedBackup = json_decode($backupRaw, true);
+$assert(
+    is_array($decodedBackup)
+        && array_keys($decodedBackup['state']['globals']['GLOBAL_CONSTANTS'][0] ?? []) === ['DESCRIPTION', 'VALUE'],
+    'canonical backup serialization reproduces the production DESCRIPTION/VALUE row order'
+);
+$roundTrippedGlobalRows = $multipleEncoder->invoke(
+    null,
+    $decodedBackup['state']['globals']['GLOBAL_CONSTANTS'] ?? []
+);
+$assert(
+    $normalizeLikeProductionSetPropertyValuesEx($roundTrippedGlobalRows)
+        === $state['globals']['GLOBAL_CONSTANTS'],
+    'all canonical-backup global rows survive production SetPropertyValuesEx normalization'
+);
+foreach ($state['stages'] as $stageId => $stage) {
+    $roundTrippedStageRows = $multipleEncoder->invoke(
+        null,
+        $decodedBackup['state']['stages'][$stageId]['rows'] ?? []
+    );
+    $assert(
+        $normalizeLikeProductionSetPropertyValuesEx($roundTrippedStageRows) === $stage['rows'],
+        'canonical-backup stage ' . $stageId . ' rows survive production SetPropertyValuesEx normalization'
+    );
+}
 $resolveBackupMethod = new ReflectionMethod(
     Preset12740NeutralInputMigrationService::class,
     'resolveBackupRaw'

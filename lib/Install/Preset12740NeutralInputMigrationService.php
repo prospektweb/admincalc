@@ -710,21 +710,28 @@ final class Preset12740NeutralInputMigrationService
     }
 
     /**
-     * Bitrix treats a zero-based numeric array as a list of scalar values and
-     * drops DESCRIPTION for these multi-value properties. New-value keys keep
-     * each VALUE/DESCRIPTION pair intact after the preceding explicit clear.
+     * The retained backup is canonical JSON, so each decoded row is ordered as
+     * DESCRIPTION, VALUE. Production SetPropertyValuesEx accepts a described
+     * non-file row only when its first two keys are VALUE, DESCRIPTION; in the
+     * reverse order it silently drops the row. Rebuild both the documented
+     * numeric list and every inner pair instead of preserving JSON key order.
      *
      * @param array<int,array<string,mixed>> $rows
-     * @return array<string,array<string,mixed>>
+     * @return array<int,array{VALUE:string,DESCRIPTION:string}>
      */
     private static function encodeMultiplePropertyRows(array $rows): array
     {
         $encoded = [];
-        foreach (array_values($rows) as $index => $row) {
-            if (!is_array($row)) {
+        foreach (array_values($rows) as $row) {
+            if (!is_array($row)
+                || !array_key_exists('VALUE', $row)
+                || !array_key_exists('DESCRIPTION', $row)) {
                 throw new \InvalidArgumentException('Invalid preset-12740 multi-value property row.');
             }
-            $encoded['n' . $index] = $row;
+            $encoded[] = [
+                'VALUE' => (string)$row['VALUE'],
+                'DESCRIPTION' => (string)$row['DESCRIPTION'],
+            ];
         }
         return $encoded;
     }
