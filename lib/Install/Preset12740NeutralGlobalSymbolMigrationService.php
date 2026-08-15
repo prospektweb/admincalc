@@ -19,9 +19,10 @@ use Prospektweb\Calc\Services\NeutralFormulaPolicy;
  */
 final class Preset12740NeutralGlobalSymbolMigrationService
 {
-    public const CONTRACT = 'prospektweb.calc.preset-12740-neutral-global-symbol-migration/v1';
+    public const CONTRACT = 'prospektweb.calc.preset-12740-neutral-global-symbol-migration/v2';
     public const PRESET_ID = 12740;
-    public const EXPECTED_MUTATION_COUNT = 14;
+    public const EXPECTED_MUTATION_COUNT = 24;
+    public const EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT = 37;
 
     private const MODULE_ID = 'prospektweb.calc';
     private const CONFIG_OPTION = 'IBLOCK_CALC_GLOBAL_VALUES';
@@ -162,6 +163,80 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         ],
     ];
 
+    /** @var array<string,array{id:int,kind:string,dataType:string,legacy:string,neutral:string}> */
+    private const TYPED_INITIALIZERS = [
+        'is_self_adhesive_paper' => [
+            'id' => 12794,
+            'kind' => 'constant',
+            'dataType' => 'boolean',
+            'legacy' => '',
+            'neutral' => 'get(input, "values.type.paper") == "sticker-paper"',
+        ],
+        'is_uv_printing' => [
+            'id' => 12796,
+            'kind' => 'constant',
+            'dataType' => 'boolean',
+            'legacy' => '',
+            'neutral' => 'get(input, "values.method") == "UF_PECHAT"',
+        ],
+        'needs_pre_lamination_trim' => [
+            'id' => 12838,
+            'kind' => 'variable',
+            'dataType' => 'boolean',
+            'legacy' => '',
+            'neutral' => 'false',
+        ],
+        'print_layout_length_mm' => [
+            'id' => 12839,
+            'kind' => 'constant',
+            'dataType' => 'number',
+            'legacy' => '',
+            'neutral' => '0',
+        ],
+        'print_layout_width_mm' => [
+            'id' => 12840,
+            'kind' => 'constant',
+            'dataType' => 'number',
+            'legacy' => '',
+            'neutral' => '0',
+        ],
+        'print_sheet_thickness_initial_mm' => [
+            'id' => 12902,
+            'kind' => 'constant',
+            'dataType' => 'number',
+            'legacy' => '',
+            'neutral' => '0',
+        ],
+        'print_sheet_weight_initial_g' => [
+            'id' => 12903,
+            'kind' => 'constant',
+            'dataType' => 'number',
+            'legacy' => '',
+            'neutral' => '0',
+        ],
+        'title_for_base_in_offer' => [
+            'id' => 12977,
+            'kind' => 'constant',
+            'dataType' => 'string',
+            'legacy' => '',
+            'neutral' => '""',
+        ],
+        'print_vibrancy_text' => [
+            'id' => 12980,
+            'kind' => 'constant',
+            'dataType' => 'string',
+            'legacy' => '',
+            'neutral' => '""',
+        ],
+        'print_method_text' => [
+            'id' => 12981,
+            'kind' => 'constant',
+            'dataType' => 'string',
+            'legacy' => '',
+            'neutral' => '""',
+        ],
+    ];
+
     public function audit(): array
     {
         $config = $this->readConfigSnapshot(false);
@@ -174,6 +249,43 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         );
         unset($plan['_nextState']);
         return $plan;
+    }
+
+    /**
+     * Return the exact in-memory post-migration registry for a signed,
+     * read-only calc-server capability probe. The caller supplies the fresh
+     * audit fingerprint; any authority or row drift is rejected here and is
+     * checked again by apply() under the mutation lock.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function previewProspectiveRuntimeRows(string $expectedFingerprint): array
+    {
+        self::assertFingerprint($expectedFingerprint);
+        $config = $this->readConfigSnapshot(false);
+        $active = $this->readActiveSnapshot(false);
+        $state = $this->loadState($config, $active);
+        $plan = $this->buildAuditedPlan(
+            $state,
+            $this->readOptionRaw(self::MARKER_OPTION, false),
+            $this->readOptionRaw(self::BACKUP_OPTION, false)
+        );
+        if (!hash_equals((string)($plan['fingerprint'] ?? ''), $expectedFingerprint)) {
+            throw new \RuntimeException('Global symbols changed after audit. Repeat the audit.', 409);
+        }
+        if (($plan['status'] ?? '') !== 'pending'
+            || ($plan['ready'] ?? false) !== true
+            || count((array)($plan['mutations'] ?? [])) !== self::EXPECTED_MUTATION_COUNT
+            || !is_array($plan['_nextState'] ?? null)) {
+            throw new \RuntimeException('Prospective global-symbol runtime is not safe to probe.', 409);
+        }
+
+        $rows = self::runtimeRowsFromState($plan['_nextState']);
+        if (count($rows) !== self::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT) {
+            throw new \RuntimeException('Prospective global-symbol runtime row count is invalid.', 409);
+        }
+        self::assertNeutralRuntimeRows($rows);
+        return $rows;
     }
 
     /**
@@ -362,20 +474,27 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         return $result;
     }
 
-    public function apply(string $expectedFingerprint): array
+    /** @return array<string,array{id:int,kind:string,dataType:string,legacy:string,neutral:string}> */
+    private static function migrationSpecifications(): array
+    {
+        return array_merge(self::SYMBOLS, self::TYPED_INITIALIZERS);
+    }
+
+    public function apply(string $expectedFingerprint, string $expectedActive): array
     {
         self::assertFingerprint($expectedFingerprint);
         return (new CatalogAdapterDefinitionService())->withMutationLock(
             self::PRESET_ID,
-            fn(): array => $this->applyLocked($expectedFingerprint)
+            fn(): array => $this->applyLocked($expectedFingerprint, $expectedActive)
         );
     }
 
-    private function applyLocked(string $expectedFingerprint): array
+    private function applyLocked(string $expectedFingerprint, string $expectedActive): array
     {
         $connection = Application::getConnection();
         $initialConfig = $this->readConfigSnapshot(false);
         $initialActive = $this->readActiveSnapshot(false);
+        self::assertExpectedActiveSnapshot($initialActive, $expectedActive);
         $initialState = $this->loadState($initialConfig, $initialActive);
         $transactionStarted = false;
         try {
@@ -386,6 +505,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             $lockedActive = $this->readActiveSnapshot(true);
             self::assertSnapshotUnchanged($initialConfig, $lockedConfig, 'global-symbol iblock configuration');
             self::assertSnapshotUnchanged($initialActive, $lockedActive, 'neutral activation state');
+            self::assertExpectedActiveSnapshot($lockedActive, $expectedActive);
             $currentState = $this->loadState($lockedConfig, $lockedActive);
             $plan = self::buildPlan($currentState);
             if (!hash_equals((string)$plan['fingerprint'], $expectedFingerprint)) {
@@ -532,6 +652,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     public static function buildPlan(array $state): array
     {
         self::validateState($state);
+        $migrationSpecifications = self::migrationSpecifications();
         $fingerprint = self::fingerprint($state);
         $next = $state;
         $mutations = [];
@@ -557,12 +678,12 @@ final class Preset12740NeutralGlobalSymbolMigrationService
                 continue;
             }
             $rowsByCode[$code] = ['index' => $index, 'row' => $row];
-            if (!isset(self::SYMBOLS[$code]) && self::containsForbiddenRoot((string)($row['initialValue'] ?? ''))) {
+            if (!isset($migrationSpecifications[$code]) && self::containsForbiddenRoot((string)($row['initialValue'] ?? ''))) {
                 $unresolved[] = ['kind' => 'unexpected-symbol', 'id' => $id, 'code' => $code, 'reason' => 'forbidden-entity-root'];
             }
         }
 
-        foreach (self::SYMBOLS as $code => $specification) {
+        foreach ($migrationSpecifications as $code => $specification) {
             $entry = $rowsById[$specification['id']] ?? null;
             if (!is_array($entry)) {
                 $unresolved[] = ['kind' => 'required-symbol', 'code' => $code, 'reason' => 'missing'];
@@ -580,21 +701,55 @@ final class Preset12740NeutralGlobalSymbolMigrationService
                 continue;
             }
             $formula = (string)($row['initialValue'] ?? '');
+            $initialValueExists = $row['initialValueExists'] ?? null;
+            $legacyInitialValueExists = !isset(self::TYPED_INITIALIZERS[$code]);
+            if (!is_bool($initialValueExists)) {
+                $unresolved[] = [
+                    'kind' => 'required-symbol',
+                    'id' => $specification['id'],
+                    'code' => $code,
+                    'reason' => 'invalid-initial-value-presence',
+                ];
+                continue;
+            }
             if ($formula === $specification['neutral']) {
-                $neutralCount++;
+                if ($initialValueExists === true) {
+                    $neutralCount++;
+                } else {
+                    $unresolved[] = [
+                        'kind' => 'required-symbol',
+                        'id' => $specification['id'],
+                        'code' => $code,
+                        'reason' => 'neutral-value-is-not-physically-stored',
+                    ];
+                }
                 continue;
             }
             if ($formula !== $specification['legacy']) {
                 $unresolved[] = ['kind' => 'required-symbol', 'id' => $specification['id'], 'code' => $code, 'reason' => 'unexpected-formula', 'value' => $formula];
                 continue;
             }
+            if ($initialValueExists !== $legacyInitialValueExists) {
+                $unresolved[] = [
+                    'kind' => 'required-symbol',
+                    'id' => $specification['id'],
+                    'code' => $code,
+                    'reason' => 'unexpected-initial-value-presence',
+                    'expected' => $legacyInitialValueExists,
+                    'actual' => $initialValueExists,
+                ];
+                continue;
+            }
             $next['rows'][(int)$entry['index']]['initialValue'] = $specification['neutral'];
+            $next['rows'][(int)$entry['index']]['initialValueExists'] = true;
             $mutations[] = [
                 'kind' => 'global-symbol',
                 'elementId' => $specification['id'],
                 'code' => $code,
                 'before' => $formula,
                 'after' => $specification['neutral'],
+                'beforeExists' => $initialValueExists,
+                'afterExists' => true,
             ];
         }
 
@@ -613,6 +768,23 @@ final class Preset12740NeutralGlobalSymbolMigrationService
                 'reason' => 'partial-migration-state',
                 'neutral' => $neutralCount,
                 'legacy' => count($mutations),
+            ];
+        }
+        $prospectiveOwnedCount = count(self::runtimeRowsFromState($next));
+        if ($prospectiveOwnedCount !== self::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT) {
+            $unresolved[] = [
+                'kind' => 'runtime-registry',
+                'reason' => 'unexpected-prospective-runtime-row-count',
+                'expected' => self::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT,
+                'actual' => $prospectiveOwnedCount,
+            ];
+        }
+        try {
+            self::assertNeutralStateRows($next);
+        } catch (\Throwable $error) {
+            $unresolved[] = [
+                'kind' => 'runtime-registry',
+                'reason' => 'invalid-prospective-runtime-registry',
             ];
         }
         $ready = $unresolved === [];
@@ -650,7 +822,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             throw new \RuntimeException('The pinned global-symbol iblock identity is invalid.', 409);
         }
         $propertySchema = $this->loadPropertySchema($iblockId);
-        $rows = $this->loadAllRows($iblockId);
+        $rows = $this->loadAllRows($iblockId, (int)$propertySchema['INITIAL_VALUE']['id']);
         usort($rows, static fn(array $left, array $right): int => (int)$left['id'] <=> (int)$right['id']);
         return [
             'presetId' => self::PRESET_ID,
@@ -713,7 +885,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     }
 
     /** @return array<int,array<string,mixed>> */
-    private function loadAllRows(int $iblockId): array
+    private function loadAllRows(int $iblockId, int $initialValuePropertyId): array
     {
         $rows = [];
         $iterator = \CIBlockElement::GetList(
@@ -726,16 +898,21 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         while ($element = $iterator->GetNextElement()) {
             $fields = $element->GetFields();
             $properties = $element->GetProperties();
-            $initialValue = $properties['INITIAL_VALUE']['~VALUE']['TEXT']
-                ?? $properties['INITIAL_VALUE']['VALUE']['TEXT']
-                ?? $properties['INITIAL_VALUE']['~VALUE']
-                ?? $properties['INITIAL_VALUE']['VALUE']
+            $elementId = (int)($fields['ID'] ?? 0);
+            $initialValueProperty = $properties['INITIAL_VALUE'] ?? null;
+            if (!is_array($initialValueProperty)) {
+                throw new \RuntimeException('Global-symbol INITIAL_VALUE property is unavailable.', 409);
+            }
+            $initialValue = $initialValueProperty['~VALUE']['TEXT']
+                ?? $initialValueProperty['VALUE']['TEXT']
+                ?? $initialValueProperty['~VALUE']
+                ?? $initialValueProperty['VALUE']
                 ?? '';
             if (is_array($initialValue)) {
                 throw new \RuntimeException('Global-symbol INITIAL_VALUE must be scalar HTML text.', 409);
             }
             $rows[] = [
-                'id' => (int)($fields['ID'] ?? 0),
+                'id' => $elementId,
                 'iblockId' => (int)($fields['IBLOCK_ID'] ?? $iblockId),
                 'code' => (string)($fields['CODE'] ?? ''),
                 'title' => (string)($fields['~NAME'] ?? $fields['NAME'] ?? ''),
@@ -747,9 +924,41 @@ final class Preset12740NeutralGlobalSymbolMigrationService
                 'kind' => (string)($properties['KIND']['VALUE'] ?? ''),
                 'dataType' => (string)($properties['DATA_TYPE']['VALUE'] ?? ''),
                 'initialValue' => (string)$initialValue,
+                'initialValueExists' => self::hasStoredPropertyValue(
+                    $initialValueProperty,
+                    $elementId,
+                    $initialValuePropertyId
+                ),
             ];
         }
         return $rows;
+    }
+
+    /** @param array<string,mixed> $property */
+    private static function hasStoredPropertyValue(
+        array $property,
+        int $expectedElementId,
+        int $expectedPropertyId
+    ): bool
+    {
+        if ($expectedElementId <= 0 || $expectedPropertyId <= 0) {
+            throw new \RuntimeException('Global-symbol INITIAL_VALUE storage authority is invalid.', 409);
+        }
+        $valueId = $property['PROPERTY_VALUE_ID'] ?? null;
+        if ($valueId === null || $valueId === false || $valueId === '' || $valueId === 0 || $valueId === '0') {
+            return false;
+        }
+        if (is_int($valueId)) {
+            if ($valueId > 0) {
+                return true;
+            }
+        } elseif (is_string($valueId) && ctype_digit($valueId) && (int)$valueId > 0) {
+            return true;
+        } elseif (is_string($valueId)
+            && hash_equals($expectedElementId . ':' . $expectedPropertyId, $valueId)) {
+            return true;
+        }
+        throw new \RuntimeException('Global-symbol INITIAL_VALUE storage identity is invalid.', 409);
     }
 
     /** @param array<string,mixed> $state @param array<int,array<string,mixed>> $mutations */
@@ -765,7 +974,14 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             if (!is_array($row) || $id <= 0) {
                 throw new \RuntimeException('Global-symbol write target is unavailable.');
             }
+            $initialValueExists = $row['initialValueExists'] ?? null;
+            if (!is_bool($initialValueExists)) {
+                throw new \RuntimeException('Global-symbol INITIAL_VALUE storage presence is invalid.');
+            }
             \CIBlockElement::SetPropertyValues($id, (int)$state['iblockId'], [], 'INITIAL_VALUE');
+            if ($initialValueExists === false) {
+                continue;
+            }
             \CIBlockElement::SetPropertyValuesEx($id, (int)$state['iblockId'], [
                 'INITIAL_VALUE' => ['VALUE' => ['TEXT' => (string)$row['initialValue'], 'TYPE' => 'TEXT']],
             ]);
@@ -893,6 +1109,15 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         }
         $snapshot['implicit'] = false;
         return $snapshot;
+    }
+
+    /** @param array<string,mixed> $snapshot */
+    private static function assertExpectedActiveSnapshot(array $snapshot, string $expectedActive): void
+    {
+        if (!in_array($expectedActive, ['N', 'Y'], true)
+            || (string)($snapshot['value'] ?? '') !== $expectedActive) {
+            throw new \RuntimeException('Neutral activation state changed after audit.', 409);
+        }
     }
 
     /**
@@ -1025,7 +1250,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     /**
      * Audit has two deliberately different meanings:
      * - before the one-time migration, only the exact reviewed legacy state is
-     *   eligible for the deterministic fourteen-row rewrite;
+     *   eligible for the deterministic twenty-four-row transition;
      * - after it, immutable marker/backup evidence proves that rewrite while
      *   the current formulas may be safely author-edited.
      *
@@ -1101,7 +1326,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     /**
      * Rollback intentionally retains the immutable legacy backup, matching
      * the V1 lifecycle. A later re-apply may reuse it only when the restored
-     * state still has the exact same fingerprint and fourteen-row plan.
+     * state still has the exact same fingerprint and twenty-four-row plan.
      *
      * @param array<string,mixed> $state
      * @return array<string,mixed>
@@ -1166,11 +1391,37 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     private static function assertNeutralStateRows(array $state): void
     {
         self::validateState($state);
-        $ownedRows = array_values(array_filter(
+        foreach ((array)$state['rows'] as $row) {
+            if (is_array($row)
+                && (int)($row['presetId'] ?? 0) === self::PRESET_ID
+                && ($row['initialValueExists'] ?? null) !== true) {
+                throw new \RuntimeException('Neutral global-symbol INITIAL_VALUE storage is absent.', 409);
+            }
+        }
+        self::assertNeutralRuntimeRows(self::runtimeRowsFromState($state));
+    }
+
+    /** @param array<string,mixed> $state @return array<int,array<string,mixed>> */
+    private static function runtimeRowsFromState(array $state): array
+    {
+        self::validateState($state);
+        $rows = array_values(array_filter(
             (array)$state['rows'],
             static fn($row): bool => is_array($row) && (int)($row['presetId'] ?? 0) === self::PRESET_ID
         ));
-        self::assertNeutralRuntimeRows($ownedRows);
+        usort($rows, static fn(array $left, array $right): int => (int)($left['id'] ?? 0) <=> (int)($right['id'] ?? 0));
+        return array_map(
+            static fn(array $row): array => [
+                'id' => (int)($row['id'] ?? 0),
+                'code' => (string)($row['code'] ?? ''),
+                'kind' => (string)($row['kind'] ?? ''),
+                'dataType' => (string)($row['dataType'] ?? ''),
+                'presetId' => (int)($row['presetId'] ?? 0),
+                'active' => (string)($row['active'] ?? ''),
+                'initialValue' => (string)($row['initialValue'] ?? ''),
+            ],
+            $rows
+        );
     }
 
     /**

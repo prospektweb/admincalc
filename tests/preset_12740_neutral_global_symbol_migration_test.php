@@ -9,6 +9,34 @@ require_once dirname(__DIR__) . '/lib/Services/GlobalCodeRefactorService.php';
 
 use Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService;
 
+if (!class_exists('CIBlockElement')) {
+    final class CIBlockElement
+    {
+        /** @var array<int,array<string,mixed>> */
+        public static array $writes = [];
+
+        public static function SetPropertyValues($id, $iblockId, $values, $propertyCode): void
+        {
+            self::$writes[] = [
+                'operation' => 'clear',
+                'id' => (int)$id,
+                'iblockId' => (int)$iblockId,
+                'propertyCode' => (string)$propertyCode,
+            ];
+        }
+
+        public static function SetPropertyValuesEx($id, $iblockId, $values): void
+        {
+            self::$writes[] = [
+                'operation' => 'set',
+                'id' => (int)$id,
+                'iblockId' => (int)$iblockId,
+                'values' => $values,
+            ];
+        }
+    }
+}
+
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) {
         fwrite(STDERR, "FAIL: {$message}\n");
@@ -17,8 +45,19 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $symbolsProperty = new ReflectionClass(Preset12740NeutralGlobalSymbolMigrationService::class);
+$assert(
+    Preset12740NeutralGlobalSymbolMigrationService::CONTRACT === 'prospektweb.calc.preset-12740-neutral-global-symbol-migration/v2',
+    'the expanded twenty-four-row mutation and evidence contract is explicitly versioned v2'
+);
+$assert(
+    Preset12740NeutralGlobalSymbolMigrationService::EXPECTED_MUTATION_COUNT === 24
+        && Preset12740NeutralGlobalSymbolMigrationService::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT === 37,
+    'migration and capability counts are pinned to the reviewed production shape'
+);
 $symbols = $symbolsProperty->getConstant('SYMBOLS');
 $assert(is_array($symbols) && count($symbols) === 14, 'migration owns the exact fourteen audited global symbols');
+$typedInitializers = $symbolsProperty->getConstant('TYPED_INITIALIZERS');
+$assert(is_array($typedInitializers) && count($typedInitializers) === 10, 'migration owns the exact ten blank typed initializers');
 $expectedTargets = [
     12777 => ['is_roll_lamination', 'boolean', 'contains(get(input, "values.protection"), "lamination-rulon")'],
     12780 => ['is_offset_printing', 'boolean', 'get(input, "values.method") == "OFSET"'],
@@ -47,9 +86,60 @@ foreach ($expectedTargets as $id => [$code, $dataType, $formula]) {
     );
 }
 
-$makeState = static function (array $formulaOverrides = [], array $rowOverrides = []) use ($symbols): array {
+$expectedInitializers = [
+    12794 => ['is_self_adhesive_paper', 'constant', 'boolean', 'get(input, "values.type.paper") == "sticker-paper"'],
+    12796 => ['is_uv_printing', 'constant', 'boolean', 'get(input, "values.method") == "UF_PECHAT"'],
+    12838 => ['needs_pre_lamination_trim', 'variable', 'boolean', 'false'],
+    12839 => ['print_layout_length_mm', 'constant', 'number', '0'],
+    12840 => ['print_layout_width_mm', 'constant', 'number', '0'],
+    12902 => ['print_sheet_thickness_initial_mm', 'constant', 'number', '0'],
+    12903 => ['print_sheet_weight_initial_g', 'constant', 'number', '0'],
+    12977 => ['title_for_base_in_offer', 'constant', 'string', '""'],
+    12980 => ['print_vibrancy_text', 'constant', 'string', '""'],
+    12981 => ['print_method_text', 'constant', 'string', '""'],
+];
+foreach ($expectedInitializers as $id => [$code, $kind, $dataType, $formula]) {
+    $actual = $typedInitializers[$code] ?? null;
+    $assert(
+        is_array($actual)
+            && ($actual['id'] ?? null) === $id
+            && ($actual['kind'] ?? null) === $kind
+            && ($actual['dataType'] ?? null) === $dataType
+            && ($actual['legacy'] ?? null) === ''
+            && ($actual['neutral'] ?? null) === $formula,
+        'initializer #' . $id . ' has the exact production identity, blank source and typed neutral target'
+    );
+}
+$requiredIdentities = Preset12740NeutralGlobalSymbolMigrationService::requiredSymbolIdentities();
+$assert(
+    count($requiredIdentities) === 14
+        && array_intersect_key($typedInitializers, $requiredIdentities) === [],
+    'typed initialization expands the one-time migration without silently expanding the cross-service required-identity contract'
+);
+
+$productionSafeExtras = [
+    'print_sheet_width_mm' => ['id' => 12904, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'print_sheet_length_mm' => ['id' => 12905, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'print_sheet_thickness_mm' => ['id' => 12906, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'print_sheet_weight_g' => ['id' => 12907, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'offset_work_and_turn_enabled' => ['id' => 12910, 'kind' => 'variable', 'dataType' => 'boolean', 'initialValue' => 'false'],
+    'offset_included_print_sheet_qty' => ['id' => 12911, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'offset_front_color_qty' => ['id' => 12913, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'offset_back_color_qty' => ['id' => 12914, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'offset_print_side_qty' => ['id' => 12915, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'offset_print_form_qty' => ['id' => 12916, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'offset_plate_qty' => ['id' => 12917, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'incoming_semifinished_purchasing_cost_rub' => ['id' => 12926, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+    'incoming_semifinished_base_cost_rub' => ['id' => 12927, 'kind' => 'variable', 'dataType' => 'number', 'initialValue' => '0'],
+];
+
+$makeState = static function (array $formulaOverrides = [], array $rowOverrides = []) use (
+    $symbols,
+    $typedInitializers,
+    $productionSafeExtras
+): array {
     $rows = [];
-    foreach ($symbols as $code => $specification) {
+    foreach (array_merge($symbols, $typedInitializers) as $code => $specification) {
         $rows[] = array_merge([
             'id' => $specification['id'],
             'iblockId' => 77,
@@ -63,8 +153,27 @@ $makeState = static function (array $formulaOverrides = [], array $rowOverrides 
             'kind' => $specification['kind'],
             'dataType' => $specification['dataType'],
             'initialValue' => $formulaOverrides[$code] ?? $specification['legacy'],
+            'initialValueExists' => !isset($typedInitializers[$code]),
         ], $rowOverrides[$code] ?? []);
     }
+    foreach ($productionSafeExtras as $code => $specification) {
+        $rows[] = array_merge([
+            'id' => $specification['id'],
+            'iblockId' => 77,
+            'code' => $code,
+            'title' => $code,
+            'active' => 'Y',
+            'sort' => 100,
+            'description' => '',
+            'descriptionType' => 'text',
+            'presetId' => 12740,
+            'kind' => $specification['kind'],
+            'dataType' => $specification['dataType'],
+            'initialValue' => $formulaOverrides[$code] ?? $specification['initialValue'],
+            'initialValueExists' => true,
+        ], $rowOverrides[$code] ?? []);
+    }
+    usort($rows, static fn(array $left, array $right): int => (int)$left['id'] <=> (int)$right['id']);
     return [
         'presetId' => 12740,
         'iblockId' => 77,
@@ -101,18 +210,95 @@ $makeState = static function (array $formulaOverrides = [], array $rowOverrides 
 };
 
 $legacyState = $makeState();
+$assert(count($legacyState['rows']) === 37, 'fixture reproduces the complete production registry membership');
 $plan = Preset12740NeutralGlobalSymbolMigrationService::buildPlan($legacyState);
 $assert($plan['status'] === 'pending' && $plan['ready'] === true, 'the exact production legacy registry is ready');
-$assert(count($plan['mutations']) === 14, 'all fourteen formulas are migrated atomically');
+$assert(count($plan['mutations']) === 24, 'fourteen formulas and ten blank initializers are migrated atomically');
 $assert($plan['neutralSymbolCount'] === 0, 'the legacy snapshot has no neutral formulas');
 $assert($plan['fingerprint'] !== $plan['nextFingerprint'], 'before and after snapshots have distinct fingerprints');
+$mutationsById = [];
+foreach ($plan['mutations'] as $mutation) {
+    $mutationsById[(int)($mutation['elementId'] ?? 0)] = $mutation;
+}
+foreach ($expectedInitializers as $id => [$code, $kind, $dataType, $formula]) {
+    $mutation = $mutationsById[$id] ?? null;
+    $assert(
+        is_array($mutation)
+            && ($mutation['code'] ?? '') === $code
+            && ($mutation['before'] ?? null) === ''
+            && ($mutation['after'] ?? null) === $formula
+            && ($mutation['beforeExists'] ?? null) === false
+            && ($mutation['afterExists'] ?? null) === true,
+        'initializer #' . $id . ' is an exact blank-to-typed mutation'
+    );
+}
 
 $next = $plan['_nextState'];
+$assert(
+    count(array_filter(
+        $next['rows'],
+        static fn(array $row): bool => ($row['initialValueExists'] ?? null) === true
+    )) === 37,
+    'the prospective registry physically stores INITIAL_VALUE for all thirty-seven runtime rows'
+);
 $complete = Preset12740NeutralGlobalSymbolMigrationService::buildPlan($next);
 $assert($complete['status'] === 'complete' && $complete['ready'] === true, 'the target registry is idempotently complete');
-$assert($complete['mutations'] === [] && $complete['neutralSymbolCount'] === 14, 'complete means all fourteen exact targets');
+$assert($complete['mutations'] === [] && $complete['neutralSymbolCount'] === 24, 'complete means all twenty-four exact targets');
 $assert($complete['fingerprint'] === $plan['nextFingerprint'], 'read-back matches the planned target fingerprint');
 Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows($next['rows']);
+$writeStateMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'writeState');
+$writeStateMethod->setAccessible(true);
+\CIBlockElement::$writes = [];
+$writeStateMethod->invoke(new Preset12740NeutralGlobalSymbolMigrationService(), $next, $plan['mutations']);
+$applyWrites = \CIBlockElement::$writes;
+$assert(
+    count($applyWrites) === 48
+        && count(array_filter($applyWrites, static fn(array $write): bool => $write['operation'] === 'clear')) === 24
+        && count(array_filter($applyWrites, static fn(array $write): bool => $write['operation'] === 'set')) === 24,
+    'apply writes each of the exact twenty-four targets with clear-then-set HTML property semantics'
+);
+$appliedValuesById = [];
+foreach ($applyWrites as $write) {
+    if (($write['operation'] ?? '') !== 'set') continue;
+    $appliedValuesById[(int)$write['id']] = (string)($write['values']['INITIAL_VALUE']['VALUE']['TEXT'] ?? '');
+}
+foreach ($expectedInitializers as $id => [$code, $kind, $dataType, $formula]) {
+    $assert(($appliedValuesById[$id] ?? null) === $formula, 'apply writer persists typed initializer #' . $id);
+}
+\CIBlockElement::$writes = [];
+$writeStateMethod->invoke(new Preset12740NeutralGlobalSymbolMigrationService(), $legacyState, $plan['mutations']);
+$rollbackWrites = \CIBlockElement::$writes;
+$rolledBackValuesById = [];
+foreach ($rollbackWrites as $write) {
+    if (($write['operation'] ?? '') !== 'set') continue;
+    $rolledBackValuesById[(int)$write['id']] = (string)($write['values']['INITIAL_VALUE']['VALUE']['TEXT'] ?? '');
+}
+$rollbackClearsById = [];
+foreach ($rollbackWrites as $write) {
+    if (($write['operation'] ?? '') === 'clear') {
+        $rollbackClearsById[(int)$write['id']] = true;
+    }
+}
+$assert(
+    count($rollbackWrites) === 38
+        && count($rollbackClearsById) === 24
+        && count($rolledBackValuesById) === 14,
+    'rollback clears all twenty-four targets but recreates only the fourteen physically present legacy values'
+);
+foreach (array_keys($expectedInitializers) as $id) {
+    $assert(
+        isset($rollbackClearsById[$id]) && !array_key_exists($id, $rolledBackValuesById),
+        'rollback restores physical INITIAL_VALUE absence for initializer #' . $id
+    );
+}
+foreach ($symbols as $specification) {
+    $id = (int)$specification['id'];
+    $assert(
+        isset($rollbackClearsById[$id])
+            && ($rolledBackValuesById[$id] ?? null) === (string)$specification['legacy'],
+        'rollback restores the physically present legacy formula for required symbol #' . $id
+    );
+}
 $customNeutralRows = $next['rows'];
 foreach ($customNeutralRows as &$customNeutralRow) {
     if (($customNeutralRow['code'] ?? '') === 'finished_item_qty') {
@@ -259,6 +445,19 @@ $assert(
     in_array('partial-migration-state', array_column($partial['unresolved'], 'reason'), true),
     'partial state reports its exact blocking reason'
 );
+$firstInitializerCode = array_key_first($typedInitializers);
+$partialInitializer = Preset12740NeutralGlobalSymbolMigrationService::buildPlan($makeState([
+    $firstInitializerCode => $typedInitializers[$firstInitializerCode]['neutral'],
+], [
+    $firstInitializerCode => ['initialValueExists' => true],
+]));
+$assert(
+    $partialInitializer['status'] === 'blocked'
+        && $partialInitializer['ready'] === false
+        && count($partialInitializer['mutations']) === 23
+        && in_array('partial-migration-state', array_column($partialInitializer['unresolved'], 'reason'), true),
+    'a pre-initialized subset cannot weaken the exact twenty-four-row atomic transition'
+);
 
 $expectBlocked = static function (array $candidate, string $message) use ($assert): void {
     $candidatePlan = Preset12740NeutralGlobalSymbolMigrationService::buildPlan($candidate);
@@ -271,6 +470,94 @@ $expectBlocked($makeState([], ['finished_item_qty' => ['active' => 'N']]), 'inac
 $expectBlocked($makeState([], ['finished_item_qty' => ['kind' => 'variable']]), 'wrong symbol kind is rejected');
 $expectBlocked($makeState([], ['finished_item_qty' => ['dataType' => 'string']]), 'wrong symbol data type is rejected');
 $expectBlocked($makeState(['finished_item_qty' => 'toNumber(42)']), 'unknown pre-migration formula is rejected');
+$expectBlocked(
+    $makeState(['needs_pre_lamination_trim' => 'true']),
+    'an unknown nonblank initializer source is never rewritten generically'
+);
+$physicallyPresentBlankInitializer = $makeState([], [
+    'needs_pre_lamination_trim' => ['initialValueExists' => true],
+]);
+$physicallyPresentBlankPlan = Preset12740NeutralGlobalSymbolMigrationService::buildPlan(
+    $physicallyPresentBlankInitializer
+);
+$assert(
+    ($physicallyPresentBlankPlan['status'] ?? '') === 'blocked'
+        && in_array(
+            'unexpected-initial-value-presence',
+            array_column($physicallyPresentBlankPlan['unresolved'], 'reason'),
+            true
+        ),
+    'a physically stored empty initializer is not reinterpreted as the reviewed absent legacy value'
+);
+$missingLegacyFormulaStorage = $makeState([], [
+    'finished_item_qty' => ['initialValueExists' => false],
+]);
+$missingLegacyFormulaPlan = Preset12740NeutralGlobalSymbolMigrationService::buildPlan($missingLegacyFormulaStorage);
+$assert(
+    ($missingLegacyFormulaPlan['status'] ?? '') === 'blocked'
+        && in_array(
+            'unexpected-initial-value-presence',
+            array_column($missingLegacyFormulaPlan['unresolved'], 'reason'),
+            true
+        ),
+    'an original legacy formula must remain physically present before migration'
+);
+$assert(
+    $physicallyPresentBlankPlan['fingerprint'] !== $plan['fingerprint'],
+    'INITIAL_VALUE physical presence participates in the CAS fingerprint'
+);
+
+$unknownBlankExtra = $legacyState;
+$unknownBlankExtra['rows'][] = [
+    'id' => 14003,
+    'iblockId' => 77,
+    'code' => 'unknown_blank_extra',
+    'title' => 'Unknown blank extra',
+    'active' => 'Y',
+    'sort' => 1001,
+    'description' => '',
+    'descriptionType' => 'text',
+    'presetId' => 12740,
+    'kind' => 'variable',
+    'dataType' => 'number',
+    'initialValue' => '',
+    'initialValueExists' => false,
+];
+$unknownBlankPlan = Preset12740NeutralGlobalSymbolMigrationService::buildPlan($unknownBlankExtra);
+$assert(
+    ($unknownBlankPlan['status'] ?? '') === 'blocked'
+        && ($unknownBlankPlan['ready'] ?? true) === false
+        && in_array('invalid-prospective-runtime-registry', array_column($unknownBlankPlan['unresolved'], 'reason'), true),
+    'audit blocks an unknown blank extra instead of deferring the same failure to apply'
+);
+
+$unexpectedSafeExtra = $legacyState;
+$unexpectedSafeExtra['rows'][] = [
+    'id' => 14004,
+    'iblockId' => 77,
+    'code' => 'unexpected_safe_extra',
+    'title' => 'Unexpected safe extra',
+    'active' => 'Y',
+    'sort' => 1002,
+    'description' => '',
+    'descriptionType' => 'text',
+    'presetId' => 12740,
+    'kind' => 'variable',
+    'dataType' => 'number',
+    'initialValue' => '1',
+    'initialValueExists' => true,
+];
+$unexpectedSafeExtraPlan = Preset12740NeutralGlobalSymbolMigrationService::buildPlan($unexpectedSafeExtra);
+$assert(
+    ($unexpectedSafeExtraPlan['status'] ?? '') === 'blocked'
+        && ($unexpectedSafeExtraPlan['ready'] ?? true) === false
+        && in_array(
+            'unexpected-prospective-runtime-row-count',
+            array_column($unexpectedSafeExtraPlan['unresolved'], 'reason'),
+            true
+        ),
+    'GET audit blocks a valid but unreviewed thirty-eighth row before rendering an apply-ready plan'
+);
 
 $extraLegacy = $legacyState;
 $extraLegacy['rows'][] = [
@@ -286,6 +573,7 @@ $extraLegacy['rows'][] = [
     'kind' => 'constant',
     'dataType' => 'number',
     'initialValue' => 'get(offer, "id")',
+    'initialValueExists' => true,
 ];
 $expectBlocked($extraLegacy, 'an extra preset-owned catalog dependency is rejected');
 try {
@@ -342,6 +630,8 @@ $auditedPlanMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigratio
 $auditedPlanMethod->setAccessible(true);
 $normalizeActiveMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'normalizeActiveSnapshot');
 $normalizeActiveMethod->setAccessible(true);
+$expectedActiveMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'assertExpectedActiveSnapshot');
+$expectedActiveMethod->setAccessible(true);
 $normalizeConfigMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'normalizeConfigAuthorities');
 $normalizeConfigMethod->setAccessible(true);
 $normalizeOptionMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'normalizeOptionSnapshotRows');
@@ -352,6 +642,49 @@ $prepareBackupMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrat
 $prepareBackupMethod->setAccessible(true);
 $fingerprintMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'fingerprint');
 $fingerprintMethod->setAccessible(true);
+$runtimeRowsMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'runtimeRowsFromState');
+$runtimeRowsMethod->setAccessible(true);
+$storedValueMethod = new ReflectionMethod(Preset12740NeutralGlobalSymbolMigrationService::class, 'hasStoredPropertyValue');
+$storedValueMethod->setAccessible(true);
+$assert(
+    $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => false], 12777, 763) === false
+        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => null], 12777, 763) === false
+        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => ''], 12777, 763) === false
+        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => '0'], 12777, 763) === false
+        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => 0], 12777, 763) === false
+        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => '321'], 12777, 763) === true
+        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => 321], 12777, 763) === true
+        && $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => '12777:763'], 12777, 763) === true,
+    'raw Bitrix PROPERTY_VALUE_ID distinguishes absence, legacy numeric storage and exact VERSION=2 storage'
+);
+try {
+    $storedValueMethod->invoke(null, ['PROPERTY_VALUE_ID' => ['321']], 12777, 763);
+    $assert(false, 'invalid INITIAL_VALUE storage identity shape must fail closed');
+} catch (Throwable $error) {
+    $assert($error->getCode() === 409, 'invalid INITIAL_VALUE storage identity shape is rejected');
+}
+foreach (['12778:763', '12777:764', '012777:763', '12777:0763', '12777:763 '] as $mismatchedValueId) {
+    try {
+        $storedValueMethod->invoke(
+            null,
+            ['PROPERTY_VALUE_ID' => $mismatchedValueId],
+            12777,
+            763
+        );
+        $assert(false, 'mismatched VERSION=2 INITIAL_VALUE storage identity must fail closed');
+    } catch (Throwable $error) {
+        $assert($error->getCode() === 409, 'mismatched VERSION=2 storage identity is rejected');
+    }
+}
+$prospectiveRuntimeRows = $runtimeRowsMethod->invoke(null, $next);
+$assert(
+    is_array($prospectiveRuntimeRows)
+        && count($prospectiveRuntimeRows) === Preset12740NeutralGlobalSymbolMigrationService::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT
+        && array_keys($prospectiveRuntimeRows[0]) === ['id', 'code', 'kind', 'dataType', 'presetId', 'active', 'initialValue']
+        && ($prospectiveRuntimeRows[0]['id'] ?? 0) === 12777
+        && ($prospectiveRuntimeRows[array_key_last($prospectiveRuntimeRows)]['id'] ?? 0) === 13093,
+    'capability preview is the exact sorted minimal prospective 37-row runtime payload'
+);
 $backup = [
     'contract' => Preset12740NeutralGlobalSymbolMigrationService::CONTRACT,
     'presetId' => 12740,
@@ -359,6 +692,11 @@ $backup = [
     'state' => $legacyState,
 ];
 $backupRaw = $canonicalMethod->invoke(null, $backup);
+$assert(
+    substr_count($backupRaw, '"initialValueExists":false') === 10
+        && substr_count($backupRaw, '"initialValueExists":true') === 27,
+    'immutable backup records the exact ten absent and twenty-seven present INITIAL_VALUE rows'
+);
 $lowercaseActive = $normalizeOptionMethod->invoke(
     null,
     'prospektweb.calc',
@@ -520,6 +858,27 @@ $marker = [
     'appliedAt' => '2026-08-15T00:00:00+00:00',
 ];
 $evidenceMethod->invoke(null, $complete, json_encode($marker), $backupRaw);
+$staleV1Backup = $backup;
+$staleV1Backup['contract'] = 'prospektweb.calc.preset-12740-neutral-global-symbol-migration/v1';
+$staleV1BackupRaw = $canonicalMethod->invoke(null, $staleV1Backup);
+$staleV1Target = $legacyState;
+foreach ($staleV1Target['rows'] as &$staleV1TargetRow) {
+    $staleV1Code = (string)($staleV1TargetRow['code'] ?? '');
+    if (isset($symbols[$staleV1Code])) {
+        $staleV1TargetRow['initialValue'] = $symbols[$staleV1Code]['neutral'];
+    }
+}
+unset($staleV1TargetRow);
+$staleV1Marker = $marker;
+$staleV1Marker['contract'] = 'prospektweb.calc.preset-12740-neutral-global-symbol-migration/v1';
+$staleV1Marker['afterFingerprint'] = $fingerprintMethod->invoke(null, $staleV1Target);
+$staleV1Marker['backupHash'] = hash('sha256', $staleV1BackupRaw);
+try {
+    $historicalEvidenceMethod->invoke(null, json_encode($staleV1Marker), $staleV1BackupRaw);
+    $assert(false, 'stale fourteen-row v1 evidence must never be reinterpreted as the twenty-four-row v2 contract');
+} catch (Throwable $error) {
+    $assert($error->getCode() === 409, 'stale v1 marker and backup fail closed under the v2 migration contract');
+}
 $unprovenTarget = $auditedPlanMethod->invoke(new Preset12740NeutralGlobalSymbolMigrationService(), $next, '', '');
 $assert(
     ($unprovenTarget['status'] ?? '') === 'blocked'
@@ -626,6 +985,14 @@ $assert(
         && ($implicitActive['implicit'] ?? false) === true,
     'a clean install without ACTIVE is a pinned authoring-state N, not a bootstrap deadlock'
 );
+$expectedActiveMethod->invoke(null, ['value' => 'Y'], 'Y');
+$expectedActiveMethod->invoke(null, ['value' => 'N'], 'N');
+try {
+    $expectedActiveMethod->invoke(null, ['value' => 'N'], 'Y');
+    $assert(false, 'a concurrent ACTIVE Y-to-N transition must fail the migration CAS');
+} catch (Throwable $error) {
+    $assert($error->getCode() === 409, 'the exact expected ACTIVE value is enforced under the migration lock');
+}
 $missingCalcAuthority = [
     'exists' => false,
     'moduleId' => 'prospektweb.calc',
@@ -697,6 +1064,7 @@ $wrongTargetBackup['state']['rows'][] = [
     'kind' => 'constant',
     'dataType' => 'number',
     'initialValue' => '42',
+    'initialValueExists' => true,
 ];
 $wrongTargetBackup['fingerprint'] = $fingerprintMethod->invoke(null, $wrongTargetBackup['state']);
 $wrongTargetBackupRaw = $canonicalMethod->invoke(null, $wrongTargetBackup);
@@ -712,11 +1080,27 @@ try {
 
 $source = file_get_contents(dirname(__DIR__) . '/lib/Install/Preset12740NeutralGlobalSymbolMigrationService.php');
 $assert(is_string($source), 'migration source is readable');
-$assert(strpos($source, "count((array)(\$plan['mutations'] ?? [])) !== self::EXPECTED_MUTATION_COUNT") !== false, 'apply requires the exact fourteen-row atomic plan');
+$assert(strpos($source, "count((array)(\$plan['mutations'] ?? [])) !== self::EXPECTED_MUTATION_COUNT") !== false, 'apply requires the exact twenty-four-row atomic plan');
+$assert(
+    strpos($source, 'public function apply(string $expectedFingerprint, string $expectedActive): array') !== false
+        && substr_count($source, 'self::assertExpectedActiveSnapshot(') >= 2,
+    'apply binds the caller-audited ACTIVE value and rechecks it inside the transaction before writes'
+);
+$assert(
+    strpos($source, 'public function previewProspectiveRuntimeRows(string $expectedFingerprint): array') !== false
+        && strpos($source, 'count($rows) !== self::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT') !== false,
+    'signed capability probing receives only the fingerprint-bound exact prospective 37-row registry'
+);
 $assert(strpos($source, "unset(\$state['active'])") !== false, 'fingerprint deliberately excludes activation state');
 $assert(strpos($source, "SELECT ID FROM b_iblock_element WHERE IBLOCK_ID=") !== false, 'migration locks the full registry membership range');
 $assert(strpos($source, "b_iblock_element_prop_s") !== false && strpos($source, "b_iblock_element_prop_m") !== false, 'migration locks both versioned property tables');
 $assert(strpos($source, "Global-symbol migration option delete read-back failed.") !== false, 'rollback verifies marker deletion by direct database read-back');
+$assert(
+    strpos($source, "'initialValueExists' => self::hasStoredPropertyValue(") !== false
+        && strpos($source, '$expectedElementId . \':\' . $expectedPropertyId') !== false
+        && strpos($source, 'if ($initialValueExists === false)') !== false,
+    'state snapshots validate legacy and exact VERSION=2 physical presence before clear-only rollback'
+);
 $assert(
     strpos($source, '$calc = $this->readOptionSnapshot(self::MODULE_ID, self::CONFIG_OPTION, $forUpdate, false);') !== false,
     'either calc or frontcalc may own the pinned global-iblock authority, while disagreement still fails closed'
