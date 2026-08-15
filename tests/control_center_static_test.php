@@ -30,6 +30,12 @@ $assert(strpos($page, "\$_GET['offer_ids']") === false, 'The control center must
 $assert(strpos($page, 'position: fixed') === false, 'The control center must not cover the Bitrix global navigation');
 $assert(strpos($page, '.adm-workarea') !== false && strpos($page, 'padding: 0 !important') !== false, 'The control center removes page-local workarea padding');
 $assert(strpos($page, '#adm-title') !== false && strpos($page, 'display: none !important') !== false, 'The duplicate Bitrix page title is hidden');
+$assert(strpos($page, 'prospektweb-control-center-editor__bar') === false, 'The owned editor does not reserve space for a duplicate outer header');
+$assert(strpos($page, 'prospektweb-control-center-editor-title') === false, 'The owned editor does not render a duplicate outer title');
+$assert(strpos($page, 'prospektweb-control-center-editor-close') === false, 'The owned editor does not render a duplicate outer close button');
+$assert(strpos($page, 'requestOwnedEditorClose') === false, 'Only the native editor close flow owns close confirmation');
+$assert(strpos($page, "message.type === 'CLOSE_CONTROL_CENTER_EDITOR'") !== false, 'The native editor close bridge remains available');
+$assert(strpos($page, '#prospektweb-control-center-editor-iframe') !== false && strpos($page, 'height: 100%') !== false, 'The embedded editor uses the full overlay height');
 $assert(strpos($page, 'Math.max(1, window.innerHeight - Math.max(0, rect.top))') !== false, 'The iframe height follows the actual available workarea without a clipping floor');
 $assert(strpos($page, 'Math.max(480') === false, 'Short and zoomed viewports are not forced into a clipped 480px canvas');
 $assert(strpos($page, "window.addEventListener('resize', resizeControlCenter)") !== false, 'The workarea height follows viewport changes');
@@ -99,7 +105,7 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($contextualGenerator, 'window.ProspektwebProductGenerator = ProductGenerator') !== false, 'The contextual offer generator remains available');
-$assert(strpos($appIndex, '92a69bccb54d') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, '36d30b7ea30f') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
 $assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') !== false, 'The published bundle contains the storefront editor launch contract');

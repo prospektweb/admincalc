@@ -18,7 +18,16 @@ class OfferUpdateService
         $this->priceService = new CatalogPriceService();
     }
 
-    public function updateOffersFromCalculation(array $offers, bool $requireCompleteCatalogValues = false): array
+    /**
+     * @param array<int,array<string,mixed>> $offers
+     * @param bool $requireCompleteCatalogValues Fail closed unless every catalog sink is present and positive.
+     * @param bool $manageTransactions When false, the caller owns one surrounding all-or-nothing transaction.
+     */
+    public function updateOffersFromCalculation(
+        array $offers,
+        bool $requireCompleteCatalogValues = false,
+        bool $manageTransactions = true
+    ): array
     {
         $results = [];
         $errors = [];
@@ -63,9 +72,11 @@ class OfferUpdateService
                     throw new \RuntimeException('Торговое предложение не найдено');
                 }
 
-                $connection = Application::getConnection();
-                $connection->startTransaction();
-                $transactionStarted = true;
+                if ($manageTransactions) {
+                    $connection = Application::getConnection();
+                    $connection->startTransaction();
+                    $transactionStarted = true;
+                }
 
                 if ($parametrValues !== null) {
                     \CIBlockElement::SetPropertyValuesEx($offerId, $offerIblockId, [
@@ -130,8 +141,10 @@ class OfferUpdateService
                     throw new \RuntimeException('Не сохранены: ' . implode(', ', $writeErrors));
                 }
 
-                $connection->commitTransaction();
-                $transactionStarted = false;
+                if ($manageTransactions && $connection !== null) {
+                    $connection->commitTransaction();
+                    $transactionStarted = false;
+                }
 
                 $results[] = [
                     'offerId' => $offerId,

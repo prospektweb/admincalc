@@ -6,8 +6,13 @@ use Bitrix\Main\Loader;
 
 class ElementDataService
 {
-    public function __construct()
+    /** @var array<string,int> */
+    private array $pinnedRuntimeIblockIds;
+
+    /** @param array<string,int> $pinnedRuntimeIblockIds */
+    public function __construct(array $pinnedRuntimeIblockIds = [])
     {
+        $this->pinnedRuntimeIblockIds = $pinnedRuntimeIblockIds;
         $this->ensureBitrixModulesLoaded();
     }
 
@@ -1519,10 +1524,7 @@ class ElementDataService
                         continue 2;
 
                     case 'updateOffersFromCalculation':
-                        $offers = $request['results'] ?? [];
-                        $service = new \Prospektweb\Calc\Services\OfferUpdateService();
-                        $result[] = $service->updateOffersFromCalculation($offers);
-                        continue 2;
+                        throw new \RuntimeException('USE_CATALOG_WRITE_PREVIEW_APPLY', 409);
                         
                     case 'updateStageProperty':
                         // Handler for CHANGE_OPTIONS_OPERATION and CHANGE_OPTIONS_MATERIAL
@@ -1907,7 +1909,13 @@ class ElementDataService
     private function loadElements(array $ids, bool $includeParent = false): array
     {
         $elements = [];
-        $equipmentIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_EQUIPMENT', 0);
+        $equipmentIblockId = isset($this->pinnedRuntimeIblockIds['CALC_EQUIPMENT'])
+            ? (int)$this->pinnedRuntimeIblockIds['CALC_EQUIPMENT']
+            : (int)\Bitrix\Main\Config\Option::get(
+                'prospektweb.calc',
+                'IBLOCK_CALC_EQUIPMENT',
+                0
+            );
 
         foreach ($ids as $elementId) {
             $elementObject = \CIBlockElement::GetList(

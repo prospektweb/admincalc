@@ -62,7 +62,6 @@ $presets = $service->getPresetsWithOfferCount();
 // Подготовка языковых констант для JavaScript
 $jsMessages = [
     'SELECT_PRESET' => Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SELECT_PRESETS'),
-    'ENTER_URL' => 'Укажите URL calc-server',
     'STARTING' => 'Запуск пересчёта...',
     'COMPLETE' => Loc::getMessage('PROSPEKTWEB_CALC_RECALC_COMPLETE'),
     'ERROR' => 'Ошибка',
@@ -286,9 +285,9 @@ $jsMessages = [
                     <?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SERVER_URL') ?>:
                 </td>
                 <td class="adm-detail-content-cell-r">
-                    <input type="text" id="calc-server-url" value="<?= htmlspecialcharsbx($calcServerUrl) ?>" size="50" style="width: 400px;">
+                    <code><?= htmlspecialcharsbx($calcServerUrl) ?></code>
                     <br><span style="color: #777; font-size: 11px;">
-                        <?= Loc::getMessage('PROSPEKTWEB_CALC_RECALC_SERVER_URL_HINT') ?>
+                        Адрес задаётся в серверных настройках модуля и не изменяется из этого запуска.
                     </span>
                 </td>
             </tr>
@@ -382,6 +381,7 @@ $jsMessages = [
     var currentJobId = readStoredJobId();
     var previewPassed = false;
     var previewSelectionSignature = '';
+    var previewFingerprint = '';
 
     cancelBtn.disabled = true;
     previewBtn.disabled = true;
@@ -526,7 +526,6 @@ $jsMessages = [
             action: 'analyze',
             presetIds: payload.presetIds,
             onlyChanged: payload.onlyChanged,
-            calcServerUrl: payload.calcServerUrl,
             timeout: payload.timeout,
             sessid: payload.sessid
         }, function(err, response, data) {
@@ -569,6 +568,7 @@ $jsMessages = [
         confirmBtn.disabled = true;
         previewPassed = false;
         previewSelectionSignature = '';
+        previewFingerprint = '';
         previewResults.style.display = 'block';
         previewResults.innerHTML = '<div class="adm-info-message">Расчёт выполняется без записи в каталог…</div>';
         appendFrontendLog('Запущена проверка расчёта без записи в каталог...');
@@ -578,7 +578,6 @@ $jsMessages = [
             presetIds: preparedPayload.presetIds,
             productIdsByPreset: selectedProducts,
             onlyChanged: preparedPayload.onlyChanged,
-            calcServerUrl: preparedPayload.calcServerUrl,
             timeout: preparedPayload.timeout,
             sessid: preparedPayload.sessid
         }, function(err, response, data) {
@@ -600,7 +599,13 @@ $jsMessages = [
             }
 
             renderPreviewResults(data);
-            previewPassed = Boolean(data.ready) && signature === getSelectionSignature();
+            previewFingerprint = typeof data.previewFingerprint === 'string'
+                && /^[a-f0-9]{64}$/.test(data.previewFingerprint)
+                ? data.previewFingerprint
+                : '';
+            previewPassed = Boolean(data.ready)
+                && previewFingerprint !== ''
+                && signature === getSelectionSignature();
             previewSelectionSignature = previewPassed ? signature : '';
             confirmBtn.disabled = !previewPassed;
 
@@ -639,8 +644,8 @@ $jsMessages = [
             presetIds: preparedPayload.presetIds,
             productIdsByPreset: collectSelectedProductsByPreset(),
             onlyChanged: preparedPayload.onlyChanged,
-            calcServerUrl: preparedPayload.calcServerUrl,
             timeout: preparedPayload.timeout,
+            previewFingerprint: previewFingerprint,
             sessid: preparedPayload.sessid
         }, function(err, response, data) {
             if (err) {
@@ -659,12 +664,22 @@ $jsMessages = [
                 startBtn.disabled = false;
                 cancelBtn.disabled = false;
                 previewBtn.disabled = false;
-                confirmBtn.disabled = !previewPassed;
+                if (data && (data.errorCode === 'PREVIEW_REQUIRED'
+                    || data.errorCode === 'PREVIEW_EXPIRED'
+                    || data.errorCode === 'PREVIEW_MISMATCH'
+                    || data.errorCode === 'PREVIEW_STALE')) {
+                    invalidatePreview('Предварительная проверка устарела. Выполните проверку без записи ещё раз.');
+                } else {
+                    confirmBtn.disabled = !previewPassed;
+                }
                 handleApiError(data, response ? response.status : 0);
                 return;
             }
 
             setCurrentJobId(data.jobId || '');
+            previewPassed = false;
+            previewSelectionSignature = '';
+            previewFingerprint = '';
             appendFrontendLog('Задача создана. Начинаем обработку...');
             renderServerLogs(data.logs || []);
             updateUiWithData(data);
@@ -698,12 +713,7 @@ $jsMessages = [
         }
 
         var onlyChanged = document.getElementById('only-changed').checked;
-        var calcServerUrl = document.getElementById('calc-server-url').value.replace(/^\s+|\s+$/g, '');
         var timeout = parseInt(document.getElementById('timeout').value, 10);
-        if (!calcServerUrl) {
-            alert(config.messages.ENTER_URL);
-            return null;
-        }
 
         var runtimeSessid = getRuntimeSessid();
         if (!runtimeSessid) {
@@ -714,7 +724,6 @@ $jsMessages = [
         return {
             presetIds: presetIds,
             onlyChanged: onlyChanged,
-            calcServerUrl: calcServerUrl,
             timeout: timeout,
             sessid: runtimeSessid
         };
@@ -890,6 +899,7 @@ $jsMessages = [
     function invalidatePreview(message) {
         previewPassed = false;
         previewSelectionSignature = '';
+        previewFingerprint = '';
         confirmBtn.disabled = true;
         if (message) {
             previewResults.style.display = 'block';
@@ -1248,6 +1258,7 @@ $jsMessages = [
         confirmBtn.disabled = true;
         previewPassed = false;
         previewSelectionSignature = '';
+        previewFingerprint = '';
 
         if (clearPreparedPayload) {
             preparedPayload = null;

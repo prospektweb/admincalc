@@ -27,7 +27,9 @@ $checks = [
         && strpos($refactor, 'startTransaction()') !== false
         && strpos($refactor, 'replaceIdentifiers(') !== false,
     'init exposes symbols scoped to the current preset' => strpos($init, "'globalSymbols'") !== false
-        && strpos($init, 'GlobalSymbolService())->list((int)$presetId)') !== false,
+        && strpos($init, 'GlobalSymbolService())->listReadOnly((int)$presetId)') !== false,
+    'runtime reads of global symbols never create storage or claim legacy rows' => strpos($globals, 'public function listReadOnly(') !== false
+        && strpos($globals, 'return $this->readRows($iblockId, $presetId);') !== false,
     'global registry owns every row by preset and filters scoped reads' => strpos($globals, "'PRESET_ID', 'Пресет'") !== false
         && strpos($globals, "'=PROPERTY_PRESET_ID'") !== false
         && strpos($globals, "'PRESET_ID' => " . '$presetId') !== false

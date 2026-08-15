@@ -314,6 +314,7 @@ class ControlCenterSettingsService
             ['http', 'https'],
             'integration.calcServerUrl'
         );
+        $calcServerUrl = BatchRecalculateService::normalizeCalcServerUrl($calcServerUrl);
         $asproAiBaseUrl = $this->normalizeUrl(
             (string)($integration['asproAiBaseUrl'] ?? $current['integration']['asproAiBaseUrl']),
             ['https'],

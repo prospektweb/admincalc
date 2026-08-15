@@ -2,8 +2,8 @@
 
 namespace Prospektweb\Calc\Services;
 
+use Bitrix\Main\Application;
 use Bitrix\Main\Loader;
-use Bitrix\Main\Config\Option;
 use Prospektweb\Calc\Config\ConfigManager;
 use Prospektweb\Calc\Calculator\InitPayloadService;
 use Prospektweb\Calc\Services\OfferUpdateService;
@@ -16,12 +16,14 @@ class BatchRecalculateService
 {
     private const MODULE_ID = 'prospektweb.calc';
     private const PREVIEW_CHUNK_SIZE = 6;
+    public const SERVER_CALCULATION_CONTRACT = 'prospektweb.calc.server-calculation/v1';
     
     private string $calcServerUrl;
     private int $timeout;
     private ConfigManager $configManager;
     private InitPayloadService $initPayloadService;
     private ?CalcServerRequestSigner $requestSigner;
+    private CatalogAdapterDefinitionService $catalogAdapterService;
 
     /**
      * @param string $calcServerUrl URL сервера расчётов
@@ -29,11 +31,118 @@ class BatchRecalculateService
      */
     public function __construct(string $calcServerUrl, int $timeout = 30, ?CalcServerRequestSigner $requestSigner = null)
     {
-        $this->calcServerUrl = rtrim($calcServerUrl, '/');
+        $this->calcServerUrl = self::normalizeCalcServerUrl($calcServerUrl);
         $this->timeout = $timeout;
         $this->configManager = new ConfigManager();
         $this->initPayloadService = new InitPayloadService();
         $this->requestSigner = $requestSigner;
+        $this->catalogAdapterService = new CatalogAdapterDefinitionService();
+    }
+
+    public static function normalizeCalcServerUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '' || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            throw new \InvalidArgumentException('CALC_SERVER_URL is not a valid URL.');
+        }
+        $parts = parse_url($url);
+        if (!is_array($parts)
+            || isset($parts['user']) || isset($parts['pass'])
+            || isset($parts['query']) || isset($parts['fragment'])) {
+            throw new \InvalidArgumentException('CALC_SERVER_URL contains forbidden URL components.');
+        }
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower(rtrim((string)($parts['host'] ?? ''), '.'));
+        $port = isset($parts['port']) ? (int)$parts['port'] : null;
+        $path = (string)($parts['path'] ?? '');
+        if ($host === '' || ($port !== null && ($port < 1 || $port > 65535))
+            || ($scheme !== 'https' && $scheme !== 'http')) {
+            throw new \InvalidArgumentException('CALC_SERVER_URL has an unsupported origin.');
+        }
+        $loopbackHosts = ['localhost', '127.0.0.1', '::1'];
+        if ($scheme === 'http' && !in_array($host, $loopbackHosts, true)) {
+            throw new \InvalidArgumentException('Plain HTTP calc-server is allowed only on exact loopback hosts.');
+        }
+        if ($scheme === 'https') {
+            if (in_array($host, $loopbackHosts, true)
+                || (filter_var($host, FILTER_VALIDATE_IP) !== false
+                    && filter_var(
+                        $host,
+                        FILTER_VALIDATE_IP,
+                        FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+                    ) === false)) {
+                throw new \InvalidArgumentException('HTTPS calc-server cannot target a local or reserved address.');
+            }
+        }
+        $renderedHost = strpos($host, ':') !== false ? '[' . $host . ']' : $host;
+        $normalized = $scheme . '://' . $renderedHost;
+        if ($port !== null) {
+            $normalized .= ':' . $port;
+        }
+        $normalized .= $path === '' ? '' : '/' . ltrim($path, '/');
+        return rtrim($normalized, '/');
+    }
+
+    /** @param mixed[] $presetIds @return int[] */
+    public static function normalizeRequestedPresetIds(array $presetIds): array
+    {
+        if ($presetIds === []) {
+            return [CatalogAdapterDefinitionService::PRESET_ID];
+        }
+        if (array_keys($presetIds) !== range(0, count($presetIds) - 1)
+            || count($presetIds) !== 1) {
+            throw new \InvalidArgumentException(
+                'Batch recalculation accepts exactly one preset.',
+                400
+            );
+        }
+        $rawPresetId = reset($presetIds);
+        if ((!is_int($rawPresetId)
+                && !(is_string($rawPresetId) && preg_match('/^[1-9][0-9]*$/D', $rawPresetId)))
+            || (int)$rawPresetId <= 0) {
+            throw new \InvalidArgumentException('Batch preset ID is invalid.', 400);
+        }
+        self::assertSupportedBatchPresetId((int)$rawPresetId);
+        return [CatalogAdapterDefinitionService::PRESET_ID];
+    }
+
+    public static function assertSupportedBatchPresetId(int $presetId): void
+    {
+        if ($presetId !== CatalogAdapterDefinitionService::PRESET_ID) {
+            throw new \RuntimeException(
+                'Batch recalculation is supported only for preset 12740.',
+                409
+            );
+        }
+    }
+
+    /**
+     * @param array<int|string,mixed> $rawMap
+     * @return array<int,int[]>
+     */
+    public static function normalizeProductIdsByPresetScope(array $rawMap): array
+    {
+        $result = [];
+        foreach ($rawMap as $rawPresetId => $productIds) {
+            if ((!is_int($rawPresetId)
+                    && !(is_string($rawPresetId) && preg_match('/^[1-9][0-9]*$/D', $rawPresetId)))
+                || (int)$rawPresetId <= 0) {
+                throw new \InvalidArgumentException('productIdsByPreset contains an invalid preset ID.', 400);
+            }
+            self::assertSupportedBatchPresetId((int)$rawPresetId);
+            if (!is_array($productIds)) {
+                throw new \InvalidArgumentException('product IDs must be arrays.', 400);
+            }
+            $normalizedProductIds = array_values(array_unique(array_filter(
+                array_map('intval', $productIds),
+                static function (int $productId): bool {
+                    return $productId > 0;
+                }
+            )));
+            sort($normalizedProductIds, SORT_NUMERIC);
+            $result[CatalogAdapterDefinitionService::PRESET_ID] = $normalizedProductIds;
+        }
+        return $result;
     }
 
     /**
@@ -236,8 +345,8 @@ class BatchRecalculateService
             ];
         }
 
-        if ($presetId === StandaloneCatalogSelectionMapper::PRESET_ID) {
-            $supportedProductIds = StandaloneCatalogSelectionMapper::supportedProductIds();
+        if ($presetId === CatalogAdapterDefinitionService::PRESET_ID) {
+            $supportedProductIds = $this->catalogAdapterService->supportedProductIds();
             $products = array_values(array_filter($products, static function (array $product) use ($supportedProductIds): bool {
                 return in_array((int)$product['id'], $supportedProductIds, true);
             }));
@@ -312,12 +421,16 @@ class BatchRecalculateService
             'summary' => ['total' => 0, 'valid' => 0, 'invalid' => 0],
             'offers' => [],
             'errors' => [],
+            // Private endpoint handoff used to bind a successful preview to
+            // the exact calculation-affecting state seen by calc-server.
+            'stateFingerprints' => [],
         ];
         $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
 
         foreach (array_chunk($offerIds, self::PREVIEW_CHUNK_SIZE) as $offerChunk) {
             try {
                 $initPayload = $this->prepareCalculationPayload($offerChunk, $siteId);
+                $preview['stateFingerprints'] += $this->captureStateFingerprintsFromPayload($initPayload, $offerChunk);
                 $requestPayload = $this->buildPayloadForOffers($initPayload, $offerChunk);
                 $calcResult = $this->callCalcServer($requestPayload);
 
@@ -334,6 +447,7 @@ class BatchRecalculateService
                     throw new \RuntimeException('calc-server вернул некорректный список результатов');
                 }
                 $offerResults = $this->normalizeStandaloneCatalogPrices($offerResults, $requestPayload);
+                $offerResults = $this->projectCatalogAdapterResults($offerResults, $requestPayload);
 
                 $chunkPreview = $offerUpdateService->previewOffersFromCalculation($offerResults, $offerChunk);
             } catch (\Throwable $e) {
@@ -350,7 +464,541 @@ class BatchRecalculateService
             $preview['errors'] = array_merge($preview['errors'], $chunkPreview['errors'] ?? []);
         }
 
+        // Bind the reviewed result to both formula inputs and the complete
+        // writable catalog state after all remote preview chunks finish. The
+        // calculation half must still equal the exact payload sent before the
+        // network calls; otherwise a response for state A could be approved
+        // together with a post-network state B fingerprint.
+        $postNetworkState = $this->captureOfferWriteStateFingerprintsAtSite(
+            $offerIds,
+            $siteId
+        );
+        foreach ($offerIds as $offerId) {
+            $beforeHash = strtolower(trim((string)(
+                $preview['stateFingerprints'][$offerId]['calculation'] ?? ''
+            )));
+            $afterHash = strtolower(trim((string)(
+                $postNetworkState[$offerId]['calculation'] ?? ''
+            )));
+            if (preg_match('/^[a-f0-9]{64}$/D', $beforeHash) !== 1
+                || preg_match('/^[a-f0-9]{64}$/D', $afterHash) !== 1
+                || !hash_equals($beforeHash, $afterHash)) {
+                throw new \RuntimeException(
+                    'Calculation inputs changed while the reviewed batch preview was running. Repeat preview.',
+                    409
+                );
+            }
+        }
+        $preview['stateFingerprints'] = $postNetworkState;
+
         return $preview;
+    }
+
+    /**
+     * Re-read the calculation-affecting state without calling calc-server.
+     * Used by the batch start CAS gate to prove that the reviewed preview is
+     * still current for every selected offer.
+     *
+     * @param int[] $offerIds
+     * @return array<int,array{calculation:string}>
+     */
+    public function captureOfferStateFingerprints(array $offerIds): array
+    {
+        $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
+        return $this->captureOfferStateFingerprintsForSite($offerIds, $siteId);
+    }
+
+    /** @param int[] $offerIds @return array<int,array{calculation:string}> */
+    public function captureOfferStateFingerprintsAtSite(array $offerIds, string $siteId): array
+    {
+        $siteId = trim($siteId);
+        if (preg_match('/^[A-Za-z0-9_-]{1,10}$/D', $siteId) !== 1) {
+            throw new \InvalidArgumentException('Передан некорректный siteId для проверки расчётного состояния.');
+        }
+        return $this->captureOfferStateFingerprintsForSite($offerIds, $siteId);
+    }
+
+    /**
+     * @param int[] $offerIds
+     * @return array<int,array{calculation:string,catalog:string}>
+     */
+    public function captureOfferWriteStateFingerprints(array $offerIds): array
+    {
+        $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
+        return $this->captureOfferWriteStateFingerprintsAtSite($offerIds, $siteId);
+    }
+
+    /**
+     * @param int[] $offerIds
+     * @return array<int,array{calculation:string,catalog:string}>
+     */
+    public function captureOfferWriteStateFingerprintsAtSite(array $offerIds, string $siteId): array
+    {
+        $calculation = $this->captureOfferStateFingerprintsAtSite($offerIds, $siteId);
+        $catalog = (new CatalogCalculationWriteService())->captureCatalogWriteStateFingerprints(
+            CatalogAdapterDefinitionService::PRESET_ID,
+            $offerIds,
+            $siteId
+        );
+        foreach ($calculation as $offerId => &$state) {
+            $catalogState = $catalog[$offerId] ?? $catalog[(string)$offerId] ?? null;
+            $catalogHash = is_array($catalogState)
+                ? strtolower(trim((string)($catalogState['catalog'] ?? '')))
+                : '';
+            if (preg_match('/^[a-f0-9]{64}$/D', $catalogHash) !== 1) {
+                throw new \RuntimeException('Не удалось подтвердить состояние записи ТП #' . (int)$offerId . '.');
+            }
+            $state['catalog'] = $catalogHash;
+        }
+        unset($state);
+        ksort($calculation, SORT_NUMERIC);
+        return $calculation;
+    }
+
+    /**
+     * Execute a read-only, server-authoritative calculation for an exact set
+     * of offers. The returned state pins are captured from the payload sent to
+     * calc-server and re-read after the network calls, so a response produced
+     * while calculation inputs were changing is rejected before it can reach
+     * any catalog writer.
+     *
+     * @param int[] $offerIds
+     * @return array{
+     *   contract:string,
+     *   results:array<int,array<string,mixed>>,
+     *   stateFingerprints:array<int,array{calculation:string}>,
+     *   provenance:array<string,mixed>
+     * }
+     */
+    public function calculateOffersForPreview(array $offerIds, string $siteId): array
+    {
+        $offerIds = array_values(array_unique(array_filter(array_map('intval', $offerIds), static function (int $offerId): bool {
+            return $offerId > 0;
+        })));
+        sort($offerIds, SORT_NUMERIC);
+
+        if ($offerIds === []) {
+            throw new \InvalidArgumentException('Не выбраны торговые предложения для серверного расчёта.');
+        }
+
+        $siteId = trim($siteId);
+        if (preg_match('/^[A-Za-z0-9_-]{1,10}$/D', $siteId) !== 1) {
+            throw new \InvalidArgumentException('Передан некорректный siteId для серверного расчёта.');
+        }
+
+        $fingerprints = [];
+        $results = [];
+        $requestHashes = [];
+        $sourceVersions = [];
+        $sourcePins = null;
+        $runtimeLocks = [
+            'elements' => [],
+            'sourceIblockIds' => [],
+            'priceTypeIds' => [],
+            'globalSymbolIblockIds' => [],
+            'globalSymbolProperties' => [],
+            'measureRatioProductIds' => [],
+            'measureIds' => [],
+            'propertyIds' => [],
+        ];
+        foreach (array_chunk($offerIds, self::PREVIEW_CHUNK_SIZE) as $offerChunk) {
+            $initPayload = $this->prepareCalculationPayload($offerChunk, $siteId);
+            $fingerprints += $this->captureStateFingerprintsFromPayload($initPayload, $offerChunk);
+            $requestPayload = $this->buildPayloadForOffers($initPayload, $offerChunk);
+            $runtimeLocks = $this->mergeRuntimeLocks(
+                $runtimeLocks,
+                $this->extractRuntimeLocks($requestPayload)
+            );
+            // Provenance must be stable across preview/apply retries. The raw
+            // INIT envelope contains timestamp/user/theme/UI configuration,
+            // none of which is calculation authority and would otherwise make
+            // an unchanged second server calculation produce a new write
+            // fingerprint every time.
+            $requestHashes[] = $this->computeStateHash($requestPayload);
+
+            $runtime = is_array($requestPayload['editorRuntime'] ?? null)
+                ? $requestPayload['editorRuntime']
+                : [];
+            $publication = is_array($runtime['publication'] ?? null) ? $runtime['publication'] : [];
+            $adapter = is_array($runtime['catalogAdapter'] ?? null) ? $runtime['catalogAdapter'] : [];
+            $chunkPins = [
+                'publication' => [
+                    'revision' => (int)($publication['revision'] ?? 0),
+                    'compileHash' => strtolower(trim((string)($publication['compileHash'] ?? ''))),
+                ],
+                'adapterRevision' => strtolower(trim((string)($adapter['revision'] ?? ''))),
+                'neutralInputRequired' => ($requestPayload['neutralInputRequired'] ?? false) === true,
+                'runtimeConfigSnapshot' => is_array($requestPayload['_runtimeConfigSnapshot'] ?? null)
+                    ? $requestPayload['_runtimeConfigSnapshot']
+                    : [],
+            ];
+            if ($sourcePins === null) {
+                $sourcePins = $chunkPins;
+            } elseif ($this->canonicalizeStateHashValue($sourcePins)
+                !== $this->canonicalizeStateHashValue($chunkPins)) {
+                throw new \RuntimeException('Публикация формы или адаптер изменились между частями серверного расчёта.');
+            }
+
+            $calcResult = $this->callCalcServer($requestPayload);
+            if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
+                $error = $calcResult['error'] ?? 'Ошибка расчёта на сервере';
+                if (is_array($error)) {
+                    $error = $error['message'] ?? $error['code'] ?? 'Ошибка расчёта на сервере';
+                }
+                throw new \RuntimeException((string)$error);
+            }
+            $chunkResults = $calcResult['data'] ?? [];
+            if (!is_array($chunkResults)) {
+                throw new \RuntimeException('calc-server вернул некорректный список результатов.');
+            }
+            $chunkResults = $this->normalizeStandaloneCatalogPrices($chunkResults, $requestPayload);
+            $this->assertServerResultTargets($chunkResults, $offerChunk);
+            $results = array_merge($results, $chunkResults);
+
+            $sourceVersion = trim((string)($calcResult['meta']['sourceVersion'] ?? ''));
+            if ($sourceVersion !== '') {
+                $sourceVersions[] = substr($sourceVersion, 0, 128);
+            }
+        }
+        ksort($fingerprints, SORT_NUMERIC);
+
+        if (array_map('intval', array_keys($fingerprints)) !== $offerIds) {
+            throw new \RuntimeException('Не удалось подтвердить текущее состояние всех выбранных ТП.');
+        }
+
+        $currentFingerprints = $this->captureOfferStateFingerprintsForSite($offerIds, $siteId);
+        if ($this->canonicalizeStateHashValue($currentFingerprints)
+            !== $this->canonicalizeStateHashValue($fingerprints)) {
+            throw new \RuntimeException(
+                'Расчётные данные изменились во время обращения к calc-server. Повторите расчёт.'
+            );
+        }
+
+        usort($results, static function (array $left, array $right): int {
+            return ((int)($left['offerId'] ?? 0)) <=> ((int)($right['offerId'] ?? 0));
+        });
+        $this->assertServerResultTargets($results, $offerIds);
+        $sourceVersions = array_values(array_unique($sourceVersions));
+
+        return [
+            'contract' => self::SERVER_CALCULATION_CONTRACT,
+            'results' => $results,
+            'stateFingerprints' => $fingerprints,
+            'provenance' => [
+                'contract' => self::SERVER_CALCULATION_CONTRACT . '/provenance',
+                'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
+                'publication' => is_array($sourcePins['publication'] ?? null)
+                    ? $sourcePins['publication']
+                    : [],
+                'adapterRevision' => (string)($sourcePins['adapterRevision'] ?? ''),
+                'neutralInputRequired' => ($sourcePins['neutralInputRequired'] ?? false) === true,
+                'runtimeConfigSnapshot' => is_array($sourcePins['runtimeConfigSnapshot'] ?? null)
+                    ? $sourcePins['runtimeConfigSnapshot']
+                    : [],
+                'requestHashes' => $requestHashes,
+                'sourceVersions' => $sourceVersions,
+                'runtimeLocks' => $runtimeLocks,
+            ],
+        ];
+    }
+
+    /** @param array<string,mixed> $payload @return array<string,mixed> */
+    private function extractRuntimeLocks(array $payload): array
+    {
+        $elements = [];
+        $propertyIds = [];
+        $measureIds = [];
+        $collect = static function ($value) use (&$collect, &$elements, &$propertyIds, &$measureIds): void {
+            if (!is_array($value)) {
+                return;
+            }
+            $id = (int)($value['id'] ?? $value['ID'] ?? 0);
+            $iblockId = (int)($value['iblockId'] ?? $value['IBLOCK_ID'] ?? 0);
+            if ($id > 0 && $iblockId > 0) {
+                $elements[$id] = ['id' => $id, 'iblockId' => $iblockId];
+            }
+            $measure = is_array($value['measure'] ?? null) ? $value['measure'] : [];
+            $measureId = (int)($measure['id'] ?? $measure['ID'] ?? 0);
+            if ($measureId > 0) {
+                $measureIds[$measureId] = true;
+            }
+            if (is_array($value['properties'] ?? null)) {
+                foreach ($value['properties'] as $property) {
+                    $propertyId = is_array($property)
+                        ? (int)($property['ID'] ?? $property['id'] ?? 0)
+                        : 0;
+                    if ($propertyId > 0) {
+                        $propertyIds[$propertyId] = true;
+                    }
+                }
+            }
+            foreach ($value as $item) {
+                if (is_array($item)) {
+                    $collect($item);
+                }
+            }
+        };
+        $collect(is_array($payload['preset'] ?? null) ? $payload['preset'] : []);
+        $collect(is_array($payload['elementsStore'] ?? null) ? $payload['elementsStore'] : []);
+        $collect(is_array($payload['elementsSiblings'] ?? null) ? $payload['elementsSiblings'] : []);
+        $collect(is_array($payload['globalSymbols'] ?? null) ? $payload['globalSymbols'] : []);
+        ksort($elements, SORT_NUMERIC);
+        $propertyIds = array_map('intval', array_keys($propertyIds));
+        sort($propertyIds, SORT_NUMERIC);
+        $measureIds = array_map('intval', array_keys($measureIds));
+        sort($measureIds, SORT_NUMERIC);
+        $measureRatioProductIds = array_map('intval', array_keys($elements));
+        sort($measureRatioProductIds, SORT_NUMERIC);
+        $sourceIblockIds = [];
+        foreach ($elements as $element) {
+            $sourceIblockIds[(int)$element['iblockId']] = true;
+        }
+        $runtimeConfigSnapshot = is_array($payload['_runtimeConfigSnapshot'] ?? null)
+            ? $payload['_runtimeConfigSnapshot']
+            : [];
+        foreach ([
+            'CALC_PRESETS',
+            'CALC_STAGES',
+            'CALC_SETTINGS',
+            'CALC_GLOBAL_VALUES',
+            'CALC_CUSTOM_FIELDS',
+            'CALC_MATERIALS',
+            'CALC_MATERIALS_VARIANTS',
+            'CALC_OPERATIONS',
+            'CALC_OPERATIONS_VARIANTS',
+            'CALC_EQUIPMENT',
+            'CALC_DETAILS',
+        ] as $sourceCode) {
+            $configuredSourceIblockId = $this->effectiveRuntimeConfigIblockId(
+                $runtimeConfigSnapshot,
+                $sourceCode
+            );
+            if ($configuredSourceIblockId <= 0) {
+                throw new \RuntimeException(
+                    'Runtime source ' . $sourceCode . ' is not pinned by direct configuration.',
+                    409
+                );
+            }
+            $sourceIblockIds[$configuredSourceIblockId] = true;
+        }
+        $sourceIblockIds = array_map('intval', array_keys($sourceIblockIds));
+        sort($sourceIblockIds, SORT_NUMERIC);
+        $configuredGlobalSymbolIblockId = $this->effectiveRuntimeConfigIblockId(
+            $runtimeConfigSnapshot,
+            'CALC_GLOBAL_VALUES'
+        );
+        if ($configuredGlobalSymbolIblockId <= 0) {
+            throw new \RuntimeException(
+                'IBLOCK_CALC_GLOBAL_VALUES is not pinned by direct runtime configuration.',
+                409
+            );
+        }
+        $globalSymbolIblockIds = [$configuredGlobalSymbolIblockId => true];
+        foreach ((array)($payload['globalSymbols'] ?? []) as $symbol) {
+            $iblockId = is_array($symbol) ? (int)($symbol['iblockId'] ?? 0) : 0;
+            if ($iblockId > 0) {
+                if ($iblockId !== $configuredGlobalSymbolIblockId) {
+                    throw new \RuntimeException(
+                        'Global-symbol payload differs from direct runtime configuration.',
+                        409
+                    );
+                }
+                $globalSymbolIblockIds[$iblockId] = true;
+            }
+        }
+        $globalSymbolIblockIds = array_map('intval', array_keys($globalSymbolIblockIds));
+        sort($globalSymbolIblockIds, SORT_NUMERIC);
+        $globalSymbolProperties = $this->loadGlobalSymbolPropertyAuthority($globalSymbolIblockIds);
+        foreach ($globalSymbolProperties as $authority) {
+            foreach ((array)($authority['properties'] ?? []) as $propertyId) {
+                $propertyIds[] = (int)$propertyId;
+            }
+        }
+        $propertyIds = array_values(array_unique(array_filter(array_map('intval', $propertyIds))));
+        sort($propertyIds, SORT_NUMERIC);
+
+        $priceTypeIds = [];
+        foreach ((array)($payload['priceTypes'] ?? []) as $priceType) {
+            $priceTypeId = is_array($priceType) ? (int)($priceType['id'] ?? $priceType['ID'] ?? 0) : 0;
+            if ($priceTypeId > 0) {
+                $priceTypeIds[$priceTypeId] = true;
+            }
+        }
+        $priceTypeIds = array_map('intval', array_keys($priceTypeIds));
+        sort($priceTypeIds, SORT_NUMERIC);
+
+        return [
+            'elements' => array_values($elements),
+            'sourceIblockIds' => $sourceIblockIds,
+            'priceTypeIds' => $priceTypeIds,
+            'globalSymbolIblockIds' => $globalSymbolIblockIds,
+            'globalSymbolProperties' => $globalSymbolProperties,
+            'measureRatioProductIds' => $measureRatioProductIds,
+            'measureIds' => $measureIds,
+            'propertyIds' => $propertyIds,
+        ];
+    }
+
+    /** @param int[] $iblockIds @return array<int,array<string,mixed>> */
+    private function loadGlobalSymbolPropertyAuthority(array $iblockIds): array
+    {
+        if ($iblockIds === []) {
+            return [];
+        }
+        $requiredCodes = ['DATA_TYPE', 'INITIAL_VALUE', 'KIND', 'PRESET_ID'];
+        $result = Application::getConnection()->query(
+            'SELECT ID, IBLOCK_ID, CODE FROM b_iblock_property WHERE IBLOCK_ID IN ('
+            . implode(',', array_map('intval', $iblockIds))
+            . ") AND CODE IN ('DATA_TYPE','INITIAL_VALUE','KIND','PRESET_ID') "
+            . 'ORDER BY IBLOCK_ID, CODE, ID'
+        );
+        $byIblock = [];
+        while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
+            $iblockId = (int)($row['IBLOCK_ID'] ?? $row['iblock_id'] ?? 0);
+            $code = (string)($row['CODE'] ?? $row['code'] ?? '');
+            $id = (int)($row['ID'] ?? $row['id'] ?? 0);
+            if ($iblockId <= 0 || $id <= 0 || !in_array($code, $requiredCodes, true)
+                || isset($byIblock[$iblockId][$code])) {
+                throw new \RuntimeException('Global-symbol property authority is ambiguous.', 409);
+            }
+            $byIblock[$iblockId][$code] = $id;
+        }
+        $authority = [];
+        foreach ($iblockIds as $iblockId) {
+            $properties = $byIblock[$iblockId] ?? [];
+            ksort($properties, SORT_STRING);
+            if (array_keys($properties) !== $requiredCodes) {
+                throw new \RuntimeException('Global-symbol property authority is incomplete.', 409);
+            }
+            $authority[] = ['iblockId' => $iblockId, 'properties' => $properties];
+        }
+        return $authority;
+    }
+
+    /** @param array<string,mixed> $left @param array<string,mixed> $right @return array<string,mixed> */
+    private function mergeRuntimeLocks(array $left, array $right): array
+    {
+        $elements = [];
+        foreach (array_merge((array)($left['elements'] ?? []), (array)($right['elements'] ?? [])) as $element) {
+            if (is_array($element) && (int)($element['id'] ?? 0) > 0 && (int)($element['iblockId'] ?? 0) > 0) {
+                $elements[(int)$element['id']] = [
+                    'id' => (int)$element['id'],
+                    'iblockId' => (int)$element['iblockId'],
+                ];
+            }
+        }
+        ksort($elements, SORT_NUMERIC);
+        $sourceIblockIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            array_merge(
+                (array)($left['sourceIblockIds'] ?? []),
+                (array)($right['sourceIblockIds'] ?? [])
+            )
+        ), static function (int $id): bool {
+            return $id > 0;
+        })));
+        sort($sourceIblockIds, SORT_NUMERIC);
+        $priceTypeIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            array_merge((array)($left['priceTypeIds'] ?? []), (array)($right['priceTypeIds'] ?? []))
+        ), static function (int $id): bool {
+            return $id > 0;
+        })));
+        sort($priceTypeIds, SORT_NUMERIC);
+        $globalSymbolIblockIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            array_merge(
+                (array)($left['globalSymbolIblockIds'] ?? []),
+                (array)($right['globalSymbolIblockIds'] ?? [])
+            )
+        ), static function (int $id): bool {
+            return $id > 0;
+        })));
+        sort($globalSymbolIblockIds, SORT_NUMERIC);
+        $globalSymbolPropertiesByIblock = [];
+        foreach (array_merge(
+            (array)($left['globalSymbolProperties'] ?? []),
+            (array)($right['globalSymbolProperties'] ?? [])
+        ) as $authority) {
+            $iblockId = is_array($authority) ? (int)($authority['iblockId'] ?? 0) : 0;
+            $properties = is_array($authority['properties'] ?? null) ? $authority['properties'] : [];
+            ksort($properties, SORT_STRING);
+            if ($iblockId <= 0
+                || (isset($globalSymbolPropertiesByIblock[$iblockId])
+                    && $globalSymbolPropertiesByIblock[$iblockId] !== $properties)) {
+                throw new \RuntimeException('Global-symbol property authority changed between calculation chunks.', 409);
+            }
+            $globalSymbolPropertiesByIblock[$iblockId] = $properties;
+        }
+        ksort($globalSymbolPropertiesByIblock, SORT_NUMERIC);
+        $globalSymbolProperties = [];
+        foreach ($globalSymbolPropertiesByIblock as $iblockId => $properties) {
+            $globalSymbolProperties[] = [
+                'iblockId' => (int)$iblockId,
+                'properties' => $properties,
+            ];
+        }
+        $measureRatioProductIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            array_merge(
+                (array)($left['measureRatioProductIds'] ?? []),
+                (array)($right['measureRatioProductIds'] ?? [])
+            )
+        ), static function (int $id): bool {
+            return $id > 0;
+        })));
+        sort($measureRatioProductIds, SORT_NUMERIC);
+        $measureIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            array_merge((array)($left['measureIds'] ?? []), (array)($right['measureIds'] ?? []))
+        ), static function (int $id): bool {
+            return $id > 0;
+        })));
+        sort($measureIds, SORT_NUMERIC);
+        $propertyIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            array_merge((array)($left['propertyIds'] ?? []), (array)($right['propertyIds'] ?? []))
+        ), static function (int $id): bool {
+            return $id > 0;
+        })));
+        sort($propertyIds, SORT_NUMERIC);
+        return [
+            'elements' => array_values($elements),
+            'sourceIblockIds' => $sourceIblockIds,
+            'priceTypeIds' => $priceTypeIds,
+            'globalSymbolIblockIds' => $globalSymbolIblockIds,
+            'globalSymbolProperties' => $globalSymbolProperties,
+            'measureRatioProductIds' => $measureRatioProductIds,
+            'measureIds' => $measureIds,
+            'propertyIds' => $propertyIds,
+        ];
+    }
+
+    /**
+     * @param int[] $offerIds
+     * @return array<int,array{calculation:string}>
+     */
+    private function captureOfferStateFingerprintsForSite(array $offerIds, string $siteId): array
+    {
+        $offerIds = array_values(array_unique(array_filter(array_map('intval', $offerIds), static function (int $offerId): bool {
+            return $offerId > 0;
+        })));
+        sort($offerIds, SORT_NUMERIC);
+        if ($offerIds === []) {
+            return [];
+        }
+
+        $fingerprints = [];
+        foreach (array_chunk($offerIds, self::PREVIEW_CHUNK_SIZE) as $offerChunk) {
+            $initPayload = $this->prepareCalculationPayload($offerChunk, $siteId);
+            $fingerprints += $this->captureStateFingerprintsFromPayload($initPayload, $offerChunk);
+        }
+        ksort($fingerprints, SORT_NUMERIC);
+        if (array_map('intval', array_keys($fingerprints)) !== $offerIds) {
+            throw new \RuntimeException('Не удалось подтвердить текущее состояние всех выбранных ТП.');
+        }
+
+        return $fingerprints;
     }
 
     /**
@@ -358,9 +1006,22 @@ class BatchRecalculateService
      *
      * @param int[] $offerIds ID торговых предложений
      * @param bool $onlyChanged Пропускать неизменившиеся
+     * @param array<int|string,array{calculation:string,catalog?:string}> $expectedStateFingerprints
+     *        Optional preview-approved CAS state. Legacy callers may omit it;
+     *        the batch endpoint always supplies it before catalog writes.
+     * @param array<int|string,string> $expectedResultFingerprints
+     * @param int $actorUserId Authenticated batch owner for durable replay.
+     * @param string $requestId Stable SHA-256 job chunk identifier.
      * @return array<int, array{status: string, error?: string, resultCount?: int}>
      */
-    public function recalculateOffers(array $offerIds, bool $onlyChanged = true): array
+    public function recalculateOffers(
+        array $offerIds,
+        bool $onlyChanged = true,
+        array $expectedStateFingerprints = [],
+        array $expectedResultFingerprints = [],
+        int $actorUserId = 0,
+        string $requestId = ''
+    ): array
     {
         $offerIds = array_values(array_unique(array_map('intval', $offerIds)));
         $offerIds = array_values(array_filter($offerIds, static function (int $offerId): bool {
@@ -376,17 +1037,29 @@ class BatchRecalculateService
         try {
             $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
             $initPayload = $this->prepareCalculationPayload($offerIds, $siteId);
+            $resolvedPresetId = (int)($initPayload['preset']['id'] ?? 0);
+            // Resolve the server-owned payload first, then fail closed before
+            // fingerprints, network or the authoritative writer. Batch writes
+            // intentionally support only the standalone preset 12740 path.
+            self::assertSupportedBatchPresetId($resolvedPresetId);
 
-            $hashesByOfferId = [];
             $offersToProcess = [];
             foreach ($offerIds as $offerId) {
                 $currentHash = $this->computeStateHashForOffer($initPayload, $offerId);
-                $hashesByOfferId[$offerId] = $currentHash;
 
-                if ($onlyChanged) {
-                    $savedHash = $this->getSavedHash($offerId);
-                    if ($savedHash !== null && $savedHash === $currentHash) {
-                        $resultsByOfferId[$offerId] = ['status' => 'skipped'];
+                if ($expectedStateFingerprints !== []) {
+                    $expectedState = $expectedStateFingerprints[$offerId]
+                        ?? $expectedStateFingerprints[(string)$offerId]
+                        ?? null;
+                    $expectedHash = is_array($expectedState)
+                        ? strtolower(trim((string)($expectedState['calculation'] ?? '')))
+                        : '';
+                    if (preg_match('/^[a-f0-9]{64}$/D', $expectedHash) !== 1
+                        || !hash_equals($expectedHash, $currentHash)) {
+                        $resultsByOfferId[$offerId] = [
+                            'status' => 'error',
+                            'error' => 'Состояние ТП изменилось после предварительной проверки. Повторите проверку без записи.',
+                        ];
                         continue;
                     }
                 }
@@ -399,19 +1072,62 @@ class BatchRecalculateService
             }
 
             $requestPayload = $this->buildPayloadForOffers($initPayload, $offersToProcess);
-            $calcResult = $this->callCalcServer($requestPayload);
-            if (!$calcResult || !isset($calcResult['success']) || !$calcResult['success']) {
-                throw new \Exception($calcResult['error'] ?? 'Ошибка расчёта на сервере');
+            self::assertSupportedBatchPresetId((int)($requestPayload['preset']['id'] ?? 0));
+            $approvedStates = [];
+            $approvedResults = [];
+            foreach ($offersToProcess as $offerId) {
+                $state = $expectedStateFingerprints[$offerId]
+                    ?? $expectedStateFingerprints[(string)$offerId]
+                    ?? null;
+                $resultFingerprint = $expectedResultFingerprints[$offerId]
+                    ?? $expectedResultFingerprints[(string)$offerId]
+                    ?? null;
+                if (!is_array($state)
+                    || preg_match('/^[a-f0-9]{64}$/D', strtolower(trim((string)($state['catalog'] ?? '')))) !== 1
+                    || !is_string($resultFingerprint)
+                    || preg_match('/^[a-f0-9]{64}$/D', strtolower(trim($resultFingerprint))) !== 1) {
+                    throw new \RuntimeException(
+                        'Пакетная запись пресета 12740 не содержит подтверждённые catalog/result fingerprints.'
+                    );
+                }
+                $approvedStates[$offerId] = $state;
+                $approvedResults[$offerId] = strtolower(trim($resultFingerprint));
             }
 
-            $offerResults = $calcResult['data'] ?? [];
-            if (empty($offerResults) || !is_array($offerResults)) {
-                throw new \Exception('Пустой ответ от calc-server');
+            $catalogWriter = new CatalogCalculationWriteService();
+            $writeResult = $catalogWriter->replayAuthoritativeBatch(
+                CatalogAdapterDefinitionService::PRESET_ID,
+                $offersToProcess,
+                $siteId,
+                $approvedStates,
+                $approvedResults,
+                $actorUserId,
+                $requestId
+            );
+            if (is_array($writeResult)) {
+                // Receipt replay is deliberately resolved before any
+                // calc-server call. Only offer IDs are needed below to
+                // rebuild the job result; history is not duplicated.
+                $offerResults = array_map(static function (array $row): array {
+                    return ['offerId' => (int)($row['offerId'] ?? 0)];
+                }, is_array($writeResult['offers'] ?? null) ? $writeResult['offers'] : []);
+            } else {
+                $authoritativeCalculation = $this->calculateOffersForPreview($offersToProcess, $siteId);
+                $offerResults = is_array($authoritativeCalculation['results'] ?? null)
+                    ? $authoritativeCalculation['results']
+                    : [];
+                $writeResult = $catalogWriter->applyAuthoritativeBatch(
+                    CatalogAdapterDefinitionService::PRESET_ID,
+                    $offersToProcess,
+                    $authoritativeCalculation,
+                    $siteId,
+                    $approvedStates,
+                    $approvedResults,
+                    $onlyChanged,
+                    $actorUserId,
+                    $requestId
+                );
             }
-            $offerResults = $this->normalizeStandaloneCatalogPrices($offerResults, $requestPayload);
-
-            $offerUpdateService = new OfferUpdateService();
-            $writeResult = $offerUpdateService->updateOffersFromCalculation($offerResults, true);
 
             $writeResultsByOfferId = [];
             foreach (($writeResult['offers'] ?? []) as $offerWriteResult) {
@@ -431,6 +1147,10 @@ class BatchRecalculateService
 
                 $returnedOfferIds[$returnedOfferId] = true;
                 $offerWriteResult = $writeResultsByOfferId[$returnedOfferId] ?? null;
+                if (is_array($offerWriteResult) && ($offerWriteResult['status'] ?? '') === 'skipped') {
+                    $resultsByOfferId[$returnedOfferId] = ['status' => 'skipped'];
+                    continue;
+                }
                 if (!is_array($offerWriteResult) || ($offerWriteResult['status'] ?? 'error') !== 'ok') {
                     $resultsByOfferId[$returnedOfferId] = [
                         'status' => 'error',
@@ -439,14 +1159,13 @@ class BatchRecalculateService
                     continue;
                 }
 
-                if (isset($hashesByOfferId[$returnedOfferId])) {
-                    $this->saveHash($returnedOfferId, $hashesByOfferId[$returnedOfferId]);
-                }
                 $resultsByOfferId[$returnedOfferId] = [
                     'status' => 'recalculated',
                     'resultCount' => 1,
                 ];
-                $successfulOfferResults[] = $offerResult;
+                if (($writeResult['replayed'] ?? false) !== true) {
+                    $successfulOfferResults[] = $offerResult;
+                }
             }
 
             foreach ($offersToProcess as $offerId) {
@@ -501,27 +1220,86 @@ class BatchRecalculateService
      */
     private function prepareCalculationPayload(array $offerIds, string $siteId): array
     {
-        $catalogPayload = $this->initPayloadService->prepareInitPayload($offerIds, $siteId);
-        if ((int)($catalogPayload['preset']['id'] ?? 0) !== StandaloneCatalogSelectionMapper::PRESET_ID) {
-            return $catalogPayload;
+        // Preset 12740 preview/recalculation must be strictly read-only until
+        // the explicit writer transaction. prepareInitPayload() performs
+        // repair/migration/enrichment and is intentionally not used here.
+        $configAuthority = new CatalogCalculationWriteService();
+        $configBefore = $configAuthority->captureRuntimeConfigSnapshot();
+        $configuredUrl = trim((string)($configBefore['prospektweb.calc:CALC_SERVER_URL'] ?? ''));
+        $configuredUrl = self::normalizeCalcServerUrl(
+            $configuredUrl !== '' ? $configuredUrl : 'https://pwrt.ru/calc-api'
+        );
+        if (!hash_equals($configuredUrl, $this->calcServerUrl)) {
+            throw new \RuntimeException('calc-server endpoint differs from direct b_option authority.', 409);
         }
+        $catalogPayload = $this->initPayloadService->prepareCatalogWritePayload(
+            $offerIds,
+            $siteId,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $configBefore
+        );
+        $configAfter = $configAuthority->captureRuntimeConfigSnapshot();
+        if ($this->canonicalizeStateHashValue($configBefore)
+            !== $this->canonicalizeStateHashValue($configAfter)) {
+            throw new \RuntimeException('ConfigManager options changed while preparing calc-server input.', 409);
+        }
+        $catalogPayload['_runtimeConfigSnapshot'] = $configBefore;
+        return $this->buildCalculationPayloadFromCatalogPayload($catalogPayload, $siteId);
+    }
+
+    /**
+     * Compute the same per-offer input fingerprints from a caller-owned,
+     * read-only catalog payload. The catalog writer uses this with raw option
+     * values resolved under row locks, avoiding Bitrix Option cache reuse.
+     *
+     * @param array<string,mixed> $catalogPayload
+     * @param int[] $offerIds
+     * @return array<int,array{calculation:string}>
+     */
+    public function captureOfferStateFingerprintsFromResolvedCatalogPayload(
+        array $catalogPayload,
+        array $offerIds,
+        string $siteId
+    ): array {
+        $payload = $this->buildCalculationPayloadFromCatalogPayload($catalogPayload, $siteId);
+        return $this->captureStateFingerprintsFromPayload($payload, $offerIds);
+    }
+
+    /** @param array<string,mixed> $catalogPayload @return array<string,mixed> */
+    private function buildCalculationPayloadFromCatalogPayload(array $catalogPayload, string $siteId): array
+    {
 
         if (!Loader::includeModule('prospektweb.frontcalc')) {
             throw new \RuntimeException('Для автономной записи требуется модуль prospektweb.frontcalc.');
         }
 
-        $resolved = (new \Prospektweb\Frontcalc\Service\CalculatorTemplateManager())
-            ->resolveForPreset(StandaloneCatalogSelectionMapper::PRESET_ID);
-        $schema = is_array($resolved['schema'] ?? null) ? $resolved['schema'] : [];
-        if ($schema === [] || (string)($resolved['source'] ?? '') !== 'form_first_preset') {
+        $schema = is_array($catalogPayload['_publishedSnapshot'] ?? null)
+            ? $catalogPayload['_publishedSnapshot']
+            : [];
+        if ($schema === []) {
             throw new \RuntimeException('Не найдена опубликованная форма пресета 12740.');
         }
 
+        $expectedOfferIds = [];
+        foreach ((array)($catalogPayload['selectedOffers'] ?? []) as $targetOffer) {
+            $offerId = is_array($targetOffer) ? (int)($targetOffer['id'] ?? 0) : 0;
+            if ($offerId > 0) {
+                $expectedOfferIds[] = $offerId;
+            }
+        }
+        $expectedOfferIds = array_values(array_unique($expectedOfferIds));
+        sort($expectedOfferIds, SORT_NUMERIC);
+
         $runtime = new \Prospektweb\Frontcalc\Service\StandalonePresetRuntime();
-        $schemaCatalog = $runtime->buildSchemaCatalog($schema, StandaloneCatalogSelectionMapper::PRESET_ID);
+        $schemaCatalog = $runtime->buildSchemaCatalog($schema, CatalogAdapterDefinitionService::PRESET_ID);
         $validator = new \Prospektweb\Frontcalc\Service\CustomSelectionValidator();
         $builder = new \Prospektweb\Frontcalc\Service\VirtualOfferBatchBuilder();
-        $mapper = new StandaloneCatalogSelectionMapper();
+        $mapper = new StandaloneCatalogSelectionMapper($this->catalogAdapterService);
         $virtualOffers = [];
 
         foreach ((array)($catalogPayload['selectedOffers'] ?? []) as $targetOffer) {
@@ -557,20 +1335,196 @@ class BatchRecalculateService
             $virtualOffer['name'] = $mapped['offerName'] !== ''
                 ? $mapped['offerName']
                 : 'Расчётное ТП #' . $mapped['offerId'];
-            $virtualOffer['productId'] = 0;
+            // Catalog identity remains transport/provenance only. Neutral
+            // calc-server execution strips it from the formula context.
+            $virtualOffer['productId'] = (int)$mapped['productId'];
             $virtualOffer['iblockId'] = 0;
             $virtualOffers[] = $virtualOffer;
         }
 
-        if (count($virtualOffers) !== count($offerIds)) {
+        if (count($virtualOffers) !== count($expectedOfferIds)) {
             throw new \RuntimeException('Не все выбранные ТП сопоставлены с автономным пресетом 12740.');
         }
 
-        return (new \Prospektweb\Frontcalc\Calculator\InitPayloadService())->preparePresetInitPayload(
-            StandaloneCatalogSelectionMapper::PRESET_ID,
+        if (!array_key_exists('_neutralInputRequired', $catalogPayload)
+            || $catalogPayload['_neutralInputRequired'] !== true) {
+            throw new \RuntimeException('Catalog payload is not bound to neutral-input mode.', 409);
+        }
+        $neutralInputRequired = true;
+        $editorRuntime = is_array($catalogPayload['editorRuntime'] ?? null)
+            ? $catalogPayload['editorRuntime']
+            : [];
+        $publishedAuthoring = [
+            'formDefinition' => is_array($editorRuntime['formDefinition'] ?? null)
+                ? $editorRuntime['formDefinition']
+                : [],
+            'bindingDefinition' => is_array($editorRuntime['bindingDefinition'] ?? null)
+                ? $editorRuntime['bindingDefinition']
+                : [],
+            'publication' => is_array($editorRuntime['publication'] ?? null)
+                ? $editorRuntime['publication']
+                : [],
+        ];
+        $virtualOffers = (new \Prospektweb\Frontcalc\Service\NeutralCalculationInputBuilder())
+            ->decorateOffers(
+                $virtualOffers,
+                $publishedAuthoring,
+                CatalogAdapterDefinitionService::PRESET_ID,
+                'catalog-adapter'
+            );
+
+        $globalSymbols = is_array($catalogPayload['_globalSymbols'] ?? null)
+            ? array_values($catalogPayload['_globalSymbols'])
+            : null;
+        if ($globalSymbols === null) {
+            throw new \RuntimeException('Catalog payload does not pin the global symbol registry.');
+        }
+        $runtimeConfigSnapshot = is_array($catalogPayload['_runtimeConfigSnapshot'] ?? null)
+            ? $catalogPayload['_runtimeConfigSnapshot']
+            : [];
+        if ($runtimeConfigSnapshot === []) {
+            throw new \RuntimeException('Catalog payload does not pin ConfigManager option authority.');
+        }
+        $payload = (new InitPayloadService())->preparePresetCalculationPayloadReadOnlyPinned(
+            CatalogAdapterDefinitionService::PRESET_ID,
             $virtualOffers,
-            $siteId
+            $siteId,
+            $globalSymbols,
+            $runtimeConfigSnapshot
         );
+        $payload['globalSymbols'] = $globalSymbols;
+        $payload['editorRuntime'] = $catalogPayload['editorRuntime'] ?? null;
+        $payload['neutralInputRequired'] = $neutralInputRequired;
+        $payload['_runtimeConfigSnapshot'] = $runtimeConfigSnapshot;
+        $this->assertPayloadMatchesRuntimeConfig($catalogPayload, $payload);
+        return $payload;
+    }
+
+    /**
+     * Detect a process-static/Option-cache split brain before calc-server can
+     * see a payload. Direct b_option rows are authority; cached IDs may only be
+     * used when the loaded entities prove that they resolve to the same IDs.
+     *
+     * @param array<string,mixed> $catalogPayload
+     * @param array<string,mixed> $calculationPayload
+     */
+    private function assertPayloadMatchesRuntimeConfig(array $catalogPayload, array $calculationPayload): void
+    {
+        $snapshot = is_array($catalogPayload['_runtimeConfigSnapshot'] ?? null)
+            ? $catalogPayload['_runtimeConfigSnapshot']
+            : [];
+        if ($snapshot === []) {
+            throw new \RuntimeException('Catalog payload does not pin ConfigManager option authority.');
+        }
+        $effectiveId = static function (array $rows, string $code): int {
+            $candidates = [];
+            if ($code === 'PRODUCTS') {
+                $candidates = [
+                    'prospektweb.frontcalc:PRODUCTS_IBLOCK_ID',
+                    'prospektweb.calc:PRODUCT_IBLOCK_ID',
+                ];
+            } elseif ($code === 'OFFERS') {
+                $candidates = [
+                    'prospektweb.frontcalc:OFFERS_IBLOCK_ID',
+                    'prospektweb.calc:SKU_IBLOCK_ID',
+                ];
+            } else {
+                $candidates = [
+                    'prospektweb.frontcalc:IBLOCK_' . $code,
+                    'prospektweb.calc:IBLOCK_' . $code,
+                ];
+            }
+            foreach ($candidates as $candidate) {
+                $value = (int)($rows[$candidate] ?? 0);
+                if ($value > 0) {
+                    return $value;
+                }
+            }
+            return 0;
+        };
+        $assertId = static function (int $expected, int $actual, string $code): void {
+            if ($actual > 0 && ($expected <= 0 || $actual !== $expected)) {
+                throw new \RuntimeException(
+                    'Cached ConfigManager mapping for ' . $code . ' differs from direct b_option authority.',
+                    409
+                );
+            }
+        };
+
+        $expectedOfferIblockId = $effectiveId($snapshot, 'OFFERS');
+        foreach ((array)($catalogPayload['selectedOffers'] ?? []) as $offer) {
+            if (is_array($offer)) {
+                $assertId($expectedOfferIblockId, (int)($offer['iblockId'] ?? 0), 'OFFERS');
+            }
+        }
+        $expectedProductIblockId = $effectiveId($snapshot, 'PRODUCTS');
+        foreach ((array)($catalogPayload['_productIblockIds'] ?? []) as $productIblockId) {
+            $assertId($expectedProductIblockId, (int)$productIblockId, 'PRODUCTS');
+        }
+
+        $runtimeIblocks = [];
+        $collect = static function (string $code, $rows) use (&$runtimeIblocks): void {
+            foreach ((array)$rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $iblockId = (int)($row['iblockId'] ?? 0);
+                if ($iblockId > 0) {
+                    $runtimeIblocks[$code][$iblockId] = true;
+                }
+            }
+        };
+        $preset = is_array($calculationPayload['preset'] ?? null) ? $calculationPayload['preset'] : [];
+        $collect('CALC_PRESETS', $preset === [] ? [] : [$preset]);
+        foreach ((array)($calculationPayload['elementsStore'] ?? []) as $code => $rows) {
+            if (is_string($code) && strpos($code, 'CALC_') === 0) {
+                $collect($code, $rows);
+            }
+        }
+        foreach ((array)($calculationPayload['elementsSiblings'] ?? []) as $code => $rows) {
+            if (is_string($code) && strpos($code, 'CALC_') === 0) {
+                $collect($code, $rows);
+            }
+        }
+        $collect('CALC_GLOBAL_VALUES', $calculationPayload['globalSymbols'] ?? []);
+        $globalStorageId = (int)($catalogPayload['_globalSymbolIblockId'] ?? 0);
+        if ($globalStorageId > 0) {
+            $runtimeIblocks['CALC_GLOBAL_VALUES'][$globalStorageId] = true;
+        }
+        foreach ($runtimeIblocks as $code => $ids) {
+            $expected = $effectiveId($snapshot, $code);
+            foreach (array_map('intval', array_keys($ids)) as $actual) {
+                $assertId($expected, $actual, $code);
+            }
+        }
+    }
+
+    /** @param array<string,mixed> $snapshot */
+    private function effectiveRuntimeConfigIblockId(array $snapshot, string $code): int
+    {
+        if ($code === 'PRODUCTS') {
+            $keys = [
+                'prospektweb.frontcalc:PRODUCTS_IBLOCK_ID',
+                'prospektweb.calc:PRODUCT_IBLOCK_ID',
+            ];
+        } elseif ($code === 'OFFERS') {
+            $keys = [
+                'prospektweb.frontcalc:OFFERS_IBLOCK_ID',
+                'prospektweb.calc:SKU_IBLOCK_ID',
+            ];
+        } else {
+            $keys = [
+                'prospektweb.frontcalc:IBLOCK_' . $code,
+                'prospektweb.calc:IBLOCK_' . $code,
+            ];
+        }
+        foreach ($keys as $key) {
+            $id = (int)($snapshot[$key] ?? 0);
+            if ($id > 0) {
+                return $id;
+            }
+        }
+        return 0;
     }
 
     /**
@@ -580,7 +1534,7 @@ class BatchRecalculateService
      */
     private function normalizeStandaloneCatalogPrices(array $offerResults, array $requestPayload): array
     {
-        if ((int)($requestPayload['preset']['id'] ?? 0) !== StandaloneCatalogSelectionMapper::PRESET_ID
+        if ((int)($requestPayload['preset']['id'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID
             || array_key_exists('product', $requestPayload) && $requestPayload['product'] !== null) {
             return $offerResults;
         }
@@ -592,6 +1546,38 @@ class BatchRecalculateService
             $offerResults,
             is_array($requestPayload['priceTypes'] ?? null) ? $requestPayload['priceTypes'] : [],
             is_array($requestPayload['preset']['prices'] ?? null) ? $requestPayload['preset']['prices'] : []
+        );
+    }
+
+    /**
+     * Apply the same adapter output allowlist to preview and write flows.
+     *
+     * @param array<int,array<string,mixed>> $offerResults
+     * @param array<string,mixed> $requestPayload
+     * @return array<int,array<string,mixed>>
+     */
+    private function projectCatalogAdapterResults(array $offerResults, array $requestPayload): array
+    {
+        if ((int)($requestPayload['preset']['id'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID) {
+            return $offerResults;
+        }
+        $editorRuntime = is_array($requestPayload['editorRuntime'] ?? null)
+            ? $requestPayload['editorRuntime']
+            : [];
+        $definition = is_array($editorRuntime['catalogAdapter'] ?? null)
+            ? $editorRuntime['catalogAdapter']
+            : null;
+        $publication = is_array($editorRuntime['publication'] ?? null)
+            ? $editorRuntime['publication']
+            : null;
+        if (!is_array($definition) || !is_array($publication)) {
+            throw new \RuntimeException('Расчёт пресета 12740 не содержит подтверждённые ревизии формы и адаптера каталога.');
+        }
+        return $this->catalogAdapterService->projectResultsForWrite(
+            $offerResults,
+            is_array($requestPayload['priceTypes'] ?? null) ? $requestPayload['priceTypes'] : [],
+            $definition,
+            $publication
         );
     }
 
@@ -808,14 +1794,74 @@ class BatchRecalculateService
     }
 
     /**
+     * @param array<string,mixed> $initPayload
+     * @param int[] $expectedOfferIds
+     * @return array<int,array{calculation:string}>
+     */
+    private function captureStateFingerprintsFromPayload(array $initPayload, array $expectedOfferIds): array
+    {
+        $expectedOfferIds = array_values(array_unique(array_filter(array_map('intval', $expectedOfferIds), static function (int $offerId): bool {
+            return $offerId > 0;
+        })));
+        sort($expectedOfferIds, SORT_NUMERIC);
+
+        $available = [];
+        foreach ((array)($initPayload['selectedOffers'] ?? []) as $offer) {
+            if (!is_array($offer)) {
+                continue;
+            }
+            $offerId = (int)($offer['id'] ?? 0);
+            if ($offerId > 0) {
+                $available[$offerId] = true;
+            }
+        }
+
+        $fingerprints = [];
+        foreach ($expectedOfferIds as $offerId) {
+            if (!isset($available[$offerId])) {
+                throw new \RuntimeException('Расчётное состояние не содержит выбранное ТП #' . $offerId . '.');
+            }
+            $fingerprints[$offerId] = [
+                'calculation' => $this->computeStateHashForOffer($initPayload, $offerId),
+            ];
+        }
+
+        return $fingerprints;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $results
+     * @param int[] $expectedOfferIds
+     */
+    private function assertServerResultTargets(array $results, array $expectedOfferIds): void
+    {
+        $expectedOfferIds = array_values(array_unique(array_filter(array_map('intval', $expectedOfferIds), static function (int $offerId): bool {
+            return $offerId > 0;
+        })));
+        sort($expectedOfferIds, SORT_NUMERIC);
+
+        $resultOfferIds = [];
+        foreach ($results as $result) {
+            if (!is_array($result)) {
+                throw new \RuntimeException('calc-server вернул некорректную запись результата.');
+            }
+            $offerId = (int)($result['offerId'] ?? 0);
+            if ($offerId <= 0) {
+                throw new \RuntimeException('calc-server вернул результат без корректного offerId.');
+            }
+            $resultOfferIds[] = $offerId;
+        }
+        sort($resultOfferIds, SORT_NUMERIC);
+        if ($resultOfferIds !== $expectedOfferIds) {
+            throw new \RuntimeException('calc-server вернул не тот набор торговых предложений, который был запрошен.');
+        }
+    }
+
+    /**
      * Вычислить хеш состояния для набора offer IDs
      * 
-     * MD5 используется для быстрой проверки изменений данных.
-     * Это НЕ криптографическая операция, а простая детекция изменений,
-     * поэтому MD5 подходит (быстрый и достаточный для этой цели).
-     * 
      * @param array $initPayload Полные данные для расчёта
-     * @return string MD5 хеш состояния
+     * @return string SHA-256 хеш состояния
      */
     public function computeStateHash(array $initPayload): string
     {
@@ -828,14 +1874,19 @@ class BatchRecalculateService
         }
 
         $stateData = [
-            'schemaVersion' => 2,
+            'schemaVersion' => 3,
             'elementsStore' => $initPayload['elementsStore'] ?? [],
+            'elementsSiblings' => $initPayload['elementsSiblings'] ?? [],
             'selectedOffers' => $selectedOffers,
             'preset' => $initPayload['preset'] ?? [],
             'priceTypes' => $initPayload['priceTypes'] ?? [],
+            'globalSymbols' => $initPayload['globalSymbols'] ?? [],
+            'neutralInputRequired' => ($initPayload['neutralInputRequired'] ?? false) === true,
+            'runtimeConfigSnapshot' => $initPayload['_runtimeConfigSnapshot'] ?? [],
+            'editorRuntime' => $initPayload['editorRuntime'] ?? null,
         ];
 
-        return md5(json_encode(
+        return hash('sha256', json_encode(
             $this->canonicalizeStateHashValue($stateData),
             JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION
         ));
@@ -943,6 +1994,40 @@ class BatchRecalculateService
 
         $payload = $initPayload;
         $payload['selectedOffers'] = $selectedOffers;
+
+        if (isset($payload['editorRuntime']) && is_array($payload['editorRuntime'])) {
+            $offerIdSet = [];
+            foreach ($selectedOffers as $offer) {
+                $offerId = (int)($offer['id'] ?? 0);
+                if ($offerId > 0) {
+                    $offerIdSet[$offerId] = true;
+                }
+            }
+
+            $catalogScenarios = [];
+            $productIdSet = [];
+            foreach ((array)($payload['editorRuntime']['catalogScenarios'] ?? []) as $scenario) {
+                if (!is_array($scenario)) {
+                    continue;
+                }
+                $target = is_array($scenario['target'] ?? null) ? $scenario['target'] : [];
+                $offerId = (int)($target['offerId'] ?? 0);
+                if ($offerId <= 0 || !isset($offerIdSet[$offerId])) {
+                    continue;
+                }
+                $catalogScenarios[] = $scenario;
+                $productId = (int)($target['productId'] ?? 0);
+                if ($productId > 0) {
+                    $productIdSet[$productId] = true;
+                }
+            }
+            $payload['editorRuntime']['catalogScenarios'] = $catalogScenarios;
+            if (isset($payload['editorRuntime']['launchContext'])
+                && is_array($payload['editorRuntime']['launchContext'])) {
+                $payload['editorRuntime']['launchContext']['offerIds'] = array_map('intval', array_keys($offerIdSet));
+                $payload['editorRuntime']['launchContext']['productIds'] = array_map('intval', array_keys($productIdSet));
+            }
+        }
 
         return $payload;
     }

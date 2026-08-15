@@ -65,7 +65,9 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_ad
 
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
+use Prospektweb\Calc\Services\BatchPreviewFingerprintService;
 use Prospektweb\Calc\Services\BatchRecalculateService;
+use Prospektweb\Calc\Services\CatalogCalculationWriteService;
 
 global $APPLICATION;
 global $USER;
@@ -96,12 +98,14 @@ function loadJobLimits(): array
     $maxStepDurationSec = max(2, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_STEP_DURATION', '12'));
     $maxBatchSize = max(1, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_BATCH_SIZE', '10'));
     $jobTtlSec = max(60, (int)Option::get($moduleId, 'BATCH_RECALC_JOB_TTL', '1800'));
+    $previewTtlSec = max(30, min(900, (int)Option::get($moduleId, 'BATCH_RECALC_PREVIEW_TTL', '300')));
 
     return [
         'maxOffersPerJob' => $maxOffersPerJob,
         'maxStepDurationSec' => $maxStepDurationSec,
         'maxBatchSize' => $maxBatchSize,
         'jobTtlSec' => $jobTtlSec,
+        'previewTtlSec' => $previewTtlSec,
     ];
 }
 
@@ -116,38 +120,22 @@ function validateProductIdsByPreset(array $requestData): array
         ]);
     }
 
-    $result = [];
-    foreach ($rawMap as $presetId => $productIds) {
-        $presetId = (int)$presetId;
-        if ($presetId <= 0) {
-            continue;
-        }
-
-        if (!is_array($productIds)) {
-            respondJson(400, [
-                'success' => false,
-                'errorCode' => 'INVALID_PRODUCT_IDS',
-                'error' => 'product IDs must be arrays',
-            ]);
-        }
-
-        $productIds = array_values(array_unique(array_filter(array_map('intval', $productIds), static function (int $productId): bool {
-            return $productId > 0;
-        })));
-
-        $result[$presetId] = $productIds;
+    try {
+        return BatchRecalculateService::normalizeProductIdsByPresetScope($rawMap);
+    } catch (\Throwable $error) {
+        $status = $error->getCode() === 409 ? 409 : 400;
+        respondJson($status, [
+            'success' => false,
+            'errorCode' => $status === 409 ? 'UNSUPPORTED_PRESET_SCOPE' : 'INVALID_PRODUCT_IDS',
+            'error' => $error->getMessage(),
+        ]);
     }
-
-    return $result;
 }
 
 function validateCommonParams(array $requestData): array
 {
     $presetIds = $requestData['presetIds'] ?? [];
     $onlyChanged = (bool)($requestData['onlyChanged'] ?? true);
-    $calcServerUrl = (string)($requestData['calcServerUrl'] ?? Option::get('prospektweb.calc', 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api'));
-    $timeout = (int)($requestData['timeout'] ?? 30);
-
     if (!is_array($presetIds)) {
         respondJson(400, [
             'success' => false,
@@ -155,23 +143,37 @@ function validateCommonParams(array $requestData): array
             'error' => 'presetIds must be an array',
         ]);
     }
-
-    if (!filter_var($calcServerUrl, FILTER_VALIDATE_URL)) {
+    try {
+        $presetIds = BatchRecalculateService::normalizeRequestedPresetIds($presetIds);
+    } catch (\Throwable $error) {
+        $status = $error->getCode() === 409 ? 409 : 400;
+        respondJson($status, [
+            'success' => false,
+            'errorCode' => $status === 409 ? 'UNSUPPORTED_PRESET_SCOPE' : 'INVALID_PRESET_IDS',
+            'error' => $error->getMessage(),
+        ]);
+    }
+    if (array_key_exists('calcServerUrl', $requestData)) {
+        respondJson(400, [
+            'success' => false,
+            'errorCode' => 'CALC_SERVER_OVERRIDE_FORBIDDEN',
+            'error' => 'The calc-server URL is controlled by the server configuration.',
+        ]);
+    }
+    try {
+        $runtimeConfig = (new CatalogCalculationWriteService())->captureRuntimeConfigSnapshot();
+        $calcServerUrl = trim((string)($runtimeConfig['prospektweb.calc:CALC_SERVER_URL'] ?? ''));
+        $calcServerUrl = BatchRecalculateService::normalizeCalcServerUrl(
+            $calcServerUrl !== '' ? $calcServerUrl : 'https://pwrt.ru/calc-api'
+        );
+    } catch (\Throwable $error) {
         respondJson(400, [
             'success' => false,
             'errorCode' => 'INVALID_CALC_SERVER_URL',
-            'error' => 'Invalid calc server URL',
+            'error' => $error->getMessage(),
         ]);
     }
-
-    $urlParts = parse_url($calcServerUrl);
-    if (!in_array($urlParts['scheme'] ?? '', ['http', 'https'], true)) {
-        respondJson(400, [
-            'success' => false,
-            'errorCode' => 'INVALID_URL_SCHEME',
-            'error' => 'Invalid URL scheme. Only http and https are allowed.',
-        ]);
-    }
+    $timeout = (int)($requestData['timeout'] ?? 30);
 
     if ($timeout < 1 || $timeout > 300) {
         $timeout = 30;
@@ -227,6 +229,79 @@ function validateAnalysisContract(array $analysis): void
     }
 }
 
+/**
+ * Resolve the exact preset-to-offer matrix once and reuse it for preview,
+ * fingerprinting and job creation.
+ *
+ * @return array<int,array{presetId:int,presetName:string,offerIds:array<int,int>}>
+ */
+function buildScopedBatchRows(
+    BatchRecalculateService $service,
+    array $analysis,
+    array $productIdsByPreset
+): array {
+    $rows = [];
+    foreach ($analysis as $row) {
+        $presetId = (int)$row['presetId'];
+        $offerIds = isset($productIdsByPreset[$presetId])
+            ? $service->getOfferIdsForPresetProducts($presetId, $productIdsByPreset[$presetId])
+            : $service->getOfferIdsForPreset($presetId);
+        $offerIds = array_values(array_unique(array_filter(array_map('intval', $offerIds), static function (int $offerId): bool {
+            return $offerId > 0;
+        })));
+        sort($offerIds, SORT_NUMERIC);
+        $rows[] = [
+            'presetId' => $presetId,
+            'presetName' => (string)$row['presetName'],
+            'offerIds' => $offerIds,
+        ];
+    }
+    usort($rows, static function (array $left, array $right): int {
+        return $left['presetId'] <=> $right['presetId'];
+    });
+
+    return $rows;
+}
+
+/** @return int[] */
+function flattenScopedOfferIds(array $rows): array
+{
+    $offerIds = [];
+    foreach ($rows as $row) {
+        $offerIds = array_merge($offerIds, is_array($row['offerIds'] ?? null) ? $row['offerIds'] : []);
+    }
+    $offerIds = array_values(array_unique(array_filter(array_map('intval', $offerIds), static function (int $offerId): bool {
+        return $offerId > 0;
+    })));
+    sort($offerIds, SORT_NUMERIC);
+
+    return $offerIds;
+}
+
+/** @return array<string,mixed> */
+function buildBatchPreviewScope(
+    array $presetIds,
+    array $productIdsByPreset,
+    bool $onlyChanged,
+    string $calcServerUrl,
+    int $timeout,
+    array $rows
+): array {
+    return [
+        'presetIds' => $presetIds,
+        'productIdsByPreset' => $productIdsByPreset,
+        'onlyChanged' => $onlyChanged,
+        'calcServerUrl' => $calcServerUrl,
+        'timeout' => $timeout,
+        'rows' => array_map(static function (array $row): array {
+            return [
+                'presetId' => (int)($row['presetId'] ?? 0),
+                'offerIds' => is_array($row['offerIds'] ?? null) ? $row['offerIds'] : [],
+            ];
+        }, $rows),
+    ];
+}
+
 function getJobStorageDirectory(): string
 {
     $documentRoot = (string)($_SERVER['DOCUMENT_ROOT'] ?? '');
@@ -250,6 +325,57 @@ function getJobStorageDirectory(): string
 function getJobFilePath(int $userId): string
 {
     return getJobStorageDirectory() . '/batch_recalc_job_user_' . $userId . '.json';
+}
+
+function getPreviewFilePath(int $userId): string
+{
+    return getJobStorageDirectory() . '/batch_recalc_preview_user_' . $userId . '.json';
+}
+
+function loadPreviewState(int $userId): ?array
+{
+    $path = getPreviewFilePath($userId);
+    if (!is_file($path)) {
+        return null;
+    }
+    $content = file_get_contents($path);
+    if (!is_string($content) || $content === '') {
+        return null;
+    }
+    $decoded = json_decode($content, true);
+
+    return is_array($decoded) ? $decoded : null;
+}
+
+function savePreviewState(int $userId, array $state): void
+{
+    $path = getPreviewFilePath($userId);
+    $json = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json)) {
+        respondJson(500, [
+            'success' => false,
+            'errorCode' => 'PREVIEW_SERIALIZATION_ERROR',
+            'error' => 'Unable to serialize batch preview state',
+        ]);
+    }
+    $temporary = $path . '.tmp.' . bin2hex(random_bytes(8));
+    if (file_put_contents($temporary, $json, LOCK_EX) === false || !@rename($temporary, $path)) {
+        @unlink($temporary);
+        respondJson(500, [
+            'success' => false,
+            'errorCode' => 'PREVIEW_STORAGE_ERROR',
+            'error' => 'Unable to persist batch preview state',
+        ]);
+    }
+    @chmod($path, 0600);
+}
+
+function deletePreviewState(int $userId): void
+{
+    $path = getPreviewFilePath($userId);
+    if (is_file($path)) {
+        @unlink($path);
+    }
 }
 
 function getLegacyJobFilePaths(int $userId): array
@@ -447,10 +573,11 @@ $maxOffersPerJob = (int)$limits['maxOffersPerJob'];
 $maxStepDurationSec = (int)$limits['maxStepDurationSec'];
 $maxBatchSize = (int)$limits['maxBatchSize'];
 $jobTtlSec = (int)$limits['jobTtlSec'];
+$previewTtlSec = (int)$limits['previewTtlSec'];
 $action = (string)($requestData['action'] ?? 'run');
 
 $jobLock = null;
-if (in_array($action, ['start', 'status', 'step', 'cancel', 'finish'], true)) {
+if (in_array($action, ['preview', 'start', 'status', 'step', 'cancel', 'finish'], true)) {
     $jobLock = acquireJobLock($userId);
     register_shutdown_function(static function () use ($jobLock): void {
         if (is_resource($jobLock)) {
@@ -516,19 +643,13 @@ if ($action === 'analyze') {
 if ($action === 'preview') {
     [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
     $productIdsByPreset = validateProductIdsByPreset($requestData);
+    // A new attempt invalidates any older proof before doing remote work.
+    deletePreviewState($userId);
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
     $analysis = $service->getPresetAnalysis($presetIds);
     validateAnalysisContract($analysis);
-
-    $offerIds = [];
-    foreach ($analysis as $row) {
-        $presetId = (int)$row['presetId'];
-        $scopedOfferIds = isset($productIdsByPreset[$presetId])
-            ? $service->getOfferIdsForPresetProducts($presetId, $productIdsByPreset[$presetId])
-            : $service->getOfferIdsForPreset($presetId);
-        $offerIds = array_merge($offerIds, $scopedOfferIds);
-    }
-    $offerIds = array_values(array_unique(array_map('intval', $offerIds)));
+    $rows = buildScopedBatchRows($service, $analysis, $productIdsByPreset);
+    $offerIds = flattenScopedOfferIds($rows);
 
     if (count($offerIds) > $maxOffersPerJob) {
         respondJson(429, [
@@ -543,9 +664,56 @@ if ($action === 'preview') {
     }
 
     $preview = $service->previewOffers($offerIds);
+    $stateFingerprints = is_array($preview['stateFingerprints'] ?? null)
+        ? $preview['stateFingerprints']
+        : [];
+    unset($preview['stateFingerprints']);
+
+    $previewFingerprint = null;
+    $previewExpiresAt = null;
+    if (($preview['ready'] ?? false) === true) {
+        try {
+            $resultFingerprints = BatchPreviewFingerprintService::resultFingerprints($preview);
+            $proof = BatchPreviewFingerprintService::issue(
+                buildBatchPreviewScope(
+                    $presetIds,
+                    $productIdsByPreset,
+                    $onlyChanged,
+                    $calcServerUrl,
+                    $timeout,
+                    $rows
+                ),
+                $stateFingerprints,
+                $preview
+            );
+            $issuedAt = time();
+            $previewExpiresAt = $issuedAt + $previewTtlSec;
+            savePreviewState($userId, [
+                'contract' => (string)$proof['contract'],
+                'fingerprint' => (string)$proof['fingerprint'],
+                'scopeFingerprint' => (string)$proof['scopeFingerprint'],
+                'stateFingerprint' => (string)$proof['stateFingerprint'],
+                'previewFingerprint' => (string)$proof['previewFingerprint'],
+                'resultFingerprints' => $resultFingerprints,
+                'issuedAt' => $issuedAt,
+                'expiresAt' => $previewExpiresAt,
+            ]);
+            $previewFingerprint = (string)$proof['fingerprint'];
+        } catch (\Throwable $error) {
+            deletePreviewState($userId);
+            respondJson(500, [
+                'success' => false,
+                'errorCode' => 'PREVIEW_FINGERPRINT_ERROR',
+                'error' => $error->getMessage(),
+            ]);
+        }
+    }
+
     respondJson(200, [
         'success' => true,
         'ready' => (bool)($preview['ready'] ?? false),
+        'previewFingerprint' => $previewFingerprint,
+        'previewExpiresAt' => $previewExpiresAt,
         'summary' => $preview['summary'] ?? [],
         'offers' => $preview['offers'] ?? [],
         'errors' => $preview['errors'] ?? [],
@@ -559,6 +727,43 @@ if ($action === 'preview') {
 if ($action === 'start') {
     [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
     $productIdsByPreset = validateProductIdsByPreset($requestData);
+    $requestedPreviewFingerprint = strtolower(trim((string)($requestData['previewFingerprint'] ?? '')));
+    if (!BatchPreviewFingerprintService::isValidFingerprint($requestedPreviewFingerprint)) {
+        respondJson(428, [
+            'success' => false,
+            'errorCode' => 'PREVIEW_REQUIRED',
+            'error' => 'A fresh server preview fingerprint is required before starting catalog writes.',
+        ]);
+    }
+
+    $previewState = loadPreviewState($userId);
+    if (!is_array($previewState)) {
+        respondJson(428, [
+            'success' => false,
+            'errorCode' => 'PREVIEW_REQUIRED',
+            'error' => 'Run the server preview before starting catalog writes.',
+        ]);
+    }
+    $previewIssuedAt = (int)($previewState['issuedAt'] ?? 0);
+    $previewExpiresAt = (int)($previewState['expiresAt'] ?? 0);
+    if ($previewIssuedAt <= 0 || $previewIssuedAt > time() + 5 || $previewExpiresAt <= time()) {
+        deletePreviewState($userId);
+        respondJson(410, [
+            'success' => false,
+            'errorCode' => 'PREVIEW_EXPIRED',
+            'error' => 'The server preview expired. Run it again before writing to the catalog.',
+        ]);
+    }
+    if ((string)($previewState['contract'] ?? '') !== BatchPreviewFingerprintService::CONTRACT
+        || !BatchPreviewFingerprintService::isValidFingerprint((string)($previewState['fingerprint'] ?? ''))
+        || !hash_equals((string)$previewState['fingerprint'], $requestedPreviewFingerprint)) {
+        deletePreviewState($userId);
+        respondJson(409, [
+            'success' => false,
+            'errorCode' => 'PREVIEW_MISMATCH',
+            'error' => 'The supplied preview does not match the current administrator preview.',
+        ]);
+    }
 
     $existingJob = loadJobState($userId);
     if (is_array($existingJob) && isJobExpired($existingJob, $jobTtlSec)) {
@@ -576,21 +781,17 @@ if ($action === 'start') {
             ],
         ]);
     }
-    if (is_array($existingJob)) {
-        deleteJobState($userId);
-    }
-
     $service = new BatchRecalculateService($calcServerUrl, $timeout);
     $analysis = $service->getPresetAnalysis($presetIds);
+    validateAnalysisContract($analysis);
+    $rows = buildScopedBatchRows($service, $analysis, $productIdsByPreset);
 
     $queue = [];
     $details = [];
-    foreach ($analysis as $row) {
+    foreach ($rows as $row) {
         $presetId = (int)$row['presetId'];
         $presetName = (string)$row['presetName'];
-        $offerIds = isset($productIdsByPreset[$presetId])
-            ? $service->getOfferIdsForPresetProducts($presetId, $productIdsByPreset[$presetId])
-            : $service->getOfferIdsForPreset($presetId);
+        $offerIds = is_array($row['offerIds'] ?? null) ? $row['offerIds'] : [];
 
         $details[$presetId] = [
             'presetId' => $presetId,
@@ -623,6 +824,72 @@ if ($action === 'start') {
         ]);
     }
 
+    $scope = buildBatchPreviewScope(
+        $presetIds,
+        $productIdsByPreset,
+        $onlyChanged,
+        $calcServerUrl,
+        $timeout,
+        $rows
+    );
+    $scopeFingerprint = BatchPreviewFingerprintService::scopeFingerprint($scope);
+    try {
+        $currentStateFingerprints = $service->captureOfferWriteStateFingerprints(flattenScopedOfferIds($rows));
+        $stateFingerprint = BatchPreviewFingerprintService::stateFingerprint($currentStateFingerprints);
+    } catch (\Throwable $error) {
+        deletePreviewState($userId);
+        respondJson(409, [
+            'success' => false,
+            'errorCode' => 'PREVIEW_STALE',
+            'error' => 'The selected offers or calculation state changed after preview. Run the preview again.',
+            'meta' => ['reason' => $error->getMessage()],
+        ]);
+    }
+    if (!hash_equals((string)($previewState['scopeFingerprint'] ?? ''), $scopeFingerprint)
+        || !hash_equals((string)($previewState['stateFingerprint'] ?? ''), $stateFingerprint)) {
+        deletePreviewState($userId);
+        respondJson(409, [
+            'success' => false,
+            'errorCode' => 'PREVIEW_STALE',
+            'error' => 'The selection or calculation state changed after preview. Run the preview again.',
+        ]);
+    }
+
+    $approvedResultFingerprints = is_array($previewState['resultFingerprints'] ?? null)
+        ? $previewState['resultFingerprints']
+        : [];
+    $expectedOfferIds = flattenScopedOfferIds($rows);
+    $normalizedApprovedResults = [];
+    foreach ($expectedOfferIds as $offerId) {
+        $fingerprint = $approvedResultFingerprints[$offerId]
+            ?? $approvedResultFingerprints[(string)$offerId]
+            ?? null;
+        if (!is_string($fingerprint) || !BatchPreviewFingerprintService::isValidFingerprint($fingerprint)) {
+            deletePreviewState($userId);
+            respondJson(409, [
+                'success' => false,
+                'errorCode' => 'PREVIEW_STALE',
+                'error' => 'The reviewed preview result set is incomplete. Run the preview again.',
+            ]);
+        }
+        $normalizedApprovedResults[(int)$offerId] = strtolower(trim($fingerprint));
+    }
+    ksort($normalizedApprovedResults, SORT_NUMERIC);
+    if (count($normalizedApprovedResults) !== count($approvedResultFingerprints)) {
+        deletePreviewState($userId);
+        respondJson(409, [
+            'success' => false,
+            'errorCode' => 'PREVIEW_STALE',
+            'error' => 'The reviewed preview result set contains unexpected offers.',
+        ]);
+    }
+
+    // The proof is single-use. Consume it only after every CAS check passes.
+    deletePreviewState($userId);
+    if (is_array($existingJob)) {
+        deleteJobState($userId);
+    }
+
     $jobState = [
         'jobId' => bin2hex(random_bytes(16)),
         'params' => [
@@ -646,6 +913,9 @@ if ($action === 'start') {
         'logs' => [
             ['ts' => date('H:i:s'), 'message' => 'Запущена задача пакетного пересчёта'],
         ],
+        'previewFingerprint' => $requestedPreviewFingerprint,
+        'approvedStateFingerprints' => $currentStateFingerprints,
+        'approvedResultFingerprints' => $normalizedApprovedResults,
         'queue' => $queue,
         'finished' => empty($queue),
     ];
@@ -708,8 +978,59 @@ if ($action === 'step') {
         $offerIds = array_map(static function (array $item): int {
             return (int)$item['offerId'];
         }, $batchItems);
+        $approvedStateFingerprints = is_array($job['approvedStateFingerprints'] ?? null)
+            ? $job['approvedStateFingerprints']
+            : [];
+        $approvedResultFingerprints = is_array($job['approvedResultFingerprints'] ?? null)
+            ? $job['approvedResultFingerprints']
+            : [];
+        $batchExpectedState = [];
+        $batchExpectedResults = [];
+        $missingApprovedState = false;
+        foreach ($offerIds as $offerId) {
+            $approvedState = $approvedStateFingerprints[$offerId]
+                ?? $approvedStateFingerprints[(string)$offerId]
+                ?? null;
+            if (!is_array($approvedState)) {
+                $missingApprovedState = true;
+                break;
+            }
+            $approvedResult = $approvedResultFingerprints[$offerId]
+                ?? $approvedResultFingerprints[(string)$offerId]
+                ?? null;
+            if (!is_string($approvedResult)
+                || !BatchPreviewFingerprintService::isValidFingerprint($approvedResult)) {
+                $missingApprovedState = true;
+                break;
+            }
+            $batchExpectedState[$offerId] = $approvedState;
+            $batchExpectedResults[$offerId] = strtolower(trim($approvedResult));
+        }
 
-        $batchResults = $service->recalculateOffers($offerIds, (bool)$params['onlyChanged']);
+        if ($missingApprovedState) {
+            $batchResults = [];
+            foreach ($offerIds as $offerId) {
+                $batchResults[$offerId] = [
+                    'status' => 'error',
+                    'error' => 'Задача не содержит подтверждённое состояние preview. Запустите новый пересчёт через предварительную проверку.',
+                ];
+            }
+        } else {
+            $receiptOfferIds = $offerIds;
+            sort($receiptOfferIds, SORT_NUMERIC);
+            $batchRequestId = hash(
+                'sha256',
+                (string)$job['jobId'] . ':' . $presetId . ':' . implode(',', $receiptOfferIds)
+            );
+            $batchResults = $service->recalculateOffers(
+                $offerIds,
+                (bool)$params['onlyChanged'],
+                $batchExpectedState,
+                $batchExpectedResults,
+                $userId,
+                $batchRequestId
+            );
+        }
 
         foreach ($batchItems as $batchItem) {
             $offerId = (int)$batchItem['offerId'];

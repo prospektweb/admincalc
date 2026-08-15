@@ -26,6 +26,61 @@ final class GlobalSymbolService
         if ($presetId > 0) {
             $this->claimLegacyRows($iblockId, $presetId);
         }
+        return $this->readRows($iblockId, $presetId);
+    }
+
+    /**
+     * Read the current registry without creating an infoblock, properties or
+     * claiming legacy rows. Calculation preview/apply paths must remain free
+     * of hidden schema/data mutations.
+     */
+    public function listReadOnly(int $presetId = 0): array
+    {
+        $iblockId = $this->storageIblockIdReadOnly();
+        if ($iblockId <= 0) {
+            return [];
+        }
+
+        return $this->readRows($iblockId, $presetId);
+    }
+
+    /**
+     * Read an explicitly pinned registry iblock. No CODE search is allowed:
+     * duplicate/renamed storage must never silently redirect calculation.
+     */
+    public function listReadOnlyFromIblockId(int $iblockId, int $presetId = 0): array
+    {
+        if ($iblockId <= 0 || !Loader::includeModule('iblock')) {
+            throw new \RuntimeException('A pinned global-symbol iblock is required.');
+        }
+        $row = \CIBlock::GetList(['ID' => 'ASC'], ['ID' => $iblockId])->Fetch();
+        if (!is_array($row)
+            || (int)($row['ID'] ?? 0) !== $iblockId
+            || (string)($row['CODE'] ?? '') !== self::IBLOCK_CODE
+            || (string)($row['IBLOCK_TYPE_ID'] ?? '') !== 'calculator'
+            || (string)($row['ACTIVE'] ?? '') !== 'Y') {
+            throw new \RuntimeException('The pinned global-symbol iblock identity is invalid.', 409);
+        }
+        return $this->readRows($iblockId, $presetId);
+    }
+
+    /** Resolve the registry storage without consulting a mutating installer. */
+    public function storageIblockIdReadOnly(): int
+    {
+        if (!Loader::includeModule('iblock')) {
+            throw new \RuntimeException('The iblock module is required.');
+        }
+        $row = \CIBlock::GetList(
+            ['ID' => 'ASC'],
+            ['CODE' => self::IBLOCK_CODE, 'TYPE' => 'calculator', 'ACTIVE' => 'Y']
+        )->Fetch();
+
+        return is_array($row) ? (int)($row['ID'] ?? 0) : 0;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function readRows(int $iblockId, int $presetId): array
+    {
         $result = [];
         $filter = ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'];
         if ($presetId > 0) {
@@ -45,6 +100,7 @@ final class GlobalSymbolService
             $dataType = (string)($properties['DATA_TYPE']['VALUE'] ?? 'auto');
             $result[] = [
                 'id' => (int)$fields['ID'],
+                'iblockId' => $iblockId,
                 'code' => (string)$fields['CODE'],
                 'title' => (string)$fields['NAME'],
                 'description' => (string)($fields['~PREVIEW_TEXT'] ?? $fields['PREVIEW_TEXT'] ?? ''),

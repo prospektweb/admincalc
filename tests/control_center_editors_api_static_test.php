@@ -176,7 +176,9 @@ $assert(strpos($host, "sendToControlCenter('EDITOR_CLOSED'") !== false, 'The SPA
 $assert(strpos($host, 'Number.isSafeInteger(payload.presetId)') !== false && strpos($host, 'Number.isSafeInteger(payload.productId)') !== false, 'Preset and storefront IDs must be safe integers');
 $assert(strpos($host, "hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId'])") !== false, 'Standalone preset launches must reject catalog fields and unknown payload keys');
 $assert(strpos($host, "hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'productId'])") !== false, 'Storefront launches must reject unknown payload keys');
-$assert(strpos($host, "window.confirm('Закрыть редактор?") !== false, 'The host close button must warn about unsaved changes');
+$assert(strpos($host, 'prospektweb-control-center-editor__bar') === false, 'The host must not reserve editor height for a duplicate outer header');
+$assert(strpos($host, 'prospektweb-control-center-editor-close') === false, 'The host must not render a duplicate outer close button');
+$assert(strpos($host, 'requestOwnedEditorClose') === false, 'Close confirmation belongs only to the native inner editor');
 $assert(strpos($host, "editorIframe.src = 'about:blank'") !== false, 'Closing the overlay must release its document');
 
 $assert(strpos($calculator, "count(\$uniqueOfferIds) !== count(\$offerIds)") !== false, 'Calculator page must reject duplicate offer IDs');
@@ -202,6 +204,6 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== fal
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
 $assert(strpos($diagnostic, "'lib/Services/Phase5aParityContractService.php'") !== false, 'Diagnostics must verify the Phase 5A parity service');
-$assert(strpos($version, "'VERSION' => '1.7.5'") !== false, 'Standalone preset transport must publish a coherent module version');
+$assert(strpos($version, "'VERSION' => '1.8.0'") !== false, 'Neutral form-first editor release must publish a coherent module version');
 
 echo "Control center editors API static tests passed\n";

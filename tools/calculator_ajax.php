@@ -119,20 +119,50 @@ if ($pwrtMessage) {
                 break;
             
             case 'SAVE_CALCULATION_REQUEST':
-                $handler = new \Prospektweb\Calc\Services\SaveAllService();
-                $result = $handler->handle($payload);
-                
-                $response = [
+                throw new \RuntimeException('USE_CATALOG_WRITE_PREVIEW_APPLY', 409);
+
+            case 'PREVIEW_CATALOG_WRITE_REQUEST':
+                assertCatalogWritePwrtRequest($request, $payload);
+                $catalogWriteService = new \Prospektweb\Calc\Services\CatalogCalculationWriteService();
+                $catalogWritePreview = $catalogWriteService->preview(
+                    (int)($payload['presetId'] ?? 0),
+                    is_array($payload['offerIds'] ?? null) ? $payload['offerIds'] : [],
+                    is_array($payload['offerResults'] ?? null) ? $payload['offerResults'] : [],
+                    (string)(defined('SITE_ID') ? SITE_ID : 's1')
+                );
+                sendJsonResponse([
                     'protocol' => 'pwrt-v1',
                     'source' => 'bitrix',
                     'target' => 'prospektweb.calc',
-                    'type' => 'SAVE_CALCULATION_RESPONSE',
+                    'type' => 'PREVIEW_CATALOG_WRITE_RESULT',
                     'requestId' => $requestId,
-                    'payload' => $result,
+                    'payload' => \Prospektweb\Calc\Services\CatalogCalculationWriteService::publicPreview(
+                        $catalogWritePreview
+                    ),
                     'timestamp' => time(),
-                ];
-                
-                sendJsonResponse($response);
+                ]);
+                break;
+
+            case 'APPLY_CATALOG_WRITE_REQUEST':
+                assertCatalogWritePwrtRequest($request, $payload, true);
+                $catalogWriteService = new \Prospektweb\Calc\Services\CatalogCalculationWriteService();
+                $catalogWriteResult = $catalogWriteService->apply(
+                    (int)($payload['presetId'] ?? 0),
+                    is_array($payload['offerIds'] ?? null) ? $payload['offerIds'] : [],
+                    is_array($payload['offerResults'] ?? null) ? $payload['offerResults'] : [],
+                    (string)(defined('SITE_ID') ? SITE_ID : 's1'),
+                    (string)($payload['fingerprint'] ?? ''),
+                    (int)$USER->GetID()
+                );
+                sendJsonResponse([
+                    'protocol' => 'pwrt-v1',
+                    'source' => 'bitrix',
+                    'target' => 'prospektweb.calc',
+                    'type' => 'APPLY_CATALOG_WRITE_RESULT',
+                    'requestId' => $requestId,
+                    'payload' => $catalogWriteResult,
+                    'timestamp' => time(),
+                ]);
                 break;
             
             default:
@@ -148,6 +178,10 @@ if ($pwrtMessage) {
         }
     } catch (\Throwable $e) {
         logError('Exception in PWRT message handler: ' . $e->getMessage());
+        $statusCode = (int)$e->getCode();
+        if ($e instanceof \InvalidArgumentException && !in_array($statusCode, [400, 403, 405, 409], true)) {
+            $statusCode = 400;
+        }
         sendJsonResponse([
             'protocol' => 'pwrt-v1',
             'source' => 'bitrix',
@@ -156,7 +190,7 @@ if ($pwrtMessage) {
             'requestId' => $requestId,
             'payload' => ['error' => 'Server error', 'message' => $e->getMessage()],
             'timestamp' => time(),
-        ], 500);
+        ], in_array($statusCode, [400, 403, 405, 409], true) ? $statusCode : 500);
     }
 } else {
     // Обработка старых action-based запросов
@@ -170,6 +204,14 @@ try {
     switch ($action) {
         case 'getInitData':
             handleGetInitData($request);
+            break;
+
+        case 'previewCatalogAdapter':
+            handlePreviewCatalogAdapter($request);
+            break;
+
+        case 'saveCatalogAdapter':
+            handleSaveCatalogAdapter($request);
             break;
 
         case 'saveUserTheme':
@@ -226,13 +268,45 @@ try {
     }
 } catch (\Throwable $e) {
     logError('Exception in calculator_ajax.php: ' . $e->getMessage());
-    sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
+    $statusCode = (int)$e->getCode();
+    if ($e instanceof \InvalidArgumentException && !in_array($statusCode, [400, 403, 405, 409], true)) {
+        $statusCode = 400;
+    }
+    sendJsonResponse(
+        ['error' => resolveErrorType($e), 'message' => $e->getMessage()],
+        in_array($statusCode, [400, 403, 405, 409], true) ? $statusCode : 500
+    );
 }
 }
 
-/**
- * Обработка запроса getInitData
- */
+/** Validate the strict POST-only PWRT envelope used by preview/apply. @param mixed $payload */
+function assertCatalogWritePwrtRequest($request, $payload, bool $requireFingerprint = false): void
+{
+    if (!method_exists($request, 'isPost') || !$request->isPost()) {
+        throw new \RuntimeException('Предпросмотр и запись каталога принимаются только методом POST.', 405);
+    }
+    if (!is_array($payload)) {
+        throw new \InvalidArgumentException('PWRT payload записи каталога должен быть объектом.');
+    }
+    $allowedKeys = ['presetId', 'offerIds', 'offerResults', 'siteId'];
+    if ($requireFingerprint) {
+        $allowedKeys[] = 'fingerprint';
+    }
+    foreach (array_keys($payload) as $key) {
+        if (!is_string($key) || !in_array($key, $allowedKeys, true)) {
+            throw new \InvalidArgumentException('PWRT payload записи каталога содержит неизвестное поле.');
+        }
+    }
+    foreach (['presetId', 'offerIds', 'offerResults'] as $requiredKey) {
+        if (!array_key_exists($requiredKey, $payload)) {
+            throw new \InvalidArgumentException('PWRT payload записи каталога не содержит поле ' . $requiredKey . '.');
+        }
+    }
+    if ($requireFingerprint && !array_key_exists('fingerprint', $payload)) {
+        throw new \InvalidArgumentException('PWRT apply не содержит отпечаток подтверждённого предпросмотра.');
+    }
+}
+
 function handleSaveUserTheme($request): void
 {
     global $USER;
@@ -283,6 +357,106 @@ function handleGetInitData($request): void
     } catch (\Throwable $e) {
         logError('GetInitData error: ' . $e->getMessage());
         sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
+    }
+}
+
+/**
+ * Validate a candidate adapter and dry-run its mappings for the current
+ * server-resolved launch targets. No catalog or adapter state is changed.
+ */
+function handlePreviewCatalogAdapter($request): void
+{
+    assertCatalogAdapterMutationAuthority($request);
+    $presetId = (int)($request->get('presetId') ?? 0);
+    $siteId = defined('SITE_ID') ? SITE_ID : 's1';
+    $offerIds = parseOfferIds($request->get('offerIds'));
+    $definition = decodeCatalogAdapterDefinition($request->get('definition'));
+    unset($definition['revision']);
+
+    if ($presetId !== \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID) {
+        throw new \InvalidArgumentException('Предпросмотр адаптера доступен только для пресета 12740.');
+    }
+
+    $initPayload = $offerIds !== []
+        ? (new InitPayloadService())->prepareCatalogWritePayload($offerIds, $siteId)
+        : (new InitPayloadService())->preparePresetPayload($presetId, $siteId);
+    $runtime = is_array($initPayload['editorRuntime'] ?? null) ? $initPayload['editorRuntime'] : [];
+    if (!is_array($runtime['formDefinition'] ?? null)
+        || !is_array($runtime['bindingDefinition'] ?? null)
+        || !is_array($runtime['publication'] ?? null)) {
+        throw new \RuntimeException('INIT не содержит опубликованный form-first контракт пресета 12740.');
+    }
+
+    $service = new \Prospektweb\Calc\Services\CatalogAdapterDefinitionService();
+    $preview = $service->previewMappings(
+        is_array($initPayload['selectedOffers'] ?? null) ? $initPayload['selectedOffers'] : [],
+        $runtime['formDefinition'],
+        $runtime['bindingDefinition'],
+        $runtime['publication'],
+        $definition
+    );
+
+    sendJsonResponse(['success' => true, 'data' => $preview]);
+}
+
+/**
+ * CAS-save a validated adapter and return a freshly server-resolved INIT so
+ * the iframe cannot continue with scenarios from the previous revision.
+ */
+function handleSaveCatalogAdapter($request): void
+{
+    assertCatalogAdapterMutationAuthority($request);
+    $presetId = (int)($request->get('presetId') ?? 0);
+    $siteId = defined('SITE_ID') ? SITE_ID : 's1';
+    $offerIds = parseOfferIds($request->get('offerIds'));
+    $expectedRevision = trim((string)($request->get('expectedRevision') ?? ''));
+    $definition = decodeCatalogAdapterDefinition($request->get('definition'));
+    unset($definition['revision']);
+
+    if ($presetId !== \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID) {
+        throw new \InvalidArgumentException('Сохранение адаптера доступно только для пресета 12740.');
+    }
+
+    $savedResponse = (new \Prospektweb\Calc\Services\CatalogCalculationWriteService())
+        ->saveValidatedAdapter(
+            $presetId,
+            $offerIds,
+            $siteId,
+            $expectedRevision,
+            $definition
+        );
+
+    sendJsonResponse([
+        'success' => true,
+        'data' => $savedResponse,
+    ]);
+}
+
+/** @param mixed $raw @return array<string,mixed> */
+function decodeCatalogAdapterDefinition($raw): array
+{
+    if (is_array($raw)) {
+        return $raw;
+    }
+    if (!is_string($raw) || $raw === '' || strlen($raw) > 65536) {
+        throw new \InvalidArgumentException('Не передан CatalogAdapterDefinition.');
+    }
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        throw new \InvalidArgumentException('CatalogAdapterDefinition содержит некорректный JSON.');
+    }
+    return $decoded;
+}
+
+/** Adapter authoring is deliberately narrower than ordinary catalog editing. */
+function assertCatalogAdapterMutationAuthority($request): void
+{
+    global $USER;
+    if (!$USER || !$USER->IsAdmin()) {
+        throw new \RuntimeException('Изменять адаптер каталога может только администратор.', 403);
+    }
+    if (!method_exists($request, 'isPost') || !$request->isPost()) {
+        throw new \RuntimeException('Операции адаптера каталога принимаются только методом POST.', 405);
     }
 }
 

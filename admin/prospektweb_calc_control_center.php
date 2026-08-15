@@ -182,49 +182,10 @@ body {
     position: absolute;
     inset: 0;
     z-index: 50;
-    display: grid;
-    grid-template-rows: 44px minmax(0, 1fr);
+    display: block;
     min-width: 0;
     min-height: 0;
     background: #0b121a;
-}
-
-.prospektweb-control-center-editor__bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    min-width: 0;
-    padding: 0 12px 0 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    background: #0e1823;
-    color: #eef7ff;
-    font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-#prospektweb-control-center-editor-title {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-#prospektweb-control-center-editor-close {
-    flex: 0 0 auto;
-    min-width: 86px;
-    height: 30px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 7px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #dce9f5;
-    cursor: pointer;
-    font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-#prospektweb-control-center-editor-close:hover {
-    border-color: rgba(56, 189, 248, 0.45);
-    background: rgba(56, 189, 248, 0.14);
-    color: #ffffff;
 }
 
 #prospektweb-control-center-editor-iframe {
@@ -246,10 +207,6 @@ body {
         referrerpolicy="same-origin"
     ></iframe>
     <section id="prospektweb-control-center-editor" aria-hidden="true" hidden>
-        <div class="prospektweb-control-center-editor__bar">
-            <div id="prospektweb-control-center-editor-title">Редактор</div>
-            <button id="prospektweb-control-center-editor-close" type="button">Закрыть</button>
-        </div>
         <iframe
             id="prospektweb-control-center-editor-iframe"
             src="about:blank"
@@ -267,8 +224,6 @@ body {
     var iframe = document.getElementById('prospektweb-control-center-iframe');
     var editorOverlay = document.getElementById('prospektweb-control-center-editor');
     var editorIframe = document.getElementById('prospektweb-control-center-editor-iframe');
-    var editorTitle = document.getElementById('prospektweb-control-center-editor-title');
-    var editorClose = document.getElementById('prospektweb-control-center-editor-close');
     var routeMap = <?= json_encode($routeMap, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     var allowedAdminPaths = <?= json_encode($allowedAdminPaths, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
     var controlCenterInstanceId = <?= json_encode($controlCenterInstanceId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
@@ -315,9 +270,6 @@ body {
         editorOverlay.hidden = true;
         editorOverlay.setAttribute('aria-hidden', 'true');
         editorIframe.src = 'about:blank';
-        if (editorTitle) {
-            editorTitle.textContent = 'Редактор';
-        }
 
         sendToControlCenter('EDITOR_CLOSED', {
             editorType: closedEditor.type,
@@ -325,17 +277,7 @@ body {
         });
     }
 
-    function requestOwnedEditorClose() {
-        if (!activeEditor) {
-            return;
-        }
-
-        if (window.confirm('Закрыть редактор? Несохранённые изменения могут быть потеряны.')) {
-            closeOwnedEditor('host-close');
-        }
-    }
-
-    function openOwnedEditor(editorType, title, targetUrl) {
+    function openOwnedEditor(editorType, targetUrl) {
         if (!editorOverlay || !editorIframe || activeEditor) {
             throw new Error('Другой редактор уже открыт');
         }
@@ -349,9 +291,6 @@ body {
         targetUrl.searchParams.set('editor_instance_id', editorInstanceId);
         targetUrl.searchParams.set('_cc_nonce', editorInstanceId);
         activeEditor = {id: editorInstanceId, type: editorType};
-        if (editorTitle) {
-            editorTitle.textContent = title;
-        }
         editorIframe.src = targetUrl.pathname + targetUrl.search;
         editorOverlay.hidden = false;
         editorOverlay.setAttribute('aria-hidden', 'false');
@@ -425,7 +364,7 @@ body {
             targetUrl.searchParams.set('lang', <?= json_encode($languageId) ?>);
             targetUrl.searchParams.set('IFRAME', 'Y');
             targetUrl.searchParams.set('IFRAME_TYPE', 'SIDE_SLIDER');
-            openOwnedEditor('calculation', 'Редактор пресета · ' + data.presetName, targetUrl);
+            openOwnedEditor('calculation', targetUrl);
         }).catch(reportEditorError).finally(function () {
             launchPending = false;
         });
@@ -457,7 +396,7 @@ body {
             targetUrl.searchParams.set('lang', <?= json_encode($languageId) ?>);
             targetUrl.searchParams.set('IFRAME', 'Y');
             targetUrl.searchParams.set('IFRAME_TYPE', 'SIDE_SLIDER');
-            openOwnedEditor('storefront', 'Настройки калькулятора · ' + data.productName, targetUrl);
+            openOwnedEditor('storefront', targetUrl);
         }).catch(reportEditorError).finally(function () {
             launchPending = false;
         });
@@ -475,9 +414,6 @@ body {
 
     resizeControlCenter();
     window.addEventListener('resize', resizeControlCenter);
-    if (editorClose) {
-        editorClose.addEventListener('click', requestOwnedEditorClose);
-    }
 
     window.addEventListener('message', function (event) {
         if (event.origin !== window.location.origin) {

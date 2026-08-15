@@ -47,7 +47,7 @@
             this.isInitialized = false;
             this.hasUnsavedChanges = false;
             this.debug = Boolean(config.debug);
-            this.targetOrigin = '*';
+            this.targetOrigin = window.location.origin;
             this.readyOrigin = null;
             this.pendingRequests = {};
             this.initData = null;
@@ -90,8 +90,25 @@
             }
 
             this.iframeWindow = this.iframe.contentWindow;
+            this.targetOrigin = this.resolveIframeOrigin();
             this.iframe.__calcIntegrationInstance = this;
             this.setupMessageListener();
+        }
+
+        resolveIframeOrigin() {
+            try {
+                const rawSrc = this.iframe && (this.iframe.getAttribute('src') || this.iframe.src);
+                const parsed = new URL(rawSrc || window.location.href, window.location.href);
+                if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+                    throw new Error('Unsupported iframe protocol');
+                }
+                return parsed.origin;
+            } catch (error) {
+                this.logBridge('[BitrixBridge] iframe origin fallback to the current site', {
+                    reason: error && error.message ? error.message : String(error),
+                });
+                return window.location.origin;
+            }
         }
 
         /**
@@ -106,10 +123,13 @@
          * @param {MessageEvent} event
          */
         handleMessage(event) {
-            // Проверка origin (в продакшене нужно проверять конкретный домен)
-            // if (event.origin !== window.location.origin) {
-            //     return;
-            // }
+            if (event.source !== this.iframeWindow || event.origin !== this.targetOrigin) {
+                this.logBridge('[BitrixBridge] ignored message outside the bound iframe channel', {
+                    origin: event.origin,
+                    expectedOrigin: this.targetOrigin,
+                });
+                return;
+            }
 
             const message = event.data;
 
@@ -119,22 +139,6 @@
                 this.logBridge('[BitrixBridge] received invalid message', {
                     origin: event.origin,
                     reason: validationResult.reason,
-                });
-                return;
-            }
-
-            if (event.source !== this.iframeWindow) {
-                this.logBridge('[BitrixBridge] ignored message from unexpected window', {
-                    origin: event.origin,
-                    type: message.type,
-                });
-                return;
-            }
-            if (this.targetOrigin !== '*' && event.origin !== this.targetOrigin) {
-                this.logBridge('[BitrixBridge] ignored message from unexpected origin', {
-                    origin: event.origin,
-                    expectedOrigin: this.targetOrigin,
-                    type: message.type,
                 });
                 return;
             }
@@ -209,10 +213,7 @@
                 return;
             }
 
-            const origin = (event && event.origin) ? event.origin : (this.targetOrigin || '*');
-            if (origin && origin !== '*') {
-                this.targetOrigin = origin;
-            }
+            const origin = this.targetOrigin;
 
             // Note: pwcode parameter was removed from the protocol as it was unused
             // and caused unnecessary log pollution (pwcode: undefined)
@@ -433,6 +434,28 @@
                 case 'SAVE_CALCULATION_REQUEST':
                     await this.handleSaveCalculationRequest(message, origin);
                     break;
+                case 'PREVIEW_CATALOG_ADAPTER_REQUEST':
+                    await this.handlePreviewCatalogAdapterRequest(message, origin);
+                    break;
+                case 'SAVE_CATALOG_ADAPTER_REQUEST':
+                    await this.handleSaveCatalogAdapterRequest(message, origin);
+                    break;
+                case 'PREVIEW_CATALOG_WRITE_REQUEST':
+                    await this.handleCatalogWriteLifecycleRequest(
+                        message,
+                        origin,
+                        'PREVIEW_CATALOG_WRITE_REQUEST',
+                        'PREVIEW_CATALOG_WRITE_RESULT'
+                    );
+                    break;
+                case 'APPLY_CATALOG_WRITE_REQUEST':
+                    await this.handleCatalogWriteLifecycleRequest(
+                        message,
+                        origin,
+                        'APPLY_CATALOG_WRITE_REQUEST',
+                        'APPLY_CATALOG_WRITE_RESULT'
+                    );
+                    break;
                 case 'SAVE_USER_THEME_REQUEST':
                     await this.handleSaveUserThemeRequest(message, origin);
                     break;
@@ -472,6 +495,8 @@
                         'CHECK_CALC_CONTRACT_REQUEST',
                         'RESOLVE_CALC_CONTRACT_REQUEST',
                         'SAVE_CALCULATION_REQUEST',
+                        'PREVIEW_CATALOG_ADAPTER_REQUEST', 'SAVE_CATALOG_ADAPTER_REQUEST',
+                        'PREVIEW_CATALOG_WRITE_REQUEST', 'APPLY_CATALOG_WRITE_REQUEST',
                         'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL', 'CLEAR_OPTIONS_EQUIPMENT',
                         'CLEAR_PRESET_REQUEST', 'SAVE_PRESET_GLOBALS_REQUEST', 'SAVE_GLOBAL_SYMBOLS_REQUEST', 'SAVE_GLOBAL_VALUES_REQUEST', 'SAVE_STAGE_GROUPS_REQUEST', 'CLOSE_REQUEST'
                     ]);
@@ -507,7 +532,7 @@
                 payload: payload,
             };
 
-            const origin = targetOrigin || this.targetOrigin || '*';
+            const origin = targetOrigin || this.targetOrigin || window.location.origin;
             const payloadSummary = this.buildPayloadSummary(type, payload);
 
             console.info('[TO_IFRAME]', {
@@ -4573,15 +4598,16 @@
                 body: JSON.stringify(message),
             });
 
-            if (!response.ok) {
-                throw new Error('HTTP error ' + response.status);
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (error) {
+                throw new Error('Сервер вернул некорректный JSON (HTTP ' + response.status + ')');
             }
 
-            const data = await response.json();
-
-            if (data && data.type === 'ERROR') {
-                const errorPayload = data.payload || {};
-                throw new Error(errorPayload.message || errorPayload.error || 'Ошибка pwrt-запроса');
+            if (!response.ok || (data && data.type === 'ERROR')) {
+                const errorPayload = data && data.payload ? data.payload : {};
+                throw new Error(errorPayload.message || errorPayload.error || ('Ошибка pwrt-запроса (HTTP ' + response.status + ')'));
             }
 
             return data;
@@ -4614,16 +4640,20 @@
                 return { valid: false, reason: 'Message is not an object' };
             }
 
-            if (!message.source) {
-                return { valid: false, reason: 'Missing source' };
+            if (message.source !== MODULE_TARGET) {
+                return { valid: false, reason: 'Unexpected source' };
             }
 
-            if (!message.target) {
-                return { valid: false, reason: 'Missing target' };
+            if (message.target !== MODULE_SOURCE) {
+                return { valid: false, reason: 'Unexpected target' };
             }
 
             if (!message.type) {
                 return { valid: false, reason: 'Missing type' };
+            }
+
+            if (message.protocol && message.protocol !== MODULE_PROTOCOL) {
+                return { valid: false, reason: 'Unexpected protocol' };
             }
 
             return { valid: true };
@@ -4653,7 +4683,7 @@
                 message.requestId = requestId;
             }
 
-            const targetOrigin = this.targetOrigin || '*';
+            const targetOrigin = this.targetOrigin || window.location.origin;
 
             if (type === 'INIT') {
                 this.logBridge('[BitrixBridge] sending INIT -> ' + this.describeIframe(this.iframe), {
@@ -4714,8 +4744,6 @@
 
             if (event && event.origin) {
                 this.readyOrigin = event.origin;
-                this.targetOrigin = event.origin;
-                this.logBridge('[BitrixBridge] targetOrigin set from READY origin: ' + event.origin);
             }
 
             try {
@@ -4735,6 +4763,71 @@
                     message: 'Ошибка загрузки данных инициализации',
                     details: error.message,
                 }, message.requestId);
+            }
+        }
+
+        async handlePreviewCatalogAdapterRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const data = await this.fetchCatalogAdapterAction('previewCatalogAdapter', payload);
+                this.sendPwrtMessage('PREVIEW_CATALOG_ADAPTER_RESULT', Object.assign({
+                    success: true,
+                }, data || {}), message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('PREVIEW_CATALOG_ADAPTER_RESULT', {
+                    success: false,
+                    error: error && error.message ? error.message : 'Не удалось проверить адаптер каталога',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleSaveCatalogAdapterRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const data = await this.fetchCatalogAdapterAction('saveCatalogAdapter', payload);
+                if (!data || !data.initData || !data.editorRuntime) {
+                    throw new Error('Сервер не вернул обновлённый editorRuntime адаптера каталога');
+                }
+                // Manual adapter saves return a transactionally verified INIT
+                // delta. Preserve the already loaded standalone preset graph
+                // while replacing its authoritative editorRuntime.
+                this.initData = Object.assign({}, this.initData || {}, data.initData, {
+                    editorRuntime: data.editorRuntime,
+                });
+                this.sendPwrtMessage('SAVE_CATALOG_ADAPTER_RESULT', {
+                    success: true,
+                    catalogAdapter: data.catalogAdapter,
+                    catalogScenarios: Array.isArray(data.catalogScenarios) ? data.catalogScenarios : [],
+                    editorRuntime: data.editorRuntime,
+                }, message.requestId, origin);
+                // INIT is authoritative after CAS: every calculator consumer
+                // receives scenarios and publication from the saved revision.
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('SAVE_CATALOG_ADAPTER_RESULT', {
+                    success: false,
+                    error: error && error.message ? error.message : 'Не удалось сохранить адаптер каталога',
+                }, message.requestId, origin);
+            }
+        }
+
+        async handleCatalogWriteLifecycleRequest(message, origin, requestType, resultType) {
+            try {
+                const response = await this.sendPwrtRequest(requestType, message.payload || {}, message.requestId);
+                if (!response || response.type !== resultType || !response.payload) {
+                    throw new Error('Сервер вернул некорректный ответ операции записи каталога');
+                }
+                this.sendPwrtMessage(resultType, response.payload, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    code: requestType === 'PREVIEW_CATALOG_WRITE_REQUEST'
+                        ? 'CATALOG_WRITE_PREVIEW_FAILED'
+                        : 'CATALOG_WRITE_APPLY_FAILED',
+                    message: error && error.message
+                        ? error.message
+                        : 'Не удалось выполнить операцию записи каталога',
+                    requestType: requestType,
+                }, message.requestId, origin);
             }
         }
 
@@ -4839,6 +4932,58 @@
          * Получение данных инициализации через AJAX
          * @returns {Promise<Object>}
          */
+        async fetchCatalogAdapterAction(action, payload) {
+            const runtime = this.initData && this.initData.editorRuntime
+                ? this.initData.editorRuntime
+                : {};
+            const currentAdapter = runtime.catalogAdapter || {};
+            const definition = payload.definition || payload.catalogAdapter || currentAdapter;
+            const presetId = Number(
+                payload.presetId
+                || (runtime.launchContext && runtime.launchContext.presetId)
+                || (this.initData && this.initData.preset && this.initData.preset.id)
+                || this.config.presetId
+                || 0
+            );
+            const expectedRevision = String(
+                payload.expectedRevision
+                || currentAdapter.revision
+                || definition.revision
+                || ''
+            );
+            const formData = new FormData();
+            formData.append('action', action);
+            formData.append('presetId', String(presetId));
+            formData.append('offerIds', this.config.offerIds.join(','));
+            formData.append('siteId', this.config.siteId || 's1');
+            formData.append('sessid', this.config.sessid);
+            formData.append('definition', JSON.stringify(definition));
+            if (action === 'saveCatalogAdapter') {
+                formData.append('expectedRevision', expectedRevision);
+            }
+
+            const response = await fetch(this.config.ajaxEndpoint, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: formData,
+            });
+            const text = await response.text();
+            let decoded = null;
+            try {
+                decoded = text ? JSON.parse(text) : null;
+            } catch (error) {
+                throw new Error('Сервер вернул некорректный ответ адаптера каталога');
+            }
+            if (!response.ok || !decoded || decoded.success !== true) {
+                throw new Error(
+                    decoded && (decoded.message || decoded.error)
+                        ? (decoded.message || decoded.error)
+                        : ('HTTP error ' + response.status)
+                );
+            }
+            return decoded.data || {};
+        }
+
         async fetchInitData() {
             const url = this.config.ajaxEndpoint +
                 '?action=getInitData' +

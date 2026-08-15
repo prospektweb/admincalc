@@ -119,6 +119,7 @@ namespace {
         }
     }
 
+    require_once __DIR__ . '/../lib/Services/BatchRecalculateService.php';
     require_once __DIR__ . '/../lib/Services/ControlCenterSettingsService.php';
 
     Option::$values = [
