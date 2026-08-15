@@ -43,7 +43,7 @@ $assert(strpos($endpoint, "\$action === 'phase5a_parity_contract'") !== false, '
 $assert(strpos($endpoint, "\$action === 'phase5a_parity_compare'") !== false, 'Editors endpoint must expose the strict read-only Phase 5A comparator');
 $assert(strpos($endpoint, "\$request['offerIds']") !== false, 'Editors endpoint must accept a bounded selective offer list for validation');
 $assert(strpos($endpoint, "throw new \\InvalidArgumentException('Request contains unsupported fields')") !== false, 'Editors endpoint must reject unknown request fields');
-$assert(strpos($endpoint, 'validateCalculationLaunch($presetId, $productId, $offerIds)') !== false, 'Calculation validation must pass the selective list only to server validation');
+$assert(strpos($endpoint, 'validateCalculationLaunch($presetId, $offerIds)') !== false, 'Calculation validation must pass only preset and offer hints to server validation');
 $assert(strpos($endpoint, 'validatePresetLaunch($presetId)') !== false, 'Standalone launch validation must pass only the preset ID');
 $assert(strpos($endpoint, "strlen(\$encoded) > 60000") !== false, 'Structured storefront schemas must have a strict 60 KB transport cap');
 $assert(substr_count($endpoint, "strlen(\$encoded) > 60000") >= 2, 'Form and binding documents must share the strict 60 KB transport cap');
@@ -55,7 +55,7 @@ $assert(strpos($service, "public const CONTRACT = 'prospektweb.control-center.ed
 $assert(strpos($service, 'public const FOCUS_PRESET_ID = 12740') !== false, 'Phase 4A must be explicitly scoped to preset 12740');
 $assert(strpos($service, "(new CatalogTreeService())->presetLoadOptions(['presetId' => \$presetId])") !== false, 'The catalog must reuse the authoritative preset/product/offer resolver');
 $assert(strpos($service, "'ACTIVE' => 'Y'") === false, 'The launch service must not duplicate lower-level Bitrix queries');
-$assert(strpos($service, 'validateCalculationLaunch(int $presetId, int $productId, array $offerIds)') !== false, 'Calculation launch must validate the selective offer list');
+$assert(strpos($service, 'validateCalculationLaunch(int $presetId, array $offerIds)') !== false, 'Calculation launch must validate a multi-product offer list');
 $assert(strpos($service, 'validatePresetLaunch(int $presetId)') !== false, 'The control center must support product-neutral preset launches');
 $assert(strpos($service, "'offerIds' => \$validatedOfferIds") !== false, 'Validated offer IDs must be derived from the server snapshot');
 $assert(strpos($service, 'MAX_CALCULATION_OFFERS') !== false, 'Server-derived launch URLs must have a bounded offer count');
@@ -175,6 +175,7 @@ $assert(strpos($host, "\$_GET['pwRoute']") !== false && strpos($host, "'storefro
 $assert(strpos($host, "sendToControlCenter('EDITOR_CLOSED'") !== false, 'The SPA must receive the agreed editor-closed result');
 $assert(strpos($host, 'Number.isSafeInteger(payload.presetId)') !== false && strpos($host, 'Number.isSafeInteger(payload.productId)') !== false, 'Preset and storefront IDs must be safe integers');
 $assert(strpos($host, "hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId'])") !== false, 'Standalone preset launches must reject catalog fields and unknown payload keys');
+$assert(strpos($host, "hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'offerIds', 'presetId'])") !== false, 'Catalog launches must use a distinct exact payload envelope');
 $assert(strpos($host, "hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'productId'])") !== false, 'Storefront launches must reject unknown payload keys');
 $assert(strpos($host, 'prospektweb-control-center-editor__bar') === false, 'The host must not reserve editor height for a duplicate outer header');
 $assert(strpos($host, 'prospektweb-control-center-editor-close') === false, 'The host must not render a duplicate outer close button');
@@ -185,15 +186,18 @@ $assert(strpos($calculator, "count(\$uniqueOfferIds) !== count(\$offerIds)") !==
 $assert(strpos($calculator, '$isStandalonePresetLaunch') !== false, 'Calculator page must support a standalone preset launch envelope');
 $assert(strpos($calculator, '$standalonePresetId !== 12740') !== false, 'Standalone control-center launches must stay scoped to the focus preset');
 $assert(strpos($calculator, "['ID' => \$standalonePresetId, 'IBLOCK_ID' => \$presetIblockId, 'ACTIVE' => 'Y']") !== false, 'Standalone launch must re-resolve the active preset without product or SKU authority');
-$assert(strpos($calculator, 'presetId: <?= json_encode($isStandalonePresetLaunch ? $standalonePresetId : 0) ?>') !== false, 'Standalone preset identity must reach the integration bridge');
+$assert(strpos($calculator, 'presetId: <?= json_encode(($isStandalonePresetLaunch || $isCatalogPresetLaunch) ? $standalonePresetId : 0) ?>') !== false, 'Standalone and catalog preset identity must reach the integration bridge');
 $assert(strpos($calculator, 'if ($controlCenterMode && !$USER->IsAdmin())') !== false, 'Control-center calculator launch must require an administrator');
 $assert(strpos($calculator, 'count($offerIds) > 500') !== false, 'Calculator page must reject oversized offer lists');
 $assert(strpos($calculator, "'IBLOCK_ID' => \$skuIblockId") !== false, 'Calculator page must resolve offers in the configured SKU iblock');
 $assert(strpos($calculator, "if (\$controlCenterMode) {\n        \$offerFilter['ACTIVE'] = 'Y';") !== false, 'Control-center launches must require active offers');
+$assert(strpos($calculator, "\$offerFilter['ACTIVE_DATE'] = 'Y';") !== false, 'Control-center launches must require date-valid offers');
 $assert(strpos($calculator, "if (\$controlCenterMode) {\n        \$productFilter['ACTIVE'] = 'Y';") !== false, 'Control-center launches must require an active parent product');
+$assert(strpos($calculator, "\$productFilter['ACTIVE_DATE'] = 'Y';") !== false, 'Control-center launches must require date-valid parent products');
 $assert(strpos($calculator, "\$offerFilter = [\n        'IBLOCK_ID' => \$skuIblockId,\n        'ID' => \$offerIds,\n    ];") !== false, 'Legacy contextual launches must not unconditionally filter inactive offers');
-$assert(strpos($calculator, "\$productFilter = [\n        'ID' => \$validatedProductId,\n        'IBLOCK_ID' => \$productIblockId,\n    ];") !== false, 'Legacy contextual launches must not unconditionally filter inactive products');
-$assert(strpos($calculator, '$validatedProductId !== $parentProductId') !== false, 'Calculator page must reject mixed-parent offer lists');
+$assert(strpos($calculator, "\$productFilter = [\n        'ID' => array_map('intval', array_keys(\$validatedProductIds)),\n        'IBLOCK_ID' => \$productIblockId,\n    ];") !== false, 'Every parent product in a catalog launch must be re-resolved');
+$assert(strpos($calculator, '!$isCatalogPresetLaunch') !== false && strpos($calculator, '$validatedProductId !== $parentProductId') !== false, 'Only the exact control-center catalog envelope may contain multiple parents');
+$assert(strpos($calculator, 'StandaloneCatalogSelectionMapper::supportedProductIds()') !== false, 'Catalog launch must revalidate every parent against the adapter-supported scope');
 $assert(strpos($calculator, "'IBLOCK_ID' => \$productIblockId") !== false, 'Calculator page must require the configured product iblock');
 $assert(strpos($calculator, "['CODE' => 'CALC_PRESET']") !== false && strpos($calculator, '=== 12740') !== false, 'Control-center launch must revalidate preset 12740 on the product');
 $assert(strpos($calculator, "type: 'CLOSE_CONTROL_CENTER_EDITOR'") !== false, 'Calculator close must return to the control-center overlay host');

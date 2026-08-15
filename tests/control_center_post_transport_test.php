@@ -132,12 +132,12 @@ namespace Prospektweb\Calc\Services {
             ];
         }
 
-        public function validateCalculationLaunch(int $presetId, int $productId, array $offerIds): array
+        public function validateCalculationLaunch(int $presetId, array $offerIds): array
         {
             return [
                 'contract' => 'prospektweb.control-center.editors/v1',
                 'focusPresetId' => $presetId,
-                'productId' => $productId,
+                'productIds' => [10],
                 'offerIds' => $offerIds,
                 'transport' => 'ok',
             ];
@@ -549,7 +549,6 @@ PHP;
         'sessid' => 'valid',
         'action' => 'validate_calculation_launch',
         'presetId' => 12740,
-        'productId' => 10,
         'offerIds' => [101],
     ], JSON_UNESCAPED_SLASHES));
     $assert($editorsCalculation['status'] === 200

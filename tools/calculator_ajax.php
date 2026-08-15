@@ -338,17 +338,27 @@ function handleGetInitData($request): void
         sendJsonResponse(['error' => 'Missing parameter', 'message' => 'Укажите presetId или offerIds'], 400);
     }
 
-    $offerIds = parseOfferIds($offerIdsRaw);
-
-    if (!empty($offerIdsRaw) && empty($offerIds)) {
-        sendJsonResponse(['error' => 'Invalid parameter', 'message' => 'Некорректные ID торговых предложений'], 400);
+    if ($force) {
+        sendJsonResponse([
+            'error' => 'Read-only boundary',
+            'message' => 'INIT пресета 12740 не создаёт и не переназначает пресеты.',
+        ], 409);
     }
 
     try {
+        $offerIds = parseStrictNeutralOfferIds($offerIdsRaw);
+        if ($presetId !== 0
+            && $presetId !== \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID) {
+            throw new \InvalidArgumentException('Редактор поддерживает только независимый пресет 12740.', 409);
+        }
         $service = new InitPayloadService();
-        $payload = $offerIds !== []
-            ? $service->prepareInitPayload($offerIds, $siteId, $force)
-            : $service->preparePresetPayload($presetId, $siteId);
+        $payload = $service->prepareNeutralInitPayloadReadOnly(
+            $presetId,
+            $offerIds,
+            $siteId,
+            $presetId === \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID
+                && $offerIds !== []
+        );
 
         logInfo($offerIds !== []
             ? 'GetInitData success for offers: ' . implode(',', $offerIds)
@@ -356,7 +366,14 @@ function handleGetInitData($request): void
         sendJsonResponse(['success' => true, 'data' => $payload]);
     } catch (\Throwable $e) {
         logError('GetInitData error: ' . $e->getMessage());
-        sendJsonResponse(['error' => resolveErrorType($e), 'message' => $e->getMessage()], 500);
+        $statusCode = (int)$e->getCode();
+        if ($e instanceof \InvalidArgumentException && !in_array($statusCode, [400, 403, 405, 409], true)) {
+            $statusCode = 400;
+        }
+        sendJsonResponse(
+            ['error' => resolveErrorType($e), 'message' => $e->getMessage()],
+            in_array($statusCode, [400, 403, 405, 409], true) ? $statusCode : 500
+        );
     }
 }
 
@@ -369,7 +386,7 @@ function handlePreviewCatalogAdapter($request): void
     assertCatalogAdapterMutationAuthority($request);
     $presetId = (int)($request->get('presetId') ?? 0);
     $siteId = defined('SITE_ID') ? SITE_ID : 's1';
-    $offerIds = parseOfferIds($request->get('offerIds'));
+    $offerIds = parseStrictNeutralOfferIds($request->get('offerIds'));
     $definition = decodeCatalogAdapterDefinition($request->get('definition'));
     unset($definition['revision']);
 
@@ -377,9 +394,12 @@ function handlePreviewCatalogAdapter($request): void
         throw new \InvalidArgumentException('Предпросмотр адаптера доступен только для пресета 12740.');
     }
 
-    $initPayload = $offerIds !== []
-        ? (new InitPayloadService())->prepareCatalogWritePayload($offerIds, $siteId)
-        : (new InitPayloadService())->preparePresetPayload($presetId, $siteId);
+    $initPayload = (new InitPayloadService())->prepareNeutralInitPayloadReadOnly(
+        $presetId,
+        $offerIds,
+        $siteId,
+        $offerIds !== []
+    );
     $runtime = is_array($initPayload['editorRuntime'] ?? null) ? $initPayload['editorRuntime'] : [];
     if (!is_array($runtime['formDefinition'] ?? null)
         || !is_array($runtime['bindingDefinition'] ?? null)
@@ -408,7 +428,7 @@ function handleSaveCatalogAdapter($request): void
     assertCatalogAdapterMutationAuthority($request);
     $presetId = (int)($request->get('presetId') ?? 0);
     $siteId = defined('SITE_ID') ? SITE_ID : 's1';
-    $offerIds = parseOfferIds($request->get('offerIds'));
+    $offerIds = parseStrictNeutralOfferIds($request->get('offerIds'));
     $expectedRevision = trim((string)($request->get('expectedRevision') ?? ''));
     $definition = decodeCatalogAdapterDefinition($request->get('definition'));
     unset($definition['revision']);
@@ -1038,6 +1058,37 @@ function parseOfferIds($offerIdsRaw): array
     $offerIds = array_map('intval', $offerIds);
     $offerIds = array_filter($offerIds, function($id) { return $id > 0; });
     
+    return $offerIds;
+}
+
+/**
+ * Exact parser for the read-only neutral INIT boundary. Unlike legacy parsing,
+ * invalid, duplicate or oversized input cannot be silently narrowed.
+ *
+ * @param mixed $offerIdsRaw
+ * @return int[]
+ */
+function parseStrictNeutralOfferIds($offerIdsRaw): array
+{
+    if ($offerIdsRaw === null || $offerIdsRaw === '' || $offerIdsRaw === []) {
+        return [];
+    }
+    $rawIds = is_array($offerIdsRaw) ? array_values($offerIdsRaw) : explode(',', (string)$offerIdsRaw);
+    if ($rawIds === [] || count($rawIds) > 500) {
+        throw new \InvalidArgumentException('Некорректное количество торговых предложений.');
+    }
+    $offerIds = [];
+    foreach ($rawIds as $rawId) {
+        if ((!is_int($rawId) && !is_string($rawId))
+            || preg_match('/^[1-9][0-9]*$/D', (string)$rawId) !== 1) {
+            throw new \InvalidArgumentException('Некорректные ID торговых предложений.');
+        }
+        $offerIds[] = (int)$rawId;
+    }
+    if (count($offerIds) !== count(array_unique($offerIds))) {
+        throw new \InvalidArgumentException('ID торговых предложений не должны повторяться.');
+    }
+    sort($offerIds, SORT_NUMERIC);
     return $offerIds;
 }
 

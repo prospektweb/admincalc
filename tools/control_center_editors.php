@@ -264,17 +264,16 @@ try {
     }
 
     if ($action === 'validate_calculation_launch') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'productId', 'offerIds']);
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'offerIds']);
         $presetId = $parsePositiveInt($request['presetId'] ?? null, 'presetId');
-        $productId = $parsePositiveInt($request['productId'] ?? null, 'productId');
         $offerIds = $request['offerIds'] ?? null;
         if (!is_array($offerIds)) {
-            throw new \InvalidArgumentException('presetId, productId and offerIds are required');
+            throw new \InvalidArgumentException('presetId and offerIds are required');
         }
 
         $respond(200, [
             'success' => true,
-            'data' => $service->validateCalculationLaunch($presetId, $productId, $offerIds),
+            'data' => $service->validateCalculationLaunch($presetId, $offerIds),
         ]);
     }
 

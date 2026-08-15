@@ -25,7 +25,10 @@ final class StandaloneCatalogSelectionMapper
     /** @return int[] */
     public static function supportedProductIds(): array
     {
-        return (new CatalogAdapterDefinitionService())->supportedProductIds();
+        $service = new CatalogAdapterDefinitionService();
+        return $service->supportedProductIds(
+            $service->loadFromRaw(self::PRESET_ID, '')
+        );
     }
 
     /**

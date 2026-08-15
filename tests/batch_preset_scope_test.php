@@ -84,6 +84,22 @@ $expectFailure(
     'service rejects a foreign preset resolved from server-owned offer data'
 );
 
+$batchReflection = new ReflectionClass(BatchRecalculateService::class);
+$batchWithoutDependencies = $batchReflection->newInstanceWithoutConstructor();
+$buildCatalogPayload = $batchReflection->getMethod('buildCalculationPayloadFromCatalogPayload');
+$buildCatalogPayload->setAccessible(true);
+$expectFailure(
+    static function () use ($buildCatalogPayload, $batchWithoutDependencies): void {
+        $buildCatalogPayload->invoke($batchWithoutDependencies, [
+            'editorRuntime' => [
+                'catalogMapping' => ['adapterPersisted' => false],
+            ],
+        ], 's1');
+    },
+    409,
+    'batch calculation rejects the unpersisted system adapter before loading runtime dependencies'
+);
+
 $endpoint = file_get_contents(dirname(__DIR__) . '/tools/batch_recalculate.php');
 $service = file_get_contents(dirname(__DIR__) . '/lib/Services/BatchRecalculateService.php');
 $assert(is_string($endpoint) && is_string($service), 'batch sources are readable');

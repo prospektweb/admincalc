@@ -1273,6 +1273,18 @@ class BatchRecalculateService
     /** @param array<string,mixed> $catalogPayload @return array<string,mixed> */
     private function buildCalculationPayloadFromCatalogPayload(array $catalogPayload, string $siteId): array
     {
+        $editorRuntime = is_array($catalogPayload['editorRuntime'] ?? null)
+            ? $catalogPayload['editorRuntime']
+            : [];
+        $catalogMapping = is_array($editorRuntime['catalogMapping'] ?? null)
+            ? $editorRuntime['catalogMapping']
+            : [];
+        if (($catalogMapping['adapterPersisted'] ?? null) !== true) {
+            throw new \RuntimeException(
+                'Catalog calculation requires an explicitly persisted adapter.',
+                409
+            );
+        }
 
         if (!Loader::includeModule('prospektweb.frontcalc')) {
             throw new \RuntimeException('Для автономной записи требуется модуль prospektweb.frontcalc.');
@@ -1351,9 +1363,6 @@ class BatchRecalculateService
             throw new \RuntimeException('Catalog payload is not bound to neutral-input mode.', 409);
         }
         $neutralInputRequired = true;
-        $editorRuntime = is_array($catalogPayload['editorRuntime'] ?? null)
-            ? $catalogPayload['editorRuntime']
-            : [];
         $publishedAuthoring = [
             'formDefinition' => is_array($editorRuntime['formDefinition'] ?? null)
                 ? $editorRuntime['formDefinition']

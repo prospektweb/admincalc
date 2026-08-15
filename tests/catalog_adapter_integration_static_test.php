@@ -46,6 +46,10 @@ $assert(strpos($init, "publishedAuthoringForProduct") === false, 'INIT has no pe
 $assert(strpos($init, "'editorRuntime'") !== false, 'preset and offer launch payloads expose editorRuntime');
 $assert(strpos($init, "'catalogScenarios'") !== false, 'INIT exposes semantic catalog scenarios');
 $assert(strpos($init, "'catalogMapping'") !== false, 'INIT exposes incomplete adapter diagnostics without blocking authoring');
+$assert(strpos($init, 'readOptionStateDirect') !== false
+    && strpos($init, "'adapterPersisted' => \$adapterPersisted") !== false
+    && strpos($init, '$adapterService->load($presetId)') === false,
+    'INIT exposes adapter persistence from the exact global option row without Option-cache inference');
 $assert(strpos($init, "if (\$mode === 'catalog' && (\$preview['ready']") === false, 'incomplete adapter mapping does not abort catalog INIT');
 $assert(strpos($init, "'launchContext'") !== false, 'INIT preserves the optional launch envelope separately');
 
@@ -87,5 +91,9 @@ $assert(strpos($batch, "'schemaVersion' => 3") !== false && strpos($batch, "hash
 $assert(strpos($batch, "\$payload['neutralInputRequired'] = \$neutralInputRequired") !== false
     && strpos($batch, "\$catalogPayload['_neutralInputRequired'] !== true") !== false,
     'batch payload fails closed unless the raw-pinned neutral-input cutover is active');
+$assert(strpos($writer, "\$catalogMapping['adapterPersisted'] !== true") !== false
+    && strpos($batch, "\$catalogMapping['adapterPersisted'] ?? null") !== false
+    && strpos($writer, 'Catalog calculation requires an explicitly persisted adapter.') !== false,
+    'catalog calculations and writes fail closed until the system adapter template is explicitly persisted');
 
 echo "Catalog adapter integration static tests passed\n";

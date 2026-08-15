@@ -395,6 +395,7 @@ final class CatalogCalculationWriteService
                     $freshPayload = $this->resolveRuntimePinned($offerIds, $siteId, null, true);
                     $freshResolved = $this->validateResolvedPayload($freshPayload, $offerIds, false);
                     if ($freshResolved['productIds'] !== $preflightProductIds
+                        || $freshResolved['adapterPersisted'] !== true
                         || !hash_equals(
                             (string)$saved['revision'],
                             (string)$freshResolved['adapterRevision']
@@ -425,6 +426,20 @@ final class CatalogCalculationWriteService
                         '_neutralInputRequired' => ($freshAuthoring['neutralInputRequired'] ?? null) === true,
                         '_runtimeConfigSnapshot' => $freshAuthoring['runtimeConfigSnapshot'],
                     ];
+                }
+
+                $freshCatalogMapping = is_array($freshRuntime['catalogMapping'] ?? null)
+                    ? $freshRuntime['catalogMapping']
+                    : [];
+                if (($freshCatalogMapping['adapterPersisted'] ?? null) !== true
+                    || !hash_equals(
+                        (string)$saved['revision'],
+                        (string)($freshCatalogMapping['adapterRevision'] ?? '')
+                    )) {
+                    throw new \RuntimeException(
+                        'Catalog adapter save did not return a persisted matching runtime revision.',
+                        409
+                    );
                 }
 
                 $response = [
@@ -966,7 +981,11 @@ final class CatalogCalculationWriteService
         $launch = is_array($runtime['launchContext'] ?? null) ? $runtime['launchContext'] : [];
         $publication = is_array($runtime['publication'] ?? null) ? $runtime['publication'] : [];
         $adapter = is_array($runtime['catalogAdapter'] ?? null) ? $runtime['catalogAdapter'] : [];
+        $catalogMapping = is_array($runtime['catalogMapping'] ?? null)
+            ? $runtime['catalogMapping']
+            : [];
         $adapterRevision = strtolower(trim((string)($adapter['revision'] ?? '')));
+        $mappingAdapterRevision = strtolower(trim((string)($catalogMapping['adapterRevision'] ?? '')));
         $publishedSnapshot = is_array($payload['_publishedSnapshot'] ?? null)
             ? $payload['_publishedSnapshot']
             : [];
@@ -982,8 +1001,18 @@ final class CatalogCalculationWriteService
             || (int)($launch['presetId'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID
             || (int)($publication['revision'] ?? 0) <= 0
             || preg_match('/^[a-f0-9]{64}$/D', (string)($publication['compileHash'] ?? '')) !== 1
-            || preg_match('/^[a-f0-9]{64}$/D', $adapterRevision) !== 1) {
+            || preg_match('/^[a-f0-9]{64}$/D', $adapterRevision) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $mappingAdapterRevision) !== 1
+            || !hash_equals($adapterRevision, $mappingAdapterRevision)
+            || !array_key_exists('adapterPersisted', $catalogMapping)
+            || !is_bool($catalogMapping['adapterPersisted'])) {
             throw new \RuntimeException('Текущий editorRuntime каталога не прошёл проверку целостности.');
+        }
+        if ($requireNeutralInputActive && $catalogMapping['adapterPersisted'] !== true) {
+            throw new \RuntimeException(
+                'Catalog calculation requires an explicitly persisted adapter.',
+                409
+            );
         }
 
         if ($publishedSnapshot === []
@@ -1121,6 +1150,7 @@ final class CatalogCalculationWriteService
             ],
             'adapter' => $adapter,
             'adapterRevision' => $adapterRevision,
+            'adapterPersisted' => $catalogMapping['adapterPersisted'],
             'catalogScenarios' => $normalizedScenarios,
             'productIds' => $productIds,
             'productIblockIds' => $productIblockIds,
@@ -2609,7 +2639,12 @@ final class CatalogCalculationWriteService
         }
 
         $formRaw = $this->readLockedOptionValue('prospektweb.frontcalc', 'FORM_FIRST_PRESET_12740');
-        $adapterRaw = $this->readLockedOptionValue('prospektweb.calc', 'CATALOG_ADAPTER_12740');
+        $adapterState = $this->readLockedOptionState(
+            'prospektweb.calc',
+            'CATALOG_ADAPTER_12740'
+        );
+        $adapterRaw = $adapterState['value'];
+        $adapterPersisted = $adapterState['exists'] === true && $adapterRaw !== '';
         $neutralInputRaw = $this->readLockedOptionValue(
             'prospektweb.calc',
             'PRESET_12740_NEUTRAL_INPUT_ACTIVE'
@@ -2662,7 +2697,8 @@ final class CatalogCalculationWriteService
                 $globalSymbols,
                 $globalSymbolIblockId,
                 $runtimeConfigSnapshot,
-                true
+                true,
+                $adapterPersisted
             )
             : $payloadService->prepareCatalogWritePayloadPinned(
                 $offerIds,
@@ -2673,7 +2709,8 @@ final class CatalogCalculationWriteService
                 $neutralInputRequired,
                 $globalSymbols,
                 $globalSymbolIblockId,
-                $runtimeConfigSnapshot
+                $runtimeConfigSnapshot,
+                $adapterPersisted
             );
         $payload['_runtimeConfigSnapshot'] = $runtimeConfigSnapshot;
         return $payload;
@@ -2847,6 +2884,7 @@ final class CatalogCalculationWriteService
                 ? $preview['scenarios']
                 : [],
             'catalogMapping' => [
+                'adapterPersisted' => true,
                 'ready' => ($preview['ready'] ?? false) === true,
                 'hasTargets' => ($preview['hasTargets'] ?? false) === true,
                 'adapterRevision' => (string)($preview['adapterRevision'] ?? ''),

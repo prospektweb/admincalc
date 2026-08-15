@@ -57,10 +57,14 @@ $standalonePresetId = preg_match('/^[1-9][0-9]*$/D', $presetIdRaw) === 1
 $isStandalonePresetLaunch = $controlCenterMode
     && $standalonePresetId > 0
     && $offerIdsRaw === '';
+$isCatalogPresetLaunch = $controlCenterMode
+    && $standalonePresetId === 12740
+    && $offerIdsRaw !== '';
 
-if ((!$isStandalonePresetLaunch && (empty($offerIds) || count($offerIds) > 500 || count($uniqueOfferIds) !== count($offerIds)))
+if (($offerIdsRaw !== '' && (empty($offerIds) || count($offerIds) > 500 || count($uniqueOfferIds) !== count($offerIds)))
+    || ($offerIdsRaw === '' && !$isStandalonePresetLaunch)
     || ($isStandalonePresetLaunch && $standalonePresetId !== 12740)
-    || ($offerIdsRaw !== '' && $presetIdRaw !== '')) {
+    || ($offerIdsRaw !== '' && $presetIdRaw !== '' && !$isCatalogPresetLaunch)) {
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php');
     ShowError(Loc::getMessage('PROSPEKTWEB_CALC_NO_OFFERS_SELECTED'));
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php');
@@ -72,6 +76,7 @@ $configManager = new ConfigManager();
 $productIblockId = (int)$configManager->getProductIblockId();
 $skuIblockId = (int)$configManager->getSkuIblockId();
 $validatedProductId = 0;
+$validatedProductIds = [];
 $isValidLaunch = Loader::includeModule('iblock')
     && (!$controlCenterMode || $editorInstanceId !== '')
     && ($isStandalonePresetLaunch || ($productIblockId > 0 && $skuIblockId > 0));
@@ -98,6 +103,7 @@ if ($isValidLaunch && !$isStandalonePresetLaunch) {
     ];
     if ($controlCenterMode) {
         $offerFilter['ACTIVE'] = 'Y';
+        $offerFilter['ACTIVE_DATE'] = 'Y';
     }
     $offerCursor = \CIBlockElement::GetList(
         ['ID' => 'ASC'],
@@ -113,11 +119,25 @@ if ($isValidLaunch && !$isStandalonePresetLaunch) {
             $isValidLaunch = false;
             break;
         }
-        if ($validatedProductId > 0 && $validatedProductId !== $parentProductId) {
+        if ($isCatalogPresetLaunch
+            && !in_array(
+                $parentProductId,
+                \Prospektweb\Calc\Services\StandaloneCatalogSelectionMapper::supportedProductIds(),
+                true
+            )) {
             $isValidLaunch = false;
             break;
         }
-        $validatedProductId = $parentProductId;
+        if (!$isCatalogPresetLaunch
+            && $validatedProductId > 0
+            && $validatedProductId !== $parentProductId) {
+            $isValidLaunch = false;
+            break;
+        }
+        if ($validatedProductId <= 0) {
+            $validatedProductId = $parentProductId;
+        }
+        $validatedProductIds[$parentProductId] = true;
         $foundOfferIds[$offerId] = true;
     }
 
@@ -132,40 +152,52 @@ if ($isValidLaunch && !$isStandalonePresetLaunch) {
     }
 }
 
-$validatedProduct = null;
-if ($isValidLaunch && $validatedProductId > 0) {
+$validatedProducts = [];
+if ($isValidLaunch && $validatedProductIds !== []) {
     $productFilter = [
-        'ID' => $validatedProductId,
+        'ID' => array_map('intval', array_keys($validatedProductIds)),
         'IBLOCK_ID' => $productIblockId,
     ];
     if ($controlCenterMode) {
         $productFilter['ACTIVE'] = 'Y';
+        $productFilter['ACTIVE_DATE'] = 'Y';
     }
-    $validatedProduct = \CIBlockElement::GetList(
+    $validatedProductCursor = \CIBlockElement::GetList(
         [],
         $productFilter,
         false,
         false,
         ['ID', 'IBLOCK_ID']
-    )->Fetch();
-    $isValidLaunch = is_array($validatedProduct);
+    );
+    while ($validatedProduct = $validatedProductCursor->Fetch()) {
+        $productId = (int)($validatedProduct['ID'] ?? 0);
+        if ($productId > 0) {
+            $validatedProducts[$productId] = true;
+        }
+    }
+    $isValidLaunch = count($validatedProducts) === count($validatedProductIds);
 }
 
 if ($isValidLaunch && $controlCenterMode && !$isStandalonePresetLaunch) {
-    $hasFocusPreset = false;
-    $presetCursor = \CIBlockElement::GetProperty(
-        $productIblockId,
-        $validatedProductId,
-        ['ID' => 'ASC'],
-        ['CODE' => 'CALC_PRESET']
-    );
-    while ($presetProperty = $presetCursor->Fetch()) {
-        if ((int)($presetProperty['VALUE'] ?? 0) === 12740) {
-            $hasFocusPreset = true;
+    foreach (array_keys($validatedProductIds) as $productId) {
+        $hasFocusPreset = false;
+        $presetCursor = \CIBlockElement::GetProperty(
+            $productIblockId,
+            (int)$productId,
+            ['ID' => 'ASC'],
+            ['CODE' => 'CALC_PRESET']
+        );
+        while ($presetProperty = $presetCursor->Fetch()) {
+            if ((int)($presetProperty['VALUE'] ?? 0) === 12740) {
+                $hasFocusPreset = true;
+                break;
+            }
+        }
+        if (!$hasFocusPreset) {
+            $isValidLaunch = false;
             break;
         }
     }
-    $isValidLaunch = $hasFocusPreset;
 }
 
 if (!$isValidLaunch) {
@@ -266,7 +298,7 @@ document.addEventListener('DOMContentLoaded', function() {
         iframeSelector: '#calc-iframe',
         ajaxEndpoint: '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
         offerIds: <?= json_encode($offerIds) ?>,
-        presetId: <?= json_encode($isStandalonePresetLaunch ? $standalonePresetId : 0) ?>,
+        presetId: <?= json_encode(($isStandalonePresetLaunch || $isCatalogPresetLaunch) ? $standalonePresetId : 0) ?>,
         siteId: '<?= SITE_ID ?>',
         sessid: '<?= bitrix_sessid() ?>',
         onClose: function() {
@@ -308,7 +340,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Логирование для отладки
     console.log('[Calculator Page] Integration initialized', {
-        presetId: <?= json_encode($isStandalonePresetLaunch ? $standalonePresetId : 0) ?>,
+        presetId: <?= json_encode(($isStandalonePresetLaunch || $isCatalogPresetLaunch) ? $standalonePresetId : 0) ?>,
         offerIds: <?= json_encode($offerIds) ?>
     });
 });

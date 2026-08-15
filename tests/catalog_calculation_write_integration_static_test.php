@@ -57,6 +57,10 @@ $assert(strpos($service, 'publishedAuthoringFromRaw') !== false
     && strpos($service, 'publishedSnapshotFromRaw') !== false
     && strpos($service, 'loadFromRaw') !== false
     && strpos($service, 'prepareCatalogWritePayloadPinned') !== false, 'locked CAS bypasses Bitrix Option process cache');
+$assert(strpos($init, 'readOptionStateDirect') !== false
+    && strpos($service, '$adapterState = $this->readLockedOptionState(') !== false
+    && strpos($service, "'adapterPersisted' => true") !== false,
+    'INIT and locked save readback carry the exact adapter-row persistence state');
 $assert(strpos($service, 'PRESET_12740_NEUTRAL_INPUT_ACTIVE') !== false
     && strpos($service, 'parseNeutralInputOption') !== false
     && strpos($service, 'lockRuntimeOptionRows') !== false, 'neutral-input mode is read raw and pinned under the runtime option lock');
@@ -83,6 +87,9 @@ $assert(strpos($init, 'preparePresetCalculationPayloadReadOnlyPinned') !== false
 $assert(strpos($init, 'Catalog calculation requires PRESET_12740_NEUTRAL_INPUT_ACTIVE=Y.') !== false
     && strpos($service, "\$payload['_neutralInputRequired'] !== true") !== false,
     'catalog preview/apply fail closed unless the neutral-input cutover is active');
+$assert(strpos($service, "\$catalogMapping['adapterPersisted'] !== true") !== false
+    && strpos($service, 'Catalog adapter save did not return a persisted matching runtime revision.') !== false,
+    'catalog calculation and save readback fail closed without explicit persisted-adapter authority');
 $assert(strpos($globals, 'public function listReadOnlyFromIblockId(') !== false
     && strpos($batch, 'storageIblockIdReadOnly()') === false
     && strpos($service, 'listReadOnlyFromIblockId(') !== false,
@@ -122,9 +129,9 @@ $adapterSavePath = $adapterSaveStart !== false && $adapterEnd !== false
     ? substr($endpoint, $adapterSaveStart, $adapterEnd - $adapterSaveStart)
     : '';
 $assert($adapterPaths !== ''
-    && strpos($adapterPaths, 'prepareCatalogWritePayload(') !== false
+    && strpos($adapterPaths, 'prepareNeutralInitPayloadReadOnly(') !== false
     && strpos($adapterPaths, 'prepareInitPayload(') === false,
-    'adapter preview uses the read-only catalog resolver');
+    'adapter preview uses the pure neutral INIT resolver');
 $assert($adapterSavePath !== ''
     && strpos($adapterSavePath, '->saveValidatedAdapter(') !== false
     && strpos($adapterSavePath, 'CatalogAdapterDefinitionService();') === false

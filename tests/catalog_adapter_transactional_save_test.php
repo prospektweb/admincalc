@@ -138,14 +138,17 @@ $events = [];
 $transactionBackup = null;
 $mutateNeutralOnOptionLock = false;
 $failFreshResolve = false;
-$makePayload = static function (array $adapter) use (
+$persistenceStates = [];
+$makePayload = static function (array $adapter, bool $adapterPersisted) use (
     $adapterCodec,
     $authoring,
     $offer,
     $runtimeConfig,
     &$neutralExists,
-    &$neutralValue
+    &$neutralValue,
+    &$persistenceStates
 ): array {
+    $persistenceStates[] = $adapterPersisted;
     $preview = $adapterCodec->previewMappings(
         [$offer],
         $authoring['formDefinition'],
@@ -172,6 +175,7 @@ $makePayload = static function (array $adapter) use (
             'catalogAdapter' => $adapter,
             'catalogScenarios' => $preview['scenarios'],
             'catalogMapping' => [
+                'adapterPersisted' => $adapterPersisted,
                 'ready' => $preview['ready'],
                 'hasTargets' => $preview['hasTargets'],
                 'adapterRevision' => $preview['adapterRevision'],
@@ -201,12 +205,12 @@ $service = new CatalogCalculationWriteService([
         array $offerIds,
         string $siteId,
         array $adapter
-    ) use ($makePayload, &$events): array {
+    ) use ($makePayload, &$adapterRaw, &$events): array {
         if ($offerIds !== [15320] || $siteId !== 's1') {
             throw new RuntimeException('Unexpected adapter candidate targets');
         }
         $events[] = 'preflight';
-        return $makePayload($adapter);
+        return $makePayload($adapter, $adapterRaw !== '');
     },
     'resolve_runtime_pinned' => static function (
         array $offerIds,
@@ -222,7 +226,8 @@ $service = new CatalogCalculationWriteService([
         }
         $events[] = $adapterOverride === null ? 'fresh' : 'locked-preview';
         return $makePayload(
-            $adapterOverride ?? $adapterCodec->loadFromRaw(12740, $adapterRaw)
+            $adapterOverride ?? $adapterCodec->loadFromRaw(12740, $adapterRaw),
+            $adapterRaw !== ''
         );
     },
     'adapter_mutation_lock' => static function (callable $callback) use (&$events) {
@@ -308,6 +313,24 @@ $changeFormat = static function (array $definition, string $format): array {
 };
 
 $initial = $adapterCodec->loadFromRaw(12740, '');
+$savedDefault = $service->saveValidatedAdapter(
+    12740,
+    [15320],
+    's1',
+    $initial['revision'],
+    $initial
+);
+$assert($adapterRaw !== '', 'an unchanged system template is persisted on the first explicit save');
+$assert($savedDefault['catalogAdapter']['revision'] === $initial['revision'], 'first save preserves the canonical system-template revision');
+$assert(($savedDefault['editorRuntime']['catalogMapping']['adapterPersisted'] ?? null) === true, 'first save response confirms exact persisted adapter state');
+$assert($persistenceStates === [false, false, true], 'absent adapter stays explicit through preflight and becomes persisted only after locked readback');
+$assert($events === [
+    'preflight', 'adapter-lock', 'begin', 'catalog-lock', 'option-lock',
+    'locked-preview', 'write-adapter', 'fresh', 'commit',
+], 'unchanged first save uses the complete transactional validation path');
+
+$events = [];
+$persistenceStates = [];
 $savedN = $service->saveValidatedAdapter(
     12740,
     [15320],
@@ -317,6 +340,8 @@ $savedN = $service->saveValidatedAdapter(
 );
 $assert($savedN['catalogAdapter']['revision'] !== $initial['revision'], 'adapter saves while neutral cutover is explicitly N');
 $assert(($savedN['initData']['_neutralInputRequired'] ?? null) === false, 'inactive neutral state remains explicit in the validated INIT');
+$assert(($savedN['editorRuntime']['catalogMapping']['adapterPersisted'] ?? null) === true, 'save response confirms exact persisted adapter state');
+$assert($persistenceStates === [true, true, true], 'subsequent saves preserve persisted authority through every resolver pass');
 $assert($events === [
     'preflight', 'adapter-lock', 'begin', 'catalog-lock', 'option-lock',
     'locked-preview', 'write-adapter', 'fresh', 'commit',

@@ -40,6 +40,8 @@ $siblingVersion = 1;
 $measureAuthorityVersion = 1;
 $globalPropertyAuthorityVersion = 1;
 $neutralInputRequired = true;
+$adapterPersisted = true;
+$catalogMappingRevisionOverride = null;
 $runtimeConfigVersion = 1;
 $runtimeSkuIblockId = 15;
 $runtimeProductIblockId = 14;
@@ -109,6 +111,8 @@ $makePayload = static function () use (
     &$siblingVersion,
     &$measureAuthorityVersion,
     &$neutralInputRequired,
+    &$adapterPersisted,
+    &$catalogMappingRevisionOverride,
     $makeRuntimeConfigSnapshot
 ): array {
     $offerIds = array_keys($current);
@@ -142,6 +146,10 @@ $makePayload = static function () use (
             'publication' => ['revision' => $publicationRevision, 'compileHash' => $publicationHash],
             'catalogAdapter' => ['revision' => $adapterRevision],
             'catalogScenarios' => $scenarios,
+            'catalogMapping' => [
+                'adapterPersisted' => $adapterPersisted,
+                'adapterRevision' => $catalogMappingRevisionOverride ?? $adapterRevision,
+            ],
         ],
         '_publishedSnapshot' => [
             'version' => 1,
@@ -522,6 +530,29 @@ $expectFailure(
 );
 $assert($events === ['calculate'], 'inactive neutral-input mode never reaches catalog locks or writes');
 $neutralInputRequired = true;
+$events = [];
+
+$adapterPersisted = false;
+$expectFailure(
+    static function () use ($service, $result): void {
+        $service->preview(12740, [15320], $result, 's1');
+    },
+    'catalog preview cannot calculate from an unpersisted system adapter template',
+    409
+);
+$assert($events === ['calculate'], 'unpersisted adapter never reaches catalog locks or writes');
+$adapterPersisted = true;
+$events = [];
+
+$catalogMappingRevisionOverride = str_repeat('e', 64);
+$expectFailure(
+    static function () use ($service, $result): void {
+        $service->preview(12740, [15320], $result, 's1');
+    },
+    'catalog preview rejects a mapping status from another adapter revision'
+);
+$assert($events === ['calculate'], 'mismatched mapping revision never reaches catalog locks or writes');
+$catalogMappingRevisionOverride = null;
 $events = [];
 
 $preview = $service->preview(12740, [15320], $result, 's1');

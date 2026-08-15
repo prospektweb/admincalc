@@ -40,7 +40,9 @@ namespace Prospektweb\Calc\Services {
         /** @return int[] */
         public function supportedProductIds(): array
         {
-            return [12727, 14380];
+            // Persisted adapter intentionally lost product 14380. Authoring
+            // must still expose it so the missing profile can be repaired.
+            return [12727];
         }
     }
 
@@ -192,7 +194,10 @@ namespace {
     $products = (array)($calculation['products'] ?? []);
 
     $assert(($calculation['presetId'] ?? 0) === 12740, 'Control center must load preset 12740');
-    $assert(array_column($products, 'id') === [12727, 14380], 'Preset analysis must use adapter-owned products');
+    $assert(
+        array_column($products, 'id') === [12727, 14380],
+        'Preset authoring must use the fixed prepared-product scope even when the persisted adapter is narrower'
+    );
     $assert(($calculation['offerCount'] ?? 0) === 3, 'Preset analysis must count loaded active offers');
     $assert(($products[0]['offers'][1]['id'] ?? 0) === 15321, 'Preset analysis must expose offer choices');
     $assert(

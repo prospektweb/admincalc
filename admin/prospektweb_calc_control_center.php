@@ -343,23 +343,51 @@ body {
         if (launchPending || activeEditor) {
             return;
         }
-        if (!hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId'])) {
+        var standaloneLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId']);
+        var catalogLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'offerIds', 'presetId']);
+        if (!standaloneLaunch && !catalogLaunch) {
             return;
         }
         var presetId = Number.isSafeInteger(payload.presetId) ? payload.presetId : 0;
-        if (presetId <= 0) {
+        var offerIds = catalogLaunch && Array.isArray(payload.offerIds)
+            ? payload.offerIds.slice()
+            : [];
+        if (presetId <= 0
+            || (catalogLaunch && (offerIds.length === 0
+                || offerIds.length > 500
+                || offerIds.some(function (offerId) {
+                    return !Number.isSafeInteger(offerId) || offerId <= 0;
+                })
+                || (new Set(offerIds)).size !== offerIds.length))) {
             return;
         }
 
         launchPending = true;
-        postEditorAction('validate_preset_launch', {
-            presetId: presetId
-        }).then(function (data) {
+        var validation = catalogLaunch
+            ? postEditorAction('validate_calculation_launch', {
+                presetId: presetId,
+                offerIds: offerIds
+            })
+            : postEditorAction('validate_preset_launch', {
+                presetId: presetId
+            });
+        validation.then(function (data) {
             if (data.focusPresetId !== presetId || typeof data.presetName !== 'string' || data.presetName === '') {
                 throw new Error('Сервер вернул некорректный пресет');
             }
+            if (catalogLaunch
+                && (!Array.isArray(data.offerIds)
+                    || data.offerIds.length === 0
+                    || data.offerIds.length > 500
+                    || !Array.isArray(data.productIds)
+                    || data.productIds.length === 0)) {
+                throw new Error('Сервер вернул некорректную каталоговую выборку');
+            }
             var targetUrl = new URL('/bitrix/admin/prospektweb_calc_calculator.php', window.location.origin);
             targetUrl.searchParams.set('preset_id', String(data.focusPresetId));
+            if (catalogLaunch) {
+                targetUrl.searchParams.set('offer_ids', data.offerIds.join(','));
+            }
             targetUrl.searchParams.set('control_center', 'Y');
             targetUrl.searchParams.set('lang', <?= json_encode($languageId) ?>);
             targetUrl.searchParams.set('IFRAME', 'Y');

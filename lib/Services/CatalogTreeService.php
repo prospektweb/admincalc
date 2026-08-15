@@ -83,7 +83,7 @@ final class CatalogTreeService
             'PROPERTY_CALC_PRESET' => $presetId,
         ];
         if ($presetId === CatalogAdapterDefinitionService::PRESET_ID) {
-            $supportedProductIds = (new CatalogAdapterDefinitionService())->supportedProductIds();
+            $supportedProductIds = StandaloneCatalogSelectionMapper::supportedProductIds();
             if ($supportedProductIds === []) {
                 return [];
             }

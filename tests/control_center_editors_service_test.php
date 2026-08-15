@@ -277,6 +277,13 @@ $presetLoader = static function (int $presetId): array {
                     ['id' => 15321, 'name' => 'Prepared offer 4+4'],
                 ],
             ],
+            [
+                'id' => 12764,
+                'name' => 'Second prepared product',
+                'offers' => [
+                    ['id' => 15326, 'name' => 'Second prepared offer'],
+                ],
+            ],
         ],
     ];
 };
@@ -286,9 +293,9 @@ $catalog = $service->getCatalog();
 
 $assert($catalog['contract'] === ControlCenterEditorsService::CONTRACT, 'Catalog contract must be versioned');
 $assert($catalog['focusPresetId'] === 12740, 'Only preset 12740 is in the Phase 4A workspace');
-$assert(($catalog['calculations'][0]['offerCount'] ?? 0) === 2, 'Calculation catalog must count only adapter-supported active offers');
+$assert(($catalog['calculations'][0]['offerCount'] ?? 0) === 3, 'Calculation catalog must count only adapter-supported active offers');
 $assert(($catalog['calculations'][0]['products'][0]['offers'][1]['id'] ?? 0) === 15321, 'Calculation catalog must expose server-authored choices for prepared products');
-$assert(count($catalog['storefront']['products'] ?? []) === 4, 'Storefront editing must retain the full preset-linked product catalog');
+$assert(count($catalog['storefront']['products'] ?? []) === 5, 'Storefront editing must retain the full preset-linked product catalog');
 $assert(($catalog['storefront']['productIblockId'] ?? 0) === 7, 'Storefront launch catalog must expose the configured product iblock');
 $assert(($catalog['storefront']['products'][0]['presetIds'] ?? []) === [12740], 'Storefront products must carry the focus-preset relation');
 $assert(($catalog['storefront']['visualEditorAvailable'] ?? true) === false, 'The visual editor must fail closed without a provider');
@@ -297,10 +304,10 @@ $assert(
     'The storefront catalog must advertise the native editor contract'
 );
 
-$calculationLaunch = $service->validateCalculationLaunch(12740, 10, [101, 100]);
-$assert(($calculationLaunch['offerIds'] ?? []) === [100, 101], 'Calculation launch must reconstruct the selected active offers in server order');
-$assert(($calculationLaunch['productId'] ?? 0) === 10, 'Calculation launch must preserve the validated product ID');
-$assert(!in_array(102, $calculationLaunch['offerIds'], true), 'Calculation launch must not mix offers from another product');
+$calculationLaunch = $service->validateCalculationLaunch(12740, [15326, 15321, 15320]);
+$assert(($calculationLaunch['offerIds'] ?? []) === [15320, 15321, 15326], 'Calculation launch must reconstruct offers from multiple products in authoritative server order');
+$assert(($calculationLaunch['productIds'] ?? []) === [12727, 12764], 'Calculation launch must reconstruct all selected parent products server-side');
+$assert(!in_array(102, $calculationLaunch['offerIds'], true), 'Calculation launch must exclude offers outside the adapter-supported preset scope');
 
 $presetLaunch = $service->validatePresetLaunch(12740);
 $assert(($presetLaunch['focusPresetId'] ?? 0) === 12740, 'Standalone launch must retain the focus preset');
@@ -310,34 +317,31 @@ $expectInvalid(static function () use ($service): void {
 }, 'Standalone launch must reject a non-focus preset');
 
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12741, 10, [100]);
+    $service->validateCalculationLaunch(12741, [15320]);
 }, 'A non-focus preset must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, 999, [100]);
-}, 'A product outside preset 12740 must be rejected');
+    $service->validateCalculationLaunch(12740, [100]);
+}, 'An offer outside the adapter-supported preset scope must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, 10, [100, 102]);
-}, 'An offer from another product must be rejected');
-$expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, 10, [100, 100]);
+    $service->validateCalculationLaunch(12740, [15320, 15320]);
 }, 'Duplicate offer IDs must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, 10, []);
+    $service->validateCalculationLaunch(12740, []);
 }, 'An empty offer selection must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, 10, ['100']);
+    $service->validateCalculationLaunch(12740, ['15320']);
 }, 'String offer IDs must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, 10, [0]);
+    $service->validateCalculationLaunch(12740, [0]);
 }, 'Zero offer IDs must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, 10, [-100]);
+    $service->validateCalculationLaunch(12740, [-100]);
 }, 'Negative offer IDs must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, 10, [100.5]);
+    $service->validateCalculationLaunch(12740, [100.5]);
 }, 'Fractional offer IDs must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, 10, [9007199254740992]);
+    $service->validateCalculationLaunch(12740, [9007199254740992]);
 }, 'Unsafe JavaScript-sized offer IDs must be rejected');
 
 $storefrontLaunch = $service->validateStorefrontLaunch(11);
@@ -359,7 +363,7 @@ $emptyOffersService = new ControlCenterEditorsService(
     static fn(): bool => true
 );
 $expectInvalid(static function () use ($emptyOffersService): void {
-    $emptyOffersService->validateCalculationLaunch(12740, 10, [1]);
+    $emptyOffersService->validateCalculationLaunch(12740, [1]);
 }, 'A product without active offers must be rejected');
 
 $tooManyOffersService = new ControlCenterEditorsService(
@@ -378,7 +382,7 @@ $tooManyOffersService = new ControlCenterEditorsService(
     static fn(): bool => true
 );
 $expectInvalid(static function () use ($tooManyOffersService): void {
-    $tooManyOffersService->validateCalculationLaunch(12740, 10, range(1, 501));
+    $tooManyOffersService->validateCalculationLaunch(12740, range(1, 501));
 }, 'An oversized selective offer list must be rejected');
 
 $dependencyResolveCalls = [];
@@ -504,7 +508,7 @@ $assert(
     'The service must delegate revisioned template deletion'
 );
 $assert(
-    in_array(['loadWorkspace', 10, 'effective', '', [4267, 10, 11, 12727]], $provider->calls, true),
+    in_array(['loadWorkspace', 10, 'effective', '', [4267, 10, 11, 12727, 12764]], $provider->calls, true),
     'The provider must receive the current server-authorized product allowlist and load target'
 );
 $aggregateRevision = str_repeat('b', 64);
@@ -563,7 +567,7 @@ foreach ($formFirstCalls as $formFirstCall) {
     $passedContract = $formFirstCall[count($formFirstCall) - 1] ?? null;
     $passedAllowlist = $formFirstCall[count($formFirstCall) - 2] ?? null;
     $assert(
-        $passedAllowlist === [4267, 10, 11, 12727]
+        $passedAllowlist === [4267, 10, 11, 12727, 12764]
             && is_array($passedContract)
             && ($passedContract['contract'] ?? '') === 'prospektweb.calc.preset-public-inputs/v1'
             && preg_match('/^[a-f0-9]{64}$/D', (string)($passedContract['fingerprint'] ?? '')) === 1,

@@ -4751,7 +4751,12 @@
                 // чтобы избежать зависимости от предварительных проверок пресетов
                 this.logDebug('[CalcIntegration] Fetching init data via AJAX');
                 const initData = await this.fetchInitData();
-                const readyData = await this.ensureDefaultPresetDetail(initData);
+                // Published form-first presets are a read-only INIT boundary.
+                // Their graph is validated by the publication contract; loading
+                // an editor must never create a Bitrix detail implicitly.
+                const readyData = initData && initData.editorRuntime
+                    ? initData
+                    : await this.ensureDefaultPresetDetail(initData);
 
                 this.initData = readyData;
 

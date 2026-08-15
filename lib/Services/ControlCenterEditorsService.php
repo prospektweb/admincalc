@@ -149,43 +149,44 @@ final class ControlCenterEditorsService
     /**
      * @param mixed[] $offerIds
      */
-    public function validateCalculationLaunch(int $presetId, int $productId, array $offerIds): array
+    public function validateCalculationLaunch(int $presetId, array $offerIds): array
     {
         if ($presetId !== self::FOCUS_PRESET_ID) {
             throw new \InvalidArgumentException('Only the focus preset can be opened from this workspace');
         }
-        if ($productId <= 0) {
-            throw new \InvalidArgumentException('Select a product');
-        }
         $requestedOfferIds = $this->normalizeRequestedOfferIds($offerIds);
 
         $snapshot = $this->loadSnapshot();
-        $productName = '';
+        $supportedProductIds = array_fill_keys(
+            StandaloneCatalogSelectionMapper::supportedProductIds(),
+            true
+        );
         $serverOfferIds = [];
+        $offerProductIds = [];
         foreach ($snapshot['products'] as $product) {
-            if ((int)$product['id'] !== $productId) {
+            $productId = (int)($product['id'] ?? 0);
+            if ($productId <= 0
+                || !isset($supportedProductIds[$productId])
+                || !is_array($product['offers'] ?? null)) {
                 continue;
             }
-            $productName = (string)$product['name'];
             foreach ($product['offers'] as $offer) {
-                $serverOfferIds[] = (int)$offer['id'];
+                $offerId = (int)($offer['id'] ?? 0);
+                if ($offerId <= 0 || isset($offerProductIds[$offerId])) {
+                    throw new \RuntimeException('The authoritative catalog contains an invalid or duplicate offer');
+                }
+                $serverOfferIds[] = $offerId;
+                $offerProductIds[$offerId] = $productId;
             }
-            break;
-        }
-        if ($productName === '') {
-            throw new \InvalidArgumentException(
-                'Product ' . $productId . ' is not linked to preset ' . self::FOCUS_PRESET_ID
-            );
         }
         if ($serverOfferIds === []) {
-            throw new \InvalidArgumentException('The selected product has no active offers');
+            throw new \InvalidArgumentException('Preset 12740 has no active catalog offers');
         }
 
-        $allowedOfferIds = array_fill_keys($serverOfferIds, true);
         foreach ($requestedOfferIds as $offerId) {
-            if (!isset($allowedOfferIds[$offerId])) {
+            if (!isset($offerProductIds[$offerId])) {
                 throw new \InvalidArgumentException(
-                    'Offer ' . $offerId . ' is not active or does not belong to the selected product'
+                    'Offer ' . $offerId . ' is not active or does not belong to preset 12740 catalog scope'
                 );
             }
         }
@@ -199,13 +200,16 @@ final class ControlCenterEditorsService
                 return isset($requestedOfferMap[$offerId]);
             }
         ));
+        $serverProductIds = [];
+        foreach ($validatedOfferIds as $offerId) {
+            $serverProductIds[$offerProductIds[$offerId]] = true;
+        }
 
         return [
             'contract' => self::CONTRACT,
             'focusPresetId' => self::FOCUS_PRESET_ID,
             'presetName' => $snapshot['presetName'],
-            'productId' => $productId,
-            'productName' => $productName,
+            'productIds' => array_map('intval', array_keys($serverProductIds)),
             'offerIds' => $validatedOfferIds,
         ];
     }

@@ -136,6 +136,10 @@ class InitPayloadService
             throw new \InvalidArgumentException('Некорректный ID пресета');
         }
 
+        if ($presetId === \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID) {
+            return $this->prepareNeutralInitPayloadReadOnly($presetId, [], $siteId, false);
+        }
+
         $this->ensureBitrixModulesLoaded();
         $this->elementsStore = [];
 
@@ -162,6 +166,122 @@ class InitPayloadService
         }
 
         return $payload;
+    }
+
+    /**
+     * Build the preset-12740 editor INIT without any repair, migration,
+     * enrichment, preset/detail creation or option mutation.
+     *
+     * A zero requested preset ID is accepted only for the legacy single-product
+     * launch. In that case every server-resolved parent must still point to the
+     * one supported preset, 12740. An explicit preset ID with offers is the
+     * control-center catalog launch and therefore revalidates ACTIVE/date state.
+     *
+     * @param int[] $offerIds
+     * @return array<string,mixed>
+     */
+    public function prepareNeutralInitPayloadReadOnly(
+        int $requestedPresetId,
+        array $offerIds,
+        string $siteId,
+        bool $requireActiveCatalogTargets
+    ): array {
+        $neutralPresetId = \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID;
+        if (!in_array($requestedPresetId, [0, $neutralPresetId], true)) {
+            throw new \InvalidArgumentException('Редактор поддерживает только независимый пресет 12740.', 409);
+        }
+
+        $offerIds = $this->normalizeNeutralOfferIds($offerIds);
+        if ($offerIds === [] && $requestedPresetId !== $neutralPresetId) {
+            throw new \InvalidArgumentException('Для запуска требуется пресет 12740 или список торговых предложений.');
+        }
+
+        $this->ensureBitrixModulesLoaded();
+        $runtimeConfigSnapshot = $this->captureRuntimeConfigSnapshotDirect();
+        $this->pinnedRuntimeIblockIds = $this->buildPinnedRuntimeIblockMap($runtimeConfigSnapshot);
+        $this->assertNeutralPresetAvailableReadOnly($neutralPresetId);
+
+        $adapterOptionState = $this->readOptionStateDirect(
+            'prospektweb.calc',
+            'CATALOG_ADAPTER_12740'
+        );
+        $adapterService = new \Prospektweb\Calc\Services\CatalogAdapterDefinitionService();
+        $adapter = $adapterService->loadFromRaw($neutralPresetId, $adapterOptionState['value']);
+        $adapterPersisted = $this->catalogAdapterPersistedFromOptionState($adapterOptionState);
+
+        $selectedOffers = [];
+        $productIds = [];
+        if ($offerIds !== []) {
+            $selectedOffers = $this->loadOffers(
+                $offerIds,
+                $this->runtimeIblockId('OFFERS'),
+                $requireActiveCatalogTargets
+            );
+            // Authoring targets belong to the fixed prepared catalog scope,
+            // not to the current (possibly incomplete) adapter draft. The
+            // actual adapter is still used below so missing profiles surface
+            // in catalogMapping.errors and remain blocked from calculation.
+            $supportedProductIds = \Prospektweb\Calc\Services\StandaloneCatalogSelectionMapper::supportedProductIds();
+            $targets = $this->normalizeNeutralCatalogTargets(
+                $offerIds,
+                $selectedOffers,
+                $supportedProductIds,
+                $requestedPresetId === 0
+            );
+            $selectedOffers = $targets['offers'];
+            $offerIds = $targets['offerIds'];
+            $productIds = $targets['productIds'];
+            $this->assertNeutralParentProductsReadOnly($productIds, $requireActiveCatalogTargets);
+        }
+
+        $published = $this->readNeutralPublishedRuntimeDirect($neutralPresetId);
+
+        // Missing/N is an intentional pre-cutover authoring state. Any other
+        // raw value remains corruption and fails before INIT is emitted.
+        $this->parseAdapterAuthoringNeutralInputOption(
+            $this->readOptionValueDirect('prospektweb.calc', 'PRESET_12740_NEUTRAL_INPUT_ACTIVE')
+        );
+
+        $globalSymbolIblockId = $this->resolvePinnedGlobalSymbolIblockId($runtimeConfigSnapshot);
+        $globalSymbols = (new \Prospektweb\Calc\Services\GlobalSymbolService())
+            ->listReadOnlyFromIblockId($globalSymbolIblockId, $neutralPresetId);
+
+        $this->elementsStore = [];
+        $preset = $this->loadPreset($neutralPresetId);
+        if (!is_array($preset) || (int)($preset['id'] ?? 0) !== $neutralPresetId) {
+            throw new \RuntimeException('Пресет 12740 отсутствует в настроенном инфоблоке пресетов.', 409);
+        }
+
+        $editorRuntime = $this->buildEditorRuntime(
+            $neutralPresetId,
+            $selectedOffers,
+            null,
+            $offerIds === [] ? 'manual' : 'catalog',
+            $published['authoring'],
+            $adapter,
+            $adapterPersisted
+        );
+        $launchContext = is_array($editorRuntime['launchContext'] ?? null)
+            ? $editorRuntime['launchContext']
+            : [];
+        if (($launchContext['productIds'] ?? null) !== $productIds
+            || ($launchContext['offerIds'] ?? null) !== $offerIds) {
+            throw new \RuntimeException('INIT сформировал неканонический контекст запуска каталога.', 409);
+        }
+
+        return [
+            'context' => $this->buildContext($siteId),
+            'iblocks' => $this->getIblocks(),
+            'iblocksTree' => $this->buildIblocksTree(),
+            'selectedOffers' => $selectedOffers,
+            'priceTypes' => $this->getPriceTypes(),
+            'preset' => $preset,
+            'product' => null,
+            'elementsStore' => $this->elementsStore,
+            'elementsSiblings' => $this->buildElementsSiblings($preset),
+            'globalSymbols' => array_values($globalSymbols),
+            'editorRuntime' => $editorRuntime,
+        ];
     }
 
     /**
@@ -226,7 +346,8 @@ class InitPayloadService
         ?array $pinnedGlobalSymbols = null,
         ?int $pinnedGlobalSymbolIblockId = null,
         ?array $pinnedRuntimeConfigSnapshot = null,
-        bool $allowInactiveNeutralInputForAdapterAuthoring = false
+        bool $allowInactiveNeutralInputForAdapterAuthoring = false,
+        ?bool $pinnedAdapterPersisted = null
     ): array
     {
         $offerIds = array_values(array_map('intval', $offerIds));
@@ -269,6 +390,30 @@ class InitPayloadService
                 'Pinned catalog runtime must include the direct ConfigManager option snapshot.'
             );
         }
+        $adapterOptionState = null;
+        if ($hasAllRuntimePins) {
+            if ($pinnedAdapterPersisted === null) {
+                throw new \InvalidArgumentException(
+                    'Pinned catalog runtime must include the locked adapter persistence state.'
+                );
+            }
+        } else {
+            $adapterOptionState = $this->readOptionStateDirect(
+                'prospektweb.calc',
+                'CATALOG_ADAPTER_12740'
+            );
+            $directAdapterPersisted = $this->catalogAdapterPersistedFromOptionState(
+                $adapterOptionState
+            );
+            if ($pinnedAdapterPersisted !== null
+                && $pinnedAdapterPersisted !== $directAdapterPersisted) {
+                throw new \RuntimeException(
+                    'Catalog adapter persistence state changed while resolving runtime.',
+                    409
+                );
+            }
+            $pinnedAdapterPersisted = $directAdapterPersisted;
+        }
 
         if (!$hasAllRuntimePins) {
             if (!Loader::includeModule('prospektweb.frontcalc')) {
@@ -295,7 +440,7 @@ class InitPayloadService
             if ($pinnedAdapter === null) {
                 $pinnedAdapter = (new \Prospektweb\Calc\Services\CatalogAdapterDefinitionService())->loadFromRaw(
                     \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID,
-                    $this->readOptionValueDirect('prospektweb.calc', 'CATALOG_ADAPTER_12740')
+                    (string)$adapterOptionState['value']
                 );
             }
             $neutralInputRaw = $this->readOptionValueDirect(
@@ -403,7 +548,8 @@ class InitPayloadService
                 null,
                 'catalog',
                 $pinnedAuthoring,
-                $pinnedAdapter
+                $pinnedAdapter,
+                $pinnedAdapterPersisted
             ),
             // Private read-only pins consumed only while building the neutral
             // calc-server request. They never become formula context.
@@ -436,7 +582,8 @@ class InitPayloadService
         bool $neutralInputRequired,
         array $globalSymbols,
         int $globalSymbolIblockId,
-        array $runtimeConfigSnapshot
+        array $runtimeConfigSnapshot,
+        bool $adapterPersisted
     ): array {
         return $this->prepareCatalogWritePayload(
             $offerIds,
@@ -447,8 +594,258 @@ class InitPayloadService
             $neutralInputRequired,
             $globalSymbols,
             $globalSymbolIblockId,
-            $runtimeConfigSnapshot
+            $runtimeConfigSnapshot,
+            false,
+            $adapterPersisted
         );
+    }
+
+    /** @param mixed[] $offerIds @return int[] */
+    private function normalizeNeutralOfferIds(array $offerIds): array
+    {
+        if (count($offerIds) > 500) {
+            throw new \InvalidArgumentException('За один запуск можно выбрать не более 500 торговых предложений.');
+        }
+        $normalized = [];
+        foreach ($offerIds as $offerId) {
+            if ((is_int($offerId) || (is_string($offerId) && preg_match('/^[1-9][0-9]*$/D', $offerId) === 1))
+                && (int)$offerId > 0) {
+                $normalized[] = (int)$offerId;
+                continue;
+            }
+            throw new \InvalidArgumentException('Передан некорректный ID торгового предложения.');
+        }
+        if (count($normalized) !== count(array_unique($normalized))) {
+            throw new \InvalidArgumentException('ID торговых предложений не должны повторяться.');
+        }
+        sort($normalized, SORT_NUMERIC);
+        return $normalized;
+    }
+
+    /**
+     * Canonicalize and verify the complete requested/resolved target set.
+     * Kept data-only so the 5x6 matrix and fail-closed cases are regression
+     * tested without a mutable Bitrix fixture.
+     *
+     * @param int[] $requestedOfferIds
+     * @param array<int,array<string,mixed>> $selectedOffers
+     * @param int[] $supportedProductIds
+     * @return array{offerIds:int[],productIds:int[],offers:array<int,array<string,mixed>>}
+     */
+    private function normalizeNeutralCatalogTargets(
+        array $requestedOfferIds,
+        array $selectedOffers,
+        array $supportedProductIds,
+        bool $legacySingleProduct
+    ): array {
+        $requestedOfferIds = $this->normalizeNeutralOfferIds($requestedOfferIds);
+        $supportedProductIds = array_values(array_unique(array_map('intval', $supportedProductIds)));
+        sort($supportedProductIds, SORT_NUMERIC);
+
+        $offersById = [];
+        $productIds = [];
+        foreach ($selectedOffers as $offer) {
+            if (!is_array($offer)) {
+                throw new \RuntimeException('Сервер вернул некорректное торговое предложение.', 409);
+            }
+            $offerId = (int)($offer['id'] ?? 0);
+            $productId = (int)($offer['productId'] ?? 0);
+            if ($offerId <= 0 || $productId <= 0 || isset($offersById[$offerId])) {
+                throw new \RuntimeException('Набор торговых предложений не имеет однозначной каталоговой связи.', 409);
+            }
+            if (!in_array($productId, $supportedProductIds, true)) {
+                throw new \RuntimeException(
+                    'Товар #' . $productId . ' не поддерживается адаптером пресета 12740.',
+                    409
+                );
+            }
+            $offersById[$offerId] = $offer;
+            $productIds[$productId] = true;
+        }
+
+        $resolvedOfferIds = array_map('intval', array_keys($offersById));
+        sort($resolvedOfferIds, SORT_NUMERIC);
+        if ($resolvedOfferIds !== $requestedOfferIds) {
+            throw new \RuntimeException(
+                'Не все выбранные торговые предложения доступны в текущем каталоге.',
+                409
+            );
+        }
+
+        $productIds = array_map('intval', array_keys($productIds));
+        sort($productIds, SORT_NUMERIC);
+        if ($legacySingleProduct && count($productIds) !== 1) {
+            throw new \RuntimeException(
+                'Запуск из формы товара должен содержать торговые предложения ровно одного товара.',
+                409
+            );
+        }
+
+        $canonicalOffers = [];
+        foreach ($requestedOfferIds as $offerId) {
+            $canonicalOffers[] = $offersById[$offerId];
+        }
+        return [
+            'offerIds' => $requestedOfferIds,
+            'productIds' => $productIds,
+            'offers' => $canonicalOffers,
+        ];
+    }
+
+    /**
+     * Read every ConfigManager source selector directly from global b_option.
+     * Bitrix option names are case-insensitive in production, while duplicate
+     * mixed-case rows remain ambiguous and are rejected.
+     *
+     * @return array<string,string|null>
+     */
+    private function captureRuntimeConfigSnapshotDirect(): array
+    {
+        $namesByModule = [
+            'prospektweb.calc' => ['CALC_SERVER_URL', 'PRODUCT_IBLOCK_ID', 'SKU_IBLOCK_ID'],
+            'prospektweb.frontcalc' => ['PRODUCTS_IBLOCK_ID', 'OFFERS_IBLOCK_ID'],
+        ];
+        foreach (self::PINNED_RUNTIME_IBLOCK_CODES as $code) {
+            if (in_array($code, ['PRODUCTS', 'OFFERS'], true)) {
+                continue;
+            }
+            $namesByModule['prospektweb.calc'][] = 'IBLOCK_' . $code;
+            $namesByModule['prospektweb.frontcalc'][] = 'IBLOCK_' . $code;
+        }
+
+        $snapshot = [];
+        $canonicalByLookup = [];
+        $conditions = [];
+        foreach ($namesByModule as $moduleId => $names) {
+            foreach ($names as $name) {
+                $key = $moduleId . ':' . $name;
+                $snapshot[$key] = null;
+                $canonicalByLookup[strtolower($moduleId) . ':' . strtoupper($name)] = $key;
+                $conditions[] = "(MODULE_ID='" . $moduleId . "' AND NAME='" . $name . "')";
+            }
+        }
+
+        $result = Application::getConnection()->query(
+            'SELECT MODULE_ID, NAME, VALUE FROM b_option WHERE (' . implode(' OR ', $conditions)
+            . ") AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME"
+        );
+        while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
+            $actualModuleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+            $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
+            $lookup = strtolower($actualModuleId) . ':' . strtoupper($actualName);
+            $canonicalKey = $canonicalByLookup[$lookup] ?? null;
+            if (!is_string($canonicalKey) || !array_key_exists($canonicalKey, $snapshot)) {
+                throw new \RuntimeException('Unexpected neutral INIT runtime option row.', 409);
+            }
+            if ($snapshot[$canonicalKey] !== null) {
+                throw new \RuntimeException('Duplicate global neutral INIT runtime option row.', 409);
+            }
+            $snapshot[$canonicalKey] = (string)($row['VALUE'] ?? $row['value'] ?? '');
+        }
+        return $snapshot;
+    }
+
+    /** @return array{authoring:array<string,mixed>,snapshot:array<string,mixed>} */
+    private function readNeutralPublishedRuntimeDirect(int $presetId): array
+    {
+        if (!Loader::includeModule('prospektweb.frontcalc')) {
+            throw new \RuntimeException('Для editorRuntime требуется модуль prospektweb.frontcalc.');
+        }
+        $storeClass = '\\Prospektweb\\Frontcalc\\Service\\FormFirstAuthoringStore';
+        if (!class_exists($storeClass)
+            || !method_exists($storeClass, 'publishedAuthoringFromRaw')
+            || !method_exists($storeClass, 'publishedSnapshotFromRaw')) {
+            throw new \RuntimeException('FrontCalc не предоставляет read-only публикацию пресета 12740.', 409);
+        }
+        $raw = $this->readOptionValueDirect('prospektweb.frontcalc', 'FORM_FIRST_PRESET_12740');
+        $authoring = $storeClass::publishedAuthoringFromRaw($presetId, $raw);
+        $snapshot = $storeClass::publishedSnapshotFromRaw($presetId, $raw);
+        if (!is_array($authoring) || !is_array($snapshot)) {
+            throw new \RuntimeException('Опубликованный form-first пресет 12740 отсутствует или повреждён.', 409);
+        }
+        $publication = is_array($authoring['publication'] ?? null) ? $authoring['publication'] : [];
+        $snapshotMeta = is_array($snapshot['_form_first'] ?? null) ? $snapshot['_form_first'] : [];
+        if ((int)($publication['revision'] ?? 0) <= 0
+            || (int)($snapshotMeta['publishedRevision'] ?? 0) !== (int)$publication['revision']
+            || !hash_equals(
+                (string)($publication['compileHash'] ?? ''),
+                (string)($snapshotMeta['compileHash'] ?? '')
+            )) {
+            throw new \RuntimeException('Публикация формы и runtime-снимок пресета 12740 не совпадают.', 409);
+        }
+        return ['authoring' => $authoring, 'snapshot' => $snapshot];
+    }
+
+    private function assertNeutralPresetAvailableReadOnly(int $presetId): void
+    {
+        $row = \CIBlockElement::GetList(
+            [],
+            [
+                'ID' => $presetId,
+                'IBLOCK_ID' => $this->runtimeIblockId('CALC_PRESETS'),
+                'ACTIVE' => 'Y',
+            ],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'IBLOCK_ID']
+        )->Fetch();
+        if (!is_array($row) || (int)($row['ID'] ?? 0) !== $presetId) {
+            throw new \RuntimeException('Активный пресет 12740 не найден в настроенном инфоблоке.', 409);
+        }
+    }
+
+    /** @param int[] $productIds */
+    private function assertNeutralParentProductsReadOnly(array $productIds, bool $requireActive): void
+    {
+        $productIds = array_values(array_unique(array_map('intval', $productIds)));
+        sort($productIds, SORT_NUMERIC);
+        if ($productIds === []) {
+            throw new \RuntimeException('У выбранных торговых предложений не найдены товары.', 409);
+        }
+
+        $productIblockId = $this->runtimeIblockId('PRODUCTS');
+        $filter = ['ID' => $productIds, 'IBLOCK_ID' => $productIblockId];
+        if ($requireActive) {
+            $filter['ACTIVE'] = 'Y';
+            $filter['ACTIVE_DATE'] = 'Y';
+        }
+        $found = [];
+        $cursor = \CIBlockElement::GetList([], $filter, false, false, ['ID', 'IBLOCK_ID']);
+        while ($row = $cursor->Fetch()) {
+            $productId = (int)($row['ID'] ?? 0);
+            if ($productId > 0) {
+                $found[$productId] = true;
+            }
+        }
+        $resolvedProductIds = array_map('intval', array_keys($found));
+        sort($resolvedProductIds, SORT_NUMERIC);
+        if ($resolvedProductIds !== $productIds) {
+            throw new \RuntimeException('Не все товары доступны в текущем каталоге.', 409);
+        }
+
+        foreach ($productIds as $productId) {
+            $presetIds = [];
+            $properties = \CIBlockElement::GetProperty(
+                $productIblockId,
+                $productId,
+                ['ID' => 'ASC'],
+                ['CODE' => 'CALC_PRESET']
+            );
+            while ($property = $properties->Fetch()) {
+                $value = (int)($property['VALUE'] ?? 0);
+                if ($value > 0) {
+                    $presetIds[$value] = true;
+                }
+            }
+            $presetIds = array_map('intval', array_keys($presetIds));
+            sort($presetIds, SORT_NUMERIC);
+            if ($presetIds !== [\Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID]) {
+                throw new \RuntimeException(
+                    'Товар #' . $productId . ' не имеет однозначной привязки к пресету 12740.',
+                    409
+                );
+            }
+        }
     }
 
     private function resolvePinnedGlobalSymbolIblockId(?array $runtimeConfigSnapshot): int
@@ -554,6 +951,13 @@ class InitPayloadService
 
     private function readOptionValueDirect(string $moduleId, string $name): string
     {
+        $state = $this->readOptionStateDirect($moduleId, $name);
+        return $state['exists'] ? $state['value'] : '';
+    }
+
+    /** @return array{exists:bool,value:string} */
+    private function readOptionStateDirect(string $moduleId, string $name): array
+    {
         $allowed = [
             'prospektweb.frontcalc:FORM_FIRST_PRESET_12740' => true,
             'prospektweb.calc:CATALOG_ADAPTER_12740' => true,
@@ -574,7 +978,16 @@ class InitPayloadService
         if (is_array($duplicate)) {
             throw new \RuntimeException('Duplicate global catalog runtime option row.');
         }
-        return is_array($row) ? (string)($row['VALUE'] ?? $row['value'] ?? '') : '';
+        return [
+            'exists' => is_array($row),
+            'value' => is_array($row) ? (string)($row['VALUE'] ?? $row['value'] ?? '') : '',
+        ];
+    }
+
+    /** @param array{exists:bool,value:string} $state */
+    private function catalogAdapterPersistedFromOptionState(array $state): bool
+    {
+        return $state['exists'] === true && $state['value'] !== '';
     }
 
     private function parseNeutralInputOption(string $raw): bool
@@ -624,7 +1037,8 @@ class InitPayloadService
         ?array $product,
         string $mode,
         ?array $pinnedAuthoring = null,
-        ?array $pinnedAdapter = null
+        ?array $pinnedAdapter = null,
+        ?bool $pinnedAdapterPersisted = null
     ): array {
         if ($presetId !== \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID) {
             throw new \InvalidArgumentException('Независимый editorRuntime доступен только для пресета 12740.');
@@ -637,7 +1051,8 @@ class InitPayloadService
         }
 
         $storeClass = '\\Prospektweb\\Frontcalc\\Service\\FormFirstAuthoringStore';
-        if (!class_exists($storeClass) || !method_exists($storeClass, 'publishedAuthoringForPreset')) {
+        if (!class_exists($storeClass)
+            || ($pinnedAuthoring === null && !method_exists($storeClass, 'publishedAuthoringForPreset'))) {
             throw new \RuntimeException(
                 'Установленный FrontCalc не предоставляет preset-owned публикацию формы пресета 12740.'
             );
@@ -668,7 +1083,28 @@ class InitPayloadService
         }
 
         $adapterService = new \Prospektweb\Calc\Services\CatalogAdapterDefinitionService();
-        $adapter = $pinnedAdapter ?? $adapterService->load($presetId);
+        if ($pinnedAdapter === null) {
+            $adapterOptionState = $this->readOptionStateDirect(
+                'prospektweb.calc',
+                'CATALOG_ADAPTER_12740'
+            );
+            $adapterPersisted = $this->catalogAdapterPersistedFromOptionState($adapterOptionState);
+            if ($pinnedAdapterPersisted !== null && $pinnedAdapterPersisted !== $adapterPersisted) {
+                throw new \RuntimeException(
+                    'Catalog adapter persistence state changed while building editor runtime.',
+                    409
+                );
+            }
+            $adapter = $adapterService->loadFromRaw($presetId, $adapterOptionState['value']);
+        } else {
+            if ($pinnedAdapterPersisted === null) {
+                throw new \InvalidArgumentException(
+                    'Pinned catalog adapter must include its exact persistence state.'
+                );
+            }
+            $adapter = $pinnedAdapter;
+            $adapterPersisted = $pinnedAdapterPersisted;
+        }
         $preview = $adapterService->previewMappings(
             $selectedOffers,
             $formDefinition,
@@ -703,6 +1139,7 @@ class InitPayloadService
                 $offerIds[] = $offerId;
             }
         }
+        sort($offerIds, SORT_NUMERIC);
 
         return [
             'contract' => \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::EDITOR_RUNTIME_CONTRACT,
@@ -719,6 +1156,7 @@ class InitPayloadService
             'catalogAdapter' => $adapter,
             'catalogScenarios' => $preview['scenarios'],
             'catalogMapping' => [
+                'adapterPersisted' => $adapterPersisted,
                 'ready' => ($preview['ready'] ?? false) === true,
                 'hasTargets' => ($preview['hasTargets'] ?? false) === true,
                 'adapterRevision' => (string)($preview['adapterRevision'] ?? ''),
@@ -749,7 +1187,11 @@ class InitPayloadService
      * @param array $offerIds
      * @return array
      */
-    private function loadOffers(array $offerIds): array
+    private function loadOffers(
+        array $offerIds,
+        ?int $requiredOfferIblockId = null,
+        bool $requireActive = false
+    ): array
     {
         $offers = [];
 
@@ -759,9 +1201,21 @@ class InitPayloadService
                 continue;
             }
 
+            $filter = ['ID' => $offerId];
+            if ($requiredOfferIblockId !== null) {
+                if ($requiredOfferIblockId <= 0) {
+                    throw new \RuntimeException('Инфоблок торговых предложений не настроен.', 409);
+                }
+                $filter['IBLOCK_ID'] = $requiredOfferIblockId;
+            }
+            if ($requireActive) {
+                $filter['ACTIVE'] = 'Y';
+                $filter['ACTIVE_DATE'] = 'Y';
+            }
+
             $elementObject = \CIBlockElement::GetList(
                 [],
-                ['ID' => $offerId],
+                $filter,
                 false,
                 false,
                 ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'DETAIL_TEXT', 'TIMESTAMP_X', 'MODIFIED_BY', 'PROPERTY_*']
@@ -802,10 +1256,21 @@ class InitPayloadService
                     $productId = (int)$skuParent['ID'];
                 }
             }
+            if ($requiredOfferIblockId !== null) {
+                $skuParent = \CCatalogSku::GetProductInfo($offerId);
+                $catalogParentId = (int)($skuParent['ID'] ?? 0);
+                if ($catalogParentId <= 0 || $productId <= 0 || $catalogParentId !== $productId) {
+                    throw new \RuntimeException(
+                        'Торговое предложение #' . $offerId . ' не имеет однозначной связи с товаром.',
+                        409
+                    );
+                }
+            }
 
             $offers[] = [
                 'id' => $offerId,
                 'iblockId' => (int)$element['IBLOCK_ID'],
+                'productId' => $productId,
                 'name' => $element['NAME'] ?? '',
                 'code' => $element['CODE'] ?? null,
                 'previewText' => (string)($element['PREVIEW_TEXT'] ?? ''),
