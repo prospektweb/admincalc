@@ -112,8 +112,15 @@ final class CatalogCalculationWriteService
             . ") AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME"
         );
         while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
-            $key = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '')
-                . ':' . (string)($row['NAME'] ?? $row['name'] ?? '');
+            $moduleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+            $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
+            // Bitrix option names in long-lived installations may be stored in
+            // lowercase even though current ConfigManager constants are
+            // uppercase. MySQL compares NAME case-insensitively here, so bind
+            // every returned row to the canonical allowlist key explicitly.
+            // Preserve all other bytes: whitespace aliases and an unexpected
+            // module id must still fail closed.
+            $key = $moduleId . ':' . strtoupper($actualName);
             if (!array_key_exists($key, $snapshot)) {
                 throw new \RuntimeException('Unexpected runtime config option row.');
             }
