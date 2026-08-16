@@ -60,6 +60,10 @@ final class GlobalCodeRefactorService
                 throw new \RuntimeException('Pinned neutral refactor registry is invalid.', 409);
             }
             $this->lockRegistryRows($connection, $lockedGlobalIblockId);
+            if ($authority['active'] || $authority['markerExists']) {
+                (new \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService())
+                    ->assertActivationReadyLocked(true);
+            }
             $lockedPlan = $this->buildPlan($request, $authority);
             if (!hash_equals($plan['fingerprint'], $lockedPlan['fingerprint'])) {
                 throw new \RuntimeException(
@@ -74,7 +78,7 @@ final class GlobalCodeRefactorService
                 $lockedPlan['mutations']
             );
             if ($authority['active'] || $authority['markerExists']) {
-                \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+                \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(
                     $prospectiveNeutralRows
                 );
             }
@@ -99,7 +103,7 @@ final class GlobalCodeRefactorService
                 $this->loadRegistry($lockedGlobalIblockId)['rows']
             );
             if ($authority['active'] || $authority['markerExists']) {
-                \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+                \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(
                     $readBackNeutralRows
                 );
             }
@@ -136,6 +140,10 @@ final class GlobalCodeRefactorService
             return;
         }
         $required = \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::requiredSymbolIdentities();
+        $required = array_merge(
+            $required,
+            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::declarationIdentities()
+        );
         $requiredIds = [];
         foreach ($required as $code => $identity) {
             $requiredIds[(int)$identity['id']] = (string)$code;

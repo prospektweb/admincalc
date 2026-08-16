@@ -11,24 +11,24 @@ use Prospektweb\Calc\Services\CatalogAdapterDefinitionService;
 use Prospektweb\Calc\Services\NeutralFormulaPolicy;
 
 /**
- * One-time migration of preset-12740 global registry formulas.
+ * Versioned correction of preset-12740 global declaration ownership.
  *
- * The original neutral-input migration owns preset-local globals and stage
- * INPUTS. The global registry is a separate iblock and therefore needs its
- * own exact, versioned and recoverable migration boundary.
+ * V2 historical evidence remains owned by the predecessor service. This
+ * additive lifecycle clears only the eight declarations that are assigned by
+ * stage logic, preserving their registry identities, kinds and data types.
  */
-final class Preset12740NeutralGlobalSymbolMigrationService
+final class Preset12740NeutralGlobalSymbolCorrectionMigrationService
 {
-    public const CONTRACT = 'prospektweb.calc.preset-12740-neutral-global-symbol-migration/v2';
+    public const CONTRACT = 'prospektweb.calc.preset-12740-neutral-global-symbol-ownership-correction/v1';
     public const PRESET_ID = 12740;
-    public const EXPECTED_MUTATION_COUNT = 24;
+    public const EXPECTED_MUTATION_COUNT = 8;
     public const EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT = 37;
 
     private const MODULE_ID = 'prospektweb.calc';
     private const CONFIG_OPTION = 'IBLOCK_CALC_GLOBAL_VALUES';
     private const ACTIVE_OPTION = Preset12740NeutralInputMigrationService::ACTIVE_OPTION;
-    private const BACKUP_OPTION = 'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1';
-    private const MARKER_OPTION = 'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1';
+    public const BACKUP_OPTION = 'PRESET_12740_GLOBAL_OWNERSHIP_BACKUP_V1';
+    public const MARKER_OPTION = 'PRESET_12740_GLOBAL_OWNERSHIP_MIGRATION_V1';
 
     /** @var array<string,list<string>> */
     private const OPTION_NAMES_BY_MODULE = [
@@ -237,8 +237,22 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         ],
     ];
 
+    /** @var array<string,array{id:int,kind:string,dataType:string,literal:string}> */
+    private const DECLARATIONS = [
+        'needs_pre_lamination_trim' => ['id' => 12838, 'kind' => 'variable', 'dataType' => 'boolean', 'literal' => 'false'],
+        'print_layout_length_mm' => ['id' => 12839, 'kind' => 'constant', 'dataType' => 'number', 'literal' => '0'],
+        'print_layout_width_mm' => ['id' => 12840, 'kind' => 'constant', 'dataType' => 'number', 'literal' => '0'],
+        'print_sheet_thickness_initial_mm' => ['id' => 12902, 'kind' => 'constant', 'dataType' => 'number', 'literal' => '0'],
+        'print_sheet_weight_initial_g' => ['id' => 12903, 'kind' => 'constant', 'dataType' => 'number', 'literal' => '0'],
+        'title_for_base_in_offer' => ['id' => 12977, 'kind' => 'constant', 'dataType' => 'string', 'literal' => '""'],
+        'print_vibrancy_text' => ['id' => 12980, 'kind' => 'constant', 'dataType' => 'string', 'literal' => '""'],
+        'print_method_text' => ['id' => 12981, 'kind' => 'constant', 'dataType' => 'string', 'literal' => '""'],
+    ];
+
     public function audit(): array
     {
+        (new Preset12740NeutralGlobalSymbolMigrationService())
+            ->assertHistoricalCompletionReady();
         $config = $this->readConfigSnapshot(false);
         $active = $this->readActiveSnapshot(false);
         $state = $this->loadState($config, $active);
@@ -262,6 +276,8 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     public function previewProspectiveRuntimeRows(string $expectedFingerprint): array
     {
         self::assertFingerprint($expectedFingerprint);
+        (new Preset12740NeutralGlobalSymbolMigrationService())
+            ->assertHistoricalCompletionReady();
         $config = $this->readConfigSnapshot(false);
         $active = $this->readActiveSnapshot(false);
         $state = $this->loadState($config, $active);
@@ -289,44 +305,6 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     }
 
     /**
-     * Narrow predecessor proof for the additive ownership correction. It
-     * validates immutable V2 evidence and pinned authorities without applying
-     * today's corrected blank-declaration runtime rules.
-     *
-     * @return array<string,mixed>
-     */
-    public function assertHistoricalCompletionReady(): array
-    {
-        $config = $this->readConfigSnapshot(false);
-        $active = $this->readActiveSnapshot(false);
-        $state = $this->loadState($config, $active);
-        $evidence = self::assertHistoricalEvidence(
-            $this->readOptionRaw(self::MARKER_OPTION, false),
-            $this->readOptionRaw(self::BACKUP_OPTION, false)
-        );
-        self::assertHistoricalAuthorityUnchanged($state, $evidence['targetState']);
-        return self::buildHistoricalCompletionSummary($state, $evidence, (int)$config['iblockId']);
-    }
-
-    /** @return array<string,mixed> */
-    public function assertHistoricalCompletionReadyLocked(
-        bool $optionAuthoritiesAlreadyLocked = false
-    ): array {
-        if (!$optionAuthoritiesAlreadyLocked) {
-            $this->lockOptionAuthorityRows();
-        }
-        $config = $this->readConfigSnapshot(true);
-        $active = $this->readActiveSnapshot(true);
-        $markerRaw = $this->readOptionRaw(self::MARKER_OPTION, true);
-        $backupRaw = $this->readOptionRaw(self::BACKUP_OPTION, true);
-        $this->lockRegistryRows((int)$config['iblockId']);
-        $state = $this->loadState($config, $active, true);
-        $evidence = self::assertHistoricalEvidence($markerRaw, $backupRaw);
-        self::assertHistoricalAuthorityUnchanged($state, $evidence['targetState']);
-        return self::buildHistoricalCompletionSummary($state, $evidence, (int)$config['iblockId']);
-    }
-
-    /**
      * Activation gate used by the V1 input migration. The V1 marker/backup
      * remain byte-compatible; neutral input may be enabled only after this
      * independent registry phase has exact read-back evidence.
@@ -335,8 +313,20 @@ final class Preset12740NeutralGlobalSymbolMigrationService
      */
     public function assertActivationReady(): array
     {
-        return (new Preset12740NeutralGlobalSymbolCorrectionMigrationService())
-            ->assertActivationReady();
+        $predecessor = (new Preset12740NeutralGlobalSymbolMigrationService())
+            ->assertHistoricalCompletionReady();
+        $config = $this->readConfigSnapshot(false);
+        $active = $this->readActiveSnapshot(false);
+        $state = $this->loadState($config, $active);
+        $evidence = self::assertHistoricalEvidence(
+            $this->readOptionRaw(self::MARKER_OPTION, false),
+            $this->readOptionRaw(self::BACKUP_OPTION, false)
+        );
+        self::assertCurrentNeutralState($state, $evidence['targetState']);
+        $plan = self::buildVerifiedCompletionPlan($state, $evidence);
+        $plan['globalIblockId'] = (int)$config['iblockId'];
+        $plan['predecessorEvidenceVerified'] = ($predecessor['evidenceVerified'] ?? false) === true;
+        return $plan;
     }
 
     /**
@@ -352,24 +342,121 @@ final class Preset12740NeutralGlobalSymbolMigrationService
      */
     public function assertActivationReadyLocked(bool $optionAuthoritiesAlreadyLocked = false): array
     {
-        return (new Preset12740NeutralGlobalSymbolCorrectionMigrationService())
-            ->assertActivationReadyLocked($optionAuthoritiesAlreadyLocked);
+        if (!$optionAuthoritiesAlreadyLocked) {
+            $this->lockOptionAuthorityRows();
+        }
+        $predecessor = (new Preset12740NeutralGlobalSymbolMigrationService())
+            ->assertHistoricalCompletionReadyLocked(true);
+        $config = $this->readConfigSnapshot(true);
+        $active = $this->readActiveSnapshot(true);
+        $markerRaw = $this->readOptionRaw(self::MARKER_OPTION, true);
+        $backupRaw = $this->readOptionRaw(self::BACKUP_OPTION, true);
+        $this->lockRegistryRows((int)$config['iblockId']);
+
+        $state = $this->loadState($config, $active, true);
+        $evidence = self::assertHistoricalEvidence($markerRaw, $backupRaw);
+        self::assertCurrentNeutralState($state, $evidence['targetState']);
+        $plan = self::buildVerifiedCompletionPlan($state, $evidence);
+        $plan['globalIblockId'] = (int)$config['iblockId'];
+        $plan['predecessorEvidenceVerified'] = ($predecessor['evidenceVerified'] ?? false) === true;
+        return $plan;
     }
 
     /**
-     * Lock and validate the V2 side before V1 rollback changes ACTIVE.
+     * Lock and validate the ownership-corrected side before V1 rollback changes ACTIVE.
      *
-     * A completed V2 migration may be rolled back only while its current
-     * registry is still the exact uncustomized migration target. The legacy
-     * pending registry is also accepted for recovery when V2 was never
-     * applied. All mixed/corrupt states fail before any V1 write.
+     * A completed correction is accepted only at its exact uncustomized target.
+     * The exact pre-correction state is also accepted when the correction was
+     * never applied. All mixed/corrupt states fail before any V1 write.
      *
      * @return array<string,mixed>
      */
     public function assertV1RollbackReadyLocked(bool $optionAuthoritiesAlreadyLocked = false): array
     {
-        return (new Preset12740NeutralGlobalSymbolCorrectionMigrationService())
-            ->assertV1RollbackReadyLocked($optionAuthoritiesAlreadyLocked);
+        if (!$optionAuthoritiesAlreadyLocked) {
+            $this->lockOptionAuthorityRows();
+        }
+        (new Preset12740NeutralGlobalSymbolMigrationService())
+            ->assertHistoricalCompletionReadyLocked(true);
+        $config = $this->readConfigSnapshot(true);
+        $active = $this->readActiveSnapshot(true);
+        $markerRaw = $this->readOptionRaw(self::MARKER_OPTION, true);
+        $backupRaw = $this->readOptionRaw(self::BACKUP_OPTION, true);
+        $this->lockRegistryRows((int)$config['iblockId']);
+
+        $state = $this->loadState($config, $active, true);
+        if ((string)($state['active']['value'] ?? '') !== 'Y') {
+            throw new \RuntimeException('Neutral input is not active for V1 rollback.', 409);
+        }
+        $plan = $this->buildAuditedPlan($state, $markerRaw, $backupRaw);
+        $status = (string)($plan['status'] ?? '');
+        if ($status === 'complete') {
+            if (($plan['ready'] ?? false) !== true
+                || ($plan['evidenceVerified'] ?? false) !== true
+                || ($plan['customized'] ?? true) !== false) {
+                throw new \RuntimeException(
+                    'Customized global symbols must be restored before preset 12740 rollback.',
+                    409
+                );
+            }
+        } elseif ($status === 'pending') {
+            if ($markerRaw !== ''
+                || ($plan['ready'] ?? false) !== true
+                || count((array)($plan['mutations'] ?? [])) !== self::EXPECTED_MUTATION_COUNT) {
+                throw new \RuntimeException(
+                    'Global-symbol migration state is not an exact V1 rollback recovery source.',
+                    409
+                );
+            }
+        } else {
+            throw new \RuntimeException(
+                'Global-symbol migration state is not safe for preset 12740 rollback.',
+                409
+            );
+        }
+        unset($plan['_nextState']);
+        $plan['globalIblockId'] = (int)$config['iblockId'];
+        return $plan;
+    }
+
+    /**
+     * V2 rollback may proceed only after V1 is inactive and this correction is
+     * either unapplied or exactly rolled back to its retained predecessor.
+     *
+     * @return array<string,mixed>
+     */
+    public function assertV2RollbackReadyLocked(bool $optionAuthoritiesAlreadyLocked = false): array
+    {
+        if (!$optionAuthoritiesAlreadyLocked) {
+            $this->lockOptionAuthorityRows();
+        }
+        (new Preset12740NeutralGlobalSymbolMigrationService())
+            ->assertHistoricalCompletionReadyLocked(true);
+        $config = $this->readConfigSnapshot(true);
+        $active = $this->readActiveSnapshot(true);
+        $markerRaw = $this->readOptionRaw(self::MARKER_OPTION, true);
+        $backupRaw = $this->readOptionRaw(self::BACKUP_OPTION, true);
+        $this->lockRegistryRows((int)$config['iblockId']);
+        $state = $this->loadState($config, $active, true);
+        if ((string)($state['active']['value'] ?? '') !== 'N') {
+            throw new \RuntimeException('Roll back V1 before V2 global-symbol rollback.', 409);
+        }
+        if ($markerRaw !== '') {
+            throw new \RuntimeException('Roll back global-symbol ownership correction before V2 rollback.', 409);
+        }
+        $plan = self::buildPlan($state);
+        if (($plan['status'] ?? '') !== 'pending'
+            || ($plan['ready'] ?? false) !== true
+            || count((array)($plan['mutations'] ?? [])) !== self::EXPECTED_MUTATION_COUNT) {
+            throw new \RuntimeException('Global-symbol ownership predecessor is not exact for V2 rollback.', 409);
+        }
+        if ($backupRaw !== '') {
+            self::assertRetainedBackupMatchesState($state, $backupRaw);
+            $plan['backupRetained'] = true;
+        }
+        unset($plan['_nextState']);
+        $plan['globalIblockId'] = (int)$config['iblockId'];
+        return $plan;
     }
 
     /**
@@ -381,6 +468,9 @@ final class Preset12740NeutralGlobalSymbolMigrationService
      */
     public static function assertNeutralRuntimeRows(array $rows): void
     {
+        if (count($rows) !== self::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT) {
+            throw new \RuntimeException('Neutral global-symbol registry must contain exactly 37 rows.', 409);
+        }
         $byId = [];
         $byCode = [];
         foreach ($rows as $row) {
@@ -393,7 +483,8 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             $active = (string)($row['active'] ?? '');
             $kind = (string)($row['kind'] ?? '');
             $dataType = (string)($row['dataType'] ?? '');
-            $initialValue = trim((string)($row['initialValue'] ?? ''));
+            $initialValue = (string)($row['initialValue'] ?? '');
+            $trimmedInitialValue = trim($initialValue);
             $normalizedCode = strtolower($code);
             $reservedCode = self::isReservedGlobalCode($code);
             if ($id <= 0
@@ -405,16 +496,19 @@ final class Preset12740NeutralGlobalSymbolMigrationService
                 || $active !== 'Y'
                 || !in_array($kind, ['constant', 'variable'], true)
                 || !in_array($dataType, ['auto', 'string', 'number', 'boolean', 'array', 'object'], true)
-                || $initialValue === ''
                 || isset($byId[$id])
                 || isset($byCode[$normalizedCode])) {
                 throw new \RuntimeException('Neutral global-symbol registry identity is invalid.', 409);
             }
             $byId[$id] = $row;
             $byCode[$normalizedCode] = $row;
-            self::assertNeutralFormulaSource($initialValue);
+            if ($trimmedInitialValue !== '') {
+                self::assertNeutralFormulaSource($initialValue);
+            } elseif (!self::isBlankDeclaration($id, $code) || $initialValue !== '') {
+                throw new \RuntimeException('Only stage-owned global declarations may omit INITIAL_VALUE.', 409);
+            }
         }
-        foreach (self::SYMBOLS as $code => $specification) {
+        foreach (self::requiredNonblankSpecifications() as $code => $specification) {
             $row = $byId[$specification['id']] ?? null;
             if (!is_array($row)
                 || (string)($row['code'] ?? '') !== $code
@@ -422,6 +516,16 @@ final class Preset12740NeutralGlobalSymbolMigrationService
                 || (string)($row['dataType'] ?? '') !== $specification['dataType']
                 || trim((string)($row['initialValue'] ?? '')) === '') {
                 throw new \RuntimeException('Neutral global-symbol contract is incomplete for ' . $code . '.', 409);
+            }
+        }
+        foreach (self::DECLARATIONS as $code => $specification) {
+            $row = $byId[$specification['id']] ?? null;
+            if (!is_array($row)
+                || (string)($row['code'] ?? '') !== $code
+                || (string)($row['kind'] ?? '') !== $specification['kind']
+                || (string)($row['dataType'] ?? '') !== $specification['dataType']
+                || (string)($row['initialValue'] ?? '') !== '') {
+                throw new \RuntimeException('Stage-owned global declaration is invalid for ' . $code . '.', 409);
             }
         }
     }
@@ -456,10 +560,50 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         return $result;
     }
 
+    /** @return array<string,array{id:int,kind:string,dataType:string,blank:bool}> */
+    public static function declarationIdentities(): array
+    {
+        $result = [];
+        foreach (self::TYPED_INITIALIZERS as $code => $specification) {
+            $result[$code] = [
+                'id' => (int)$specification['id'],
+                'kind' => (string)$specification['kind'],
+                'dataType' => (string)$specification['dataType'],
+                'blank' => isset(self::DECLARATIONS[$code]),
+            ];
+        }
+        return $result;
+    }
+
+    public static function isBlankDeclaration(int $id, string $code): bool
+    {
+        $specification = self::DECLARATIONS[$code] ?? null;
+        return is_array($specification) && (int)$specification['id'] === $id;
+    }
+
+    /** @return array<string,array{id:int,kind:string,dataType:string,legacy:string,neutral:string}> */
+    private static function requiredNonblankSpecifications(): array
+    {
+        return array_merge(self::SYMBOLS, array_intersect_key(self::TYPED_INITIALIZERS, [
+            'is_self_adhesive_paper' => true,
+            'is_uv_printing' => true,
+        ]));
+    }
+
     /** @return array<string,array{id:int,kind:string,dataType:string,legacy:string,neutral:string}> */
     private static function migrationSpecifications(): array
     {
-        return array_merge(self::SYMBOLS, self::TYPED_INITIALIZERS);
+        $result = [];
+        foreach (self::DECLARATIONS as $code => $specification) {
+            $result[$code] = [
+                'id' => $specification['id'],
+                'kind' => $specification['kind'],
+                'dataType' => $specification['dataType'],
+                'legacy' => $specification['literal'],
+                'neutral' => '',
+            ];
+        }
+        return $result;
     }
 
     public function apply(string $expectedFingerprint, string $expectedActive): array
@@ -483,6 +627,8 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             $connection->startTransaction();
             $transactionStarted = true;
             $this->lockAuthorityRows($initialState);
+            (new Preset12740NeutralGlobalSymbolMigrationService())
+                ->assertHistoricalCompletionReadyLocked(true);
             $lockedConfig = $this->readConfigSnapshot(true);
             $lockedActive = $this->readActiveSnapshot(true);
             self::assertSnapshotUnchanged($initialConfig, $lockedConfig, 'global-symbol iblock configuration');
@@ -574,7 +720,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         $initialConfig = $this->readConfigSnapshot(false);
         $initialActive = $this->readActiveSnapshot(false);
         if (($initialActive['value'] ?? '') !== 'N') {
-            throw new \RuntimeException('Disable and roll back the neutral input migration before restoring legacy globals.', 409);
+            throw new \RuntimeException('Disable and roll back neutral input before restoring global declaration literals.', 409);
         }
         $initialState = $this->loadState($initialConfig, $initialActive);
         $transactionStarted = false;
@@ -582,8 +728,8 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             $connection->startTransaction();
             $transactionStarted = true;
             $this->lockAuthorityRows($initialState);
-            (new Preset12740NeutralGlobalSymbolCorrectionMigrationService())
-                ->assertV2RollbackReadyLocked(true);
+            (new Preset12740NeutralGlobalSymbolMigrationService())
+                ->assertHistoricalCompletionReadyLocked(true);
             $lockedConfig = $this->readConfigSnapshot(true);
             $lockedActive = $this->readActiveSnapshot(true);
             self::assertSnapshotUnchanged($initialConfig, $lockedConfig, 'global-symbol iblock configuration');
@@ -598,6 +744,18 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             }
             $backupRaw = $this->readOptionRaw(self::BACKUP_OPTION, true);
             $markerRaw = $this->readOptionRaw(self::MARKER_OPTION, true);
+            if ($markerRaw === '') {
+                if ($backupRaw === '') {
+                    throw new \RuntimeException('Global-symbol ownership-correction evidence is unavailable.', 409);
+                }
+                self::assertRetainedBackupMatchesState($currentState, $backupRaw);
+                $connection->commitTransaction();
+                $transactionStarted = false;
+                unset($currentPlan['_nextState']);
+                $currentPlan['backupRetained'] = true;
+                $currentPlan['rolledBack'] = false;
+                return $currentPlan;
+            }
             self::assertCompletionEvidence($currentPlan, $markerRaw, $backupRaw);
             $backup = json_decode($backupRaw, true);
             if (!is_array($backup) || !is_array($backup['state'] ?? null)) {
@@ -607,18 +765,20 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             if (($backupPlan['status'] ?? '') !== 'pending'
                 || ($backupPlan['ready'] ?? false) !== true
                 || count((array)($backupPlan['mutations'] ?? [])) !== self::EXPECTED_MUTATION_COUNT) {
-                throw new \RuntimeException('Global-symbol backup does not match the audited legacy state.');
+                throw new \RuntimeException('Global-symbol backup does not match the audited predecessor state.');
             }
             $this->writeState($backup['state'], (array)$backupPlan['mutations']);
             $restored = $this->loadState($lockedConfig, $lockedActive, true);
             if (!hash_equals((string)($backup['fingerprint'] ?? ''), self::fingerprint($restored))) {
                 throw new \RuntimeException('Global-symbol rollback read-back verification failed.');
             }
+            self::assertPredecessorStateRows($restored);
             $this->deleteGlobalOption(self::MARKER_OPTION);
             $connection->commitTransaction();
             $transactionStarted = false;
             $result = self::buildPlan($restored);
             unset($result['_nextState']);
+            $result['backupRetained'] = true;
             $result['rolledBack'] = true;
             return $result;
         } catch (\Throwable $error) {
@@ -636,145 +796,118 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     public static function buildPlan(array $state): array
     {
         self::validateState($state);
-        $migrationSpecifications = self::migrationSpecifications();
         $fingerprint = self::fingerprint($state);
         $next = $state;
         $mutations = [];
         $unresolved = [];
-        $neutralCount = 0;
-        $rowsByCode = [];
+        $pendingCount = 0;
+        $correctedCount = 0;
+        $ownedRows = self::runtimeRowsFromState($state);
+        if (count($ownedRows) !== self::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT) {
+            $unresolved[] = [
+                'kind' => 'runtime-registry',
+                'reason' => 'unexpected-runtime-row-count',
+                'expected' => self::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT,
+                'actual' => count($ownedRows),
+            ];
+        }
+
         $rowsById = [];
-        $seenIds = [];
-        foreach ($state['rows'] as $index => $row) {
+        $ownedCodes = [];
+        foreach ((array)$state['rows'] as $index => $row) {
+            if (!is_array($row)) {
+                $unresolved[] = ['kind' => 'identity', 'rowIndex' => $index, 'reason' => 'invalid-row'];
+                continue;
+            }
             $id = (int)($row['id'] ?? 0);
             $code = (string)($row['code'] ?? '');
-            if ($id <= 0 || $code === '' || isset($seenIds[$id])) {
+            if ($id <= 0 || $code === '' || isset($rowsById[$id])) {
                 $unresolved[] = ['kind' => 'identity', 'rowIndex' => $index, 'reason' => 'duplicate-or-invalid-row'];
                 continue;
             }
-            $seenIds[$id] = true;
             $rowsById[$id] = ['index' => $index, 'row' => $row];
             if ((int)($row['presetId'] ?? 0) !== self::PRESET_ID) {
                 continue;
             }
-            if (isset($rowsByCode[$code])) {
+            $normalizedCode = strtolower($code);
+            if (isset($ownedCodes[$normalizedCode])) {
                 $unresolved[] = ['kind' => 'identity', 'rowIndex' => $index, 'reason' => 'duplicate-owned-code'];
-                continue;
             }
-            $rowsByCode[$code] = ['index' => $index, 'row' => $row];
-            if (!isset($migrationSpecifications[$code]) && self::containsForbiddenRoot((string)($row['initialValue'] ?? ''))) {
-                $unresolved[] = ['kind' => 'unexpected-symbol', 'id' => $id, 'code' => $code, 'reason' => 'forbidden-entity-root'];
-            }
+            $ownedCodes[$normalizedCode] = true;
         }
 
-        foreach ($migrationSpecifications as $code => $specification) {
+        foreach (self::DECLARATIONS as $code => $specification) {
             $entry = $rowsById[$specification['id']] ?? null;
-            if (!is_array($entry)) {
-                $unresolved[] = ['kind' => 'required-symbol', 'code' => $code, 'reason' => 'missing'];
-                continue;
-            }
-            $row = $entry['row'];
-            if ((int)($row['id'] ?? 0) !== $specification['id']
+            $row = is_array($entry) ? ($entry['row'] ?? null) : null;
+            if (!is_array($row)
                 || (int)($row['iblockId'] ?? 0) !== (int)$state['iblockId']
                 || (int)($row['presetId'] ?? 0) !== self::PRESET_ID
                 || (string)($row['code'] ?? '') !== $code
                 || (string)($row['active'] ?? '') !== 'Y'
                 || (string)($row['kind'] ?? '') !== $specification['kind']
                 || (string)($row['dataType'] ?? '') !== $specification['dataType']) {
-                $unresolved[] = ['kind' => 'required-symbol', 'code' => $code, 'reason' => 'identity-or-type-mismatch'];
+                $unresolved[] = [
+                    'kind' => 'ownership-declaration',
+                    'id' => $specification['id'],
+                    'code' => $code,
+                    'reason' => 'identity-or-type-mismatch',
+                ];
                 continue;
             }
             $formula = (string)($row['initialValue'] ?? '');
             $initialValueExists = $row['initialValueExists'] ?? null;
-            $legacyInitialValueExists = !isset(self::TYPED_INITIALIZERS[$code]);
-            if (!is_bool($initialValueExists)) {
+            if ($formula === $specification['literal'] && $initialValueExists === true) {
+                $pendingCount++;
+                $next['rows'][(int)$entry['index']]['initialValue'] = '';
+                $next['rows'][(int)$entry['index']]['initialValueExists'] = false;
+                $mutations[] = [
+                    'kind' => 'global-symbol-ownership',
+                    'elementId' => $specification['id'],
+                    'code' => $code,
+                    'beforeExists' => true,
+                    'afterExists' => false,
+                ];
+            } elseif ($formula === '' && $initialValueExists === false) {
+                $correctedCount++;
+            } else {
                 $unresolved[] = [
-                    'kind' => 'required-symbol',
+                    'kind' => 'ownership-declaration',
                     'id' => $specification['id'],
                     'code' => $code,
-                    'reason' => 'invalid-initial-value-presence',
+                    'reason' => 'unexpected-initial-value',
+                    'exists' => $initialValueExists,
                 ];
-                continue;
             }
-            if ($formula === $specification['neutral']) {
-                if ($initialValueExists === true) {
-                    $neutralCount++;
+        }
+        if ($pendingCount > 0 && $correctedCount > 0) {
+            $unresolved[] = [
+                'kind' => 'ownership-declaration',
+                'reason' => 'partial-correction-state',
+                'pending' => $pendingCount,
+                'corrected' => $correctedCount,
+            ];
+        }
+        if ($unresolved === []) {
+            try {
+                if ($pendingCount === self::EXPECTED_MUTATION_COUNT) {
+                    self::assertPredecessorStateRows($state);
+                    self::assertNeutralStateRows($next);
+                } elseif ($correctedCount === self::EXPECTED_MUTATION_COUNT) {
+                    self::assertNeutralStateRows($state);
                 } else {
-                    $unresolved[] = [
-                        'kind' => 'required-symbol',
-                        'id' => $specification['id'],
-                        'code' => $code,
-                        'reason' => 'neutral-value-is-not-physically-stored',
-                    ];
+                    throw new \RuntimeException('Global-symbol ownership declaration count is invalid.', 409);
                 }
-                continue;
-            }
-            if ($formula !== $specification['legacy']) {
-                $unresolved[] = ['kind' => 'required-symbol', 'id' => $specification['id'], 'code' => $code, 'reason' => 'unexpected-formula', 'value' => $formula];
-                continue;
-            }
-            if ($initialValueExists !== $legacyInitialValueExists) {
+            } catch (\Throwable $error) {
                 $unresolved[] = [
-                    'kind' => 'required-symbol',
-                    'id' => $specification['id'],
-                    'code' => $code,
-                    'reason' => 'unexpected-initial-value-presence',
-                    'expected' => $legacyInitialValueExists,
-                    'actual' => $initialValueExists,
+                    'kind' => 'runtime-registry',
+                    'reason' => 'invalid-ownership-runtime-registry',
                 ];
-                continue;
             }
-            $next['rows'][(int)$entry['index']]['initialValue'] = $specification['neutral'];
-            $next['rows'][(int)$entry['index']]['initialValueExists'] = true;
-            $mutations[] = [
-                'kind' => 'global-symbol',
-                'elementId' => $specification['id'],
-                'code' => $code,
-                'before' => $formula,
-                'after' => $specification['neutral'],
-                'beforeExists' => $initialValueExists,
-                'afterExists' => true,
-            ];
-        }
-
-        $knownCount = $neutralCount + count($mutations);
-        if ($knownCount !== self::EXPECTED_MUTATION_COUNT) {
-            $unresolved[] = [
-                'kind' => 'migration-scope',
-                'reason' => 'unexpected-known-symbol-count',
-                'expected' => self::EXPECTED_MUTATION_COUNT,
-                'actual' => $knownCount,
-            ];
-        }
-        if ($neutralCount > 0 && $neutralCount < self::EXPECTED_MUTATION_COUNT) {
-            $unresolved[] = [
-                'kind' => 'migration-scope',
-                'reason' => 'partial-migration-state',
-                'neutral' => $neutralCount,
-                'legacy' => count($mutations),
-            ];
-        }
-        $prospectiveOwnedCount = count(self::runtimeRowsFromState($next));
-        if ($prospectiveOwnedCount !== self::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT) {
-            $unresolved[] = [
-                'kind' => 'runtime-registry',
-                'reason' => 'unexpected-prospective-runtime-row-count',
-                'expected' => self::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT,
-                'actual' => $prospectiveOwnedCount,
-            ];
-        }
-        try {
-            self::assertNeutralStateRows($next);
-        } catch (\Throwable $error) {
-            $unresolved[] = [
-                'kind' => 'runtime-registry',
-                'reason' => 'invalid-prospective-runtime-registry',
-            ];
         }
         $ready = $unresolved === [];
-        $status = $ready && $neutralCount === self::EXPECTED_MUTATION_COUNT
+        $status = $ready && $correctedCount === self::EXPECTED_MUTATION_COUNT
             ? 'complete'
-            : ($ready ? 'pending' : 'blocked');
+            : ($ready && $pendingCount === self::EXPECTED_MUTATION_COUNT ? 'pending' : 'blocked');
         return [
             'contract' => self::CONTRACT,
             'presetId' => self::PRESET_ID,
@@ -783,7 +916,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             'fingerprint' => $fingerprint,
             'nextFingerprint' => self::fingerprint($next),
             'mutations' => $mutations,
-            'neutralSymbolCount' => $neutralCount,
+            'correctedDeclarationCount' => $correctedCount,
             'unresolved' => $unresolved,
             'active' => (string)($state['active']['value'] ?? ''),
             '_nextState' => $next,
@@ -1081,13 +1214,43 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             if (!is_bool($initialValueExists)) {
                 throw new \RuntimeException('Global-symbol INITIAL_VALUE storage presence is invalid.');
             }
-            \CIBlockElement::SetPropertyValues($id, (int)$state['iblockId'], [], 'INITIAL_VALUE');
             if ($initialValueExists === false) {
+                $this->clearInitialValueStorageDirect(
+                    (int)$state['iblockId'],
+                    (int)($state['propertySchema']['INITIAL_VALUE']['id'] ?? 0),
+                    $id
+                );
                 continue;
             }
+            \CIBlockElement::SetPropertyValues($id, (int)$state['iblockId'], [], 'INITIAL_VALUE');
             \CIBlockElement::SetPropertyValuesEx($id, (int)$state['iblockId'], [
                 'INITIAL_VALUE' => ['VALUE' => ['TEXT' => (string)$row['initialValue'], 'TYPE' => 'TEXT']],
             ]);
+        }
+    }
+
+    private function clearInitialValueStorageDirect(int $iblockId, int $propertyId, int $elementId): void
+    {
+        if ($elementId <= 0) {
+            throw new \RuntimeException('Global-symbol direct clear target is invalid.', 409);
+        }
+        $authority = self::v2InitialValueStorageAuthority($iblockId, $propertyId);
+        $connection = Application::getConnection();
+        if (!method_exists($connection, 'isTableExists')
+            || !$connection->isTableExists($authority['table'])) {
+            throw new \RuntimeException('Global-symbol INITIAL_VALUE storage table is unavailable.', 409);
+        }
+        self::assertV2InitialValueStorageSchema(
+            $connection->getTableFields($authority['table']),
+            $authority
+        );
+        $connection->queryExecute(
+            'UPDATE ' . $authority['table'] . ' SET ' . $authority['column'] . '=NULL'
+            . ' WHERE IBLOCK_ELEMENT_ID=' . $elementId
+        );
+        $readBack = $this->loadInitialValueStorageV2($iblockId, $propertyId, true);
+        if (!array_key_exists($elementId, $readBack) || $readBack[$elementId] !== false) {
+            throw new \RuntimeException('Global-symbol direct clear read-back failed.');
         }
     }
 
@@ -1351,11 +1514,9 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     }
 
     /**
-     * Audit has two deliberately different meanings:
-     * - before the one-time migration, only the exact reviewed legacy state is
-     *   eligible for the deterministic twenty-four-row transition;
-     * - after it, immutable marker/backup evidence proves that rewrite while
-     *   the current formulas may be safely author-edited.
+     * Before correction only the exact reviewed eight-literal predecessor is
+     * eligible. Afterwards immutable evidence proves that transition while
+     * unrelated safe formulas may be author-edited.
      *
      * @param array<string,mixed> $state
      * @return array<string,mixed>
@@ -1427,9 +1588,8 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     }
 
     /**
-     * Rollback intentionally retains the immutable legacy backup, matching
-     * the V1 lifecycle. A later re-apply may reuse it only when the restored
-     * state still has the exact same fingerprint and twenty-four-row plan.
+     * Rollback intentionally retains the immutable predecessor backup. A
+     * later re-apply may reuse it only at the exact restored fingerprint.
      *
      * @param array<string,mixed> $state
      * @return array<string,mixed>
@@ -1469,46 +1629,9 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         ]);
     }
 
-    /** @param array<string,mixed> $state @param array<string,mixed> $historicalTarget */
-    private static function assertHistoricalAuthorityUnchanged(array $state, array $historicalTarget): void
-    {
-        self::validateState($state);
-        self::validateState($historicalTarget);
-        foreach (['presetId', 'iblockId', 'config', 'iblock', 'propertySchema'] as $key) {
-            $currentHash = hash('sha256', self::encodeCanonical($state[$key] ?? null));
-            $targetHash = hash('sha256', self::encodeCanonical($historicalTarget[$key] ?? null));
-            if (!hash_equals($targetHash, $currentHash)) {
-                throw new \RuntimeException('Global-symbol historical authority changed after V2 migration.', 409);
-            }
-        }
-    }
-
     /**
-     * @param array<string,mixed> $state
-     * @param array{marker:array<string,mixed>,backup:array<string,mixed>,targetState:array<string,mixed>} $evidence
-     * @return array<string,mixed>
-     */
-    private static function buildHistoricalCompletionSummary(
-        array $state,
-        array $evidence,
-        int $globalIblockId
-    ): array {
-        return [
-            'contract' => self::CONTRACT,
-            'presetId' => self::PRESET_ID,
-            'status' => 'complete',
-            'ready' => true,
-            'fingerprint' => self::fingerprint($state),
-            'migrationTargetFingerprint' => (string)($evidence['marker']['afterFingerprint'] ?? ''),
-            'active' => (string)($state['active']['value'] ?? ''),
-            'globalIblockId' => $globalIblockId,
-            'evidenceVerified' => true,
-        ];
-    }
-
-    /**
-     * Current-state proof intentionally permits safe formula edits while
-     * pinning all authorities and the required fourteen identities/types.
+     * Current-state proof permits safe formula edits while pinning authority,
+     * sixteen runtime initializers and eight physically absent declarations.
      *
      * @param array<string,mixed> $state
      * @param array<string,mixed> $historicalTarget
@@ -1517,6 +1640,9 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     {
         self::validateState($state);
         self::validateState($historicalTarget);
+        if (count(self::runtimeRowsFromState($state)) !== self::EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT) {
+            throw new \RuntimeException('Global-symbol ownership authority must contain exactly 37 rows.', 409);
+        }
         foreach (['presetId', 'iblockId', 'config', 'iblock', 'propertySchema'] as $key) {
             $currentHash = hash('sha256', self::encodeCanonical($state[$key] ?? null));
             $targetHash = hash('sha256', self::encodeCanonical($historicalTarget[$key] ?? null));
@@ -1532,13 +1658,50 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     {
         self::validateState($state);
         foreach ((array)$state['rows'] as $row) {
-            if (is_array($row)
-                && (int)($row['presetId'] ?? 0) === self::PRESET_ID
-                && ($row['initialValueExists'] ?? null) !== true) {
+            if (!is_array($row) || (int)($row['presetId'] ?? 0) !== self::PRESET_ID) {
+                continue;
+            }
+            $blank = self::isBlankDeclaration((int)($row['id'] ?? 0), (string)($row['code'] ?? ''));
+            if ($blank
+                && (($row['initialValueExists'] ?? null) !== false
+                    || (string)($row['initialValue'] ?? '') !== '')) {
+                throw new \RuntimeException('Stage-owned global declaration must be physically absent.', 409);
+            }
+            if (!$blank && ($row['initialValueExists'] ?? null) !== true) {
                 throw new \RuntimeException('Neutral global-symbol INITIAL_VALUE storage is absent.', 409);
             }
         }
         self::assertNeutralRuntimeRows(self::runtimeRowsFromState($state));
+    }
+
+    /** @param array<string,mixed> $state */
+    private static function assertPredecessorStateRows(array $state): void
+    {
+        self::validateState($state);
+        foreach ((array)$state['rows'] as $row) {
+            if (is_array($row)
+                && (int)($row['presetId'] ?? 0) === self::PRESET_ID
+                && ($row['initialValueExists'] ?? null) !== true) {
+                throw new \RuntimeException('Ownership-correction predecessor storage is absent.', 409);
+            }
+        }
+        $rows = self::runtimeRowsFromState($state);
+        foreach ($rows as &$row) {
+            $code = (string)($row['code'] ?? '');
+            $specification = self::DECLARATIONS[$code] ?? null;
+            if (!is_array($specification)) {
+                continue;
+            }
+            if ((int)($row['id'] ?? 0) !== $specification['id']
+                || (string)($row['kind'] ?? '') !== $specification['kind']
+                || (string)($row['dataType'] ?? '') !== $specification['dataType']
+                || (string)($row['initialValue'] ?? '') !== $specification['literal']) {
+                throw new \RuntimeException('Ownership-correction predecessor declaration is invalid.', 409);
+            }
+            $row['initialValue'] = '';
+        }
+        unset($row);
+        self::assertNeutralRuntimeRows($rows);
     }
 
     /** @param array<string,mixed> $state @return array<int,array<string,mixed>> */
@@ -1581,12 +1744,12 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             'fingerprint' => $fingerprint,
             'nextFingerprint' => $fingerprint,
             'mutations' => [],
-            'neutralSymbolCount' => self::EXPECTED_MUTATION_COUNT,
+            'correctedDeclarationCount' => self::EXPECTED_MUTATION_COUNT,
             'unresolved' => [],
             'active' => (string)($state['active']['value'] ?? ''),
             'evidenceVerified' => true,
             'customized' => !hash_equals($afterFingerprint, $fingerprint),
-            'migrationTargetFingerprint' => $afterFingerprint,
+            'correctionTargetFingerprint' => $afterFingerprint,
         ];
     }
 

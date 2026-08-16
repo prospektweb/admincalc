@@ -142,10 +142,10 @@ final class Preset12740NeutralInputMigrationService
             $connection->startTransaction();
             $transactionStarted = true;
             $this->lockNeutralOptionAuthorities();
-            // Lock and re-read V2 authorities/registry before any V1 source
+            // Lock and re-read V2 plus ownership-correction authorities before any V1 source
             // row. This keeps the shared options -> iblock order and makes the
-            // later ACTIVE=Y write depend on an exact in-transaction V2 gate.
-            $globalActivationPlan = (new Preset12740NeutralGlobalSymbolMigrationService())
+            // later ACTIVE=Y write depend on an exact in-transaction correction gate.
+            $globalActivationPlan = (new Preset12740NeutralGlobalSymbolCorrectionMigrationService())
                 ->assertActivationReadyLocked(true);
             $this->lockElements($initialState);
             $lockedConfigSnapshot = $this->readConfigSnapshot(true);
@@ -258,7 +258,7 @@ final class Preset12740NeutralInputMigrationService
             $connection->startTransaction();
             $transactionStarted = true;
             $this->lockNeutralOptionAuthorities();
-            (new Preset12740NeutralGlobalSymbolMigrationService())
+            (new Preset12740NeutralGlobalSymbolCorrectionMigrationService())
                 ->assertV1RollbackReadyLocked(true);
             $this->lockElements($initialState);
             $lockedConfigSnapshot = $this->readConfigSnapshot(true);
@@ -786,7 +786,7 @@ final class Preset12740NeutralInputMigrationService
 
     private function lockNeutralOptionAuthorities(): void
     {
-        // Acquire the exact superset needed by V1 activation, V2 evidence and
+        // Acquire the exact superset needed by V1 activation, V2/correction evidence and
         // formula writers in one deterministic pass. No registry/formula row
         // may be locked before this query, otherwise writers can form an
         // options <-> global-registry cycle with activation.
@@ -799,6 +799,8 @@ final class Preset12740NeutralInputMigrationService
             . "'IBLOCK_CALC_SETTINGS','IBLOCK_CALC_STAGES',"
             . "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1',"
             . "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',"
+            . "'PRESET_12740_GLOBAL_OWNERSHIP_BACKUP_V1',"
+            . "'PRESET_12740_GLOBAL_OWNERSHIP_MIGRATION_V1',"
             . "'PRESET_12740_NEUTRAL_INPUT_ACTIVE','PRESET_12740_NEUTRAL_INPUT_BACKUP_V1',"
             . "'PRESET_12740_NEUTRAL_INPUT_MIGRATION_V1'))) "
             . 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE'

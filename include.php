@@ -20,6 +20,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Install\\CatalogDisplayConfigPatcher' => 'lib/Install/CatalogDisplayConfigPatcher.php',
     'Prospektweb\\Calc\\Install\\Preset12740NeutralInputMigrationService' => 'lib/Install/Preset12740NeutralInputMigrationService.php',
     'Prospektweb\\Calc\\Install\\Preset12740NeutralGlobalSymbolMigrationService' => 'lib/Install/Preset12740NeutralGlobalSymbolMigrationService.php',
+    'Prospektweb\\Calc\\Install\\Preset12740NeutralGlobalSymbolCorrectionMigrationService' => 'lib/Install/Preset12740NeutralGlobalSymbolCorrectionMigrationService.php',
     'Prospektweb\\Calc\\Services\\PriceSettingsPresetService' => 'lib/Services/PriceSettingsPresetService.php',
     'Prospektweb\\Calc\\Services\\EntityLoader' => 'lib/Services/EntityLoader.php',
     'Prospektweb\\Calc\\Services\\ResultWriter' => 'lib/Services/ResultWriter.php',

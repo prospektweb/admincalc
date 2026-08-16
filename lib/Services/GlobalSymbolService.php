@@ -168,6 +168,8 @@ final class GlobalSymbolService
                 if ($iblockId <= 0) {
                     throw new \RuntimeException('Protected neutral registry authority is missing.', 409);
                 }
+                (new \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService())
+                    ->assertActivationReadyLocked(true);
             } else {
                 $iblockId = is_array($authority) ? (int)($authority['globalIblockId'] ?? 0) : 0;
                 if ($iblockId <= 0) {
@@ -263,10 +265,18 @@ final class GlobalSymbolService
             // PHP 8 exposes a Bitrix comparison bug for an existing HTML user-type
             // value (strcmp receives the converted array). Clear it first inside
             // the transaction, then write the converted value into an empty slot.
-            \CIBlockElement::SetPropertyValues($id, $iblockId, [], 'INITIAL_VALUE');
-            \CIBlockElement::SetPropertyValuesEx($id, $iblockId, [
-                'INITIAL_VALUE' => ['VALUE' => ['TEXT' => $initialValue, 'TYPE' => 'TEXT']],
-            ]);
+            if ($neutralContractProtected && $initialValue === '') {
+                $this->clearInitialValueStorageDirect(
+                    $iblockId,
+                    (int)$propertyIds['INITIAL_VALUE'],
+                    $id
+                );
+            } else {
+                \CIBlockElement::SetPropertyValues($id, $iblockId, [], 'INITIAL_VALUE');
+                \CIBlockElement::SetPropertyValuesEx($id, $iblockId, [
+                    'INITIAL_VALUE' => ['VALUE' => ['TEXT' => $initialValue, 'TYPE' => 'TEXT']],
+                ]);
+            }
             $storedElement = \CIBlockElement::GetList(
                 [],
                 ['ID' => $id, 'IBLOCK_ID' => $iblockId],
@@ -299,7 +309,7 @@ final class GlobalSymbolService
         }
         $storedSymbols = $this->readRows($iblockId, $presetId);
         if ($neutralContractProtected) {
-            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(
                 $storedSymbols
             );
         }
@@ -332,9 +342,10 @@ final class GlobalSymbolService
             NeutralFormulaPolicy::assertFormula($initialValue, 'global symbol #' . ($rowIndex + 1));
             $id = (int)($row['id'] ?? 0);
             if ($id <= 0) {
-                // New extra symbols receive their identity during Add(). They
-                // do not satisfy any of the fourteen required identities.
-                continue;
+                throw new \RuntimeException(
+                    'Protected preset 12740 global registry must remain exactly 37 rows.',
+                    409
+                );
             }
             if (isset($submittedIds[$id])) {
                 throw new \InvalidArgumentException('Neutral global-symbol row is submitted more than once.', 409);
@@ -356,9 +367,41 @@ final class GlobalSymbolService
                 'initialValue' => $initialValue,
             ]);
         }
-        \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+        \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(
             array_values($prospectiveById)
         );
+    }
+
+    private function clearInitialValueStorageDirect(int $iblockId, int $propertyId, int $elementId): void
+    {
+        if ($iblockId <= 0 || $propertyId <= 0 || $elementId <= 0) {
+            throw new \RuntimeException('Protected INITIAL_VALUE clear target is invalid.', 409);
+        }
+        $connection = Application::getConnection();
+        $table = 'b_iblock_element_prop_s' . $iblockId;
+        $column = 'PROPERTY_' . $propertyId;
+        if (!method_exists($connection, 'isTableExists') || !$connection->isTableExists($table)) {
+            throw new \RuntimeException('Protected INITIAL_VALUE storage table is unavailable.', 409);
+        }
+        $fields = $connection->getTableFields($table);
+        if (!is_array($fields)
+            || !array_key_exists('IBLOCK_ELEMENT_ID', $fields)
+            || !array_key_exists($column, $fields)) {
+            throw new \RuntimeException('Protected INITIAL_VALUE storage column is unavailable.', 409);
+        }
+        $connection->queryExecute(
+            'UPDATE ' . $table . ' SET ' . $column . '=NULL WHERE IBLOCK_ELEMENT_ID=' . $elementId
+        );
+        $row = $connection->query(
+            'SELECT IBLOCK_ELEMENT_ID, ' . $column . ' AS INITIAL_VALUE_RAW FROM ' . $table
+            . ' WHERE IBLOCK_ELEMENT_ID=' . $elementId . ' FOR UPDATE'
+        )->fetch();
+        if (!is_array($row)
+            || (int)($row['IBLOCK_ELEMENT_ID'] ?? 0) !== $elementId
+            || !array_key_exists('INITIAL_VALUE_RAW', $row)
+            || $row['INITIAL_VALUE_RAW'] !== null) {
+            throw new \RuntimeException('Protected INITIAL_VALUE clear read-back failed.');
+        }
     }
 
     private function normalizeRequestedCode($value): string

@@ -1247,6 +1247,7 @@ $assert(
 );
 
 $inputMigrationSource = file_get_contents(dirname(__DIR__) . '/lib/Install/Preset12740NeutralInputMigrationService.php');
+$correctionSource = file_get_contents(dirname(__DIR__) . '/lib/Install/Preset12740NeutralGlobalSymbolCorrectionMigrationService.php');
 $legacyMigrationSource = file_get_contents(dirname(__DIR__) . '/lib/Install/CatalogCalcPropertyMigrationService.php');
 $globalServiceSource = file_get_contents(dirname(__DIR__) . '/lib/Services/GlobalSymbolService.php');
 $initSource = file_get_contents(dirname(__DIR__) . '/lib/Calculator/InitPayloadService.php');
@@ -1262,12 +1263,12 @@ $assert(
     is_string($inputMigrationSource)
         && substr_count($inputMigrationSource, '->assertActivationReadyLocked(true);') === 1
         && strpos($inputMigrationSource, '->assertActivationReady();') === false,
-    'V1 takes one transaction-scoped V2 evidence and registry gate before either activation branch'
+    'V1 takes one transaction-scoped ownership-correction gate before either activation branch'
 );
-$lockedGateStart = strpos($source, 'public function assertActivationReadyLocked(');
-$runtimeBoundaryStart = strpos($source, 'public static function assertNeutralRuntimeRows(');
+$lockedGateStart = strpos($correctionSource, 'public function assertActivationReadyLocked(');
+$runtimeBoundaryStart = strpos($correctionSource, 'public static function assertNeutralRuntimeRows(');
 $lockedGateSource = is_int($lockedGateStart) && is_int($runtimeBoundaryStart)
-    ? substr($source, $lockedGateStart, $runtimeBoundaryStart - $lockedGateStart)
+    ? substr($correctionSource, $lockedGateStart, $runtimeBoundaryStart - $lockedGateStart)
     : '';
 $assert(
     strpos($lockedGateSource, '$this->lockOptionAuthorityRows();') !== false
@@ -1277,11 +1278,11 @@ $assert(
             < strpos($lockedGateSource, '$this->lockRegistryRows(')
         && strpos($lockedGateSource, '$this->lockRegistryRows(')
             < strpos($lockedGateSource, '$this->loadState('),
-    'the locked activation gate orders options before the complete registry lock and exact state reread'
+    'the correction activation gate orders options before the complete registry lock and exact state reread'
 );
-$rollbackGateStart = strpos($source, 'public function assertV1RollbackReadyLocked(');
+$rollbackGateStart = strpos($correctionSource, 'public function assertV1RollbackReadyLocked(');
 $rollbackGateSource = is_int($rollbackGateStart) && is_int($runtimeBoundaryStart)
-    ? substr($source, $rollbackGateStart, $runtimeBoundaryStart - $rollbackGateStart)
+    ? substr($correctionSource, $rollbackGateStart, $runtimeBoundaryStart - $rollbackGateStart)
     : '';
 $assert(
     $rollbackGateSource !== ''
@@ -1291,12 +1292,12 @@ $assert(
         && strpos($rollbackGateSource, "(\$plan['customized'] ?? true) !== false") !== false
         && strpos($rollbackGateSource, "\$status === 'pending'") !== false
         && strpos($rollbackGateSource, '$markerRaw !==') !== false,
-    'V1 rollback holds the V2 registry lock and accepts only uncustomized complete or exact pre-V2 pending state'
+    'V1 rollback holds the correction registry lock and accepts only uncustomized complete or exact pending state'
 );
 $assert(
     is_string($inputMigrationSource)
         && substr_count($inputMigrationSource, '->assertV1RollbackReadyLocked(true);') === 1,
-    'V1 rollback performs the transaction-scoped symmetric V2 recovery gate'
+    'V1 rollback performs the transaction-scoped symmetric correction recovery gate'
 );
 $assert(
     is_string($inputMigrationSource)
@@ -1317,13 +1318,13 @@ $assert(
 $assert(
     is_string($globalServiceSource)
         && strpos($globalServiceSource, 'assertNeutralRowsBeforeWrite(') !== false
-        && substr_count($globalServiceSource, 'Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(') >= 2,
-    'global authoring validates the complete required-14 registry before and after an active write'
+        && substr_count($globalServiceSource, 'Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(') >= 2,
+    'global authoring validates the corrected required registry before and after an active write'
 );
 $assert(
     is_string($initSource)
-        && substr_count($initSource, 'Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(') >= 3,
-    'manual and catalogue INIT payloads validate the neutral global registry'
+        && substr_count($initSource, 'Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(') >= 3,
+    'manual and catalogue INIT payloads validate the corrected neutral global registry'
 );
 
 fwrite(STDOUT, "OK\n");

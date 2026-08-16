@@ -191,7 +191,9 @@ class InitPayloadService
         $globalSymbols = (new \Prospektweb\Calc\Services\GlobalSymbolService())
             ->listReadOnlyFromIblockId($globalSymbolIblockId, $neutralPresetId);
         if ($neutralInputRequired === true) {
-            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+            (new \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService())
+                ->assertActivationReady();
+            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(
                 $globalSymbols
             );
         }
@@ -254,7 +256,7 @@ class InitPayloadService
         if ($presetId !== \Prospektweb\Calc\Services\CatalogAdapterDefinitionService::PRESET_ID) {
             throw new \InvalidArgumentException('Pinned standalone runtime is available only for preset 12740.');
         }
-        \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+        \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(
             $globalSymbols
         );
 
@@ -419,7 +421,9 @@ class InitPayloadService
             );
         }
         if ($pinnedNeutralInputRequired === true) {
-            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows(
+            (new \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService())
+                ->assertActivationReady();
+            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(
                 $pinnedGlobalSymbols
             );
         }

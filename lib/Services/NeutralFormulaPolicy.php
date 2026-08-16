@@ -18,6 +18,7 @@ final class NeutralFormulaPolicy
 
     private const INPUT_BACKUP_OPTION = 'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1';
     private const GLOBAL_BACKUP_OPTION = 'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1';
+    private const GLOBAL_OWNERSHIP_BACKUP_OPTION = 'PRESET_12740_GLOBAL_OWNERSHIP_BACKUP_V1';
 
     /** @var array<string,list<string>> */
     private const CONTRACT_OPTION_NAMES_BY_MODULE = [
@@ -32,6 +33,8 @@ final class NeutralFormulaPolicy
             'IBLOCK_CALC_EQUIPMENT',
             'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1',
             'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',
+            'PRESET_12740_GLOBAL_OWNERSHIP_BACKUP_V1',
+            'PRESET_12740_GLOBAL_OWNERSHIP_MIGRATION_V1',
             'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
             'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1',
         ],
@@ -406,7 +409,7 @@ final class NeutralFormulaPolicy
             $globalIblockId,
             self::PRESET_ID
         );
-        \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::assertNeutralRuntimeRows($rows);
+        \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows($rows);
         $registry = [];
         foreach ($rows as $row) {
             $code = (string)($row['code'] ?? '');
@@ -998,6 +1001,8 @@ final class NeutralFormulaPolicy
             . "'IBLOCK_CALC_EQUIPMENT',"
             . "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_BACKUP_V1',"
             . "'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',"
+            . "'PRESET_12740_GLOBAL_OWNERSHIP_BACKUP_V1',"
+            . "'PRESET_12740_GLOBAL_OWNERSHIP_MIGRATION_V1',"
             . "'PRESET_12740_NEUTRAL_INPUT_ACTIVE',"
             . "'PRESET_12740_NEUTRAL_INPUT_BACKUP_V1')) "
             . "OR (MODULE_ID='prospektweb.frontcalc' "
@@ -1018,19 +1023,30 @@ final class NeutralFormulaPolicy
         if (!in_array($activeValue, ['N', 'Y'], true)) {
             throw new \RuntimeException('Neutral activation authority is invalid.', 409);
         }
-        $markerExists = array_key_exists(
+        $v2MarkerExists = array_key_exists(
             'PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1',
             $calcValues
         );
-        if ($markerExists
+        if ($v2MarkerExists
             && trim((string)$calcValues['PRESET_12740_NEUTRAL_GLOBAL_SYMBOLS_MIGRATION_V1']) === '') {
             throw new \RuntimeException('Neutral global-symbol migration marker is invalid.', 409);
         }
+        $ownershipMarkerExists = array_key_exists(
+            'PRESET_12740_GLOBAL_OWNERSHIP_MIGRATION_V1',
+            $calcValues
+        );
+        if ($ownershipMarkerExists
+            && trim((string)$calcValues['PRESET_12740_GLOBAL_OWNERSHIP_MIGRATION_V1']) === '') {
+            throw new \RuntimeException('Neutral global-symbol ownership marker is invalid.', 409);
+        }
+        $markerExists = $v2MarkerExists || $ownershipMarkerExists;
         $inputBackupExists = array_key_exists(self::INPUT_BACKUP_OPTION, $calcValues);
         $globalBackupExists = array_key_exists(self::GLOBAL_BACKUP_OPTION, $calcValues);
+        $ownershipBackupExists = array_key_exists(self::GLOBAL_OWNERSHIP_BACKUP_OPTION, $calcValues);
         foreach ([
             self::INPUT_BACKUP_OPTION => $inputBackupExists,
             self::GLOBAL_BACKUP_OPTION => $globalBackupExists,
+            self::GLOBAL_OWNERSHIP_BACKUP_OPTION => $ownershipBackupExists,
         ] as $optionName => $exists) {
             if ($exists && trim((string)$calcValues[$optionName]) === '') {
                 throw new \RuntimeException('Neutral retained-backup authority is invalid.', 409);
@@ -1040,7 +1056,9 @@ final class NeutralFormulaPolicy
         // between-commit V1-rolled-back/V2-still-applied state. A lone V2
         // backup becomes recovery evidence once its marker is gone.
         $recoveryProtected = $activeValue === 'N'
-            && ($inputBackupExists || (!$markerExists && $globalBackupExists));
+            && ($inputBackupExists
+                || (!$v2MarkerExists && $globalBackupExists)
+                || (!$ownershipMarkerExists && $ownershipBackupExists));
         $iblockIds = self::requiredIblockIdsFromValues($calcValues);
         foreach ([
             'CALC_OPERATIONS_VARIANTS' => 'IBLOCK_CALC_OPERATIONS_VARIANTS',

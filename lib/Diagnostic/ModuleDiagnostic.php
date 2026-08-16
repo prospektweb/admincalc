@@ -67,6 +67,7 @@ class ModuleDiagnostic
         'lib/Install/CatalogCalcPropertyMigrationService.php',
         'lib/Install/Preset12740NeutralInputMigrationService.php',
         'lib/Install/Preset12740NeutralGlobalSymbolMigrationService.php',
+        'lib/Install/Preset12740NeutralGlobalSymbolCorrectionMigrationService.php',
         'lib/Services/GlobalCodeRefactorService.php',
         'lib/Services/GlobalSymbolService.php',
         'lib/Services/NeutralFormulaPolicy.php',
