@@ -29,6 +29,55 @@ $expectFailure = static function (callable $callback, string $message, ?int $cod
     $assert(false, $message);
 };
 
+final class CatalogRuntimeOptionLockResult
+{
+    /** @var array<int,array<string,mixed>> */
+    private array $rows;
+    private int $offset = 0;
+
+    /** @param array<int,array<string,mixed>> $rows */
+    public function __construct(array $rows)
+    {
+        $this->rows = array_values($rows);
+    }
+
+    /** @return array<string,mixed>|false */
+    public function fetch()
+    {
+        if (!isset($this->rows[$this->offset])) {
+            return false;
+        }
+        return $this->rows[$this->offset++];
+    }
+}
+
+final class CatalogRuntimeOptionLockConnection
+{
+    /** @var array<int,array<string,mixed>> */
+    private array $rows;
+    /** @var array<int,string> */
+    private $events;
+    public string $lockSql = '';
+
+    /** @param array<int,array<string,mixed>> $rows @param array<int,string> $events */
+    public function __construct(array $rows, array &$events)
+    {
+        $this->rows = array_values($rows);
+        $this->events =& $events;
+    }
+
+    public function query(string $sql): CatalogRuntimeOptionLockResult
+    {
+        if (strpos($sql, 'SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE (') !== 0
+            || strpos($sql, 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE') === false) {
+            throw new RuntimeException('Unexpected physical option-lock query: ' . $sql);
+        }
+        $this->events[] = 'option-lock';
+        $this->lockSql = $sql;
+        return new CatalogRuntimeOptionLockResult($this->rows);
+    }
+}
+
 $adapterRevision = str_repeat('a', 64);
 $publicationRevision = 4;
 $publicationHash = str_repeat('b', 64);
@@ -82,6 +131,46 @@ $makeRuntimeConfigSnapshot = static function () use (
         : 'https://calc-new.example.test';
     ksort($snapshot, SORT_STRING);
     return $snapshot;
+};
+$makePhysicalRuntimeOptionRows = static function (array $snapshot, array $extraRows = []): array {
+    $rows = [
+        [
+            'MODULE_ID' => 'prospektweb.frontcalc',
+            'NAME' => 'FORM_FIRST_PRESET_12740',
+            'VALUE' => '{"contract":"prospektweb.frontcalc.form-first/v1"}',
+            'SITE_ID' => null,
+        ],
+        [
+            'MODULE_ID' => 'prospektweb.calc',
+            'NAME' => 'CATALOG_ADAPTER_12740',
+            'VALUE' => '{"contract":"prospektweb.calc.catalog-adapter/v1"}',
+            'SITE_ID' => null,
+        ],
+        [
+            'MODULE_ID' => 'prospektweb.calc',
+            'NAME' => 'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
+            'VALUE' => 'Y',
+            'SITE_ID' => null,
+        ],
+    ];
+    foreach ($snapshot as $key => $value) {
+        if ($value === null) {
+            continue;
+        }
+        [$moduleId, $name] = explode(':', (string)$key, 2);
+        $rows[] = [
+            'MODULE_ID' => $moduleId,
+            'NAME' => $name,
+            'VALUE' => (string)$value,
+            'SITE_ID' => null,
+        ];
+    }
+    $rows = array_merge($rows, $extraRows);
+    usort($rows, static function (array $left, array $right): int {
+        return [$left['MODULE_ID'], $left['NAME'], (string)($left['SITE_ID'] ?? '')]
+            <=> [$right['MODULE_ID'], $right['NAME'], (string)($right['SITE_ID'] ?? '')];
+    });
+    return $rows;
 };
 $current = [15320 => [
     'id' => 15320,
@@ -566,9 +655,83 @@ $assert(($preview['clientResultComparison']['matchesAuthoritative'] ?? false) ==
 $assert(!isset($preview['_projectedResults']), 'public service preview never exposes projected write payloads');
 $assert(!isset(CatalogCalculationWriteService::publicPreview($preview)['_projectedResults']), 'client preview hides the in-process write handoff');
 
+$serviceReflection = new ReflectionClass($service);
+$adaptersProperty = $serviceReflection->getProperty('adapters');
+$adaptersProperty->setAccessible(true);
+$physicalLockAdapters = $adaptersProperty->getValue($service);
+unset($physicalLockAdapters['lock_runtime_options']);
+$physicalLockService = new CatalogCalculationWriteService($physicalLockAdapters);
+$connectionProperty = (new ReflectionClass($physicalLockService))->getProperty('transactionConnection');
+$connectionProperty->setAccessible(true);
+$baselineCurrent = $current;
+$physicalRows = $makePhysicalRuntimeOptionRows($makeRuntimeConfigSnapshot());
+$physicalConnection = new CatalogRuntimeOptionLockConnection($physicalRows, $events);
+$connectionProperty->setValue($physicalLockService, $physicalConnection);
+$events = [];
+$physicalApply = $physicalLockService->apply(
+    12740,
+    [15320],
+    $result,
+    's1',
+    $preview['fingerprint'],
+    2
+);
+$assert(
+    ($physicalApply['applied'] ?? false) === true,
+    'the production-shaped option lock accepts legitimate form, adapter and activation authority rows'
+);
+$assert(
+    $events === [
+        'calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'write', 'commit',
+    ],
+    'the physical option lock remains first and held through the complete catalog write transaction'
+);
+$assert(
+    strpos($physicalConnection->lockSql, "NAME='FORM_FIRST_PRESET_12740'") !== false
+        && strpos($physicalConnection->lockSql, "NAME='CATALOG_ADAPTER_12740'") !== false
+        && strpos($physicalConnection->lockSql, "NAME='PRESET_12740_NEUTRAL_INPUT_ACTIVE'") !== false,
+    'the successful physical lock keeps all three non-ConfigManager authorities in the same FOR UPDATE'
+);
+$current = $baselineCurrent;
+$receipts = [];
+$events = [];
+
+$duplicateAuthorityRows = $makePhysicalRuntimeOptionRows(
+    $makeRuntimeConfigSnapshot(),
+    [[
+        'MODULE_ID' => 'prospektweb.calc',
+        'NAME' => 'catalog_adapter_12740',
+        'VALUE' => '{}',
+        'SITE_ID' => null,
+    ]]
+);
+$duplicateAuthorityConnection = new CatalogRuntimeOptionLockConnection($duplicateAuthorityRows, $events);
+$connectionProperty->setValue($physicalLockService, $duplicateAuthorityConnection);
+$writesBeforeAuthorityFailure = $writeCount;
+$expectFailure(
+    static function () use ($physicalLockService, $result, $preview): void {
+        $physicalLockService->apply(12740, [15320], $result, 's1', $preview['fingerprint'], 3);
+    },
+    'ambiguous locked authority rows abort the production apply path',
+    409
+);
+$assert(
+    $events === ['calculate', 'adapter-lock', 'begin', 'option-lock', 'rollback'],
+    'invalid locked authority rolls the outer transaction back before catalog or runtime-source locks'
+);
+$assert(
+    $writeCount === $writesBeforeAuthorityFailure && $current === $baselineCurrent,
+    'invalid locked authority cannot cause a partial catalog write'
+);
+$events = [];
+$preview = $service->preview(12740, [15320], $result, 's1');
+
 $apply = $service->apply(12740, [15320], $result, 's1', $preview['fingerprint'], 1);
 $assert($apply['contract'] === CatalogCalculationWriteService::APPLY_CONTRACT && $apply['applied'] === true, 'matching CAS applies');
-$assert($events === ['calculate', 'calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'write', 'commit'], 'remote calculation finishes before apply locks options, catalog and exact runtime sources');
+$assert(
+    $events === ['calculate', 'calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'write', 'commit'],
+    'remote calculation finishes before apply locks options, catalog and exact runtime sources: ' . json_encode($events)
+);
 $assert($current[15320]['purchasingPrice'] === 410.25 && $current[15320]['prices'][0]['price'] === 530.0, 'apply writes the projected state');
 $events = [];
 $writesBeforeReplay = $writeCount;

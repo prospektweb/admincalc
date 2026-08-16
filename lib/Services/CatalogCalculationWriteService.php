@@ -71,6 +71,17 @@ final class CatalogCalculationWriteService
         ],
     ];
 
+    /**
+     * Non-ConfigManager authorities covered by the same first transaction
+     * lock. They are validated and kept locked, but never become part of the
+     * ConfigManager snapshot compared with calc-server provenance.
+     */
+    private const LOCKED_RUNTIME_AUTHORITY_OPTION_KEYS = [
+        'prospektweb.frontcalc:FORM_FIRST_PRESET_12740' => true,
+        'prospektweb.calc:CATALOG_ADAPTER_12740' => true,
+        'prospektweb.calc:PRESET_12740_NEUTRAL_INPUT_ACTIVE' => true,
+    ];
+
     /** @var array<string,callable> */
     private array $adapters;
 
@@ -135,15 +146,13 @@ final class CatalogCalculationWriteService
             }
         }
         foreach ($rows as $row) {
-            $moduleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
-            $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
             // Bitrix option names in long-lived installations may be stored in
             // lowercase even though current ConfigManager constants are
             // uppercase. MySQL compares NAME case-insensitively here, so bind
             // every returned row to the canonical allowlist key explicitly.
             // Preserve all other bytes: whitespace aliases and an unexpected
             // module id must still fail closed.
-            $key = $moduleId . ':' . strtoupper($actualName);
+            $key = $this->canonicalGlobalRuntimeOptionRowKey($row);
             if (!array_key_exists($key, $snapshot)) {
                 throw new \RuntimeException('Unexpected runtime config option row.');
             }
@@ -153,6 +162,58 @@ final class CatalogCalculationWriteService
             $snapshot[$key] = (string)($row['VALUE'] ?? $row['value'] ?? '');
         }
         return $this->normalizeRuntimeConfigSnapshot($snapshot);
+    }
+
+    /**
+     * Partition the production FOR UPDATE result without weakening its lock
+     * coverage. Authority rows remain locked by the originating SELECT while
+     * only ConfigManager rows participate in the calc-server snapshot.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<string,string|null>
+     */
+    private function runtimeConfigSnapshotFromLockedRows(array $rows): array
+    {
+        $runtimeKeys = [];
+        foreach (self::RUNTIME_CONFIG_OPTION_KEYS as $moduleId => $names) {
+            foreach ($names as $name) {
+                $runtimeKeys[$moduleId . ':' . $name] = true;
+            }
+        }
+
+        $runtimeRows = [];
+        $authorityRows = [];
+        foreach ($rows as $row) {
+            $key = $this->canonicalGlobalRuntimeOptionRowKey($row);
+            if (isset(self::LOCKED_RUNTIME_AUTHORITY_OPTION_KEYS[$key])) {
+                if (isset($authorityRows[$key])) {
+                    throw new \RuntimeException('Duplicate global runtime authority option row.', 409);
+                }
+                $authorityRows[$key] = true;
+                continue;
+            }
+            if (!isset($runtimeKeys[$key])) {
+                throw new \RuntimeException('Unexpected locked runtime option row.');
+            }
+            $runtimeRows[] = $row;
+        }
+
+        return $this->runtimeConfigSnapshotFromRows($runtimeRows);
+    }
+
+    /** @param array<string,mixed> $row */
+    private function canonicalGlobalRuntimeOptionRowKey(array $row): string
+    {
+        $siteId = array_key_exists('SITE_ID', $row)
+            ? $row['SITE_ID']
+            : ($row['site_id'] ?? null);
+        if ($siteId !== null && $siteId !== '') {
+            throw new \RuntimeException('Unexpected site-specific runtime option row.');
+        }
+
+        $moduleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+        $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
+        return $moduleId . ':' . strtoupper($actualName);
     }
 
     /**
@@ -3378,7 +3439,7 @@ final class CatalogCalculationWriteService
                 'SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE (' . implode(' OR ', $conditions)
                 . ") AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE"
             );
-            $lockedSnapshot = $this->runtimeConfigSnapshotFromRows($lockedRows);
+            $lockedSnapshot = $this->runtimeConfigSnapshotFromLockedRows($lockedRows);
         }
         if ($lockedSnapshot === null) {
             throw new \RuntimeException('Locked runtime configuration snapshot is unavailable.', 409);

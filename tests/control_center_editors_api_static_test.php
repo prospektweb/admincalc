@@ -208,6 +208,6 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== fal
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
 $assert(strpos($diagnostic, "'lib/Services/Phase5aParityContractService.php'") !== false, 'Diagnostics must verify the Phase 5A parity service');
-$assert(strpos($version, "'VERSION' => '1.8.3'") !== false, 'Neutral form-first editor release must publish a coherent module version');
+$assert(strpos($version, "'VERSION' => '1.8.4'") !== false, 'Neutral form-first editor release must publish a coherent module version');
 
 echo "Control center editors API static tests passed\n";
