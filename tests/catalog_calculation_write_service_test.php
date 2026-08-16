@@ -17,16 +17,17 @@ $assert = static function (bool $condition, string $message): void {
     }
 };
 
-$expectFailure = static function (callable $callback, string $message, ?int $code = null) use ($assert): void {
+$expectFailure = static function (callable $callback, string $message, ?int $code = null) use ($assert): Throwable {
     try {
         $callback();
     } catch (Throwable $error) {
         if ($code !== null) {
             $assert($error->getCode() === $code, $message . ' returns the expected code');
         }
-        return;
+        return $error;
     }
     $assert(false, $message);
+    throw new RuntimeException('Unreachable failed-expectation branch.');
 };
 
 final class CatalogRuntimeOptionLockResult
@@ -333,6 +334,14 @@ $events = [];
 $writeCount = 0;
 $failWrite = false;
 $skipMutation = false;
+$lastProjectedWrite = [];
+$simulateCatalogStorageReadback = false;
+$canonicalSqlFloat = static function ($value): float {
+    return (float)((string)(float)$value);
+};
+$canonicalDecimal8 = static function ($value) use ($canonicalSqlFloat): float {
+    return round($canonicalSqlFloat($value), 8, PHP_ROUND_HALF_UP);
+};
 $receipts = [];
 $mutateScenarioOnLock = false;
 $mutatePublicationOnRuntimeLock = false;
@@ -470,10 +479,15 @@ $service = new CatalogCalculationWriteService([
         &$events,
         &$writeCount,
         &$failWrite,
-        &$skipMutation
+        &$skipMutation,
+        &$lastProjectedWrite,
+        &$simulateCatalogStorageReadback,
+        $canonicalSqlFloat,
+        $canonicalDecimal8
     ): array {
         $events[] = 'write';
         $writeCount++;
+        $lastProjectedWrite = $projected;
         if ($failWrite) {
             return [
                 'status' => 'error',
@@ -485,18 +499,30 @@ $service = new CatalogCalculationWriteService([
         if (!$skipMutation) {
             $row = $projected[0];
             $outputs = $row['details'][0]['outputs'];
-            $current[15320]['purchasingPrice'] = (float)$row['purchasePrice'];
+            $current[15320]['purchasingPrice'] = $simulateCatalogStorageReadback
+                ? $canonicalDecimal8($row['purchasePrice'])
+                : (float)$row['purchasePrice'];
             $current[15320]['purchasingCurrency'] = (string)$row['currency'];
             $current[15320]['attributes'] = [
-                'width' => (float)$outputs['width'],
-                'length' => (float)$outputs['length'],
-                'height' => (float)$outputs['height'],
-                'weight' => (float)$outputs['weight'],
+                'width' => $simulateCatalogStorageReadback
+                    ? $canonicalSqlFloat($outputs['width'])
+                    : (float)$outputs['width'],
+                'length' => $simulateCatalogStorageReadback
+                    ? $canonicalSqlFloat($outputs['length'])
+                    : (float)$outputs['length'],
+                'height' => $simulateCatalogStorageReadback
+                    ? $canonicalSqlFloat($outputs['height'])
+                    : (float)$outputs['height'],
+                'weight' => $simulateCatalogStorageReadback
+                    ? $canonicalSqlFloat($outputs['weight'])
+                    : (float)$outputs['weight'],
             ];
             $price = $row['priceRangesWithMarkup'][0]['prices'][0];
             $current[15320]['prices'] = [[
                 'typeId' => (int)$price['typeId'],
-                'price' => (float)$price['basePrice'],
+                'price' => $simulateCatalogStorageReadback
+                    ? $canonicalDecimal8($price['basePrice'])
+                    : (float)$price['basePrice'],
                 'currency' => (string)$price['currency'],
                 'quantityFrom' => null,
                 'quantityTo' => null,
@@ -766,6 +792,98 @@ $assert($events === ['adapter-lock', 'begin', 'option-lock', 'lock', 'rollback']
 $assert($writeCount === $writesBeforeReplay, 'changed replay target never writes');
 $current[15320]['attributes']['weight'] = 120.0;
 $assert($service->preview(12740, [15320], $result, 's1')['summary']['changedFields'] === 0, 'readback is idempotent');
+
+// Production-shaped readback: Bitrix casts doubles through PHP precision=14,
+// then its current schema stores money in DECIMAL(26,8). The raw calc-server
+// values below are the exact values observed for offer #15320.
+$storageResult = $result;
+$storageResult[0]['purchasePrice'] = 351.8923636363636;
+$storageResult[0]['details'][0]['outputs']['weight'] = 135.51554828150574;
+$storageResult[0]['priceRangesWithMarkup'][0]['prices'][0]['basePrice'] = 530.1234567890123;
+$serverResult = $storageResult;
+$simulateCatalogStorageReadback = true;
+$current[15320]['purchasingPrice'] = 300.0;
+$current[15320]['attributes']['weight'] = 100.0;
+$current[15320]['prices'][0]['price'] = 500.0;
+$events = [];
+$storagePreview = $service->preview(12740, [15320], $storageResult, 's1');
+$assert(
+    ($storagePreview['summary']['changedFields'] ?? -1) === 3,
+    'storage-shaped preview reports only the changed purchase, weight and price sinks'
+);
+$assert(
+    ($storagePreview['offers'][0]['diff'][0]['new']['value'] ?? null) === 351.89236364
+        && ($storagePreview['offers'][0]['diff'][4]['new'] ?? null) === 135.51554828151
+        && ($storagePreview['offers'][0]['diff'][5]['new'][0]['price'] ?? null) === 530.12345679,
+    'projected writable values are canonicalized exactly like Bitrix SQL and DECIMAL(26,8) storage'
+);
+$storageApply = $service->apply(
+    12740,
+    [15320],
+    $storageResult,
+    's1',
+    $storagePreview['fingerprint'],
+    4
+);
+$assert(
+    ($storageApply['applied'] ?? false) === true
+        && end($events) === 'commit'
+        && !in_array('rollback', $events, true),
+    'production-shaped numeric coercion passes the post-write readback and commits'
+);
+$assert(
+    $current[15320]['purchasingPrice'] === 351.89236364
+        && $current[15320]['attributes']['weight'] === 135.51554828151
+        && $current[15320]['prices'][0]['price'] === 530.12345679,
+    'the write fixture reproduces exact installed-catalog readback values'
+);
+$assert(
+    ($lastProjectedWrite[0]['purchasePrice'] ?? null) === 351.89236364
+        && ($lastProjectedWrite[0]['details'][0]['outputs']['weight'] ?? null) === 135.51554828151
+        && ($lastProjectedWrite[0]['priceRangesWithMarkup'][0]['prices'][0]['basePrice'] ?? null)
+            === 530.12345679,
+    'the catalog writer receives the canonical storable payload rather than raw calc-server floats'
+);
+$storageReadbackPreview = $service->preview(12740, [15320], $storageResult, 's1');
+$storageRepeatPreview = $service->preview(12740, [15320], $storageResult, 's1');
+$assert(
+    ($storageReadbackPreview['summary']['changedFields'] ?? -1) === 0
+        && hash_equals($storageReadbackPreview['fingerprint'], $storageRepeatPreview['fingerprint']),
+    'exact catalog readback is strictly idempotent with a stable canonical fingerprint'
+);
+
+$current[15320]['purchasingPrice'] = 351.89236365;
+$current[15320]['attributes']['weight'] = 135.51554828152;
+$current[15320]['prices'][0]['price'] = 530.12345680;
+$storageDriftPreview = $service->preview(12740, [15320], $storageResult, 's1');
+$storageDriftPaths = [];
+foreach ($storageDriftPreview['offers'][0]['diff'] as $diff) {
+    if (!empty($diff['changed'])) {
+        $storageDriftPaths[] = (string)$diff['path'];
+    }
+}
+$assert(
+    ($storageDriftPreview['summary']['changedFields'] ?? -1) === 3
+        && $storageDriftPaths === ['purchasingPrice', 'dimensions.weight', 'prices'],
+    'the next representable purchase, DOUBLE and catalog-price units remain real drift'
+);
+
+$simulateCatalogStorageReadback = false;
+$serverResult = $result;
+$current[15320]['purchasingPrice'] = 410.25;
+$current[15320]['purchasingCurrency'] = 'RUB';
+$current[15320]['attributes'] = ['width' => 90.0, 'length' => 50.0, 'height' => 3.0, 'weight' => 120.0];
+$current[15320]['prices'] = [[
+    'typeId' => 1,
+    'price' => 530.0,
+    'currency' => 'RUB',
+    'quantityFrom' => null,
+    'quantityTo' => null,
+]];
+$assert(
+    $service->preview(12740, [15320], $result, 's1')['summary']['changedFields'] === 0,
+    'the baseline fixture remains idempotent after the storage regression'
+);
 
 $stalePreview = $service->preview(12740, [15320], $result, 's1');
 $current[15320]['attributes']['weight'] = 121.0;
@@ -1132,13 +1250,17 @@ $skipMutation = true;
 $events = [];
 $current[15320]['purchasingPrice'] = 399.0;
 $unverifiedWritePreview = $service->preview(12740, [15320], $result, 's1');
-$expectFailure(
+$readbackFailure = $expectFailure(
     static function () use ($service, $result, $unverifiedWritePreview): void {
         $service->apply(12740, [15320], $result, 's1', $unverifiedWritePreview['fingerprint'], 1);
     },
     'a successful API response without matching readback is rejected'
 );
 $assert($events === ['calculate', 'calculate', 'adapter-lock', 'begin', 'option-lock', 'lock', 'runtime-lock', 'write', 'rollback'], 'failed readback rolls back before commit');
+$assert(
+    strpos($readbackFailure->getMessage(), '#15320:purchasingPrice') !== false,
+    'failed readback reports the exact remaining offer and field while preserving rollback'
+);
 
 $writerSource = file_get_contents(dirname(__DIR__) . '/lib/Services/CatalogCalculationWriteService.php');
 $assert(

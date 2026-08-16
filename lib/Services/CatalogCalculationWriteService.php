@@ -28,6 +28,12 @@ final class CatalogCalculationWriteService
     private const RECEIPT_MAX_COUNT_PER_TYPE = 256;
     private const RECEIPT_MAX_FUTURE_SKEW_SECONDS = 300;
     private const RECEIPT_MODULE_ID = 'prospektweb.calc';
+    // The active Bitrix schema stores both purchase and catalog prices in
+    // DECIMAL(26,8). Before SQL, Bitrix first casts each double to a PHP
+    // string; DOUBLE fields retain that same SQL-literal representation.
+    private const PURCHASING_PRICE_STORAGE_SCALE = 8;
+    private const CATALOG_PRICE_STORAGE_SCALE = 8;
+    private const READBACK_DIAGNOSTIC_LIMIT = 20;
     private const RECEIPT_PREFIX_CONTRACTS = [
         'CATALOG_WRITE_RECEIPT_' => self::RECEIPT_CONTRACT,
         'CATALOG_BATCH_RECEIPT_' => self::BATCH_RECEIPT_CONTRACT,
@@ -686,7 +692,10 @@ final class CatalogCalculationWriteService
 
                 $verified = $this->buildPreview($offerIds, $authoritative, [], $siteId, false, true);
                 if ((int)($verified['summary']['changedFields'] ?? -1) !== 0) {
-                    throw new \RuntimeException('Проверка пакетной записи цен и габаритов не прошла.');
+                    throw new \RuntimeException(
+                        'Проверка пакетной записи цен и габаритов не прошла. Остались отличия: '
+                        . $this->readbackMismatchDiagnostics($verified) . '.'
+                    );
                 }
                 $writeResult['contract'] = self::BATCH_APPLY_CONTRACT;
                 $writeResult['replayed'] = false;
@@ -845,7 +854,10 @@ final class CatalogCalculationWriteService
                 );
             }
             if ((int)($verifiedPreview['summary']['changedFields'] ?? -1) !== 0) {
-                throw new \RuntimeException('Проверка записанных цен и габаритов не прошла; транзакция отменена.');
+                throw new \RuntimeException(
+                    'Проверка записанных цен и габаритов не прошла; транзакция отменена. Остались отличия: '
+                    . $this->readbackMismatchDiagnostics($verifiedPreview) . '.'
+                );
             }
 
             $response = [
@@ -1274,14 +1286,17 @@ final class CatalogCalculationWriteService
         return [
             'offerId' => (int)($offer['id'] ?? 0),
             'purchasingPrice' => [
-                'value' => $this->nullableNumber($offer['purchasingPrice'] ?? null),
+                'value' => $this->storedDecimalNumber(
+                    $offer['purchasingPrice'] ?? null,
+                    self::PURCHASING_PRICE_STORAGE_SCALE
+                ),
                 'currency' => $this->nullableCurrency($offer['purchasingCurrency'] ?? null),
             ],
             'dimensions' => [
-                'width' => $this->nullableNumber($attributes['width'] ?? null),
-                'length' => $this->nullableNumber($attributes['length'] ?? null),
-                'height' => $this->nullableNumber($attributes['height'] ?? null),
-                'weight' => $this->nullableNumber($attributes['weight'] ?? null),
+                'width' => $this->storedDoubleNumber($attributes['width'] ?? null),
+                'length' => $this->storedDoubleNumber($attributes['length'] ?? null),
+                'height' => $this->storedDoubleNumber($attributes['height'] ?? null),
+                'weight' => $this->storedDoubleNumber($attributes['weight'] ?? null),
             ],
             'prices' => $this->normalizeCurrentPrices(is_array($offer['prices'] ?? null) ? $offer['prices'] : []),
         ];
@@ -1296,14 +1311,18 @@ final class CatalogCalculationWriteService
         return [
             'offerId' => (int)($projected['offerId'] ?? 0),
             'purchasingPrice' => [
-                'value' => $this->positiveNumber($projected['purchasePrice'] ?? null, 'Закупочная цена'),
+                'value' => $this->positiveStoredDecimalNumber(
+                    $projected['purchasePrice'] ?? null,
+                    self::PURCHASING_PRICE_STORAGE_SCALE,
+                    'Закупочная цена'
+                ),
                 'currency' => $this->nullableCurrency($projected['currency'] ?? null),
             ],
             'dimensions' => [
-                'width' => $this->positiveNumber($outputs['width'] ?? null, 'Ширина'),
-                'length' => $this->positiveNumber($outputs['length'] ?? null, 'Длина'),
-                'height' => $this->positiveNumber($outputs['height'] ?? null, 'Высота'),
-                'weight' => $this->positiveNumber($outputs['weight'] ?? null, 'Вес'),
+                'width' => $this->positiveStoredDoubleNumber($outputs['width'] ?? null, 'Ширина'),
+                'length' => $this->positiveStoredDoubleNumber($outputs['length'] ?? null, 'Длина'),
+                'height' => $this->positiveStoredDoubleNumber($outputs['height'] ?? null, 'Высота'),
+                'weight' => $this->positiveStoredDoubleNumber($outputs['weight'] ?? null, 'Вес'),
             ],
             'prices' => $this->predictWrittenPrices($current['prices'], $projectedPrices),
         ];
@@ -1372,7 +1391,10 @@ final class CatalogCalculationWriteService
     private function normalizePriceRow(array $row, bool $requirePositive): array
     {
         $typeId = (int)($row['typeId'] ?? 0);
-        $price = $this->nullableNumber($row['price'] ?? null);
+        $price = $this->storedDecimalNumber(
+            $row['price'] ?? null,
+            self::CATALOG_PRICE_STORAGE_SCALE
+        );
         $currency = $this->nullableCurrency($row['currency'] ?? null);
         $quantityFrom = $this->nullableQuantity($row['quantityFrom'] ?? null);
         $quantityTo = $this->nullableQuantity($row['quantityTo'] ?? null);
@@ -1458,6 +1480,33 @@ final class CatalogCalculationWriteService
         return $diffs;
     }
 
+    /** @param array<string,mixed> $preview */
+    private function readbackMismatchDiagnostics(array $preview): string
+    {
+        $items = [];
+        $total = 0;
+        foreach (is_array($preview['offers'] ?? null) ? $preview['offers'] : [] as $offer) {
+            if (!is_array($offer)) {
+                continue;
+            }
+            $offerId = (int)($offer['offerId'] ?? 0);
+            foreach (is_array($offer['diff'] ?? null) ? $offer['diff'] : [] as $diff) {
+                if (!is_array($diff) || empty($diff['changed'])) {
+                    continue;
+                }
+                $total++;
+                if (count($items) < self::READBACK_DIAGNOSTIC_LIMIT) {
+                    $items[] = '#' . $offerId . ':' . (string)($diff['path'] ?? 'unknown');
+                }
+            }
+        }
+        if ($items === []) {
+            return 'summary unavailable';
+        }
+        $suffix = $total > count($items) ? ' (+' . ($total - count($items)) . ')' : '';
+        return implode(', ', $items) . $suffix;
+    }
+
     /** @param array<string,mixed> $projected @return array<string,mixed> */
     private function normalizeProjectedResult(array $projected): array
     {
@@ -1468,13 +1517,17 @@ final class CatalogCalculationWriteService
             : [];
         return [
             'offerId' => (int)($projected['offerId'] ?? 0),
-            'purchasePrice' => $this->positiveNumber($projected['purchasePrice'] ?? null, 'Закупочная цена'),
+            'purchasePrice' => $this->positiveStoredDecimalNumber(
+                $projected['purchasePrice'] ?? null,
+                self::PURCHASING_PRICE_STORAGE_SCALE,
+                'Закупочная цена'
+            ),
             'currency' => $this->nullableCurrency($projected['currency'] ?? null),
             'dimensions' => [
-                'width' => $this->positiveNumber($outputs['width'] ?? null, 'Ширина'),
-                'length' => $this->positiveNumber($outputs['length'] ?? null, 'Длина'),
-                'height' => $this->positiveNumber($outputs['height'] ?? null, 'Высота'),
-                'weight' => $this->positiveNumber($outputs['weight'] ?? null, 'Вес'),
+                'width' => $this->positiveStoredDoubleNumber($outputs['width'] ?? null, 'Ширина'),
+                'length' => $this->positiveStoredDoubleNumber($outputs['length'] ?? null, 'Длина'),
+                'height' => $this->positiveStoredDoubleNumber($outputs['height'] ?? null, 'Высота'),
+                'weight' => $this->positiveStoredDoubleNumber($outputs['weight'] ?? null, 'Вес'),
             ],
             'prices' => $this->normalizeProjectedPrices($projected),
             'provenance' => $provenance,
@@ -3213,14 +3266,66 @@ final class CatalogCalculationWriteService
             if (!is_array($projected)) {
                 throw new \RuntimeException('Адаптер результатов вернул некорректную проекцию.');
             }
-            return $projected;
+        } else {
+            $projected = (new CatalogAdapterDefinitionService())->projectPinnedResultsForWrite(
+                $results,
+                $priceTypes,
+                $adapter,
+                $publication
+            );
         }
-        return (new CatalogAdapterDefinitionService())->projectPinnedResultsForWrite(
-            $results,
-            $priceTypes,
-            $adapter,
-            $publication
-        );
+        return $this->canonicalizeProjectedResultsForCatalogStorage($projected);
+    }
+
+    /** @return array<int,mixed> */
+    private function canonicalizeProjectedResultsForCatalogStorage(array $projected): array
+    {
+        foreach ($projected as $resultIndex => $result) {
+            if (!is_array($result)) {
+                continue;
+            }
+            if (array_key_exists('purchasePrice', $result)) {
+                $result['purchasePrice'] = $this->storedDecimalNumber(
+                    $result['purchasePrice'],
+                    self::PURCHASING_PRICE_STORAGE_SCALE
+                );
+            }
+            if (is_array($result['details'] ?? null)) {
+                foreach ($result['details'] as $detailIndex => $detail) {
+                    if (!is_array($detail) || !is_array($detail['outputs'] ?? null)) {
+                        continue;
+                    }
+                    foreach (['width', 'length', 'height', 'weight'] as $field) {
+                        if (array_key_exists($field, $detail['outputs'])) {
+                            $detail['outputs'][$field] = $this->storedDoubleNumber(
+                                $detail['outputs'][$field]
+                            );
+                        }
+                    }
+                    $result['details'][$detailIndex] = $detail;
+                }
+            }
+            if (is_array($result['priceRangesWithMarkup'] ?? null)) {
+                foreach ($result['priceRangesWithMarkup'] as $rangeIndex => $range) {
+                    if (!is_array($range) || !is_array($range['prices'] ?? null)) {
+                        continue;
+                    }
+                    foreach ($range['prices'] as $priceIndex => $price) {
+                        if (!is_array($price) || !array_key_exists('basePrice', $price)) {
+                            continue;
+                        }
+                        $price['basePrice'] = $this->storedDecimalNumber(
+                            $price['basePrice'],
+                            self::CATALOG_PRICE_STORAGE_SCALE
+                        );
+                        $range['prices'][$priceIndex] = $price;
+                    }
+                    $result['priceRangesWithMarkup'][$rangeIndex] = $range;
+                }
+            }
+            $projected[$resultIndex] = $result;
+        }
+        return $projected;
     }
 
     /** @return array<string,mixed> */
@@ -3823,6 +3928,50 @@ final class CatalogCalculationWriteService
     }
 
     /** @param mixed $value */
+    private function storedDoubleNumber($value): ?float
+    {
+        $number = $this->nullableNumber($value);
+        if ($number === null) {
+            return null;
+        }
+        // This intentionally mirrors Main\DB\SqlHelper::convertToDbFloat().
+        // Using the process precision is required because the actual writer
+        // uses the same cast immediately before constructing its SQL literal.
+        $literal = (string)$number;
+        if (!is_numeric($literal)) {
+            throw new \InvalidArgumentException('Не удалось нормализовать число для записи в каталог.');
+        }
+        return (float)$literal;
+    }
+
+    /** @param mixed $value */
+    private function storedDecimalNumber($value, int $scale): ?float
+    {
+        $number = $this->storedDoubleNumber($value);
+        return $number === null ? null : round($number, $scale, PHP_ROUND_HALF_UP);
+    }
+
+    /** @param mixed $value */
+    private function positiveStoredDoubleNumber($value, string $label): float
+    {
+        $number = $this->storedDoubleNumber($value);
+        if ($number === null || $number <= 0) {
+            throw new \InvalidArgumentException($label . ' должна быть положительным конечным числом.');
+        }
+        return $number;
+    }
+
+    /** @param mixed $value */
+    private function positiveStoredDecimalNumber($value, int $scale, string $label): float
+    {
+        $number = $this->storedDecimalNumber($value, $scale);
+        if ($number === null || $number <= 0) {
+            throw new \InvalidArgumentException($label . ' должна быть положительным конечным числом.');
+        }
+        return $number;
+    }
+
+    /** @param mixed $value */
     private function nullableQuantity($value): ?int
     {
         if ($value === null || $value === '' || $value === false || (string)$value === '0') {
@@ -3835,16 +3984,6 @@ final class CatalogCalculationWriteService
             throw new \InvalidArgumentException('Граница диапазона цены имеет некорректный формат.');
         }
         return (int)$value;
-    }
-
-    /** @param mixed $value */
-    private function positiveNumber($value, string $label): float
-    {
-        $number = $this->nullableNumber($value);
-        if ($number === null || $number <= 0) {
-            throw new \InvalidArgumentException($label . ' должна быть положительным конечным числом.');
-        }
-        return $number;
     }
 
     /** @param mixed $value */
