@@ -12,10 +12,8 @@ use Prospektweb\Calc\Config\ConfigManager;
  * Server-side authority for editor launches and the native storefront-editor
  * adapter used by the control center.
  *
- * The workspace remains intentionally focused on preset 12740. The browser can
- * submit only entity IDs and typed editor documents; this service re-resolves
- * the current Bitrix relations before delegating storefront work to the
- * FrontCalc-owned service.
+ * Presets own their form and calculation graph. Products are optional catalog
+ * adapters and are re-resolved only when a product-scoped operation is used.
  */
 final class ControlCenterEditorsService
 {
@@ -58,12 +56,20 @@ final class ControlCenterEditorsService
     /** @var callable */
     private $dependencyContractResolver;
 
+    /** @var callable */
+    private $presetListLoader;
+
+    /** @var callable */
+    private $presetCreator;
+
     public function __construct(
         ?callable $presetLoader = null,
         ?callable $productIblockIdResolver = null,
         ?callable $frontcalcAvailabilityResolver = null,
         ?callable $frontcalcEditorResolver = null,
-        ?callable $dependencyContractResolver = null
+        ?callable $dependencyContractResolver = null,
+        ?callable $presetListLoader = null,
+        ?callable $presetCreator = null
     ) {
         $this->presetLoader = $presetLoader ?? static function (int $presetId): array {
             if (!Loader::includeModule('iblock')) {
@@ -93,11 +99,47 @@ final class ControlCenterEditorsService
                     $allowedProductIds
                 );
             };
+        $this->presetListLoader = $presetListLoader ?? ($presetLoader !== null
+            ? static function (): array {
+                return [['id' => self::FOCUS_PRESET_ID, 'name' => 'Пресет #' . self::FOCUS_PRESET_ID]];
+            }
+            : static function (): array {
+            if (!Loader::includeModule('iblock')) {
+                throw new \RuntimeException('The iblock module is not available');
+            }
+            $iblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
+            if ($iblockId <= 0) {
+                throw new \RuntimeException('The CALC_PRESETS iblock is not configured');
+            }
+            $rows = [];
+            $cursor = \CIBlockElement::GetList(
+                ['SORT' => 'ASC', 'NAME' => 'ASC', 'ID' => 'ASC'],
+                ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'],
+                false,
+                false,
+                ['ID', 'NAME']
+            );
+            while ($cursor && ($row = $cursor->Fetch())) {
+                $id = (int)($row['ID'] ?? 0);
+                if ($id > 0) {
+                    $rows[] = ['id' => $id, 'name' => (string)($row['NAME'] ?? '')];
+                }
+            }
+                return $rows;
+            });
+        $this->presetCreator = $presetCreator ?? static function (string $name): int {
+            if (!Loader::includeModule('iblock')) {
+                throw new \RuntimeException('The iblock module is not available');
+            }
+            $iblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
+            return (new \Prospektweb\Calc\Calculator\BundleHandler())
+                ->createStandalonePreset($name, $iblockId);
+        };
     }
 
     public function getCatalog(): array
     {
-        $snapshot = $this->loadSnapshot();
+        $snapshot = $this->loadSnapshot(self::FOCUS_PRESET_ID);
         $productIblockId = $this->resolveProductIblockId();
         $frontcalcAvailable = (bool)call_user_func($this->frontcalcAvailabilityResolver);
         $visualEditorAvailable = $frontcalcAvailable && $this->isStorefrontEditorAvailable();
@@ -113,26 +155,30 @@ final class ControlCenterEditorsService
             ];
         }
 
-        $supportedCalculationProductIds = StandaloneCatalogSelectionMapper::supportedProductIds();
-        $calculationProducts = array_values(array_filter(
-            $snapshot['products'],
-            static function (array $product) use ($supportedCalculationProductIds): bool {
-                return in_array((int)$product['id'], $supportedCalculationProductIds, true);
+        $calculations = [];
+        foreach ($this->listPresetRows() as $presetRow) {
+            $presetSnapshot = $this->loadSnapshot((int)$presetRow['id']);
+            $products = $presetSnapshot['products'];
+            if ((int)$presetRow['id'] === self::FOCUS_PRESET_ID) {
+                $supported = StandaloneCatalogSelectionMapper::supportedProductIds();
+                $products = array_values(array_filter($products, static function (array $product) use ($supported): bool {
+                    return in_array((int)$product['id'], $supported, true);
+                }));
             }
-        ));
-        $calculationOfferCount = array_sum(array_map(static function (array $product): int {
-            return (int)$product['offerCount'];
-        }, $calculationProducts));
+            $calculations[] = [
+                'presetId' => (int)$presetRow['id'],
+                'presetName' => $presetSnapshot['presetName'],
+                'offerCount' => array_sum(array_map(static function (array $product): int {
+                    return (int)$product['offerCount'];
+                }, $products)),
+                'products' => $products,
+            ];
+        }
 
         return [
             'contract' => self::CONTRACT,
             'focusPresetId' => self::FOCUS_PRESET_ID,
-            'calculations' => [[
-                'presetId' => self::FOCUS_PRESET_ID,
-                'presetName' => $snapshot['presetName'],
-                'offerCount' => $calculationOfferCount,
-                'products' => $calculationProducts,
-            ]],
+            'calculations' => $calculations,
             'storefront' => [
                 'available' => $frontcalcAvailable,
                 'visualEditorAvailable' => $visualEditorAvailable,
@@ -146,27 +192,42 @@ final class ControlCenterEditorsService
         ];
     }
 
+    public function createStandalonePreset(string $name): array
+    {
+        $name = trim($name);
+        $nameLength = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
+        if ($name === '' || $nameLength > 200) {
+            throw new \InvalidArgumentException('Preset name must contain 1 to 200 characters');
+        }
+        $presetId = (int)call_user_func($this->presetCreator, $name);
+        if ($presetId <= 0) {
+            throw new \RuntimeException('The preset creator returned an invalid ID');
+        }
+        $snapshot = $this->loadSnapshot($presetId);
+        return [
+            'contract' => self::CONTRACT,
+            'presetId' => $presetId,
+            'presetName' => $snapshot['presetName'],
+        ];
+    }
+
     /**
      * @param mixed[] $offerIds
      */
     public function validateCalculationLaunch(int $presetId, array $offerIds): array
     {
-        if ($presetId !== self::FOCUS_PRESET_ID) {
-            throw new \InvalidArgumentException('Only the focus preset can be opened from this workspace');
-        }
         $requestedOfferIds = $this->normalizeRequestedOfferIds($offerIds);
 
-        $snapshot = $this->loadSnapshot();
-        $supportedProductIds = array_fill_keys(
-            StandaloneCatalogSelectionMapper::supportedProductIds(),
-            true
-        );
+        $snapshot = $this->loadSnapshot($presetId);
+        $supportedProductIds = $presetId === self::FOCUS_PRESET_ID
+            ? array_fill_keys(StandaloneCatalogSelectionMapper::supportedProductIds(), true)
+            : null;
         $serverOfferIds = [];
         $offerProductIds = [];
         foreach ($snapshot['products'] as $product) {
             $productId = (int)($product['id'] ?? 0);
             if ($productId <= 0
-                || !isset($supportedProductIds[$productId])
+                || ($supportedProductIds !== null && !isset($supportedProductIds[$productId]))
                 || !is_array($product['offers'] ?? null)) {
                 continue;
             }
@@ -180,13 +241,13 @@ final class ControlCenterEditorsService
             }
         }
         if ($serverOfferIds === []) {
-            throw new \InvalidArgumentException('Preset 12740 has no active catalog offers');
+            throw new \InvalidArgumentException('The preset has no active catalog offers');
         }
 
         foreach ($requestedOfferIds as $offerId) {
             if (!isset($offerProductIds[$offerId])) {
                 throw new \InvalidArgumentException(
-                    'Offer ' . $offerId . ' is not active or does not belong to preset 12740 catalog scope'
+                    'Offer ' . $offerId . ' is not active or does not belong to the preset catalog scope'
                 );
             }
         }
@@ -207,7 +268,7 @@ final class ControlCenterEditorsService
 
         return [
             'contract' => self::CONTRACT,
-            'focusPresetId' => self::FOCUS_PRESET_ID,
+            'focusPresetId' => $presetId,
             'presetName' => $snapshot['presetName'],
             'productIds' => array_map('intval', array_keys($serverProductIds)),
             'offerIds' => $validatedOfferIds,
@@ -216,15 +277,11 @@ final class ControlCenterEditorsService
 
     public function validatePresetLaunch(int $presetId): array
     {
-        if ($presetId !== self::FOCUS_PRESET_ID) {
-            throw new \InvalidArgumentException('Only the focus preset can be opened from this workspace');
-        }
-
-        $snapshot = $this->loadSnapshot();
+        $snapshot = $this->loadSnapshot($presetId);
 
         return [
             'contract' => self::CONTRACT,
-            'focusPresetId' => self::FOCUS_PRESET_ID,
+            'focusPresetId' => $presetId,
             'presetName' => $snapshot['presetName'],
         ];
     }
@@ -354,8 +411,7 @@ final class ControlCenterEditorsService
 
     public function loadFormFirstWorkspace(int $productId, int $presetId): array
     {
-        $this->assertFormFirstPilot($productId, $presetId);
-        $authority = $this->resolveStorefrontAuthority($productId);
+        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
         $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
 
         return $this->assertFormFirstEditorResult(
@@ -379,11 +435,10 @@ final class ControlCenterEditorsService
         array $formDefinition,
         array $bindingDefinition
     ): array {
-        $this->assertFormFirstPilot($productId, $presetId);
+        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
         $this->assertSha256($expectedAggregateRevision, 'expectedAggregateRevision');
         $this->assertEditorDocument($formDefinition, 'formDefinition');
         $this->assertEditorDocument($bindingDefinition, 'bindingDefinition');
-        $authority = $this->resolveStorefrontAuthority($productId);
         $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
 
         return $this->assertFormFirstEditorResult(
@@ -409,10 +464,9 @@ final class ControlCenterEditorsService
         array $formDefinition,
         array $bindingDefinition
     ): array {
-        $this->assertFormFirstPilot($productId, $presetId);
+        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
         $this->assertEditorDocument($formDefinition, 'formDefinition');
         $this->assertEditorDocument($bindingDefinition, 'bindingDefinition');
-        $authority = $this->resolveStorefrontAuthority($productId);
         $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
 
         return $this->assertFormFirstEditorResult(
@@ -437,10 +491,9 @@ final class ControlCenterEditorsService
         string $expectedAggregateRevision,
         string $expectedCompileHash
     ): array {
-        $this->assertFormFirstPilot($productId, $presetId);
+        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
         $this->assertSha256($expectedAggregateRevision, 'expectedAggregateRevision');
         $this->assertSha256($expectedCompileHash, 'expectedCompileHash');
-        $authority = $this->resolveStorefrontAuthority($productId);
         $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
 
         return $this->assertFormFirstEditorResult(
@@ -465,12 +518,11 @@ final class ControlCenterEditorsService
         string $expectedAggregateRevision,
         int $targetPublishedRevision
     ): array {
-        $this->assertFormFirstPilot($productId, $presetId);
+        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
         $this->assertSha256($expectedAggregateRevision, 'expectedAggregateRevision');
         if ($targetPublishedRevision < 0) {
             throw new \InvalidArgumentException('targetPublishedRevision must be a non-negative integer');
         }
-        $authority = $this->resolveStorefrontAuthority($productId);
         $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
 
         return $this->assertFormFirstEditorResult(
@@ -492,13 +544,16 @@ final class ControlCenterEditorsService
     /**
      * @return array{presetName:string,offerCount:int,products:array<int,array{id:int,name:string,offerCount:int,offers:array<int,array{id:int,name:string}>}>}
      */
-    private function loadSnapshot(): array
+    private function loadSnapshot(int $presetId): array
     {
-        $raw = call_user_func($this->presetLoader, self::FOCUS_PRESET_ID);
-        if (!is_array($raw) || (string)($raw['status'] ?? '') !== 'ok') {
-            throw new \RuntimeException('Unable to load the focus preset');
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Preset ID must be positive');
         }
-        if ((int)($raw['preset']['id'] ?? 0) !== self::FOCUS_PRESET_ID) {
+        $raw = call_user_func($this->presetLoader, $presetId);
+        if (!is_array($raw) || (string)($raw['status'] ?? '') !== 'ok') {
+            throw new \RuntimeException('Unable to load the preset');
+        }
+        if ((int)($raw['preset']['id'] ?? 0) !== $presetId) {
             throw new \RuntimeException('The preset loader returned an unexpected preset');
         }
 
@@ -541,10 +596,42 @@ final class ControlCenterEditorsService
         }
 
         return [
-            'presetName' => trim((string)($raw['preset']['name'] ?? '')) ?: 'Пресет #' . self::FOCUS_PRESET_ID,
+            'presetName' => trim((string)($raw['preset']['name'] ?? '')) ?: 'Пресет #' . $presetId,
             'offerCount' => $offerCount,
             'products' => $products,
         ];
+    }
+
+    /** @return array<int,array{id:int,name:string}> */
+    private function listPresetRows(): array
+    {
+        $rawRows = call_user_func($this->presetListLoader);
+        if (!is_array($rawRows)) {
+            throw new \RuntimeException('The preset list provider returned an invalid result');
+        }
+        $rows = [];
+        foreach ($rawRows as $rawRow) {
+            if (!is_array($rawRow)) {
+                continue;
+            }
+            $id = (int)($rawRow['id'] ?? $rawRow['ID'] ?? 0);
+            if ($id <= 0 || isset($rows[$id])) {
+                continue;
+            }
+            $rows[$id] = [
+                'id' => $id,
+                'name' => trim((string)($rawRow['name'] ?? $rawRow['NAME'] ?? '')) ?: 'Пресет #' . $id,
+            ];
+        }
+        if (!isset($rows[self::FOCUS_PRESET_ID])) {
+            $focus = $this->loadSnapshot(self::FOCUS_PRESET_ID);
+            $rows[self::FOCUS_PRESET_ID] = [
+                'id' => self::FOCUS_PRESET_ID,
+                'name' => $focus['presetName'],
+            ];
+        }
+        ksort($rows, SORT_NUMERIC);
+        return array_values($rows);
     }
 
     private function resolveProductIblockId(): int
@@ -574,7 +661,7 @@ final class ControlCenterEditorsService
             throw new \RuntimeException('The storefront calculator module is not installed');
         }
 
-        $snapshot = $this->loadSnapshot();
+        $snapshot = $this->loadSnapshot(self::FOCUS_PRESET_ID);
         $allowedProductIds = [];
         $productName = '';
         foreach ($snapshot['products'] as $product) {
@@ -596,13 +683,26 @@ final class ControlCenterEditorsService
         ];
     }
 
-    private function assertFormFirstPilot(int $productId, int $presetId): void
+    /** @return array{presetName:string,allowedProductIds:int[]} */
+    private function resolvePresetFormAuthority(int $presetId, int $productId = 0): array
     {
-        if ($presetId !== self::FOCUS_PRESET_ID || $productId !== 4267) {
-            throw new \InvalidArgumentException(
-                'Form-first Phase 5A is limited to product 4267 / preset 12740'
-            );
+        if ($presetId <= 0 || $productId < 0) {
+            throw new \InvalidArgumentException('Preset ID must be positive and product ID cannot be negative');
         }
+        if (!(bool)call_user_func($this->frontcalcAvailabilityResolver)) {
+            throw new \RuntimeException('The storefront calculator module is not installed');
+        }
+        $snapshot = $this->loadSnapshot($presetId);
+        $allowedProductIds = array_values(array_map(static function (array $product): int {
+            return (int)$product['id'];
+        }, $snapshot['products']));
+        if ($productId > 0 && !in_array($productId, $allowedProductIds, true)) {
+            throw new \InvalidArgumentException('Product is not linked to the selected preset');
+        }
+        return [
+            'presetName' => $snapshot['presetName'],
+            'allowedProductIds' => $allowedProductIds,
+        ];
     }
 
     private function assertSha256(string $value, string $field): void
@@ -835,9 +935,17 @@ final class ControlCenterEditorsService
             throw new \RuntimeException('The form-first editor returned an incompatible response');
         }
         $product = $result['product'] ?? null;
-        if (!is_array($product)
-            || !is_int($product['id'] ?? null)
-            || (int)$product['id'] !== $expectedProductId
+        if (($expectedProductId > 0
+                && (!is_array($product)
+                    || !is_int($product['id'] ?? null)
+                    || (int)$product['id'] !== $expectedProductId))
+            || ($expectedProductId === 0 && $product !== null)
+            || ($expectedProductId === 0 && (!is_array($result['preset'] ?? null)
+                || !is_int($result['preset']['id'] ?? null)
+                || (int)$result['preset']['id'] !== $expectedPresetId))
+            || (is_array($result['preset'] ?? null)
+                && (!is_int($result['preset']['id'] ?? null)
+                    || (int)$result['preset']['id'] !== $expectedPresetId))
             || !is_int($result['presetId'] ?? null)
             || (int)$result['presetId'] !== $expectedPresetId
             || !is_string($result['operation'] ?? null)

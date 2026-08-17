@@ -110,6 +110,52 @@ class BundleHandler
     }
 
     /**
+     * Create an independent preset without a catalog adapter. Products and
+     * offers may be connected later; they are not part of preset identity.
+     */
+    public function createStandalonePreset(string $name, int $pinnedPresetsIblockId): int
+    {
+        $name = trim($name);
+        $nameLength = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
+        if ($name === '' || $nameLength > 200) {
+            throw new \InvalidArgumentException('Preset name must contain 1 to 200 characters.', 400);
+        }
+        if ($pinnedPresetsIblockId <= 0) {
+            throw new \RuntimeException('The CALC_PRESETS iblock is not configured.', 409);
+        }
+
+        $element = new \CIBlockElement();
+        $presetId = (int)$element->Add([
+            'IBLOCK_ID' => $pinnedPresetsIblockId,
+            'NAME' => $name,
+            'CODE' => $this->generateUniqueElementCode($pinnedPresetsIblockId, $name),
+            'ACTIVE' => 'Y',
+            'PROPERTY_VALUES' => [
+                'JSON' => ['VALUE' => ['TEXT' => '{}', 'TYPE' => 'HTML']],
+            ],
+        ]);
+        if ($presetId <= 0) {
+            throw new \RuntimeException('Unable to create preset: ' . (string)$element->LAST_ERROR);
+        }
+
+        $readBack = \CIBlockElement::GetList(
+            [],
+            ['ID' => $presetId, 'IBLOCK_ID' => $pinnedPresetsIblockId],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'NAME', 'ACTIVE']
+        )->Fetch();
+        if (!is_array($readBack)
+            || (int)($readBack['ID'] ?? 0) !== $presetId
+            || trim((string)($readBack['NAME'] ?? '')) !== $name
+            || (string)($readBack['ACTIVE'] ?? 'N') !== 'Y') {
+            throw new \RuntimeException('Preset creation readback mismatch.', 409);
+        }
+
+        return $presetId;
+    }
+
+    /**
      * Клонировать пресет вместе со всеми деталями/этапами.
      *
      * @param int $presetId ID исходного пресета

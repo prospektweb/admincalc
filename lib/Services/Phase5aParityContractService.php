@@ -308,8 +308,8 @@ final class Phase5aParityContractService
         int $presetId = self::FOCUS_PRESET_ID,
         ?array $allowedProductIds = null
     ): array {
-        if ($presetId !== self::FOCUS_PRESET_ID) {
-            throw new \InvalidArgumentException('Only preset 12740 is supported');
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Preset ID must be positive');
         }
         if ($allowedProductIds === null) {
             $catalog = call_user_func($this->presetLoader, $presetId);
@@ -326,9 +326,6 @@ final class Phase5aParityContractService
             }
         }
         $allowedProductIds = $this->normalizeProductIds($allowedProductIds);
-        if ($allowedProductIds === []) {
-            throw new \RuntimeException('The Phase 5A preset has no authorized products');
-        }
         $artifacts = $this->buildDependencyArtifacts($presetId, $allowedProductIds);
         if (($artifacts['matrix']['valid'] ?? false) !== true) {
             throw new \RuntimeException('The current Phase 5A dependency authority is incomplete');
@@ -1120,8 +1117,8 @@ final class Phase5aParityContractService
     /** @param int[] $allowedProductIds @return array<string,mixed> */
     private static function loadBitrixDependencyGraph(int $presetId, array $allowedProductIds): array
     {
-        if ($presetId !== self::FOCUS_PRESET_ID) {
-            throw new \InvalidArgumentException('Only preset 12740 is supported');
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Preset ID must be positive');
         }
         if (!class_exists('CIBlockElement')) {
             throw new \RuntimeException('The Bitrix iblock API is not available');
@@ -1315,7 +1312,11 @@ final class Phase5aParityContractService
         $allowedProductIds = array_map('intval', array_keys($normalizedProductIds));
         sort($allowedProductIds, SORT_NUMERIC);
         if ($allowedProductIds === []) {
-            $unresolvedSources[] = 'effective_runtime:no_allowed_products';
+            // A standalone preset intentionally has no catalog consumers. The
+            // empty adapter set is authoritative, not an unresolved source.
+            foreach ($runtimeCategories as $category) {
+                $categoryStatus[$category]['scanned'] = true;
+            }
             return;
         }
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc')) {

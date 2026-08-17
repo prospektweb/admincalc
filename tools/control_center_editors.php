@@ -263,6 +263,18 @@ try {
         ]);
     }
 
+    if ($action === 'create_preset') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'name']);
+        $name = $request['name'] ?? null;
+        if (!is_string($name)) {
+            throw new \InvalidArgumentException('name must be a string');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $service->createStandalonePreset($name),
+        ]);
+    }
+
     if ($action === 'validate_calculation_launch') {
         $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'offerIds']);
         $presetId = $parsePositiveInt($request['presetId'] ?? null, 'presetId');
@@ -399,7 +411,7 @@ try {
 
     if ($action === 'form_first_load') {
         $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'presetId']);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
 
         $respond(200, [
@@ -418,7 +430,7 @@ try {
             'formDefinition',
             'bindingDefinition',
         ]);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedAggregateRevision = $parseAggregateRevision(
             $request['expectedAggregateRevision'] ?? null,
@@ -454,7 +466,7 @@ try {
             'formDefinition',
             'bindingDefinition',
         ]);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $formDefinition = $parseEditorDocument(
             $requestWithJsonNodeKinds['formDefinition'] ?? $request['formDefinition'] ?? null,
@@ -485,7 +497,7 @@ try {
             'expectedAggregateRevision',
             'expectedCompileHash',
         ]);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedAggregateRevision = $parseAggregateRevision(
             $request['expectedAggregateRevision'] ?? null,
@@ -516,7 +528,7 @@ try {
             'expectedAggregateRevision',
             'targetPublishedRevision',
         ]);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
+        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedAggregateRevision = $parseAggregateRevision(
             $request['expectedAggregateRevision'] ?? null,

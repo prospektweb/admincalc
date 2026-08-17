@@ -86,7 +86,7 @@ class TestStorefrontEditorProvider
         array $dependencyContract = []
     ): array {
         $this->calls[] = ['loadFormFirstWorkspace', $productId, $presetId, $allowedProductIds, $dependencyContract];
-        return $this->formFirstResult('load', $dependencyContract);
+        return $this->formFirstResult('load', $dependencyContract, $productId, $presetId);
     }
 
     public function saveFormFirstDraft(
@@ -108,7 +108,7 @@ class TestStorefrontEditorProvider
             $allowedProductIds,
             $dependencyContract,
         ];
-        return $this->formFirstResult('save_draft', $dependencyContract);
+        return $this->formFirstResult('save_draft', $dependencyContract, $productId, $presetId);
     }
 
     public function previewFormFirst(
@@ -128,7 +128,7 @@ class TestStorefrontEditorProvider
             $allowedProductIds,
             $dependencyContract,
         ];
-        return $this->formFirstResult('preview', $dependencyContract);
+        return $this->formFirstResult('preview', $dependencyContract, $productId, $presetId);
     }
 
     public function publishFormFirst(
@@ -148,7 +148,7 @@ class TestStorefrontEditorProvider
             $allowedProductIds,
             $dependencyContract,
         ];
-        return $this->formFirstResult('publish', $dependencyContract);
+        return $this->formFirstResult('publish', $dependencyContract, $productId, $presetId);
     }
 
     public function rollbackFormFirst(
@@ -168,7 +168,7 @@ class TestStorefrontEditorProvider
             $allowedProductIds,
             $dependencyContract,
         ];
-        return $this->formFirstResult('rollback', $dependencyContract);
+        return $this->formFirstResult('rollback', $dependencyContract, $productId, $presetId);
     }
 
     private function result(string $operation, array $extra = []): array
@@ -179,13 +179,19 @@ class TestStorefrontEditorProvider
         ], $extra);
     }
 
-    private function formFirstResult(string $operation, array $dependencyContract): array
+    private function formFirstResult(
+        string $operation,
+        array $dependencyContract,
+        int $productId,
+        int $presetId
+    ): array
     {
         return [
             'contract' => ControlCenterEditorsService::FORM_FIRST_AUTHORING_CONTRACT,
             'operation' => $operation,
-            'product' => ['id' => 4267],
-            'presetId' => 12740,
+            'preset' => ['id' => $presetId, 'name' => 'Preset #' . $presetId],
+            'product' => $productId > 0 ? ['id' => $productId] : null,
+            'presetId' => $presetId,
             'dependencyFingerprint' => (string)($dependencyContract['fingerprint'] ?? ''),
             'aggregateRevision' => str_repeat('a', 64),
             'formDefinition' => ['contract' => 'prospektweb.frontcalc.form-definition/v1'],
@@ -312,13 +318,10 @@ $assert(!in_array(102, $calculationLaunch['offerIds'], true), 'Calculation launc
 $presetLaunch = $service->validatePresetLaunch(12740);
 $assert(($presetLaunch['focusPresetId'] ?? 0) === 12740, 'Standalone launch must retain the focus preset');
 $assert(($presetLaunch['presetName'] ?? '') === 'Focus preset', 'Standalone launch must resolve the authoritative preset name');
-$expectInvalid(static function () use ($service): void {
-    $service->validatePresetLaunch(12741);
-}, 'Standalone launch must reject a non-focus preset');
-
-$expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12741, [15320]);
-}, 'A non-focus preset must be rejected');
+$secondaryPresetLaunch = $service->validatePresetLaunch(12741);
+$assert(($secondaryPresetLaunch['focusPresetId'] ?? 0) === 12741, 'Standalone launch must accept another authoritative preset');
+$secondaryCalculationLaunch = $service->validateCalculationLaunch(12741, [15320]);
+$assert(($secondaryCalculationLaunch['offerIds'] ?? []) === [15320], 'A non-focus preset may use its own optional catalog adapter');
 $expectInvalid(static function () use ($service): void {
     $service->validateCalculationLaunch(12740, [100]);
 }, 'An offer outside the adapter-supported preset scope must be rejected');
@@ -455,6 +458,25 @@ $assert(
         && ($visualCatalog['storefront']['formFirstPilotProductIds'] ?? []) === [4267],
     'The catalog must expose the exact form-first pilot gate and provider contract'
 );
+
+$multiPresetService = new ControlCenterEditorsService(
+    $presetLoader,
+    static fn(): int => 7,
+    static fn(): bool => true,
+    null,
+    null,
+    static function (): array {
+        return [
+            ['id' => 12740, 'name' => 'Focus preset'],
+            ['id' => 12741, 'name' => 'Second preset'],
+        ];
+    },
+    static fn(string $name): int => $name === 'Independent preset' ? 12800 : 0
+);
+$multiCatalog = $multiPresetService->getCatalog();
+$assert(count($multiCatalog['calculations']) === 2, 'Catalog must list all independent presets');
+$createdPreset = $multiPresetService->createStandalonePreset('Independent preset');
+$assert(($createdPreset['presetId'] ?? 0) === 12800, 'Standalone preset creation must return its authoritative ID');
 $legacyCatalog = (new ControlCenterEditorsService(
     $presetLoader,
     static fn(): int => 7,
@@ -574,9 +596,15 @@ foreach ($formFirstCalls as $formFirstCall) {
         'Each form-first provider call must receive the current allowlist and fingerprinted dependency contract'
     );
 }
-$expectInvalid(static function () use ($visualService): void {
-    $visualService->loadFormFirstWorkspace(10, 12741);
-}, 'Form-first actions must reject a preset outside the exact 12740 pilot');
+$assert(
+    ($visualService->loadFormFirstWorkspace(10, 12741)['operation'] ?? '') === 'load',
+    'Form-first authoring must be available to another authoritative preset'
+);
+$productlessWorkspace = $visualService->loadFormFirstWorkspace(0, 12741);
+$assert(
+    array_key_exists('product', $productlessWorkspace) && $productlessWorkspace['product'] === null,
+    'Preset-owned form-first authoring must not require a product context'
+);
 $expectInvalid(static function () use ($visualService, $aggregateRevision, $formDefinition, $bindingDefinition): void {
     $visualService->saveFormFirstDraft(
         999,

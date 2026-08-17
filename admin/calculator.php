@@ -58,12 +58,11 @@ $isStandalonePresetLaunch = $controlCenterMode
     && $standalonePresetId > 0
     && $offerIdsRaw === '';
 $isCatalogPresetLaunch = $controlCenterMode
-    && $standalonePresetId === 12740
+    && $standalonePresetId > 0
     && $offerIdsRaw !== '';
 
 if (($offerIdsRaw !== '' && (empty($offerIds) || count($offerIds) > 500 || count($uniqueOfferIds) !== count($offerIds)))
     || ($offerIdsRaw === '' && !$isStandalonePresetLaunch)
-    || ($isStandalonePresetLaunch && $standalonePresetId !== 12740)
     || ($offerIdsRaw !== '' && $presetIdRaw !== '' && !$isCatalogPresetLaunch)) {
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php');
     ShowError(Loc::getMessage('PROSPEKTWEB_CALC_NO_OFFERS_SELECTED'));
@@ -120,6 +119,7 @@ if ($isValidLaunch && !$isStandalonePresetLaunch) {
             break;
         }
         if ($isCatalogPresetLaunch
+            && $standalonePresetId === 12740
             && !in_array(
                 $parentProductId,
                 \Prospektweb\Calc\Services\StandaloneCatalogSelectionMapper::supportedProductIds(),
@@ -180,7 +180,7 @@ if ($isValidLaunch && $validatedProductIds !== []) {
 
 if ($isValidLaunch && $controlCenterMode && !$isStandalonePresetLaunch) {
     foreach (array_keys($validatedProductIds) as $productId) {
-        $hasFocusPreset = false;
+        $hasSelectedPreset = false;
         $presetCursor = \CIBlockElement::GetProperty(
             $productIblockId,
             (int)$productId,
@@ -188,12 +188,12 @@ if ($isValidLaunch && $controlCenterMode && !$isStandalonePresetLaunch) {
             ['CODE' => 'CALC_PRESET']
         );
         while ($presetProperty = $presetCursor->Fetch()) {
-            if ((int)($presetProperty['VALUE'] ?? 0) === 12740) {
-                $hasFocusPreset = true;
+            if ((int)($presetProperty['VALUE'] ?? 0) === $standalonePresetId) {
+                $hasSelectedPreset = true;
                 break;
             }
         }
-        if (!$hasFocusPreset) {
+        if (!$hasSelectedPreset) {
             $isValidLaunch = false;
             break;
         }

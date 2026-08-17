@@ -54,7 +54,7 @@ $assert(strpos($endpoint, "\$exception->getCode() === 409 ? 'REVISION_CONFLICT' 
 $assert(strpos($service, "public const CONTRACT = 'prospektweb.control-center.editors/v1'") !== false, 'Editors catalog must have a versioned contract');
 $assert(strpos($service, 'public const FOCUS_PRESET_ID = 12740') !== false, 'Phase 4A must be explicitly scoped to preset 12740');
 $assert(strpos($service, "(new CatalogTreeService())->presetLoadOptions(['presetId' => \$presetId])") !== false, 'The catalog must reuse the authoritative preset/product/offer resolver');
-$assert(strpos($service, "'ACTIVE' => 'Y'") === false, 'The launch service must not duplicate lower-level Bitrix queries');
+$assert(substr_count($service, "'ACTIVE' => 'Y'") === 1, 'Only the preset directory may issue its own active-element query; launch resolution stays delegated');
 $assert(strpos($service, 'validateCalculationLaunch(int $presetId, array $offerIds)') !== false, 'Calculation launch must validate a multi-product offer list');
 $assert(strpos($service, 'validatePresetLaunch(int $presetId)') !== false, 'The control center must support product-neutral preset launches');
 $assert(strpos($service, "'offerIds' => \$validatedOfferIds") !== false, 'Validated offer IDs must be derived from the server snapshot');
@@ -68,7 +68,8 @@ $assert(strpos($service, "'visualEditorContract' => self::STOREFRONT_EDITOR_CONT
 $assert(strpos($service, "'formFirstAuthoringAvailable' => \$formFirstAuthoringAvailable") !== false, 'The catalog must advertise form-first provider availability');
 $assert(strpos($service, "'formFirstAuthoringContract' => self::FORM_FIRST_AUTHORING_CONTRACT") !== false, 'The catalog must advertise the exact form-first provider contract');
 $assert(strpos($service, "'formFirstPilotProductIds' => [4267]") !== false, 'The catalog must retain the exact product 4267 pilot gate');
-$assert(substr_count($service, '$this->resolveStorefrontAuthority($productId);') >= 12, 'Every storefront and form-first action must resolve the current product allowlist');
+$assert(substr_count($service, '$this->resolveStorefrontAuthority($productId);') === 7, 'Every product-owned storefront action must resolve the current product allowlist');
+$assert(substr_count($service, '$this->resolvePresetFormAuthority($presetId, $productId);') === 5, 'Every preset-owned form action must resolve the preset and optional product authority');
 $assert(strpos($service, "'allowedProductIds' => \$allowedProductIds") !== false, 'Server authority must materialize the current preset allowlist');
 $assert(strpos($service, '->loadWorkspace(') !== false, 'Workspace loading must delegate to the FrontCalc provider');
 $assert(strpos($service, '->validateSchema(') !== false, 'Schema validation must delegate to the FrontCalc provider');
@@ -157,6 +158,8 @@ $assert(
 );
 
 $assert(strpos($host, "'editors' => '/bitrix/tools/prospektweb.calc/control_center_editors.php'") !== false, 'Bootstrap must expose the editors endpoint');
+$assert(strpos($endpoint, "if (\$action === 'create_preset')") !== false, 'Editors endpoint must expose preset-first creation');
+$assert(substr_count($endpoint, "\$parseStrictNonNegativeInt(\$request['productId'] ?? 0, 'productId')") === 5, 'All form-first actions must accept productless preset-owned authoring');
 $assert(strpos($host, "'controlCenterInstanceId' => \$controlCenterInstanceId") !== false, 'Bootstrap must issue a per-page instance token');
 $assert(strpos($host, 'message.payload.controlCenterInstanceId !== controlCenterInstanceId') !== false, 'Launch messages must echo the exact control-center token');
 $assert(strpos($host, "typeof message !== 'object' || Array.isArray(message)") !== false, 'Host must reject non-object and array message envelopes');
@@ -184,7 +187,7 @@ $assert(strpos($host, "editorIframe.src = 'about:blank'") !== false, 'Closing th
 
 $assert(strpos($calculator, "count(\$uniqueOfferIds) !== count(\$offerIds)") !== false, 'Calculator page must reject duplicate offer IDs');
 $assert(strpos($calculator, '$isStandalonePresetLaunch') !== false, 'Calculator page must support a standalone preset launch envelope');
-$assert(strpos($calculator, '$standalonePresetId !== 12740') !== false, 'Standalone control-center launches must stay scoped to the focus preset');
+$assert(strpos($calculator, '$isCatalogPresetLaunch = $controlCenterMode') !== false && strpos($calculator, '$standalonePresetId > 0') !== false, 'Standalone and catalog control-center launches must accept any active positive preset');
 $assert(strpos($calculator, "['ID' => \$standalonePresetId, 'IBLOCK_ID' => \$presetIblockId, 'ACTIVE' => 'Y']") !== false, 'Standalone launch must re-resolve the active preset without product or SKU authority');
 $assert(strpos($calculator, 'presetId: <?= json_encode(($isStandalonePresetLaunch || $isCatalogPresetLaunch) ? $standalonePresetId : 0) ?>') !== false, 'Standalone and catalog preset identity must reach the integration bridge');
 $assert(strpos($calculator, 'if ($controlCenterMode && !$USER->IsAdmin())') !== false, 'Control-center calculator launch must require an administrator');
@@ -197,9 +200,9 @@ $assert(strpos($calculator, "\$productFilter['ACTIVE_DATE'] = 'Y';") !== false, 
 $assert(strpos($calculator, "\$offerFilter = [\n        'IBLOCK_ID' => \$skuIblockId,\n        'ID' => \$offerIds,\n    ];") !== false, 'Legacy contextual launches must not unconditionally filter inactive offers');
 $assert(strpos($calculator, "\$productFilter = [\n        'ID' => array_map('intval', array_keys(\$validatedProductIds)),\n        'IBLOCK_ID' => \$productIblockId,\n    ];") !== false, 'Every parent product in a catalog launch must be re-resolved');
 $assert(strpos($calculator, '!$isCatalogPresetLaunch') !== false && strpos($calculator, '$validatedProductId !== $parentProductId') !== false, 'Only the exact control-center catalog envelope may contain multiple parents');
-$assert(strpos($calculator, 'StandaloneCatalogSelectionMapper::supportedProductIds()') !== false, 'Catalog launch must revalidate every parent against the adapter-supported scope');
+$assert(strpos($calculator, '$standalonePresetId === 12740') !== false && strpos($calculator, 'StandaloneCatalogSelectionMapper::supportedProductIds()') !== false, 'Only the legacy preset 12740 catalog launch keeps its adapter-supported product scope');
 $assert(strpos($calculator, "'IBLOCK_ID' => \$productIblockId") !== false, 'Calculator page must require the configured product iblock');
-$assert(strpos($calculator, "['CODE' => 'CALC_PRESET']") !== false && strpos($calculator, '=== 12740') !== false, 'Control-center launch must revalidate preset 12740 on the product');
+$assert(strpos($calculator, "['CODE' => 'CALC_PRESET']") !== false && strpos($calculator, '=== $standalonePresetId') !== false, 'Control-center catalog launch must revalidate the selected preset on every product');
 $assert(strpos($calculator, "type: 'CLOSE_CONTROL_CENTER_EDITOR'") !== false, 'Calculator close must return to the control-center overlay host');
 
 $assert(strpos($autoload, 'ControlCenterEditorsService') !== false, 'Editors service must be autoloaded');
@@ -208,6 +211,6 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== fal
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
 $assert(strpos($diagnostic, "'lib/Services/Phase5aParityContractService.php'") !== false, 'Diagnostics must verify the Phase 5A parity service');
-$assert(strpos($version, "'VERSION' => '1.8.5'") !== false, 'Catalog storage canonicalization release must publish module version 1.8.5');
+$assert(strpos($version, "'VERSION' => '1.9.0'") !== false, 'Preset-owned form authoring release must publish module version 1.9.0');
 
 echo "Control center editors API static tests passed\n";

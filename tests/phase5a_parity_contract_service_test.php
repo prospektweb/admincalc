@@ -126,6 +126,12 @@ $assert(
     ($first['fingerprint'] ?? '') === ($second['fingerprint'] ?? ''),
     'Equivalent parity inputs must produce a deterministic fingerprint'
 );
+$genericContract = $service->buildPublicInputContract(12800, []);
+$assert(
+    ($genericContract['presetId'] ?? 0) === 12800
+        && preg_match('/^[a-f0-9]{64}$/D', (string)($genericContract['fingerprint'] ?? '')) === 1,
+    'A standalone preset without catalog products must still receive a fingerprinted dependency authority'
+);
 $assert(
     ($first['dependencyMatrix']['categoryCoverage']['ui'] ?? 0) > 0
         && ($first['dependencyMatrix']['categoryCoverage']['basket'] ?? 0) > 0,
