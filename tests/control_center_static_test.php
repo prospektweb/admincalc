@@ -105,7 +105,7 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($contextualGenerator, 'window.ProspektwebProductGenerator = ProductGenerator') !== false, 'The contextual offer generator remains available');
-$assert(strpos($appIndex, '155d1a3a6750') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, 'f983d0fd3859') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
 $assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') !== false, 'The published bundle contains the storefront editor launch contract');
