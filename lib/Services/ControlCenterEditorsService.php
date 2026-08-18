@@ -320,7 +320,7 @@ final class ControlCenterEditorsService
 
     public function loadPresetWorkspace(int $presetId): array
     {
-        $snapshot = $this->loadSnapshot($presetId);
+        $snapshot = $this->loadStorefrontSnapshot($presetId);
         return [
             'contract' => self::CONTRACT,
             'presetId' => $presetId,

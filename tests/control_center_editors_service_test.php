@@ -304,6 +304,33 @@ $assert(!isset($catalog['calculations'][0]['products']), 'Bootstrap registry row
 $presetWorkspace = $service->loadPresetWorkspace(12740);
 $assert(($presetWorkspace['offerCount'] ?? 0) === 7, 'Preset detail must lazy-load its authoritative product and offer scope');
 $assert(($presetWorkspace['products'][3]['offers'][1]['id'] ?? 0) === 15321, 'Preset detail must expose server-authored offer choices');
+$broaderUsageService = new ControlCenterEditorsService(
+    $presetLoader,
+    static fn(): int => 7,
+    static fn(): bool => true,
+    null,
+    null,
+    null,
+    null,
+    null,
+    static function (int $presetId) use ($presetLoader): array {
+        $snapshot = $presetLoader($presetId);
+        $snapshot['preset']['name'] = 'Full usage preset';
+        $snapshot['products'][] = [
+            'id' => 13000,
+            'name' => 'Usage-only product',
+            'offers' => [['id' => 16000, 'name' => 'Usage-only offer']],
+        ];
+        return $snapshot;
+    }
+);
+$broaderUsage = $broaderUsageService->loadPresetWorkspace(12740);
+$assert(
+    ($broaderUsage['presetName'] ?? '') === 'Full usage preset'
+        && ($broaderUsage['productCount'] ?? 0) === 6
+        && ($broaderUsage['offerCount'] ?? 0) === 8,
+    'Preset usage detail must use the full storefront scope rather than the optional catalog-write adapter'
+);
 $assert(count($catalog['storefront']['products'] ?? []) === 5, 'Storefront editing must retain the full preset-linked product catalog');
 $assert(($catalog['storefront']['productIblockId'] ?? 0) === 7, 'Storefront launch catalog must expose the configured product iblock');
 $assert(($catalog['storefront']['products'][0]['presetIds'] ?? []) === [12740], 'Storefront products must carry the focus-preset relation');
