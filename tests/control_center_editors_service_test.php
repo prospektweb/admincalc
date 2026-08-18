@@ -299,8 +299,11 @@ $catalog = $service->getCatalog();
 
 $assert($catalog['contract'] === ControlCenterEditorsService::CONTRACT, 'Catalog contract must be versioned');
 $assert($catalog['focusPresetId'] === 12740, 'Only preset 12740 is in the Phase 4A workspace');
-$assert(($catalog['calculations'][0]['offerCount'] ?? 0) === 3, 'Calculation catalog must count only adapter-supported active offers');
-$assert(($catalog['calculations'][0]['products'][0]['offers'][1]['id'] ?? 0) === 15321, 'Calculation catalog must expose server-authored choices for prepared products');
+$assert(($catalog['calculations'][0]['offerCount'] ?? -1) === 0, 'Bootstrap catalog must expose only lightweight registry counts');
+$assert(!isset($catalog['calculations'][0]['products']), 'Bootstrap registry rows must never embed product or offer payloads');
+$presetWorkspace = $service->loadPresetWorkspace(12740);
+$assert(($presetWorkspace['offerCount'] ?? 0) === 7, 'Preset detail must lazy-load its authoritative product and offer scope');
+$assert(($presetWorkspace['products'][3]['offers'][1]['id'] ?? 0) === 15321, 'Preset detail must expose server-authored offer choices');
 $assert(count($catalog['storefront']['products'] ?? []) === 5, 'Storefront editing must retain the full preset-linked product catalog');
 $assert(($catalog['storefront']['productIblockId'] ?? 0) === 7, 'Storefront launch catalog must expose the configured product iblock');
 $assert(($catalog['storefront']['products'][0]['presetIds'] ?? []) === [12740], 'Storefront products must carry the focus-preset relation');
@@ -475,6 +478,8 @@ $multiPresetService = new ControlCenterEditorsService(
 );
 $multiCatalog = $multiPresetService->getCatalog();
 $assert(count($multiCatalog['calculations']) === 2, 'Catalog must list all independent presets');
+$multiRegistry = $multiPresetService->getPresetRegistry('', 'all', 'name_asc', 1, 1);
+$assert(($multiRegistry['total'] ?? 0) === 2 && count($multiRegistry['rows'] ?? []) === 1, 'Registry must page independent preset summaries');
 $createdPreset = $multiPresetService->createStandalonePreset('Independent preset');
 $assert(($createdPreset['presetId'] ?? 0) === 12800, 'Standalone preset creation must return its authoritative ID');
 $legacyCatalog = (new ControlCenterEditorsService(

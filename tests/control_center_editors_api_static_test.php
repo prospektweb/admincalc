@@ -25,6 +25,10 @@ $assert(strpos($endpoint, 'check_bitrix_sessid()') !== false, 'Editors endpoint 
 $assert(strpos($endpoint, '!$USER || !$USER->IsAdmin()') !== false, 'Editors endpoint must require an administrator');
 $assert(strpos($endpoint, "'action' => 'catalog'") === false, 'Endpoint must not fabricate a client action');
 $assert(strpos($endpoint, "\$action === 'catalog'") !== false, 'Editors endpoint must expose the catalog action');
+$assert(strpos($endpoint, "\$action === 'registry'") !== false, 'Editors endpoint must expose the server-paged preset registry');
+$assert(strpos($endpoint, "\$action === 'preset_load'") !== false, 'Editors endpoint must lazy-load preset detail');
+$assert(strpos($endpoint, "\$action === 'duplicate_preset'") !== false, 'Editors endpoint must expose preset duplication');
+$assert(strpos($endpoint, "\$action === 'set_preset_active'") !== false, 'Editors endpoint must expose bounded activation and archival');
 $assert(strpos($endpoint, "\$action === 'validate_calculation_launch'") !== false, 'Editors endpoint must validate calculation launches');
 $assert(strpos($endpoint, "\$action === 'validate_preset_launch'") !== false, 'Editors endpoint must validate standalone preset launches');
 $assert(strpos($endpoint, "\$action === 'validate_storefront_launch'") !== false, 'Editors endpoint must validate storefront launches');
@@ -54,7 +58,10 @@ $assert(strpos($endpoint, "\$exception->getCode() === 409 ? 'REVISION_CONFLICT' 
 $assert(strpos($service, "public const CONTRACT = 'prospektweb.control-center.editors/v1'") !== false, 'Editors catalog must have a versioned contract');
 $assert(strpos($service, 'public const FOCUS_PRESET_ID = 12740') !== false, 'Phase 4A must be explicitly scoped to preset 12740');
 $assert(strpos($service, "(new CatalogTreeService())->presetLoadOptions(['presetId' => \$presetId])") !== false, 'The catalog must reuse the authoritative preset/product/offer resolver');
-$assert(substr_count($service, "'ACTIVE' => 'Y'") === 1, 'Only the preset directory may issue its own active-element query; launch resolution stays delegated');
+$assert(strpos($service, 'public function getPresetRegistry(') !== false, 'The service must expose a lightweight registry contract');
+$assert(strpos($service, 'public function loadPresetWorkspace(int $presetId)') !== false, 'The service must separate lazy preset detail from registry summaries');
+$assert(strpos($service, "'calculations' => \$registry['rows']") !== false, 'Bootstrap catalog must not load every preset snapshot');
+$assert(strpos($service, 'PROPERTY_CALC_PRESET') !== false && strpos($service, 'PROPERTY_CML2_LINK') !== false, 'Registry usage must aggregate products and offers without nested snapshots');
 $assert(strpos($service, 'validateCalculationLaunch(int $presetId, array $offerIds)') !== false, 'Calculation launch must validate a multi-product offer list');
 $assert(strpos($service, 'validatePresetLaunch(int $presetId)') !== false, 'The control center must support product-neutral preset launches');
 $assert(strpos($service, "'offerIds' => \$validatedOfferIds") !== false, 'Validated offer IDs must be derived from the server snapshot');
@@ -211,6 +218,6 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== fal
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
 $assert(strpos($diagnostic, "'lib/Services/Phase5aParityContractService.php'") !== false, 'Diagnostics must verify the Phase 5A parity service');
-$assert(strpos($version, "'VERSION' => '1.9.6'") !== false, 'Independent preset form release must publish module version 1.9.6');
+$assert(strpos($version, "'VERSION' => '1.10.0'") !== false, 'Calculator registry workspace release must publish module version 1.10.0');
 
 echo "Control center editors API static tests passed\n";

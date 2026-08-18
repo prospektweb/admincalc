@@ -62,6 +62,12 @@ final class ControlCenterEditorsService
     /** @var callable */
     private $presetCreator;
 
+    /** @var callable */
+    private $presetUsageLoader;
+
+    /** @var callable */
+    private $storefrontPresetLoader;
+
     public function __construct(
         ?callable $presetLoader = null,
         ?callable $productIblockIdResolver = null,
@@ -69,7 +75,9 @@ final class ControlCenterEditorsService
         ?callable $frontcalcEditorResolver = null,
         ?callable $dependencyContractResolver = null,
         ?callable $presetListLoader = null,
-        ?callable $presetCreator = null
+        ?callable $presetCreator = null,
+        ?callable $presetUsageLoader = null,
+        ?callable $storefrontPresetLoader = null
     ) {
         $this->presetLoader = $presetLoader ?? static function (int $presetId): array {
             if (!Loader::includeModule('iblock')) {
@@ -103,29 +111,60 @@ final class ControlCenterEditorsService
             ? static function (): array {
                 return [['id' => self::FOCUS_PRESET_ID, 'name' => 'Пресет #' . self::FOCUS_PRESET_ID]];
             }
-            : static function (): array {
-            if (!Loader::includeModule('iblock')) {
-                throw new \RuntimeException('The iblock module is not available');
-            }
-            $iblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
-            if ($iblockId <= 0) {
-                throw new \RuntimeException('The CALC_PRESETS iblock is not configured');
-            }
-            $rows = [];
-            $cursor = \CIBlockElement::GetList(
-                ['SORT' => 'ASC', 'NAME' => 'ASC', 'ID' => 'ASC'],
-                ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'],
-                false,
-                false,
-                ['ID', 'NAME']
-            );
-            while ($cursor && ($row = $cursor->Fetch())) {
-                $id = (int)($row['ID'] ?? 0);
-                if ($id > 0) {
-                    $rows[] = ['id' => $id, 'name' => (string)($row['NAME'] ?? '')];
+            : static function (string $query = '', string $status = 'all', string $sort = 'updated_desc', int $page = 1, int $pageSize = 50): array {
+                if (!Loader::includeModule('iblock')) {
+                    throw new \RuntimeException('The iblock module is not available');
                 }
-            }
-                return $rows;
+                $iblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
+                if ($iblockId <= 0) {
+                    throw new \RuntimeException('The CALC_PRESETS iblock is not configured');
+                }
+                $filter = ['IBLOCK_ID' => $iblockId];
+                if ($status === 'active') {
+                    $filter['ACTIVE'] = 'Y';
+                } elseif ($status === 'archived') {
+                    $filter['ACTIVE'] = 'N';
+                }
+                if ($query !== '') {
+                    $search = ['%NAME' => $query];
+                    if (ctype_digit($query)) {
+                        $search = ['LOGIC' => 'OR', ['%NAME' => $query], ['ID' => (int)$query]];
+                    }
+                    $filter[] = $search;
+                }
+                $order = match ($sort) {
+                    'name_asc' => ['NAME' => 'ASC', 'ID' => 'ASC'],
+                    'name_desc' => ['NAME' => 'DESC', 'ID' => 'DESC'],
+                    'id_desc' => ['ID' => 'DESC'],
+                    default => ['TIMESTAMP_X' => 'DESC', 'ID' => 'DESC'],
+                };
+                $rows = [];
+                $cursor = \CIBlockElement::GetList(
+                    $order,
+                    $filter,
+                    false,
+                    ['nPageSize' => $pageSize, 'iNumPage' => $page],
+                    ['ID', 'NAME', 'ACTIVE', 'SORT', 'TIMESTAMP_X']
+                );
+                while ($cursor && ($row = $cursor->Fetch())) {
+                    $id = (int)($row['ID'] ?? 0);
+                    if ($id > 0) {
+                        $rows[] = [
+                            'id' => $id,
+                            'name' => (string)($row['NAME'] ?? ''),
+                            'active' => (string)($row['ACTIVE'] ?? 'N') === 'Y',
+                            'sort' => (int)($row['SORT'] ?? 500),
+                            'updatedAt' => (string)($row['TIMESTAMP_X'] ?? ''),
+                        ];
+                    }
+                }
+                return [
+                    '_serverPaged' => true,
+                    'rows' => $rows,
+                    'total' => $cursor && method_exists($cursor, 'SelectedRowsCount')
+                        ? (int)$cursor->SelectedRowsCount()
+                        : count($rows),
+                ];
             });
         $this->presetCreator = $presetCreator ?? static function (string $name): int {
             if (!Loader::includeModule('iblock')) {
@@ -135,11 +174,27 @@ final class ControlCenterEditorsService
             return (new \Prospektweb\Calc\Calculator\BundleHandler())
                 ->createStandalonePreset($name, $iblockId);
         };
+        $this->presetUsageLoader = $presetUsageLoader ?? ($presetLoader !== null
+            ? static function (array $presetIds): array {
+                return [];
+            }
+            : function (array $presetIds): array {
+                return $this->loadRegistryUsage($presetIds);
+            });
+        $this->storefrontPresetLoader = $storefrontPresetLoader ?? ($presetLoader !== null
+            ? $this->presetLoader
+            : static function (int $presetId): array {
+                if (!Loader::includeModule('iblock')) {
+                    throw new \RuntimeException('The iblock module is not available');
+                }
+
+                return (new CatalogTreeService())->presetStorefrontOptions(['presetId' => $presetId]);
+            });
     }
 
     public function getCatalog(): array
     {
-        $snapshot = $this->loadSnapshot(self::FOCUS_PRESET_ID);
+        $snapshot = $this->loadStorefrontSnapshot(self::FOCUS_PRESET_ID);
         $productIblockId = $this->resolveProductIblockId();
         $frontcalcAvailable = (bool)call_user_func($this->frontcalcAvailabilityResolver);
         $visualEditorAvailable = $frontcalcAvailable && $this->isStorefrontEditorAvailable();
@@ -155,30 +210,12 @@ final class ControlCenterEditorsService
             ];
         }
 
-        $calculations = [];
-        foreach ($this->listPresetRows() as $presetRow) {
-            $presetSnapshot = $this->loadSnapshot((int)$presetRow['id']);
-            $products = $presetSnapshot['products'];
-            if ((int)$presetRow['id'] === self::FOCUS_PRESET_ID) {
-                $supported = StandaloneCatalogSelectionMapper::supportedProductIds();
-                $products = array_values(array_filter($products, static function (array $product) use ($supported): bool {
-                    return in_array((int)$product['id'], $supported, true);
-                }));
-            }
-            $calculations[] = [
-                'presetId' => (int)$presetRow['id'],
-                'presetName' => $presetSnapshot['presetName'],
-                'offerCount' => array_sum(array_map(static function (array $product): int {
-                    return (int)$product['offerCount'];
-                }, $products)),
-                'products' => $products,
-            ];
-        }
+        $registry = $this->getPresetRegistry('', 'all', 'updated_desc', 1, 50);
 
         return [
             'contract' => self::CONTRACT,
             'focusPresetId' => self::FOCUS_PRESET_ID,
-            'calculations' => $calculations,
+            'calculations' => $registry['rows'],
             'storefront' => [
                 'available' => $frontcalcAvailable,
                 'visualEditorAvailable' => $visualEditorAvailable,
@@ -189,6 +226,147 @@ final class ControlCenterEditorsService
                 'productIblockId' => $productIblockId,
                 'products' => $storefrontProducts,
             ],
+        ];
+    }
+
+    /**
+     * Lightweight server-paged registry. It deliberately does not load preset
+     * snapshots or nested product/offer rows.
+     */
+    public function getPresetRegistry(
+        string $query = '',
+        string $status = 'all',
+        string $sort = 'updated_desc',
+        int $page = 1,
+        int $pageSize = 50
+    ): array {
+        $query = trim($query);
+        if (!in_array($status, ['all', 'active', 'archived'], true)) {
+            throw new \InvalidArgumentException('Unsupported preset registry status');
+        }
+        if (!in_array($sort, ['updated_desc', 'name_asc', 'name_desc', 'id_desc'], true)) {
+            throw new \InvalidArgumentException('Unsupported preset registry sort');
+        }
+        if ($page <= 0 || $pageSize <= 0 || $pageSize > 100) {
+            throw new \InvalidArgumentException('Invalid preset registry page');
+        }
+
+        $serverTotal = null;
+        $serverPaged = false;
+        $rows = $this->listPresetRows($query, $status, $sort, $page, $pageSize, $serverTotal, $serverPaged);
+        if (!$serverPaged) {
+            $rows = array_values(array_filter($rows, static function (array $row) use ($query, $status): bool {
+            if ($status === 'active' && empty($row['active'])) {
+                return false;
+            }
+            if ($status === 'archived' && !empty($row['active'])) {
+                return false;
+            }
+            if ($query === '') {
+                return true;
+            }
+            $source = (string)$row['name'] . ' ' . (string)$row['id'];
+            if (function_exists('mb_strtolower') && function_exists('mb_strpos')) {
+                $haystack = mb_strtolower($source, 'UTF-8');
+                return mb_strpos($haystack, mb_strtolower($query, 'UTF-8'), 0, 'UTF-8') !== false;
+            }
+            return stripos($source, $query) !== false;
+            }));
+
+            usort($rows, static function (array $left, array $right) use ($sort): int {
+            if ($sort === 'name_asc' || $sort === 'name_desc') {
+                $result = strnatcasecmp((string)$left['name'], (string)$right['name']);
+                return $sort === 'name_desc' ? -$result : $result;
+            }
+            if ($sort === 'id_desc') {
+                return (int)$right['id'] <=> (int)$left['id'];
+            }
+            $result = strcmp((string)$right['updatedAt'], (string)$left['updatedAt']);
+            return $result !== 0 ? $result : ((int)$right['id'] <=> (int)$left['id']);
+            });
+        }
+
+        $total = $serverPaged ? max(0, (int)$serverTotal) : count($rows);
+        $pageRows = $serverPaged ? $rows : array_slice($rows, ($page - 1) * $pageSize, $pageSize);
+        $usage = call_user_func($this->presetUsageLoader, array_column($pageRows, 'id'));
+        if (!is_array($usage)) {
+            throw new \RuntimeException('The preset usage provider returned an invalid result');
+        }
+        $normalizedRows = array_map(static function (array $row) use ($usage): array {
+            $id = (int)$row['id'];
+            $counts = is_array($usage[$id] ?? null) ? $usage[$id] : [];
+            return [
+                'presetId' => $id,
+                'presetName' => (string)$row['name'],
+                'active' => !empty($row['active']),
+                'productCount' => max(0, (int)($counts['productCount'] ?? 0)),
+                'offerCount' => max(0, (int)($counts['offerCount'] ?? 0)),
+                'updatedAt' => (string)($row['updatedAt'] ?? ''),
+            ];
+        }, $pageRows);
+
+        return [
+            'contract' => self::CONTRACT,
+            'rows' => $normalizedRows,
+            'page' => $page,
+            'pageSize' => $pageSize,
+            'total' => $total,
+            'pageCount' => max(1, (int)ceil($total / $pageSize)),
+            'query' => $query,
+            'status' => $status,
+            'sort' => $sort,
+        ];
+    }
+
+    public function loadPresetWorkspace(int $presetId): array
+    {
+        $snapshot = $this->loadSnapshot($presetId);
+        return [
+            'contract' => self::CONTRACT,
+            'presetId' => $presetId,
+            'presetName' => $snapshot['presetName'],
+            'productCount' => count($snapshot['products']),
+            'offerCount' => $snapshot['offerCount'],
+            'products' => $snapshot['products'],
+        ];
+    }
+
+    /** @param int[] $presetIds */
+    public function setPresetActive(array $presetIds, bool $active): array
+    {
+        $presetIds = array_values(array_unique(array_map('intval', $presetIds)));
+        if ($presetIds === [] || count($presetIds) > 100 || min($presetIds) <= 0) {
+            throw new \InvalidArgumentException('Select from 1 to 100 presets');
+        }
+        if (!$active && in_array(self::FOCUS_PRESET_ID, $presetIds, true)) {
+            throw new \InvalidArgumentException('Рабочий пресет 12740 нельзя архивировать');
+        }
+        if (!Loader::includeModule('iblock')) {
+            throw new \RuntimeException('The iblock module is not available');
+        }
+        $iblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
+        $element = new \CIBlockElement();
+        foreach ($presetIds as $presetId) {
+            $exists = \CIBlockElement::GetList([], ['ID' => $presetId, 'IBLOCK_ID' => $iblockId], false, false, ['ID'])->Fetch();
+            if (!$exists || !$element->Update($presetId, ['ACTIVE' => $active ? 'Y' : 'N'])) {
+                throw new \RuntimeException('Не удалось изменить состояние пресета #' . $presetId);
+            }
+        }
+        return ['contract' => self::CONTRACT, 'presetIds' => $presetIds, 'active' => $active];
+    }
+
+    public function duplicatePreset(int $presetId): array
+    {
+        $this->loadSnapshot($presetId);
+        $newPresetId = (new \Prospektweb\Calc\Calculator\BundleHandler())->clonePreset($presetId);
+        if ($newPresetId <= 0) {
+            throw new \RuntimeException('Не удалось создать копию пресета');
+        }
+        $snapshot = $this->loadSnapshot($newPresetId);
+        return [
+            'contract' => self::CONTRACT,
+            'presetId' => $newPresetId,
+            'presetName' => $snapshot['presetName'],
         ];
     }
 
@@ -602,12 +780,120 @@ final class ControlCenterEditorsService
         ];
     }
 
-    /** @return array<int,array{id:int,name:string}> */
-    private function listPresetRows(): array
+    /**
+     * The storefront uses every active product linked to the preset. The
+     * catalog-write adapter may intentionally expose a narrower allowlist.
+     *
+     * @return array{presetName:string,offerCount:int,products:array<int,array{id:int,name:string,offerCount:int,offers:array<int,array{id:int,name:string}>}>}
+     */
+    private function loadStorefrontSnapshot(int $presetId): array
     {
-        $rawRows = call_user_func($this->presetListLoader);
-        if (!is_array($rawRows)) {
+        $originalLoader = $this->presetLoader;
+        $this->presetLoader = $this->storefrontPresetLoader;
+        try {
+            return $this->loadSnapshot($presetId);
+        } finally {
+            $this->presetLoader = $originalLoader;
+        }
+    }
+
+    /**
+     * Load usage aggregates for one registry page in two grouped scans instead
+     * of loading a full preset snapshot for every row.
+     *
+     * @param int[] $presetIds
+     * @return array<int,array{productCount:int,offerCount:int}>
+     */
+    private function loadRegistryUsage(array $presetIds): array
+    {
+        $presetIds = array_values(array_unique(array_filter(array_map('intval', $presetIds), static function (int $id): bool {
+            return $id > 0;
+        })));
+        if ($presetIds === []) {
+            return [];
+        }
+        if (!Loader::includeModule('iblock')) {
+            throw new \RuntimeException('The iblock module is not available');
+        }
+        $config = new ConfigManager();
+        $productIblockId = (int)$config->getProductIblockId();
+        $skuIblockId = (int)$config->getSkuIblockId();
+        if ($productIblockId <= 0) {
+            return [];
+        }
+
+        $usage = [];
+        foreach ($presetIds as $presetId) {
+            $usage[$presetId] = ['productCount' => 0, 'offerCount' => 0];
+        }
+        $productPresetMap = [];
+        $productCursor = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            [
+                'IBLOCK_ID' => $productIblockId,
+                'ACTIVE' => 'Y',
+                'ACTIVE_DATE' => 'Y',
+                'PROPERTY_CALC_PRESET' => $presetIds,
+            ],
+            false,
+            false,
+            ['ID', 'PROPERTY_CALC_PRESET']
+        );
+        while ($productCursor && ($row = $productCursor->Fetch())) {
+            $productId = (int)($row['ID'] ?? 0);
+            $presetId = (int)($row['PROPERTY_CALC_PRESET_VALUE'] ?? 0);
+            if ($productId <= 0 || !isset($usage[$presetId])) {
+                continue;
+            }
+            $productPresetMap[$productId] = $presetId;
+            $usage[$presetId]['productCount']++;
+        }
+
+        if ($skuIblockId <= 0 || $productPresetMap === []) {
+            return $usage;
+        }
+        $offerCursor = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            [
+                'IBLOCK_ID' => $skuIblockId,
+                'ACTIVE' => 'Y',
+                'ACTIVE_DATE' => 'Y',
+                'PROPERTY_CML2_LINK' => array_keys($productPresetMap),
+            ],
+            false,
+            false,
+            ['ID', 'PROPERTY_CML2_LINK']
+        );
+        while ($offerCursor && ($row = $offerCursor->Fetch())) {
+            $productId = (int)($row['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+            $presetId = $productPresetMap[$productId] ?? 0;
+            if ($presetId > 0 && isset($usage[$presetId])) {
+                $usage[$presetId]['offerCount']++;
+            }
+        }
+
+        return $usage;
+    }
+
+    /** @return array<int,array{id:int,name:string,active:bool,sort:int,updatedAt:string}> */
+    private function listPresetRows(
+        string $query = '',
+        string $status = 'all',
+        string $sort = 'updated_desc',
+        int $page = 1,
+        int $pageSize = 50,
+        ?int &$serverTotal = null,
+        bool &$serverPaged = false
+    ): array {
+        $rawResult = call_user_func($this->presetListLoader, $query, $status, $sort, $page, $pageSize);
+        if (!is_array($rawResult)) {
             throw new \RuntimeException('The preset list provider returned an invalid result');
+        }
+        $serverPaged = !empty($rawResult['_serverPaged']);
+        $serverTotal = $serverPaged ? max(0, (int)($rawResult['total'] ?? 0)) : null;
+        $rawRows = $serverPaged ? ($rawResult['rows'] ?? null) : $rawResult;
+        if (!is_array($rawRows)) {
+            throw new \RuntimeException('The preset list provider returned invalid rows');
         }
         $rows = [];
         foreach ($rawRows as $rawRow) {
@@ -621,16 +907,26 @@ final class ControlCenterEditorsService
             $rows[$id] = [
                 'id' => $id,
                 'name' => trim((string)($rawRow['name'] ?? $rawRow['NAME'] ?? '')) ?: 'Пресет #' . $id,
+                'active' => array_key_exists('active', $rawRow)
+                    ? !empty($rawRow['active'])
+                    : (string)($rawRow['ACTIVE'] ?? 'Y') === 'Y',
+                'sort' => (int)($rawRow['sort'] ?? $rawRow['SORT'] ?? 500),
+                'updatedAt' => (string)($rawRow['updatedAt'] ?? $rawRow['TIMESTAMP_X'] ?? ''),
             ];
         }
-        if (!isset($rows[self::FOCUS_PRESET_ID])) {
+        if (!$serverPaged && $query === '' && !isset($rows[self::FOCUS_PRESET_ID])) {
             $focus = $this->loadSnapshot(self::FOCUS_PRESET_ID);
             $rows[self::FOCUS_PRESET_ID] = [
                 'id' => self::FOCUS_PRESET_ID,
                 'name' => $focus['presetName'],
+                'active' => true,
+                'sort' => 500,
+                'updatedAt' => '',
             ];
         }
-        ksort($rows, SORT_NUMERIC);
+        if (!$serverPaged) {
+            ksort($rows, SORT_NUMERIC);
+        }
         return array_values($rows);
     }
 
@@ -661,7 +957,7 @@ final class ControlCenterEditorsService
             throw new \RuntimeException('The storefront calculator module is not installed');
         }
 
-        $snapshot = $this->loadSnapshot(self::FOCUS_PRESET_ID);
+        $snapshot = $this->loadStorefrontSnapshot(self::FOCUS_PRESET_ID);
         $allowedProductIds = [];
         $productName = '';
         foreach ($snapshot['products'] as $product) {

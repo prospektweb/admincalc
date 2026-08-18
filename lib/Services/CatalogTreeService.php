@@ -18,6 +18,20 @@ final class CatalogTreeService
 
     public function presetLoadOptions(array $request): array
     {
+        return $this->loadPresetOptions($request, true);
+    }
+
+    /**
+     * Storefront placement scope is intentionally broader than the optional
+     * catalog-write adapter allowlist.
+     */
+    public function presetStorefrontOptions(array $request): array
+    {
+        return $this->loadPresetOptions($request, false);
+    }
+
+    private function loadPresetOptions(array $request, bool $applyAdapterScope): array
+    {
         $this->assertAdmin();
         $presetId = (int)($request['presetId'] ?? 0);
         if ($presetId <= 0) {
@@ -37,7 +51,7 @@ final class CatalogTreeService
             throw new \InvalidArgumentException('Пресет не найден');
         }
 
-        $products = $this->loadProductsForPreset($config, $presetId);
+        $products = $this->loadProductsForPreset($config, $presetId, $applyAdapterScope);
         $skuIblockId = (int)$config->getSkuIblockId();
         foreach ($products as &$product) {
             $offers = [];
@@ -78,7 +92,8 @@ final class CatalogTreeService
      */
     private function loadProductsForPreset(
         \Prospektweb\Calc\Config\ConfigManager $config,
-        int $presetId
+        int $presetId,
+        bool $applyAdapterScope = true
     ): array
     {
         $productIblockId = (int)$config->getProductIblockId();
@@ -92,7 +107,7 @@ final class CatalogTreeService
             'ACTIVE_DATE' => 'Y',
             'PROPERTY_CALC_PRESET' => $presetId,
         ];
-        if ($presetId === CatalogAdapterDefinitionService::PRESET_ID) {
+        if ($applyAdapterScope && $presetId === CatalogAdapterDefinitionService::PRESET_ID) {
             $supportedProductIds = StandaloneCatalogSelectionMapper::supportedProductIds();
             if ($supportedProductIds === []) {
                 return [];

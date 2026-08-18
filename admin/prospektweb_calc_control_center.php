@@ -160,8 +160,12 @@ body {
 }
 
 #prospektweb-control-center {
-    position: relative;
-    width: 100%;
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
     min-height: 0;
     background: #0b121a;
     isolation: isolate;

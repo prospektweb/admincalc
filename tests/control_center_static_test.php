@@ -27,7 +27,7 @@ $assert(strpos($handler, 'prospektweb_calc_recalculate.php') !== false, 'The est
 
 $assert(strpos($page, "'mode' => 'control-center'") !== false, 'The admin page opens the central SPA mode');
 $assert(strpos($page, "\$_GET['offer_ids']") === false, 'The control center must not require selected offers');
-$assert(strpos($page, 'position: fixed') === false, 'The control center must not cover the Bitrix global navigation');
+$assert(strpos($page, 'position: fixed') !== false && strpos($page, 'height: 100dvh') !== false, 'The control center must take over the full viewport so the editor is not constrained to the narrow Bitrix workarea');
 $assert(strpos($page, '.adm-workarea') !== false && strpos($page, 'padding: 0 !important') !== false, 'The control center removes page-local workarea padding');
 $assert(strpos($page, '#adm-title') !== false && strpos($page, 'display: none !important') !== false, 'The duplicate Bitrix page title is hidden');
 $assert(strpos($page, 'prospektweb-control-center-editor__bar') === false, 'The owned editor does not reserve space for a duplicate outer header');
@@ -105,14 +105,14 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($contextualGenerator, 'window.ProspektwebProductGenerator = ProductGenerator') !== false, 'The contextual offer generator remains available');
-$assert(strpos($appIndex, 'ddf30cc37273') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, '2b0acee42760') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
 $assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') !== false, 'The published bundle contains the storefront editor launch contract');
 $assert(strpos($appBundle, 'prospektweb.control-center.editors/v1') !== false, 'The published bundle validates the Phase 4A editors catalog');
-$assert(strpos($appBundle, 'Независимые калькуляторы') !== false, 'The published bundle names the standalone calculator workspace');
-$assert(strpos($appBundle, 'Необязательный адаптер') !== false, 'The published bundle separates catalog output from preset authoring');
-$assert(strpos($appBundle, 'Витринные калькуляторы') !== false, 'The published bundle exposes storefront calculator navigation');
+$assert(strpos($appBundle, 'Реестр калькуляторов') !== false, 'The published bundle contains the server-driven calculator registry');
+$assert(strpos($appBundle, 'Где используется калькулятор') !== false, 'The published bundle exposes catalog usage inside the selected calculator');
+$assert(strpos($appBundle, 'Разделы калькулятора') !== false, 'The published bundle exposes the unified calculator workspace tabs');
 $assert(strpos($appBundle, 'Это поле должно передавать в калькулятор одно значение.') !== false, 'The published form editor contains independent calculation-input guidance');
 $assert(strpos($appBundle, 'Выберите свойство каталога') === false, 'The preset form editor no longer asks the operator to select a Bitrix property');
 

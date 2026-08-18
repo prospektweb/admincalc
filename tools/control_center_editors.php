@@ -263,6 +263,60 @@ try {
         ]);
     }
 
+    if ($action === 'registry') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'query', 'status', 'sort', 'page', 'pageSize']);
+        $query = $request['query'] ?? '';
+        $status = $request['status'] ?? 'all';
+        $sort = $request['sort'] ?? 'updated_desc';
+        if (!is_string($query) || !is_string($status) || !is_string($sort)) {
+            throw new \InvalidArgumentException('Registry query, status and sort must be strings');
+        }
+        if (strlen($query) > 200) {
+            throw new \InvalidArgumentException('Registry query is too long');
+        }
+        $page = $parseStrictPositiveInt($request['page'] ?? 1, 'page');
+        $pageSize = $parseStrictPositiveInt($request['pageSize'] ?? 50, 'pageSize');
+        $respond(200, [
+            'success' => true,
+            'data' => $service->getPresetRegistry($query, $status, $sort, $page, $pageSize),
+        ]);
+    }
+
+    if ($action === 'preset_load') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $respond(200, [
+            'success' => true,
+            'data' => $service->loadPresetWorkspace($presetId),
+        ]);
+    }
+
+    if ($action === 'duplicate_preset') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $respond(200, [
+            'success' => true,
+            'data' => $service->duplicatePreset($presetId),
+        ]);
+    }
+
+    if ($action === 'set_preset_active') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetIds', 'active']);
+        $presetIds = $request['presetIds'] ?? null;
+        $active = $request['active'] ?? null;
+        if (!is_array($presetIds) || !is_bool($active)) {
+            throw new \InvalidArgumentException('presetIds and active are required');
+        }
+        $normalizedPresetIds = [];
+        foreach ($presetIds as $presetId) {
+            $normalizedPresetIds[] = $parseStrictPositiveInt($presetId, 'presetId');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $service->setPresetActive($normalizedPresetIds, $active),
+        ]);
+    }
+
     if ($action === 'create_preset') {
         $assertAllowedRequestKeys(['action', 'sessid', 'name']);
         $name = $request['name'] ?? null;
