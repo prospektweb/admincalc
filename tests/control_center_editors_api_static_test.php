@@ -220,6 +220,6 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== fal
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
 $assert(strpos($diagnostic, "'lib/Services/Phase5aParityContractService.php'") !== false, 'Diagnostics must verify the Phase 5A parity service');
-$assert(strpos($version, "'VERSION' => '1.10.3'") !== false, 'Safe form structure deletion release must publish module version 1.10.3');
+$assert(strpos($version, "'VERSION' => '1.10.4'") !== false, 'Safe form structure deletion release must publish module version 1.10.4');
 
 echo "Control center editors API static tests passed\n";
