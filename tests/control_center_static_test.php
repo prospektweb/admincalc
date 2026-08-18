@@ -45,6 +45,11 @@ $assert(strpos($page, "message.protocol !== 'pwrt-v1'") !== false, 'Messages mus
 $assert(strpos($page, "message.source !== 'prospektweb.calc'") !== false, 'Messages must identify the calculator SPA');
 $assert(strpos($page, "message.target !== 'bitrix'") !== false, 'Messages must target the Bitrix host');
 $assert(strpos($page, "message.type === 'READY'") !== false, 'The host recognizes the control-center readiness message');
+$assert(strpos($page, "message.type === 'CONTROL_CENTER_ROUTE_CHANGED'") !== false, 'The host synchronizes trusted calculator workspace routes');
+$assert(strpos($page, 'normalizeCalculatorWorkspaceHash') !== false, 'Workspace hashes are normalized before they reach the parent history');
+$assert(strpos($page, "['q', 'status', 'sort', 'field']") !== false, 'Only the agreed workspace query keys can be persisted');
+$assert(strpos($page, "window.addEventListener('popstate', syncCalculatorWorkspaceFromHost)") !== false, 'Browser history is forwarded back into the embedded workspace');
+$assert(strpos($page, 'childLocation.replace(childLocation.pathname + childLocation.search + hash)') !== false, 'Parent history changes replace the nested entry instead of duplicating browser history');
 $assert(strpos($page, "message.payload.mode !== 'control-center'") !== false, 'Legacy editor readiness messages cannot receive the control-center bootstrap');
 $assert(strpos($page, "type: 'CONTROL_CENTER_INIT'") !== false, 'The trusted iframe receives the versioned control-center bootstrap');
 $assert(strpos($page, "source: 'bitrix'") !== false, 'The bootstrap identifies the Bitrix host as its source');
@@ -105,7 +110,7 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($contextualGenerator, 'window.ProspektwebProductGenerator = ProductGenerator') !== false, 'The contextual offer generator remains available');
-$assert(strpos($appIndex, 'fdf02e46503f') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, '5a09eb3e89f6') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
 $assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') !== false, 'The published bundle contains the storefront editor launch contract');

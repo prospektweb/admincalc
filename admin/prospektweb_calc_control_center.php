@@ -240,6 +240,53 @@ body {
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     var activeEditor = null;
     var launchPending = false;
+    var calculatorWorkspaceHashPattern = /^#\/presets(?:\/[1-9]\d*\/(?:overview|form|logic|storefront|usage|versions))?(?:\?.*)?$/;
+
+    function normalizeCalculatorWorkspaceHash(hash) {
+        if (typeof hash !== 'string' || hash.length === 0 || hash.length > 1200
+            || !calculatorWorkspaceHashPattern.test(hash)) {
+            return '';
+        }
+
+        var queryStart = hash.indexOf('?');
+        var params = new URLSearchParams(queryStart >= 0 ? hash.slice(queryStart + 1) : '');
+        var allowedKeys = ['q', 'status', 'sort', 'field'];
+        var valid = true;
+        params.forEach(function (value, key) {
+            if (allowedKeys.indexOf(key) === -1 || value.length > (key === 'q' ? 160 : 128)) {
+                valid = false;
+            }
+        });
+        if (params.getAll('status').length > 1
+            || (params.has('status') && ['all', 'active', 'archived'].indexOf(params.get('status')) === -1)
+            || params.getAll('sort').length > 1
+            || (params.has('sort') && ['updated_desc', 'name_asc', 'name_desc', 'id_desc'].indexOf(params.get('sort')) === -1)
+            || params.getAll('q').length > 1
+            || params.getAll('field').length > 1) {
+            valid = false;
+        }
+
+        return valid ? hash : '';
+    }
+
+    function syncCalculatorWorkspaceFromHost() {
+        if (!iframe || !iframe.contentWindow) {
+            return;
+        }
+        var hash = window.location.hash;
+        if (hash !== '' && normalizeCalculatorWorkspaceHash(hash) === '') {
+            return;
+        }
+        var childLocation = iframe.contentWindow.location;
+        childLocation.replace(childLocation.pathname + childLocation.search + hash);
+    }
+
+    var initialCalculatorWorkspaceHash = normalizeCalculatorWorkspaceHash(window.location.hash);
+    if (initialCalculatorWorkspaceHash !== '' && iframe) {
+        var initialIframeUrl = new URL(iframe.src, window.location.origin);
+        initialIframeUrl.hash = initialCalculatorWorkspaceHash;
+        iframe.src = initialIframeUrl.pathname + initialIframeUrl.search + initialIframeUrl.hash;
+    }
 
     function createEditorInstanceId() {
         var bytes = new Uint8Array(16);
@@ -446,6 +493,8 @@ body {
 
     resizeControlCenter();
     window.addEventListener('resize', resizeControlCenter);
+    window.addEventListener('popstate', syncCalculatorWorkspaceFromHost);
+    window.addEventListener('hashchange', syncCalculatorWorkspaceFromHost);
 
     window.addEventListener('message', function (event) {
         if (event.origin !== window.location.origin) {
@@ -503,6 +552,25 @@ body {
                 return;
             }
             launchStorefrontEditor(message.payload);
+            return;
+        }
+
+        if (message.type === 'CONTROL_CENTER_ROUTE_CHANGED') {
+            if (!hasExactPayloadKeys(message.payload, ['hash', 'replace'])
+                || typeof message.payload.replace !== 'boolean') {
+                return;
+            }
+            var workspaceHash = normalizeCalculatorWorkspaceHash(message.payload.hash);
+            if (workspaceHash === '') {
+                return;
+            }
+            var workspaceUrl = new URL(window.location.href);
+            workspaceUrl.hash = workspaceHash;
+            window.history[message.payload.replace ? 'replaceState' : 'pushState'](
+                {calculatorWorkspaceHash: workspaceHash},
+                '',
+                workspaceUrl
+            );
             return;
         }
 
