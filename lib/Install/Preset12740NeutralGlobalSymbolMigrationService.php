@@ -145,7 +145,7 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             'kind' => 'constant',
             'dataType' => 'string',
             'legacy' => 'get(offer, "properties.CALC_PROP_FORMAT.VALUE~")',
-            'neutral' => 'toString(get(input, "values.format.width")) + "×" + toString(get(input, "values.format.height")) + " мм"',
+            'neutral' => 'toString(get(input, "values.format.width")) + "×" + toString(get(input, "values.format.length")) + " мм"',
         ],
         'is_text_filling_printing' => [
             'id' => 13085,

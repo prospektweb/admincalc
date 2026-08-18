@@ -479,7 +479,7 @@ final class Preset12740NeutralInputMigrationService
                 'propertyCode' => 'CALC_PROP_FORMAT',
                 'fieldId' => 'format',
                 'pattern' => '/^get\(\s*split\(\s*get\(\s*offer\s*,\s*(["\'])properties\.CALC_PROP_FORMAT\.(?:VALUE_XML_ID|VALUE)\1\s*\)\s*,\s*(["\'])x\2\s*\)\s*,\s*1\s*\)$/D',
-                'replacement' => 'get(input, "values.format.height")',
+                'replacement' => 'get(input, "values.format.length")',
             ],
             'is_double_sided_printing' => [
                 'propertyCode' => 'CALC_PROP_COLOR_SCHEME',

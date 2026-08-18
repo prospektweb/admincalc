@@ -70,7 +70,7 @@ $expectedTargets = [
     12925 => ['finished_item_qty', 'number', 'toNumber(get(input, "values.volume"))'],
     12976 => ['has_holes', 'boolean', 'contains(get(input, "values.options"), "round-holes")'],
     12978 => ['product_name', 'string', '"Листовая продукция"'],
-    12979 => ['value_format_text', 'string', 'toString(get(input, "values.format.width")) + "×" + toString(get(input, "values.format.height")) + " мм"'],
+    12979 => ['value_format_text', 'string', 'toString(get(input, "values.format.width")) + "×" + toString(get(input, "values.format.length")) + " мм"'],
     13085 => ['is_text_filling_printing', 'boolean', 'get(input, "values.filling") == "text"'],
     13093 => ['is_standart_filling_printing', 'boolean', '(get(input, "values.filling") == "standart") || (get(input, "values.filling") != "text")'],
 ];
@@ -429,7 +429,7 @@ foreach (['offer', 'product', 'selectedOffer', 'selectedOffers', 'context', 'ibl
 }
 $assert(strpos($serialized, 'toNumber(get(input, \\"values.volume\\"))') !== false, 'quantity is form-owned');
 $assert(strpos($serialized, '\\"Листовая продукция\\"') !== false, 'presentation name is an honest preset-owned literal');
-$assert(strpos($serialized, 'values.format.width') !== false && strpos($serialized, 'values.format.height') !== false, 'format text is derived from structured dimensions');
+$assert(strpos($serialized, 'values.format.width') !== false && strpos($serialized, 'values.format.length') !== false, 'format text is derived from canonical structured dimensions');
 
 $activeN = $next;
 $activeN['active']['value'] = 'N';

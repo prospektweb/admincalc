@@ -97,7 +97,7 @@ $assert(is_string($serialized), 'the migrated snapshot can be encoded');
 $assert(strpos($serialized, 'offer.properties') === false, 'the migrated calculation sources contain no offer path');
 $assert(strpos($serialized, 'product.properties') === false, 'the migrated calculation sources contain no product path');
 $assert(strpos($serialized, 'get(input, \\"values.format.width\\")') !== false, 'finished width reads the structured semantic width');
-$assert(strpos($serialized, 'get(input, \\"values.format.height\\")') !== false, 'finished length reads the structured semantic height');
+$assert(strpos($serialized, 'get(input, \\"values.format.length\\")') !== false, 'finished length reads the canonical structured semantic length');
 $assert(strpos($serialized, 'if(toNumber(get(split(get(input, \\"values.color.scheme\\"), \\"+\\"), 1)) != 0, true, false)') !== false, 'duplex detection preserves non-zero back-side semantics on the exact semantic color field');
 $assert(strpos($serialized, 'split(get(input, \\"values.format') === false, 'structured dimensions must never be passed to the legacy string split formula');
 $assert(strpos($serialized, 'input.values.volume') !== false, 'stage inputs read semantic form values');
