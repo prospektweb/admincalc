@@ -118,9 +118,9 @@ $assert(
     'Public input property codes must be canonical and sorted'
 );
 $assert(
-    ($first['publicInputContract']['requiredPropertyCodes'] ?? []) === ['CALC_PROP_METHOD']
+    ($first['publicInputContract']['requiredPropertyCodes'] ?? []) === ['CALC_PROP_METHOD', 'CALC_PROP_OPTIONS']
         && preg_match('/^[a-f0-9]{64}$/D', (string)($first['publicInputContract']['fingerprint'] ?? '')) === 1,
-    'The public input authority must include only effective UI fields proven required by runtime semantics'
+    'The public input authority must include external logic and presentation consumers, not its own published UI'
 );
 $assert(
     ($first['fingerprint'] ?? '') === ($second['fingerprint'] ?? ''),
@@ -172,15 +172,15 @@ $internalOnly = (new Phase5aParityContractService(
 ))->build();
 $assert(
     in_array('CALC_PROP_INTERNAL', $internalOnly['dependencyMatrix']['propertyCodes'] ?? [], true)
-        && !in_array(
+        && in_array(
             'CALC_PROP_INTERNAL',
             $internalOnly['publicInputContract']['requiredPropertyCodes'] ?? [],
             true
         ),
-    'A stage-only internal CALC_PROP must remain auditable without becoming a public required input'
+    'A stage input must block deleting its form field until the logic reference is removed'
 );
 
-$requiredUiConsumers = $internalOnlyConsumers;
+$requiredUiConsumers = $consumers;
 $requiredUiConsumers[] = [
     'propertyCode' => 'CALC_PROP_INTERNAL',
     'category' => 'ui',
@@ -203,12 +203,12 @@ $requiredUi = (new Phase5aParityContractService(
     $goldenLoader
 ))->build();
 $assert(
-    in_array(
+    !in_array(
         'CALC_PROP_INTERNAL',
         $requiredUi['publicInputContract']['requiredPropertyCodes'] ?? [],
         true
     ),
-    'The same code becomes a public obligation only when effective runtime exposes it as a required UI field'
+    'The currently published UI must not make its own field impossible to delete'
 );
 $assert(
     ($first['runtimeBoundary']['runtimeSchemaVersion'] ?? 0) === 2

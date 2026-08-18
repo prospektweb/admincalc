@@ -226,6 +226,24 @@ namespace Prospektweb\Calc\Services {
             return $this->formFirstResult('form_first_load', compact('productId', 'presetId'));
         }
 
+        public function inspectFormFirstFieldDeletion(
+            int $productId,
+            int $presetId,
+            string $fieldId,
+            ?string $propertyCode
+        ): array {
+            return [
+                'contract' => 'prospektweb.calc.form-first-field-delete-impact/v1',
+                'presetId' => $presetId,
+                'fieldId' => $fieldId,
+                'propertyCode' => $propertyCode,
+                'removable' => true,
+                'blockers' => [],
+                'dependencyFingerprint' => str_repeat('d', 64),
+                'productId' => $productId,
+            ];
+        }
+
         public function saveFormFirstDraft(
             int $productId,
             int $presetId,
@@ -675,6 +693,20 @@ PHP;
         && ($formFirstLoad['body']['data']['operation'] ?? '') === 'form_first_load'
         && ($formFirstLoad['body']['data']['presetId'] ?? 0) === 12740,
         'Form-first load must preserve the exact product and preset pilot IDs');
+
+    $formFirstDeleteImpact = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_field_delete_impact',
+        'productId' => 4267,
+        'presetId' => 12740,
+        'fieldId' => 'volume',
+        'propertyCode' => 'CALC_PROP_VOLUME',
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstDeleteImpact['status'] === 200
+        && ($formFirstDeleteImpact['body']['data']['contract'] ?? '') === 'prospektweb.calc.form-first-field-delete-impact/v1'
+        && ($formFirstDeleteImpact['body']['data']['fieldId'] ?? '') === 'volume'
+        && ($formFirstDeleteImpact['body']['data']['propertyCode'] ?? '') === 'CALC_PROP_VOLUME',
+        'Field deletion impact must preserve the exact field and property identity');
 
     $formFirstSave = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',

@@ -434,7 +434,7 @@ $dependencyContractResolver = static function (int $presetId, array $allowedProd
     ] as $category) {
         $categoryStatus[$category] = [
             'scanned' => true,
-            'count' => $category === 'ui' ? 1 : 0,
+            'count' => $category === 'stage_inputs' ? 1 : 0,
             'sourceMode' => $category === 'basket' ? 'declared' : 'discovered',
         ];
     }
@@ -444,9 +444,9 @@ $dependencyContractResolver = static function (int $presetId, array $allowedProd
         'requiredPropertyCodes' => ['CALC_PROP_VOLUME'],
         'consumers' => [[
             'propertyCode' => 'CALC_PROP_VOLUME',
-            'category' => 'ui',
-            'source' => 'fixture.runtime',
-            'path' => 'products.4267.schema.fields.0.property_code',
+            'category' => 'stage_inputs',
+            'source' => 'fixture.stage',
+            'path' => 'stages.12.inputs.0.property_code',
             'provenance' => 'discovered',
         ]],
         'categoryStatus' => $categoryStatus,
@@ -573,6 +573,23 @@ $assert(
     ($visualService->loadFormFirstWorkspace(4267, 12740)['operation'] ?? '') === 'load',
     'The service must delegate the form-first workspace load'
 );
+$deleteImpact = $visualService->inspectFormFirstFieldDeletion(4267, 12740, 'volume', 'CALC_PROP_VOLUME');
+$assert(
+    ($deleteImpact['contract'] ?? '') === ControlCenterEditorsService::FORM_FIRST_FIELD_DELETE_IMPACT_CONTRACT
+        && ($deleteImpact['removable'] ?? true) === false
+        && ($deleteImpact['blockers'][0]['category'] ?? '') === 'stage_inputs',
+    'Field deletion impact must block a field referenced by the current calculation logic'
+);
+$displayOnlyImpact = $visualService->inspectFormFirstFieldDeletion(4267, 12740, 'ui.note', null);
+$assert(
+    ($displayOnlyImpact['removable'] ?? false) === true && ($displayOnlyImpact['blockers'] ?? null) === [],
+    'A display-only field without a calculator property must be removable'
+);
+$invalidDraftImpact = $visualService->inspectFormFirstFieldDeletion(4267, 12740, '23423423', null);
+$assert(
+    ($invalidDraftImpact['removable'] ?? false) === true,
+    'The impact check must allow removing a numeric field id from an otherwise invalid unsaved draft'
+);
 $assert(
     ($visualService->saveFormFirstDraft(
         4267,
@@ -603,9 +620,9 @@ $assert(
     'The service must allow rollback to the pre-form-first revision zero'
 );
 $assert(
-    count($dependencyResolveCalls) === 5
-        && array_column($dependencyResolveCalls, 0) === [12740, 12740, 12740, 12740, 12740],
-    'Every form-first action must freshly resolve the server-owned dependency authority'
+    count($dependencyResolveCalls) === 8
+        && array_column($dependencyResolveCalls, 0) === [12740, 12740, 12740, 12740, 12740, 12740, 12740, 12740],
+    'Every form-first action and deletion impact must freshly resolve the server-owned dependency authority'
 );
 $formFirstCalls = array_values(array_filter($provider->calls, static function (array $call): bool {
     return in_array($call[0] ?? '', [

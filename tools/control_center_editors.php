@@ -474,6 +474,29 @@ try {
         ]);
     }
 
+    if ($action === 'form_first_field_delete_impact') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'presetId', 'fieldId', 'propertyCode']);
+        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        if (!is_string($request['fieldId'] ?? null)) {
+            throw new \InvalidArgumentException('fieldId must be a string');
+        }
+        $propertyCode = $request['propertyCode'] ?? null;
+        if ($propertyCode !== null && !is_string($propertyCode)) {
+            throw new \InvalidArgumentException('propertyCode must be a string or null');
+        }
+
+        $respond(200, [
+            'success' => true,
+            'data' => $service->inspectFormFirstFieldDeletion(
+                $productId,
+                $presetId,
+                (string)$request['fieldId'],
+                $propertyCode
+            ),
+        ]);
+    }
+
     if ($action === 'form_first_save_draft') {
         $assertAllowedRequestKeys([
             'action',

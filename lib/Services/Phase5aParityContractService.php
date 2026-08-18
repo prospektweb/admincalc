@@ -789,22 +789,26 @@ final class Phase5aParityContractService
         $consumers = $this->normalizeConsumers((array)($graph['consumers'] ?? []));
         $propertyCodes = array_values(array_unique(array_column($consumers, 'propertyCode')));
         sort($propertyCodes, SORT_STRING);
-        $publicUiPropertyCodes = [];
+        // The currently published UI and its basket payload are replaceable
+        // outputs of the next publication and therefore cannot make their own
+        // fields impossible to delete. Only external consumers that must be
+        // removed first (logic, globals, routes and presentation references)
+        // are obligations for the next form revision.
+        $blockingCategories = [
+            'stage_inputs',
+            'globals',
+            'options_mappings',
+            'routes',
+            'passive_context',
+            'seo_display',
+        ];
+        $requiredPropertyCodes = [];
         foreach ($consumers as $consumer) {
-            if ($consumer['category'] === 'ui') {
-                $publicUiPropertyCodes[$consumer['propertyCode']] = true;
+            if (in_array($consumer['category'], $blockingCategories, true)) {
+                $requiredPropertyCodes[$consumer['propertyCode']] = true;
             }
         }
-        // Only effective RuntimeSchema v2 fields marked required=true are
-        // public input obligations. Stage/global/passive/system consumers stay
-        // visible in the matrix, but cannot promote an internal CALC_PROP into
-        // a form field unless the same code is an effective public UI field.
-        $requiredPropertyCodes = array_values(array_filter(
-            $this->normalizePropertyCodes((array)($graph['requiredPropertyCodes'] ?? [])),
-            static function (string $propertyCode) use ($publicUiPropertyCodes): bool {
-                return isset($publicUiPropertyCodes[$propertyCode]);
-            }
-        ));
+        $requiredPropertyCodes = array_keys($requiredPropertyCodes);
         sort($requiredPropertyCodes, SORT_STRING);
         $unresolvedSources = [];
         foreach ((array)($graph['unresolvedSources'] ?? []) as $unresolvedSource) {

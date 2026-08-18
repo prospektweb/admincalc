@@ -20,6 +20,7 @@ final class ControlCenterEditorsService
     public const CONTRACT = 'prospektweb.control-center.editors/v1';
     public const STOREFRONT_EDITOR_CONTRACT = 'prospektweb.frontcalc.storefront-editor/v1';
     public const FORM_FIRST_AUTHORING_CONTRACT = 'prospektweb.frontcalc.form-first-authoring/v1';
+    public const FORM_FIRST_FIELD_DELETE_IMPACT_CONTRACT = 'prospektweb.calc.form-first-field-delete-impact/v1';
     public const FOCUS_PRESET_ID = 12740;
 
     private const MAX_CALCULATION_OFFERS = 500;
@@ -39,6 +40,14 @@ final class ControlCenterEditorsService
         'previewFormFirst',
         'publishFormFirst',
         'rollbackFormFirst',
+    ];
+    private const FIELD_DELETE_BLOCKING_CATEGORIES = [
+        'stage_inputs',
+        'globals',
+        'options_mappings',
+        'routes',
+        'passive_context',
+        'seo_display',
     ];
 
     /** @var callable */
@@ -604,6 +613,48 @@ final class ControlCenterEditorsService
             'load',
             $dependencyContract['fingerprint']
         );
+    }
+
+    /** @return array<string,mixed> */
+    public function inspectFormFirstFieldDeletion(
+        int $productId,
+        int $presetId,
+        string $fieldId,
+        ?string $propertyCode
+    ): array {
+        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
+        $fieldId = trim($fieldId);
+        // The impact check must also let an operator remove an invalid field
+        // from an unsaved draft (for example, a numeric code entered before
+        // validation). Save/publish keep the stricter semantic-id contract.
+        if ($fieldId === '' || strlen($fieldId) > 100 || preg_match('/[\x00-\x1F\x7F]/', $fieldId) === 1) {
+            throw new \InvalidArgumentException('fieldId must be a non-empty printable identifier');
+        }
+        $propertyCode = $propertyCode === null ? null : strtoupper(trim($propertyCode));
+        if ($propertyCode !== null && preg_match('/^CALC_PROP_[A-Z0-9_]+$/D', $propertyCode) !== 1) {
+            throw new \InvalidArgumentException('propertyCode must be a valid calculator property code or null');
+        }
+
+        $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
+        $blockers = [];
+        if ($propertyCode !== null) {
+            foreach ($dependencyContract['consumers'] as $consumer) {
+                if ((string)$consumer['propertyCode'] === $propertyCode
+                    && in_array((string)$consumer['category'], self::FIELD_DELETE_BLOCKING_CATEGORIES, true)) {
+                    $blockers[] = $consumer;
+                }
+            }
+        }
+
+        return [
+            'contract' => self::FORM_FIRST_FIELD_DELETE_IMPACT_CONTRACT,
+            'presetId' => $presetId,
+            'fieldId' => $fieldId,
+            'propertyCode' => $propertyCode,
+            'removable' => $blockers === [],
+            'blockers' => $blockers,
+            'dependencyFingerprint' => (string)$dependencyContract['fingerprint'],
+        ];
     }
 
     public function saveFormFirstDraft(

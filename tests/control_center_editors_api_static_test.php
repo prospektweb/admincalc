@@ -39,6 +39,7 @@ $assert(strpos($endpoint, "\$action === 'storefront_save_product'") !== false, '
 $assert(strpos($endpoint, "\$action === 'storefront_enable_inheritance'") !== false, 'Editors endpoint must expose revisioned inheritance activation');
 $assert(strpos($endpoint, "\$action === 'storefront_delete_template'") !== false, 'Editors endpoint must expose revisioned template deletion');
 $assert(strpos($endpoint, "\$action === 'form_first_load'") !== false, 'Editors endpoint must expose form-first workspace loading');
+$assert(strpos($endpoint, "\$action === 'form_first_field_delete_impact'") !== false, 'Editors endpoint must expose current field deletion impact');
 $assert(strpos($endpoint, "\$action === 'form_first_save_draft'") !== false, 'Editors endpoint must expose revisioned form-first draft saving');
 $assert(strpos($endpoint, "\$action === 'form_first_preview'") !== false, 'Editors endpoint must expose form-first compile preview');
 $assert(strpos($endpoint, "\$action === 'form_first_publish'") !== false, 'Editors endpoint must expose guarded form-first publication');
@@ -76,7 +77,8 @@ $assert(strpos($service, "'formFirstAuthoringAvailable' => \$formFirstAuthoringA
 $assert(strpos($service, "'formFirstAuthoringContract' => self::FORM_FIRST_AUTHORING_CONTRACT") !== false, 'The catalog must advertise the exact form-first provider contract');
 $assert(strpos($service, "'formFirstPilotProductIds' => [4267]") !== false, 'The catalog must retain the exact product 4267 pilot gate');
 $assert(substr_count($service, '$this->resolveStorefrontAuthority($productId);') === 7, 'Every product-owned storefront action must resolve the current product allowlist');
-$assert(substr_count($service, '$this->resolvePresetFormAuthority($presetId, $productId);') === 5, 'Every preset-owned form action must resolve the preset and optional product authority');
+$assert(substr_count($service, '$this->resolvePresetFormAuthority($presetId, $productId);') === 6, 'Every preset-owned form action and deletion impact must resolve the preset and optional product authority');
+$assert(strpos($service, "public const FORM_FIRST_FIELD_DELETE_IMPACT_CONTRACT = 'prospektweb.calc.form-first-field-delete-impact/v1'") !== false, 'Field deletion impact must have a versioned contract');
 $assert(strpos($service, "'allowedProductIds' => \$allowedProductIds") !== false, 'Server authority must materialize the current preset allowlist');
 $assert(strpos($service, '->loadWorkspace(') !== false, 'Workspace loading must delegate to the FrontCalc provider');
 $assert(strpos($service, '->validateSchema(') !== false, 'Schema validation must delegate to the FrontCalc provider');
@@ -130,9 +132,9 @@ $assert(
     'Calc-server compatibility must require both exact dependency coverage and complete golden parity'
 );
 $assert(
-    substr_count($service, '$this->resolveDependencyContract($presetId, $authority[\'allowedProductIds\'])') === 5
-        && substr_count($service, '$dependencyContract[\'fingerprint\']') === 5,
-    'All five form-first calls must receive a freshly server-resolved dependency authority'
+    substr_count($service, '$this->resolveDependencyContract($presetId, $authority[\'allowedProductIds\'])') === 6
+        && substr_count($service, '$dependencyContract[\'fingerprint\']') === 6,
+    'All form-first calls and deletion impact must receive a freshly server-resolved dependency authority'
 );
 $assert(
     strpos($service, "!hash_equals(\$expectedDependencyFingerprint, (string)\$result['dependencyFingerprint'])") !== false,
@@ -166,7 +168,7 @@ $assert(
 
 $assert(strpos($host, "'editors' => '/bitrix/tools/prospektweb.calc/control_center_editors.php'") !== false, 'Bootstrap must expose the editors endpoint');
 $assert(strpos($endpoint, "if (\$action === 'create_preset')") !== false, 'Editors endpoint must expose preset-first creation');
-$assert(substr_count($endpoint, "\$parseStrictNonNegativeInt(\$request['productId'] ?? 0, 'productId')") === 5, 'All form-first actions must accept productless preset-owned authoring');
+$assert(substr_count($endpoint, "\$parseStrictNonNegativeInt(\$request['productId'] ?? 0, 'productId')") === 6, 'All form-first actions and deletion impact must accept productless preset-owned authoring');
 $assert(strpos($host, "'controlCenterInstanceId' => \$controlCenterInstanceId") !== false, 'Bootstrap must issue a per-page instance token');
 $assert(strpos($host, 'message.payload.controlCenterInstanceId !== controlCenterInstanceId') !== false, 'Launch messages must echo the exact control-center token');
 $assert(strpos($host, "typeof message !== 'object' || Array.isArray(message)") !== false, 'Host must reject non-object and array message envelopes');
@@ -218,6 +220,6 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== fal
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
 $assert(strpos($diagnostic, "'lib/Services/Phase5aParityContractService.php'") !== false, 'Diagnostics must verify the Phase 5A parity service');
-$assert(strpos($version, "'VERSION' => '1.10.2'") !== false, 'Calculator registry workspace release must publish module version 1.10.2');
+$assert(strpos($version, "'VERSION' => '1.10.3'") !== false, 'Safe form structure deletion release must publish module version 1.10.3');
 
 echo "Control center editors API static tests passed\n";
