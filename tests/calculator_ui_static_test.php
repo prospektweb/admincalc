@@ -287,4 +287,19 @@ foreach ([$calculator, $integration] as $source) {
     }
 }
 
+foreach (['РљР°', 'Р”Рѕ', 'РџСЂ', 'РћС€'] as $mojibakeMarker) {
+    if (strpos($calculator, $mojibakeMarker) !== false) {
+        throw new RuntimeException('Calculator JavaScript must keep readable UTF-8 Russian text');
+    }
+}
+
+if (
+    strpos($calculator, "var offersTab = document.getElementById('tab_sub_list');") === false
+    || strpos($calculator, 'var toolbar = offersTab.querySelector(selectors[i]);') === false
+    || strpos($calculator, "document.querySelector('.adm-detail-toolbar')") !== false
+    || strpos($calculator, "document.querySelector('.adm-detail-content-wrap')") !== false
+) {
+    throw new RuntimeException('Calculator mass actions must remain scoped to the offers tab toolbar');
+}
+
 echo "Calculator UI static tests passed\n";
