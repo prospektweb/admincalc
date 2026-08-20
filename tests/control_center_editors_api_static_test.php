@@ -220,6 +220,6 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_editors.php'") !== fal
 $assert(substr_count($diagnostic, "'control_center_editors.php'") >= 1, 'Diagnostics must verify the published editors endpoint');
 $assert(strpos($diagnostic, "'lib/Services/ControlCenterEditorsService.php'") !== false, 'Diagnostics must verify the editors service');
 $assert(strpos($diagnostic, "'lib/Services/Phase5aParityContractService.php'") !== false, 'Diagnostics must verify the Phase 5A parity service');
-$assert(strpos($version, "'VERSION' => '1.10.5'") !== false, 'UTF-8 calculator toolbar release must publish module version 1.10.5');
+$assert(strpos($version, "'VERSION' => '1.10.6'") !== false, 'Required-input diagnostics release must publish module version 1.10.6');
 
 echo "Control center editors API static tests passed\n";
