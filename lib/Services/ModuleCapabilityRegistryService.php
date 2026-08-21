@@ -3,6 +3,7 @@
 namespace Prospektweb\Calc\Services;
 
 use Bitrix\Main\Config\Option;
+use Bitrix\Main\Loader;
 use Bitrix\Main\ModuleManager;
 
 /**
@@ -394,13 +395,6 @@ class ModuleCapabilityRegistryService
                 if ($auditResult === false) {
                     throw new \RuntimeException('Bitrix event log rejected the capability change');
                 }
-                if (
-                    $capabilityId === 'storefront.contacts.gallery'
-                    && Loader::includeModule('prospektweb.layoutfiles')
-                    && class_exists('\\Prospektweb\\LayoutFiles\\ContactGalleryManager')
-                ) {
-                    \Prospektweb\LayoutFiles\ContactGalleryManager::clearPublicCache();
-                }
             } catch (\Throwable $exception) {
                 try {
                     Option::set($optionModule, $optionName, $before ? 'Y' : 'N');
@@ -414,8 +408,28 @@ class ModuleCapabilityRegistryService
                 throw new \RuntimeException('Capability audit failed and option change was rolled back', 0, $exception);
             }
 
+            $this->clearCapabilityPublicCache($capabilityId);
+
             return $updatedCatalog;
         });
+    }
+
+    private function clearCapabilityPublicCache(string $capabilityId): void
+    {
+        if ($capabilityId !== 'storefront.contacts.gallery') {
+            return;
+        }
+
+        try {
+            if (
+                Loader::includeModule('prospektweb.layoutfiles')
+                && class_exists('\\Prospektweb\\LayoutFiles\\ContactGalleryManager')
+            ) {
+                \Prospektweb\LayoutFiles\ContactGalleryManager::clearPublicCache();
+            }
+        } catch (\Throwable $exception) {
+            // The audited option write remains authoritative when public cache is temporarily unavailable.
+        }
     }
 
     /** @param array<string, mixed> $definition */

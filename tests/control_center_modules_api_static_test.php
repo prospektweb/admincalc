@@ -53,6 +53,8 @@ $assert(strpos($service, "'group' => 'Мобильная версия'") !== fal
 $assert(strpos($service, "hash('sha256'") !== false && strpos($service, 'hash_equals(') !== false, 'Capability writes must use stable optimistic revisions');
 $assert(strpos($service, 'flock($handle, LOCK_EX)') !== false && strpos($service, '@chmod($lockPath, 0600)') !== false, 'Capability CAS must run under a private process lock');
 $assert(strpos($service, 'CEventLog::Add') !== false && strpos($service, 'PROSPEKTWEB_CONTROL_CENTER_CAPABILITY_CHANGED') !== false, 'Effective changes must be written to the Bitrix event log');
+$assert(strpos($service, 'use Bitrix\\Main\\Loader;') !== false, 'Provider modules must be loaded through the Bitrix Loader import');
+$assert(strpos($service, '$this->clearCapabilityPublicCache($capabilityId);') !== false, 'Public cache invalidation must run outside the audit rollback block');
 
 $assert(strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\ModuleCapabilityRegistryService'") !== false, 'Registry service must be registered in module autoload');
 $assert(strpos($installer, "\$toolsDir . '/control_center_modules.php'") !== false, 'Installer integrity must verify the published modules endpoint');

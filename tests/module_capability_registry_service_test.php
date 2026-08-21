@@ -18,6 +18,14 @@ namespace Bitrix\Main\Config {
 }
 
 namespace Bitrix\Main {
+    class Loader
+    {
+        public static function includeModule(string $moduleId): bool
+        {
+            return $moduleId === 'prospektweb.layoutfiles';
+        }
+    }
+
     class ModuleManager
     {
         public static ?int $versionReadsUntilFailure = null;
@@ -47,6 +55,22 @@ namespace Bitrix\Main {
             }
 
             return self::$versions[$moduleId] ?? false;
+        }
+    }
+}
+
+namespace Prospektweb\LayoutFiles {
+    class ContactGalleryManager
+    {
+        public static int $clearCalls = 0;
+        public static bool $fail = false;
+
+        public static function clearPublicCache(): void
+        {
+            self::$clearCalls++;
+            if (self::$fail) {
+                throw new \RuntimeException('Injected public cache failure');
+            }
         }
     }
 }
@@ -170,9 +194,21 @@ namespace {
     $assert($findCapability($final, 'storefront.checkout.company_suggestions')['enabled'] === false, 'Company suggestions read-back must match the write');
     $assert(count(CEventLog::$events) === 2, 'Each effective capability change must be audited exactly once');
 
+    \Prospektweb\LayoutFiles\ContactGalleryManager::$fail = true;
+    $galleryEnabled = $service->setCapability(
+        'storefront.contacts.gallery',
+        true,
+        (string)$final['revision'],
+        42
+    );
+    $assert(Option::$values['prospektweb.layoutfiles']['CONTACT_GALLERY_ENABLED'] === 'Y', 'Gallery capability must use the provider-owned option');
+    $assert($findCapability($galleryEnabled, 'storefront.contacts.gallery')['enabled'] === true, 'Gallery change must survive an unavailable public cache');
+    $assert(\Prospektweb\LayoutFiles\ContactGalleryManager::$clearCalls === 1, 'Gallery capability must request public cache invalidation');
+    $assert(count(CEventLog::$events) === 3, 'Gallery capability change must be audited exactly once');
+
     CEventLog::$fail = true;
     try {
-        $service->setCapability('storefront.property_descriptions', true, (string)$final['revision'], 42);
+        $service->setCapability('storefront.property_descriptions', true, (string)$galleryEnabled['revision'], 42);
         throw new RuntimeException('Unaudited capability change was accepted');
     } catch (RuntimeException $exception) {
         $assert($exception->getMessage() === 'Capability audit failed and option change was rolled back', 'Audit failures must be explicit');
