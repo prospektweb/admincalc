@@ -195,6 +195,22 @@ class ModuleCapabilityRegistryService
                     'risk' => 'medium',
                     'requiresReload' => true,
                 ],
+                [
+                    'id' => 'storefront.contacts.gallery',
+                    'name' => 'Фотогалерея на странице контактов',
+                    'description' => 'Показывает до шести фотографий горизонтальной плиткой, остальные открывает в штатном просмотрщике.',
+                    'surface' => 'storefront',
+                    'group' => 'Контакты',
+                    'tooltip' => 'Фотографии и их порядок настраиваются в разделе «Настройки → Витрина».',
+                    'defaultEnabled' => false,
+                    'mutable' => true,
+                    'state' => 'managed',
+                    'risk' => 'low',
+                    'requiresReload' => true,
+                    'optionModule' => 'prospektweb.layoutfiles',
+                    'optionName' => 'CONTACT_GALLERY_ENABLED',
+                    'optionDefault' => 'N',
+                ],
             ],
         ],
         [
@@ -377,6 +393,13 @@ class ModuleCapabilityRegistryService
                 ]);
                 if ($auditResult === false) {
                     throw new \RuntimeException('Bitrix event log rejected the capability change');
+                }
+                if (
+                    $capabilityId === 'storefront.contacts.gallery'
+                    && Loader::includeModule('prospektweb.layoutfiles')
+                    && class_exists('\\Prospektweb\\LayoutFiles\\ContactGalleryManager')
+                ) {
+                    \Prospektweb\LayoutFiles\ContactGalleryManager::clearPublicCache();
                 }
             } catch (\Throwable $exception) {
                 try {

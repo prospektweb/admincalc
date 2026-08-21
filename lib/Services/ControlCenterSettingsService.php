@@ -122,6 +122,36 @@ class ControlCenterSettingsService
         });
     }
 
+    /** @return array<string, mixed> */
+    public function getContactGallery(): array
+    {
+        return $this->contactGalleryManager()->getSnapshot();
+    }
+
+    /** @return array<string, mixed> */
+    public function setContactGalleryEnabled(bool $enabled, string $expectedRevision, int $userId): array
+    {
+        return $this->contactGalleryManager()->setEnabled($enabled, $expectedRevision, $userId);
+    }
+
+    /** @param array<string, mixed> $uploadedFiles @return array<string, mixed> */
+    public function uploadContactGallery(array $uploadedFiles, string $expectedRevision, int $userId): array
+    {
+        return $this->contactGalleryManager()->upload($uploadedFiles, $expectedRevision, $userId);
+    }
+
+    /** @return array<string, mixed> */
+    public function removeContactGalleryFile(int $fileId, string $expectedRevision, int $userId): array
+    {
+        return $this->contactGalleryManager()->remove($fileId, $expectedRevision, $userId);
+    }
+
+    /** @param int[] $fileIds @return array<string, mixed> */
+    public function reorderContactGallery(array $fileIds, string $expectedRevision, int $userId): array
+    {
+        return $this->contactGalleryManager()->reorder($fileIds, $expectedRevision, $userId);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -166,6 +196,18 @@ class ControlCenterSettingsService
                 'asproAiBaseUrl' => (string)Option::get(self::MODULE_ID, 'ASPRO_AI_TIMEWEB_BASE_URL', 'https://api.timeweb.ai/v1'),
             ],
         ];
+    }
+
+    private function contactGalleryManager(): \Prospektweb\LayoutFiles\ContactGalleryManager
+    {
+        if (
+            !Loader::includeModule('prospektweb.layoutfiles')
+            || !class_exists('\\Prospektweb\\LayoutFiles\\ContactGalleryManager')
+        ) {
+            throw new \RuntimeException('CONTACT_GALLERY_UNAVAILABLE', 503);
+        }
+
+        return new \Prospektweb\LayoutFiles\ContactGalleryManager();
     }
 
     /**

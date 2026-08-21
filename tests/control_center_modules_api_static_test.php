@@ -45,7 +45,9 @@ $assert(strpos($service, "'id' => 'storefront.property_descriptions'") !== false
 $assert(strpos($service, "'optionModule' => 'prospektweb.propvalmanager'") !== false && strpos($service, "'optionName' => 'ENABLED'") !== false && strpos($service, "'optionDefault' => 'Y'") !== false, 'Property descriptions must reuse the existing provider option and default');
 $assert(strpos($service, "'id' => 'storefront.checkout.company_suggestions'") !== false, 'Company suggestions capability must be stable');
 $assert(strpos($service, "'optionModule' => 'prospektweb.companyrequisites'") !== false && strpos($service, "'optionName' => 'enabled'") !== false, 'Company suggestions must reuse the existing provider option');
-$assert(substr_count($service, "'mutable' => true") === 7, 'Every mutable capability must be backed by a provider-owned runtime guard');
+$assert(substr_count($service, "'mutable' => true") === 8, 'Every mutable capability must be backed by a provider-owned runtime guard');
+$assert(strpos($service, "'id' => 'storefront.contacts.gallery'") !== false, 'Contacts gallery capability must be stable');
+$assert(strpos($service, "'optionName' => 'CONTACT_GALLERY_ENABLED'") !== false && strpos($service, "'optionDefault' => 'N'") !== false, 'Contacts gallery must be disabled by default and use its provider-owned option');
 $assert(strpos($service, "'optionName' => 'MASS_PROPERTY_EDITOR_ENABLED'") !== false, 'Mass offer property editor must use its provider-owned guard');
 $assert(strpos($service, "'group' => 'Мобильная версия'") !== false, 'Mobile features must be grouped separately');
 $assert(strpos($service, "hash('sha256'") !== false && strpos($service, 'hash_equals(') !== false, 'Capability writes must use stable optimistic revisions');

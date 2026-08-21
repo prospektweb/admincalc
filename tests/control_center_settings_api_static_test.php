@@ -35,6 +35,11 @@ $adminProlog = strpos($endpoint, "require_once \$_SERVER['DOCUMENT_ROOT'] . '/bi
 $assert($sessionHydration !== false && $postSessionHydration !== false && $adminProlog !== false && $sessionHydration < $adminProlog && $postSessionHydration < $adminProlog, 'JSON sessid must hydrate request and POST before the Bitrix admin prolog');
 $assert(strpos($endpoint, "'action'] ?? 'get'") !== false, 'Settings API must expose a read action');
 $assert(strpos($endpoint, "if (\$action === 'save')") !== false, 'Settings API must expose a save action');
+$assert(strpos($endpoint, "if (\$action === 'contact_gallery_get')") !== false, 'Settings API must expose the contacts gallery read action');
+$assert(strpos($endpoint, "if (\$action === 'contact_gallery_upload')") !== false, 'Settings API must expose the contacts gallery upload action');
+$assert(strpos($endpoint, "\$_FILES['photos']") !== false, 'Gallery uploads must use the PHP multipart upload envelope');
+$assert(strpos($endpoint, "if (\$action === 'contact_gallery_remove')") !== false, 'Settings API must expose the contacts gallery remove action');
+$assert(strpos($endpoint, "if (\$action === 'contact_gallery_reorder')") !== false, 'Settings API must expose the contacts gallery reorder action');
 $assert(strpos($endpoint, "'REVISION_CONFLICT'") !== false, 'Settings API must expose optimistic concurrency conflicts');
 $assert(strpos($endpoint, "'VALIDATION_ERROR'") !== false, 'Settings API must expose validation errors');
 $assert(strpos($endpoint, "header('Cache-Control: no-store, private')") !== false, 'Settings responses must not be cached');
@@ -59,6 +64,8 @@ $assert(strpos($service, "hash('sha256'") !== false && strpos($service, 'hash_eq
 $assert(strpos($service, 'flock($handle, LOCK_EX)') !== false, 'Settings revision check and writes must be serialized');
 $assert(strpos($service, 'normalizeSettings(') !== false, 'Settings must be normalized before persistence');
 $assert(strpos($service, 'persistSettings($this->normalizeSettings($settings, $current))') !== false, 'Legacy writes must reuse modern normalization and persistence');
+$assert(strpos($service, "Loader::includeModule('prospektweb.layoutfiles')") !== false, 'Contacts gallery settings must delegate to the owning module');
+$assert(strpos($service, 'uploadContactGallery(') !== false && strpos($service, 'removeContactGalleryFile(') !== false, 'Contacts gallery media actions must be brokered by the settings API');
 $assert(strpos($options, '$controlCenterSettingsService->saveLegacyPost($_POST)') !== false, 'Legacy Bitrix settings must delegate to the shared service');
 $assert(strpos($options, '$controlCenterSettingsService->getSettings()') !== false, 'Legacy Bitrix settings must read from the shared service');
 $assert(strpos($options, '$controlCenterSettingsService->saveAsproIntegration(') !== false, 'Legacy patch actions must reuse integration validation');

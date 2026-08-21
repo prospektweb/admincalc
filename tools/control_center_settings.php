@@ -149,6 +149,87 @@ try {
         ]);
     }
 
+    if ($action === 'contact_gallery_get') {
+        $respond(200, [
+            'success' => true,
+            'data' => $service->getContactGallery(),
+        ]);
+    }
+
+    if ($action === 'contact_gallery_set_enabled') {
+        if (!is_bool($request['enabled'] ?? null)) {
+            $respond(422, [
+                'success' => false,
+                'errorCode' => 'VALIDATION_ERROR',
+                'error' => 'enabled must be boolean',
+            ]);
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $service->setContactGalleryEnabled(
+                (bool)$request['enabled'],
+                (string)($request['revision'] ?? ''),
+                (int)$USER->GetID()
+            ),
+        ]);
+    }
+
+    if ($action === 'contact_gallery_upload') {
+        $files = $_FILES['photos'] ?? null;
+        if (!is_array($files)) {
+            $respond(422, [
+                'success' => false,
+                'errorCode' => 'VALIDATION_ERROR',
+                'error' => 'photos must contain uploaded files',
+            ]);
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $service->uploadContactGallery(
+                $files,
+                (string)($request['revision'] ?? ''),
+                (int)$USER->GetID()
+            ),
+        ]);
+    }
+
+    if ($action === 'contact_gallery_remove') {
+        $fileId = filter_var($request['fileId'] ?? null, FILTER_VALIDATE_INT);
+        if ($fileId === false || (int)$fileId <= 0) {
+            $respond(422, [
+                'success' => false,
+                'errorCode' => 'VALIDATION_ERROR',
+                'error' => 'fileId must be a positive integer',
+            ]);
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $service->removeContactGalleryFile(
+                (int)$fileId,
+                (string)($request['revision'] ?? ''),
+                (int)$USER->GetID()
+            ),
+        ]);
+    }
+
+    if ($action === 'contact_gallery_reorder') {
+        if (!is_array($request['fileIds'] ?? null)) {
+            $respond(422, [
+                'success' => false,
+                'errorCode' => 'VALIDATION_ERROR',
+                'error' => 'fileIds must be an array',
+            ]);
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $service->reorderContactGallery(
+                (array)$request['fileIds'],
+                (string)($request['revision'] ?? ''),
+                (int)$USER->GetID()
+            ),
+        ]);
+    }
+
     $respond(400, [
         'success' => false,
         'errorCode' => 'UNSUPPORTED_ACTION',
@@ -166,6 +247,22 @@ try {
             'success' => false,
             'errorCode' => 'REVISION_CONFLICT',
             'error' => 'Настройки были изменены в другой вкладке. Обновите данные и повторите сохранение.',
+        ]);
+    }
+
+    if ($exception->getCode() === 409 && $exception->getMessage() === 'CONTACT_GALLERY_REVISION_CONFLICT') {
+        $respond(409, [
+            'success' => false,
+            'errorCode' => 'REVISION_CONFLICT',
+            'error' => 'Галерея была изменена в другой вкладке. Обновите данные и повторите действие.',
+        ]);
+    }
+
+    if ($exception->getCode() === 503 && $exception->getMessage() === 'CONTACT_GALLERY_UNAVAILABLE') {
+        $respond(503, [
+            'success' => false,
+            'errorCode' => 'CONTACT_GALLERY_UNAVAILABLE',
+            'error' => 'Модуль галереи контактов недоступен',
         ]);
     }
 
