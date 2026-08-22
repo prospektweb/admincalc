@@ -331,6 +331,78 @@ $assert(
         && ($broaderUsage['offerCount'] ?? 0) === 8,
     'Preset usage detail must use the full storefront scope rather than the optional catalog-write adapter'
 );
+$assignedProductIds = [11, 12];
+$productCatalogProvider = static function (
+    int $presetId,
+    string $query,
+    int $page,
+    int $pageSize
+) use (&$assignedProductIds): array {
+    $allRows = [
+        ['id' => 11, 'name' => 'Business cards', 'presetIds' => in_array(11, $assignedProductIds, true) ? [$presetId] : []],
+        ['id' => 12, 'name' => 'Leaflets', 'presetIds' => in_array(12, $assignedProductIds, true) ? [$presetId] : []],
+        ['id' => 12727, 'name' => 'Standard cards', 'presetIds' => in_array(12727, $assignedProductIds, true) ? [$presetId] : []],
+    ];
+    $rows = array_values(array_filter($allRows, static function (array $row) use ($query): bool {
+        return $query === '' || stripos($row['name'] . ' ' . $row['id'], $query) !== false;
+    }));
+    sort($assignedProductIds, SORT_NUMERIC);
+    return [
+        'presetName' => 'Focus preset',
+        'productIblockId' => 7,
+        'linkedProductIds' => $assignedProductIds,
+        'rows' => $rows,
+        'page' => $page,
+        'pageSize' => $pageSize,
+        'total' => count($rows),
+    ];
+};
+$productMutationHandler = static function (
+    int $presetId,
+    array $productIds,
+    string $expectedRevision
+) use (&$assignedProductIds, $productCatalogProvider): array {
+    sort($assignedProductIds, SORT_NUMERIC);
+    $currentRevision = hash('sha256', json_encode([
+        'presetId' => $presetId,
+        'linkedProductIds' => array_values($assignedProductIds),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    if (!hash_equals($currentRevision, $expectedRevision)) {
+        throw new RuntimeException('Preset product assignment changed', 409);
+    }
+    $assignedProductIds = $productIds;
+    sort($assignedProductIds, SORT_NUMERIC);
+    return $productCatalogProvider($presetId, '', 1, 50);
+};
+$productManagerService = new ControlCenterEditorsService(
+    $presetLoader,
+    static fn(): int => 7,
+    static fn(): bool => true,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    $productCatalogProvider,
+    $productMutationHandler
+);
+$productCatalog = $productManagerService->getPresetProductCatalog(12740, '12727', 1, 50);
+$assert(($productCatalog['linkedProductIds'] ?? []) === [11, 12], 'Product manager must return the complete authoritative linked set beside filtered rows');
+$assert(($productCatalog['rows'][0]['id'] ?? 0) === 12727 && empty($productCatalog['rows'][0]['linked']), 'Product search must expose an unlinked candidate');
+$assert(preg_match('/^[a-f0-9]{64}$/', (string)($productCatalog['revision'] ?? '')) === 1, 'Product manager must expose an optimistic revision');
+$savedProductCatalog = $productManagerService->setPresetProducts(12740, [11, 12727], $productCatalog['revision']);
+$assert(($savedProductCatalog['linkedProductIds'] ?? []) === [11, 12727], 'Product manager must return authoritative assignment readback');
+$expectInvalid(static function () use ($productManagerService): void {
+    $productManagerService->setPresetProducts(12740, [11], 'not-a-revision');
+}, 'Product assignment must reject an invalid revision before mutation');
+$conflictRaised = false;
+try {
+    $productManagerService->setPresetProducts(12740, [11], $productCatalog['revision']);
+} catch (RuntimeException $exception) {
+    $conflictRaised = $exception->getCode() === 409;
+}
+$assert($conflictRaised, 'Product assignment must reject a stale revision');
 $assert(count($catalog['storefront']['products'] ?? []) === 5, 'Storefront editing must retain the full preset-linked product catalog');
 $assert(($catalog['storefront']['productIblockId'] ?? 0) === 7, 'Storefront launch catalog must expose the configured product iblock');
 $assert(($catalog['storefront']['products'][0]['presetIds'] ?? []) === [12740], 'Storefront products must carry the focus-preset relation');

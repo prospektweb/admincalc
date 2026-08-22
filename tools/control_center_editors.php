@@ -291,6 +291,39 @@ try {
         ]);
     }
 
+    if ($action === 'preset_product_catalog') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'query', 'page', 'pageSize']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $query = $request['query'] ?? '';
+        if (!is_string($query)) {
+            throw new \InvalidArgumentException('query must be a string');
+        }
+        $page = $parseStrictPositiveInt($request['page'] ?? 1, 'page');
+        $pageSize = $parseStrictPositiveInt($request['pageSize'] ?? 50, 'pageSize');
+        $respond(200, [
+            'success' => true,
+            'data' => $service->getPresetProductCatalog($presetId, $query, $page, $pageSize),
+        ]);
+    }
+
+    if ($action === 'set_preset_products') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'productIds', 'expectedRevision']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $productIds = $request['productIds'] ?? null;
+        $expectedRevision = $request['expectedRevision'] ?? null;
+        if (!is_array($productIds) || !is_string($expectedRevision)) {
+            throw new \InvalidArgumentException('productIds and expectedRevision are required');
+        }
+        $normalizedProductIds = [];
+        foreach ($productIds as $productId) {
+            $normalizedProductIds[] = $parseStrictPositiveInt($productId, 'productId');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $service->setPresetProducts($presetId, $normalizedProductIds, $expectedRevision),
+        ]);
+    }
+
     if ($action === 'duplicate_preset') {
         $assertAllowedRequestKeys(['action', 'sessid', 'presetId']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');

@@ -77,6 +77,12 @@ final class ControlCenterEditorsService
     /** @var callable */
     private $storefrontPresetLoader;
 
+    /** @var callable */
+    private $presetProductCatalogLoader;
+
+    /** @var callable */
+    private $presetProductMutationHandler;
+
     public function __construct(
         ?callable $presetLoader = null,
         ?callable $productIblockIdResolver = null,
@@ -86,7 +92,9 @@ final class ControlCenterEditorsService
         ?callable $presetListLoader = null,
         ?callable $presetCreator = null,
         ?callable $presetUsageLoader = null,
-        ?callable $storefrontPresetLoader = null
+        ?callable $storefrontPresetLoader = null,
+        ?callable $presetProductCatalogLoader = null,
+        ?callable $presetProductMutationHandler = null
     ) {
         $this->presetLoader = $presetLoader ?? static function (int $presetId): array {
             if (!Loader::includeModule('iblock')) {
@@ -199,6 +207,14 @@ final class ControlCenterEditorsService
 
                 return (new CatalogTreeService())->presetStorefrontOptions(['presetId' => $presetId]);
             });
+        $this->presetProductCatalogLoader = $presetProductCatalogLoader
+            ?? function (int $presetId, string $query, int $page, int $pageSize): array {
+                return $this->loadPresetProductCatalogFromBitrix($presetId, $query, $page, $pageSize);
+            };
+        $this->presetProductMutationHandler = $presetProductMutationHandler
+            ?? function (int $presetId, array $productIds, string $expectedRevision): array {
+                return $this->mutatePresetProductsInBitrix($presetId, $productIds, $expectedRevision);
+            };
     }
 
     public function getCatalog(): array
@@ -338,6 +354,57 @@ final class ControlCenterEditorsService
             'offerCount' => $snapshot['offerCount'],
             'products' => $snapshot['products'],
         ];
+    }
+
+    public function getPresetProductCatalog(
+        int $presetId,
+        string $query = '',
+        int $page = 1,
+        int $pageSize = 50
+    ): array {
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Preset ID must be positive');
+        }
+        $query = trim($query);
+        if ($this->stringLength($query) > 200) {
+            throw new \InvalidArgumentException('Product query is too long');
+        }
+        if ($page <= 0 || $pageSize <= 0 || $pageSize > 100) {
+            throw new \InvalidArgumentException('Invalid product catalog page');
+        }
+
+        $raw = call_user_func($this->presetProductCatalogLoader, $presetId, $query, $page, $pageSize);
+        return $this->normalizePresetProductCatalog($raw, $presetId, $query, $page, $pageSize);
+    }
+
+    /** @param int[] $productIds */
+    public function setPresetProducts(int $presetId, array $productIds, string $expectedRevision): array
+    {
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Preset ID must be positive');
+        }
+        $this->assertSha256($expectedRevision, 'expectedRevision');
+        if (count($productIds) > 1000) {
+            throw new \InvalidArgumentException('A preset cannot be connected to more than 1000 products at once');
+        }
+
+        $normalizedProductIds = [];
+        foreach ($productIds as $productId) {
+            if (!is_int($productId) || $productId <= 0 || $productId > 9007199254740991) {
+                throw new \InvalidArgumentException('productIds must contain positive integer IDs');
+            }
+            $normalizedProductIds[$productId] = $productId;
+        }
+        ksort($normalizedProductIds, SORT_NUMERIC);
+
+        $raw = call_user_func(
+            $this->presetProductMutationHandler,
+            $presetId,
+            array_values($normalizedProductIds),
+            strtolower($expectedRevision)
+        );
+
+        return $this->normalizePresetProductCatalog($raw, $presetId, '', 1, 50);
     }
 
     /** @param int[] $presetIds */
@@ -979,6 +1046,354 @@ final class ControlCenterEditorsService
             ksort($rows, SORT_NUMERIC);
         }
         return array_values($rows);
+    }
+
+    /**
+     * @param mixed $raw
+     * @return array<string,mixed>
+     */
+    private function normalizePresetProductCatalog(
+        $raw,
+        int $presetId,
+        string $query,
+        int $page,
+        int $pageSize
+    ): array {
+        if (!is_array($raw)) {
+            throw new \RuntimeException('The preset product catalog provider returned an invalid result');
+        }
+
+        $linkedProductIds = [];
+        foreach ((array)($raw['linkedProductIds'] ?? []) as $rawProductId) {
+            $productId = (int)$rawProductId;
+            if ($productId > 0) {
+                $linkedProductIds[$productId] = $productId;
+            }
+        }
+        ksort($linkedProductIds, SORT_NUMERIC);
+        $linkedProductIds = array_values($linkedProductIds);
+
+        $rows = [];
+        foreach ((array)($raw['rows'] ?? []) as $rawRow) {
+            if (!is_array($rawRow)) {
+                continue;
+            }
+            $productId = (int)($rawRow['id'] ?? 0);
+            $name = trim((string)($rawRow['name'] ?? ''));
+            if ($productId <= 0 || $name === '' || isset($rows[$productId])) {
+                continue;
+            }
+            $presetIds = [];
+            foreach ((array)($rawRow['presetIds'] ?? []) as $rawPresetId) {
+                $rowPresetId = (int)$rawPresetId;
+                if ($rowPresetId > 0) {
+                    $presetIds[$rowPresetId] = $rowPresetId;
+                }
+            }
+            ksort($presetIds, SORT_NUMERIC);
+            $rows[$productId] = [
+                'id' => $productId,
+                'name' => $name,
+                'active' => array_key_exists('active', $rawRow) ? !empty($rawRow['active']) : true,
+                'presetIds' => array_values($presetIds),
+                'linked' => in_array($productId, $linkedProductIds, true),
+            ];
+        }
+
+        $total = max(count($rows), (int)($raw['total'] ?? count($rows)));
+        $normalizedPage = max(1, (int)($raw['page'] ?? $page));
+        $normalizedPageSize = max(1, min(100, (int)($raw['pageSize'] ?? $pageSize)));
+        $revision = strtolower(trim((string)($raw['revision'] ?? '')));
+        if (!preg_match('/^[a-f0-9]{64}$/', $revision)) {
+            $revision = hash('sha256', json_encode(
+                ['presetId' => $presetId, 'linkedProductIds' => $linkedProductIds],
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            ));
+        }
+
+        return [
+            'contract' => self::CONTRACT,
+            'presetId' => $presetId,
+            'presetName' => trim((string)($raw['presetName'] ?? '')) ?: 'Пресет #' . $presetId,
+            'productIblockId' => max(0, (int)($raw['productIblockId'] ?? $this->resolveProductIblockId())),
+            'linkedProductIds' => $linkedProductIds,
+            'linkedCount' => count($linkedProductIds),
+            'revision' => $revision,
+            'rows' => array_values($rows),
+            'page' => $normalizedPage,
+            'pageSize' => $normalizedPageSize,
+            'total' => $total,
+            'pageCount' => max(1, (int)ceil($total / $normalizedPageSize)),
+            'query' => $query,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function loadPresetProductCatalogFromBitrix(
+        int $presetId,
+        string $query,
+        int $page,
+        int $pageSize
+    ): array {
+        if (!Loader::includeModule('iblock')) {
+            throw new \RuntimeException('The iblock module is not available');
+        }
+        $config = new ConfigManager();
+        $productIblockId = (int)$config->getProductIblockId();
+        $presetIblockId = (int)$config->getIblockId('CALC_PRESETS');
+        if ($productIblockId <= 0 || $presetIblockId <= 0) {
+            throw new \RuntimeException('Product or preset iblock is not configured');
+        }
+        $preset = \CIBlockElement::GetList(
+            [],
+            ['ID' => $presetId, 'IBLOCK_ID' => $presetIblockId],
+            false,
+            false,
+            ['ID', 'NAME']
+        )->Fetch();
+        if (!$preset) {
+            throw new \InvalidArgumentException('Пресет не найден');
+        }
+        $property = \CIBlockProperty::GetList(
+            [],
+            ['IBLOCK_ID' => $productIblockId, 'CODE' => 'CALC_PRESET']
+        )->Fetch();
+        if (!$property) {
+            throw new \RuntimeException('Свойство CALC_PRESET не найдено в инфоблоке товаров');
+        }
+
+        $linkedProductIds = $this->loadLinkedProductIds($productIblockId, $presetId);
+        $filter = [
+            'IBLOCK_ID' => $productIblockId,
+            'ACTIVE' => 'Y',
+            'ACTIVE_DATE' => 'Y',
+        ];
+        if ($query !== '') {
+            $filter[] = ctype_digit($query)
+                ? ['LOGIC' => 'OR', ['ID' => (int)$query], ['%NAME' => $query]]
+                : ['%NAME' => $query];
+        }
+        $cursor = \CIBlockElement::GetList(
+            ['NAME' => 'ASC', 'ID' => 'ASC'],
+            $filter,
+            false,
+            ['nPageSize' => $pageSize, 'iNumPage' => $page],
+            ['ID', 'NAME', 'ACTIVE']
+        );
+        $rows = [];
+        while ($cursor && ($row = $cursor->Fetch())) {
+            $productId = (int)($row['ID'] ?? 0);
+            if ($productId <= 0) {
+                continue;
+            }
+            $rows[] = [
+                'id' => $productId,
+                'name' => (string)($row['NAME'] ?? ''),
+                'active' => (string)($row['ACTIVE'] ?? 'N') === 'Y',
+                'presetIds' => $this->loadProductPresetIds($productIblockId, $productId),
+            ];
+        }
+        $total = $cursor && method_exists($cursor, 'SelectedRowsCount')
+            ? (int)$cursor->SelectedRowsCount()
+            : count($rows);
+
+        return [
+            'presetName' => (string)($preset['NAME'] ?? ''),
+            'productIblockId' => $productIblockId,
+            'linkedProductIds' => $linkedProductIds,
+            'revision' => $this->presetProductRevision($presetId, $linkedProductIds),
+            'rows' => $rows,
+            'page' => $page,
+            'pageSize' => $pageSize,
+            'total' => $total,
+        ];
+    }
+
+    /** @param int[] $productIds @return array<string,mixed> */
+    private function mutatePresetProductsInBitrix(
+        int $presetId,
+        array $productIds,
+        string $expectedRevision
+    ): array {
+        if (!Loader::includeModule('iblock')) {
+            throw new \RuntimeException('The iblock module is not available');
+        }
+        $config = new ConfigManager();
+        $productIblockId = (int)$config->getProductIblockId();
+        if ($productIblockId <= 0) {
+            throw new \RuntimeException('Product iblock is not configured');
+        }
+        $property = \CIBlockProperty::GetList(
+            [],
+            ['IBLOCK_ID' => $productIblockId, 'CODE' => 'CALC_PRESET']
+        )->Fetch();
+        if (!$property) {
+            throw new \RuntimeException('Свойство CALC_PRESET не найдено в инфоблоке товаров');
+        }
+
+        $lockPath = rtrim((string)sys_get_temp_dir(), '/\\')
+            . DIRECTORY_SEPARATOR . 'prospektweb-calc-preset-products-' . $productIblockId . '.lock';
+        $lock = fopen($lockPath, 'c+');
+        if (!$lock || !flock($lock, LOCK_EX)) {
+            if (is_resource($lock)) {
+                fclose($lock);
+            }
+            throw new \RuntimeException('Не удалось заблокировать изменение списка товаров');
+        }
+
+        try {
+            $currentProductIds = $this->loadLinkedProductIds($productIblockId, $presetId);
+            if (!hash_equals($this->presetProductRevision($presetId, $currentProductIds), $expectedRevision)) {
+                throw new \RuntimeException('Список товаров уже изменён в другой вкладке. Обновите его и повторите сохранение.', 409);
+            }
+
+            $requestedMap = array_fill_keys($productIds, true);
+            if ($productIds) {
+                $existingIds = [];
+                $cursor = \CIBlockElement::GetList(
+                    ['ID' => 'ASC'],
+                    [
+                        'IBLOCK_ID' => $productIblockId,
+                        'ID' => $productIds,
+                        'ACTIVE' => 'Y',
+                        'ACTIVE_DATE' => 'Y',
+                    ],
+                    false,
+                    false,
+                    ['ID']
+                );
+                while ($cursor && ($row = $cursor->Fetch())) {
+                    $existingIds[(int)$row['ID']] = true;
+                }
+                if (count($existingIds) !== count($requestedMap)) {
+                    throw new \InvalidArgumentException('Один или несколько выбранных товаров больше недоступны');
+                }
+            }
+
+            $affectedProductIds = array_values(array_unique(array_merge($currentProductIds, $productIds)));
+            sort($affectedProductIds, SORT_NUMERIC);
+            $multiple = (string)($property['MULTIPLE'] ?? 'N') === 'Y';
+            $mutations = [];
+            foreach ($affectedProductIds as $productId) {
+                $originalPresetIds = $this->loadProductPresetIds($productIblockId, $productId);
+                $nextPresetIds = array_values(array_filter(
+                    $originalPresetIds,
+                    static fn(int $currentPresetId): bool => $currentPresetId !== $presetId
+                ));
+                if (isset($requestedMap[$productId])) {
+                    if (!$multiple && $nextPresetIds !== []) {
+                        throw new \InvalidArgumentException(
+                            'Товар #' . $productId . ' уже подключён к другому пресету #' . $nextPresetIds[0]
+                        );
+                    }
+                    $nextPresetIds[] = $presetId;
+                }
+                $nextPresetIds = array_values(array_unique($nextPresetIds));
+                sort($nextPresetIds, SORT_NUMERIC);
+                if ($nextPresetIds !== $originalPresetIds) {
+                    $mutations[$productId] = [
+                        'original' => $originalPresetIds,
+                        'next' => $nextPresetIds,
+                    ];
+                }
+            }
+
+            $applied = [];
+            try {
+                foreach ($mutations as $productId => $mutation) {
+                    \CIBlockElement::SetPropertyValuesEx(
+                        (int)$productId,
+                        $productIblockId,
+                        ['CALC_PRESET' => $multiple ? $mutation['next'] : ($mutation['next'][0] ?? false)]
+                    );
+                    $readback = $this->loadProductPresetIds($productIblockId, (int)$productId);
+                    if ($readback !== $mutation['next']) {
+                        throw new \RuntimeException('Не удалось подтвердить привязку товара #' . $productId);
+                    }
+                    $applied[] = (int)$productId;
+                }
+            } catch (\Throwable $exception) {
+                foreach (array_reverse($applied) as $productId) {
+                    $original = $mutations[$productId]['original'];
+                    \CIBlockElement::SetPropertyValuesEx(
+                        $productId,
+                        $productIblockId,
+                        ['CALC_PRESET' => $multiple ? $original : ($original[0] ?? false)]
+                    );
+                }
+                throw $exception;
+            }
+
+            if (class_exists('\CIBlock') && method_exists('\CIBlock', 'clearIblockTagCache')) {
+                \CIBlock::clearIblockTagCache($productIblockId);
+            }
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+
+        return $this->loadPresetProductCatalogFromBitrix($presetId, '', 1, 50);
+    }
+
+    /** @return int[] */
+    private function loadLinkedProductIds(int $productIblockId, int $presetId): array
+    {
+        $ids = [];
+        $cursor = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            [
+                'IBLOCK_ID' => $productIblockId,
+                'ACTIVE' => 'Y',
+                'ACTIVE_DATE' => 'Y',
+                'PROPERTY_CALC_PRESET' => $presetId,
+            ],
+            false,
+            false,
+            ['ID']
+        );
+        while ($cursor && ($row = $cursor->Fetch())) {
+            $productId = (int)($row['ID'] ?? 0);
+            if ($productId > 0) {
+                $ids[$productId] = $productId;
+            }
+        }
+        ksort($ids, SORT_NUMERIC);
+        return array_values($ids);
+    }
+
+    /** @return int[] */
+    private function loadProductPresetIds(int $productIblockId, int $productId): array
+    {
+        $ids = [];
+        $cursor = \CIBlockElement::GetProperty(
+            $productIblockId,
+            $productId,
+            ['sort' => 'asc', 'id' => 'asc'],
+            ['CODE' => 'CALC_PRESET']
+        );
+        while ($cursor && ($property = $cursor->Fetch())) {
+            $presetId = (int)($property['VALUE'] ?? 0);
+            if ($presetId > 0) {
+                $ids[$presetId] = $presetId;
+            }
+        }
+        ksort($ids, SORT_NUMERIC);
+        return array_values($ids);
+    }
+
+    /** @param int[] $linkedProductIds */
+    private function presetProductRevision(int $presetId, array $linkedProductIds): string
+    {
+        sort($linkedProductIds, SORT_NUMERIC);
+        return hash('sha256', json_encode(
+            ['presetId' => $presetId, 'linkedProductIds' => array_values($linkedProductIds)],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        ));
+    }
+
+    private function stringLength(string $value): int
+    {
+        return function_exists('mb_strlen') ? mb_strlen($value, 'UTF-8') : strlen($value);
     }
 
     private function resolveProductIblockId(): int
