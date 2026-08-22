@@ -1,5 +1,5 @@
 <?php
 $arModuleVersion = [
-    'VERSION' => '1.10.10',
-    'VERSION_DATE' => '2026-08-22 12:00:00',
+    'VERSION' => '1.10.11',
+    'VERSION_DATE' => '2026-08-22 14:49:56',
 ];
