@@ -209,10 +209,15 @@ final class PresetMutationCoordinatorService
         $optionName = self::OPTION_PREFIX . $presetId;
         $escapedModuleId = $helper->forSql(self::MODULE_ID);
         $escapedName = $helper->forSql($optionName);
-        $selectSql = "SELECT VALUE FROM b_option WHERE MODULE_ID='" . $escapedModuleId
-            . "' AND NAME='" . $escapedName . "' AND (SITE_ID IS NULL OR SITE_ID='') FOR UPDATE";
-        $bootstrapSelectSql = "SELECT VALUE FROM b_option WHERE MODULE_ID='" . $escapedModuleId
-            . "' AND NAME='" . $escapedName . "' AND (SITE_ID IS NULL OR SITE_ID='')";
+        // The production collation is case-insensitive. Read the whole
+        // collation-equivalent candidate set, then require one binary-exact
+        // global row in PHP. A case alias or the alternate empty SITE_ID
+        // representation must never become the coordinator authority.
+        $candidateSelectSql = "SELECT MODULE_ID, NAME, SITE_ID, VALUE FROM b_option WHERE MODULE_ID='"
+            . $escapedModuleId . "' AND NAME='" . $escapedName
+            . "' AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY BINARY MODULE_ID, BINARY NAME, SITE_ID";
+        $selectSql = $candidateSelectSql . ' FOR UPDATE';
+        $bootstrapSelectSql = $candidateSelectSql;
         $bootstrapLockName = self::BOOTSTRAP_LOCK_PREFIX . $presetId;
         $escapedBootstrapLockName = $helper->forSql($bootstrapLockName);
         $bootstrapLockHeld = false;
@@ -232,17 +237,22 @@ final class PresetMutationCoordinatorService
             // A connection-scoped database lock makes first-write row creation
             // deterministic even though MySQL permits duplicate NULL SITE_ID
             // values. No Bitrix Option cache participates in the authority.
-            [$bootstrapRow, $bootstrapDuplicate] = $this->fetchTwo(
-                $connection->query($bootstrapSelectSql)
+            $bootstrapRow = $this->selectCanonicalCoordinatorRow(
+                $this->fetchCandidateRows($connection->query($bootstrapSelectSql)),
+                $optionName,
+                true
             );
-            if (is_array($bootstrapDuplicate)) {
-                throw new \RuntimeException('Preset mutation lock row is ambiguous.', 409);
-            }
-            if (!is_array($bootstrapRow)) {
+            if ($bootstrapRow === null) {
                 $escapedInitialValue = $helper->forSql($this->encodeRevision(0));
                 $connection->queryExecute(
                     "INSERT INTO b_option (MODULE_ID, NAME, VALUE, SITE_ID) VALUES ('"
                     . $escapedModuleId . "','" . $escapedName . "','" . $escapedInitialValue . "',NULL)"
+                );
+                $this->assertAffectedRows($connection, 1, 'Preset mutation lock row creation failed.');
+                $this->selectCanonicalCoordinatorRow(
+                    $this->fetchCandidateRows($connection->query($bootstrapSelectSql)),
+                    $optionName,
+                    false
                 );
             }
 
@@ -260,13 +270,15 @@ final class PresetMutationCoordinatorService
                     $helper,
                     $escapedModuleId,
                     $escapedName,
+                    $optionName,
                     $escapedBootstrapLockName,
                     &$bootstrapLockHeld
                 ): array {
-                    [$row, $duplicate] = $this->fetchTwo($connection->query($selectSql));
-                    if (!is_array($row) || is_array($duplicate)) {
-                        throw new \RuntimeException('Preset mutation lock row is absent or ambiguous.', 409);
-                    }
+                    $row = $this->selectCanonicalCoordinatorRow(
+                        $this->fetchCandidateRows($connection->query($selectSql)),
+                        $optionName,
+                        false
+                    );
                     $this->releaseBootstrapLock($connection, $escapedBootstrapLockName);
                     $bootstrapLockHeld = false;
                     $revision = $this->decodeRevision((string)($row['VALUE'] ?? $row['value'] ?? ''));
@@ -281,11 +293,17 @@ final class PresetMutationCoordinatorService
                     $escapedValue = $helper->forSql($this->encodeRevision($nextRevision));
                     $connection->queryExecute(
                         "UPDATE b_option SET VALUE='" . $escapedValue . "' WHERE MODULE_ID='" . $escapedModuleId
-                        . "' AND NAME='" . $escapedName . "' AND (SITE_ID IS NULL OR SITE_ID='')"
+                        . "' AND BINARY MODULE_ID=BINARY '" . $escapedModuleId
+                        . "' AND NAME='" . $escapedName . "' AND BINARY NAME=BINARY '" . $escapedName
+                        . "' AND SITE_ID IS NULL"
                     );
-                    [$readBackRow, $readBackDuplicate] = $this->fetchTwo($connection->query($selectSql));
-                    if (!is_array($readBackRow) || is_array($readBackDuplicate)
-                        || $this->decodeRevision((string)($readBackRow['VALUE'] ?? $readBackRow['value'] ?? '')) !== $nextRevision) {
+                    $this->assertAffectedRows($connection, 1, 'Preset mutation revision update was ambiguous.');
+                    $readBackRow = $this->selectCanonicalCoordinatorRow(
+                        $this->fetchCandidateRows($connection->query($selectSql)),
+                        $optionName,
+                        false
+                    );
+                    if ($this->decodeRevision((string)($readBackRow['VALUE'] ?? $readBackRow['value'] ?? '')) !== $nextRevision) {
                         throw new \RuntimeException('Preset mutation revision readback failed.');
                     }
                     return $envelope;
@@ -318,13 +336,59 @@ final class PresetMutationCoordinatorService
         }
     }
 
-    /** @return array{0:mixed,1:mixed} */
-    private function fetchTwo($rows): array
+    /** @return array<int,array<string,mixed>> */
+    private function fetchCandidateRows($rows): array
     {
         if (!is_object($rows) || !method_exists($rows, 'fetch')) {
-            return [null, null];
+            return [];
         }
-        return [$rows->fetch(), $rows->fetch()];
+        $result = [];
+        for ($index = 0; $index < 2; $index++) {
+            $row = $rows->fetch();
+            if (!is_array($row)) {
+                break;
+            }
+            $result[] = $row;
+        }
+        return $result;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<string,mixed>|null
+     */
+    private function selectCanonicalCoordinatorRow(array $rows, string $optionName, bool $allowMissing): ?array
+    {
+        if ($rows === []) {
+            if ($allowMissing) {
+                return null;
+            }
+            throw new \RuntimeException('Preset mutation lock row is absent.', 409);
+        }
+        if (count($rows) !== 1) {
+            throw new \RuntimeException('Preset mutation lock row is ambiguous.', 409);
+        }
+        $row = $rows[0];
+        $moduleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+        $name = (string)($row['NAME'] ?? $row['name'] ?? '');
+        $hasSiteId = array_key_exists('SITE_ID', $row) || array_key_exists('site_id', $row);
+        $siteId = array_key_exists('SITE_ID', $row)
+            ? $row['SITE_ID']
+            : ($row['site_id'] ?? null);
+        if ($moduleId !== self::MODULE_ID || $name !== $optionName || !$hasSiteId || $siteId !== null) {
+            throw new \RuntimeException('Preset mutation lock row identity is not canonical.', 409);
+        }
+        return $row;
+    }
+
+    private function assertAffectedRows($connection, int $expected, string $message): void
+    {
+        $cursor = $connection->query('SELECT ROW_COUNT() AS AFFECTED');
+        $row = is_object($cursor) && method_exists($cursor, 'fetch') ? $cursor->fetch() : null;
+        if (!is_array($row)
+            || (int)($row['AFFECTED'] ?? $row['affected'] ?? -1) !== $expected) {
+            throw new \RuntimeException($message, 409);
+        }
     }
 
     /** @param mixed $envelope @return mixed */

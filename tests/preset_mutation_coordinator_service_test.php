@@ -246,6 +246,50 @@ $assert(
     'an active storefront no-op aborts rollback and persists neither the form mutation nor audit'
 );
 
+$rowSelector = new ReflectionMethod(PresetMutationCoordinatorService::class, 'selectCanonicalCoordinatorRow');
+$rowSelector->setAccessible(true);
+$optionName = 'PRESET_MUTATION_V2_12740';
+$canonicalRow = [
+    'MODULE_ID' => 'prospektweb.calc',
+    'NAME' => $optionName,
+    'SITE_ID' => null,
+    'VALUE' => '{"contract":"prospektweb.calc.preset-mutation-coordinator/v1","revision":1}',
+];
+$assert(
+    $rowSelector->invoke($coordinator, [$canonicalRow], $optionName, false) === $canonicalRow,
+    'one binary-exact NULL-site coordinator row is accepted'
+);
+$assert(
+    $rowSelector->invoke($coordinator, [], $optionName, true) === null,
+    'the bootstrap may create an authority only when no equivalent row exists'
+);
+foreach ([
+    'lowercase alias' => [[...$canonicalRow, 'NAME' => strtolower($optionName)]],
+    'module alias' => [[...$canonicalRow, 'MODULE_ID' => 'PROSPEKTWEB.CALC']],
+    'empty-site alias' => [[...$canonicalRow, 'SITE_ID' => '']],
+    'missing-site identity' => [[
+        'MODULE_ID' => 'prospektweb.calc',
+        'NAME' => $optionName,
+        'VALUE' => $canonicalRow['VALUE'],
+    ]],
+    'canonical plus case alias' => [
+        $canonicalRow,
+        [...$canonicalRow, 'NAME' => strtolower($optionName)],
+    ],
+    'NULL plus empty site' => [
+        $canonicalRow,
+        [...$canonicalRow, 'SITE_ID' => ''],
+    ],
+] as $case => $rows) {
+    $rejected = false;
+    try {
+        $rowSelector->invoke($coordinator, $rows, $optionName, true);
+    } catch (RuntimeException $error) {
+        $rejected = $error->getCode() === 409;
+    }
+    $assert($rejected, $case . ' must fail closed before a domain mutation or audit');
+}
+
 $source = (string)file_get_contents(dirname(__DIR__) . '/lib/Services/PresetMutationCoordinatorService.php');
 $editorsSource = (string)file_get_contents(dirname(__DIR__) . '/lib/Services/ControlCenterEditorsService.php');
 $assert(
@@ -271,6 +315,16 @@ $assert(
 $assert(
     !str_contains($source, 'Option::get') && !str_contains($source, 'Option::set'),
     'coordinator bootstrap and revision readback must bypass the Bitrix Option cache'
+);
+$assert(
+    str_contains($source, 'SELECT MODULE_ID, NAME, SITE_ID, VALUE FROM b_option')
+        && str_contains($source, 'ORDER BY BINARY MODULE_ID, BINARY NAME, SITE_ID')
+        && str_contains($source, "AND BINARY MODULE_ID=BINARY '")
+        && str_contains($source, "AND BINARY NAME=BINARY '")
+        && str_contains($source, 'AND SITE_ID IS NULL')
+        && substr_count($source, 'assertAffectedRows(') === 3
+        && str_contains($source, 'SELECT ROW_COUNT() AS AFFECTED'),
+    'coordinator must reject collation aliases and prove one exact-row insert/update'
 );
 $include = (string)file_get_contents(dirname(__DIR__) . '/include.php');
 $diagnostic = (string)file_get_contents(dirname(__DIR__) . '/lib/Diagnostic/ModuleDiagnostic.php');
