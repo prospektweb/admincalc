@@ -218,7 +218,9 @@ $parseInputMappingDocument = static function ($value): array {
     return $value;
 };
 $parseStorefrontId = static function ($value): string {
-    if (!is_string($value) || preg_match('/^[a-z0-9][a-z0-9_.-]{0,63}$/D', $value) !== 1) {
+    // Front storage uses STOREFRONT_V2_ITEM_<id> in a 50-byte option name:
+    // the canonical identifier boundary is therefore exactly 31 ASCII bytes.
+    if (!is_string($value) || preg_match('/^[a-z0-9][a-z0-9_.-]{0,30}$/D', $value) !== 1) {
         throw new \InvalidArgumentException('id must be a valid storefront identifier');
     }
     return $value;

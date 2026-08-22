@@ -13,17 +13,17 @@ if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true) {
 Loc::loadMessages(__FILE__);
 
 // Получаем данные из POST/REQUEST, если пусто — пробуем из сессии
-$productIblockId = (int)($_REQUEST['PRODUCT_IBLOCK_ID'] ?? 0);
+$productIblockId = (int)($_REQUEST['PRODUCTS_IBLOCK_ID'] ?? 0);
 
 // Если данные из REQUEST пусты, пробуем восстановить из сессии
 if ($productIblockId <= 0 && !empty($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA'])) {
-    $productIblockId = (int)($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['PRODUCT_IBLOCK_ID'] ?? 0);
+    $productIblockId = (int)($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['PRODUCTS_IBLOCK_ID'] ?? 0);
 }
 
 // Сохраняем данные в сессию для надёжности (на случай перезагрузки)
 if ($productIblockId > 0) {
     $_SESSION['PROSPEKTWEB_CALC_STEP1_DATA'] = [
-        'PRODUCT_IBLOCK_ID' => $productIblockId,
+        'PRODUCTS_IBLOCK_ID' => $productIblockId,
     ];
 }
 
@@ -91,8 +91,8 @@ $skuIblockId = $catalogInfo['IBLOCK_ID'] ?? null;
     <input type="hidden" name="id" value="prospektweb.calc">
     <input type="hidden" name="install" value="Y">
     <input type="hidden" name="step" value="3">
-    <input type="hidden" name="PRODUCT_IBLOCK_ID" value="<?= $productIblockId ?>">
-    <input type="hidden" name="SKU_IBLOCK_ID" value="<?= (int)$skuIblockId ?>">
+    <input type="hidden" name="PRODUCTS_IBLOCK_ID" value="<?= $productIblockId ?>">
+    <input type="hidden" name="OFFERS_IBLOCK_ID" value="<?= (int)$skuIblockId ?>">
     <input type="hidden" name="IMPORT_SNAPSHOT_PATH" value="<?= htmlspecialcharsbx($importSnapshotPath) ?>">
 
     <table class="adm-detail-content-table edit-table">

@@ -1,125 +1,159 @@
 <?php
 
-require_once dirname(__DIR__) . '/lib/Config/ConfigManager.php';
-require_once dirname(__DIR__) . '/lib/Calculator/InitPayloadService.php';
-require_once dirname(__DIR__) . '/lib/Services/CatalogCalculationWriteService.php';
+declare(strict_types=1);
 
-use Prospektweb\Calc\Calculator\InitPayloadService;
-use Prospektweb\Calc\Services\CatalogCalculationWriteService;
-
-$assert = static function (bool $condition, string $message): void {
-    if (!$condition) {
-        fwrite(STDERR, "FAIL: {$message}\n");
-        exit(1);
-    }
-};
-
-$codes = [
-    'CALC_PRESETS',
-    'CALC_STAGES',
-    'CALC_SETTINGS',
-    'CALC_GLOBAL_VALUES',
-    'CALC_CUSTOM_FIELDS',
-    'CALC_MATERIALS',
-    'CALC_MATERIALS_VARIANTS',
-    'CALC_OPERATIONS',
-    'CALC_OPERATIONS_VARIANTS',
-    'CALC_EQUIPMENT',
-    'CALC_DETAILS',
-];
-$snapshot = [
-    'prospektweb.frontcalc:PRODUCTS_IBLOCK_ID' => '214',
-    'prospektweb.frontcalc:OFFERS_IBLOCK_ID' => '215',
-];
-$expected = ['PRODUCTS' => 214, 'OFFERS' => 215];
-foreach ($codes as $index => $code) {
-    $id = 300 + $index;
-    $snapshot['prospektweb.frontcalc:IBLOCK_' . $code] = (string)$id;
-    $snapshot['prospektweb.calc:IBLOCK_' . $code] = $code === 'CALC_GLOBAL_VALUES'
-        ? (string)$id
-        : (string)(900 + $index);
-    $expected[$code] = $id;
-}
-
-$service = new InitPayloadService();
-$reflection = new ReflectionClass($service);
-$buildMap = $reflection->getMethod('buildPinnedRuntimeIblockMap');
-$buildMap->setAccessible(true);
-$map = $buildMap->invoke($service, $snapshot);
-$assert($map === $expected, 'direct frontcalc option snapshot wins over the conflicting admin option snapshot');
-$conflictingGlobals = $snapshot;
-$conflictingGlobals['prospektweb.calc:IBLOCK_CALC_GLOBAL_VALUES'] = '999';
-try {
-    $buildMap->invoke($service, $conflictingGlobals);
-    $assert(false, 'different FrontCalc/AdminCalc global registries must fail closed');
-} catch (Throwable $error) {
-    $assert($error->getCode() === 409, 'global registry authority conflict is reported as stale configuration');
-}
-foreach ([
-    'prospektweb.frontcalc:IBLOCK_CALC_GLOBAL_VALUES',
-    'prospektweb.calc:IBLOCK_CALC_GLOBAL_VALUES',
-] as $emptyAuthorityKey) {
-    $emptyAuthority = $snapshot;
-    $emptyAuthority[$emptyAuthorityKey] = '';
-    try {
-        $buildMap->invoke($service, $emptyAuthority);
-        $assert(false, 'an existing empty global registry authority must fail closed');
-    } catch (Throwable $error) {
-        $assert($error->getCode() === 409, 'empty global registry authority is invalid, not absent');
+namespace Prospektweb\Frontcalc\Service {
+    if (!class_exists(FrontcalcSettingsAuthority::class, false)) {
+        final class FrontcalcSettingsAuthority
+        {
+            public const CONTRACT = 'prospektweb.frontcalc.settings/v1';
+        }
     }
 }
 
-$resolveGlobals = $reflection->getMethod('resolvePinnedGlobalSymbolIblockId');
-$resolveGlobals->setAccessible(true);
-$assert(
-    $resolveGlobals->invoke($service, $snapshot) === $expected['CALC_GLOBAL_VALUES'],
-    'standalone global resolver requires the same direct authority consensus'
-);
-$initSource = (string)file_get_contents(dirname(__DIR__) . '/lib/Calculator/InitPayloadService.php');
-$writerSource = (string)file_get_contents(dirname(__DIR__) . '/lib/Services/CatalogCalculationWriteService.php');
-$assert(
-    strpos($initSource, "'neutralInputRequired' => true") !== false
-        && strpos($initSource, 'parseNeutralInputOption') === false
-        && strpos($initSource, 'parseAdapterAuthoringNeutralInputOption') === false,
-    'neutral input is an unconditional payload invariant rather than an option gate'
-);
+namespace {
+    require_once dirname(__DIR__) . '/lib/Calculator/InitPayloadService.php';
+    require_once dirname(__DIR__) . '/lib/Services/CatalogCalculationWriteService.php';
 
-$pinnedProperty = $reflection->getProperty('pinnedRuntimeIblockIds');
-$pinnedProperty->setAccessible(true);
-$pinnedProperty->setValue($service, $map);
-$runtimeIblockId = $reflection->getMethod('runtimeIblockId');
-$runtimeIblockId->setAccessible(true);
-foreach ($expected as $code => $id) {
+    use Prospektweb\Calc\Calculator\InitPayloadService;
+    use Prospektweb\Calc\Services\CatalogCalculationWriteService;
+    use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
+
+    $assert = static function (bool $condition, string $message): void {
+        if (!$condition) {
+            fwrite(STDERR, "FAIL: {$message}\n");
+            exit(1);
+        }
+    };
+    $expectConflict = static function (callable $callback, string $message) use ($assert): void {
+        try {
+            $callback();
+        } catch (RuntimeException $error) {
+            $assert($error->getCode() === 409, $message . ' has conflict status');
+            return;
+        }
+        $assert(false, $message);
+    };
+
+    $codes = [
+        'CALC_PRESETS',
+        'CALC_STAGES',
+        'CALC_SETTINGS',
+        'CALC_GLOBAL_VALUES',
+        'CALC_CUSTOM_FIELDS',
+        'CALC_MATERIALS',
+        'CALC_MATERIALS_VARIANTS',
+        'CALC_OPERATIONS',
+        'CALC_OPERATIONS_VARIANTS',
+        'CALC_EQUIPMENT',
+        'CALC_DETAILS',
+    ];
+    $calculatorSnapshot = [
+        'contract' => CatalogRuntimeConfigAuthorityService::CONTRACT,
+        'prospektweb.calc:CALC_SERVER_URL' => 'https://pwrt.ru/calc-api',
+    ];
+    $expectedCalculator = [];
+    foreach ($codes as $index => $code) {
+        $id = 300 + $index;
+        $calculatorSnapshot['prospektweb.calc:IBLOCK_' . $code] = (string)$id;
+        $expectedCalculator[$code] = $id;
+    }
+    $catalogSnapshot = $calculatorSnapshot + [
+        'frontSettingsContract' => \Prospektweb\Frontcalc\Service\FrontcalcSettingsAuthority::CONTRACT,
+        'frontSettingsRevision' => '7',
+        'frontSettingsFingerprint' => str_repeat('a', 64),
+        'prospektweb.frontcalc:PRODUCTS_IBLOCK_ID' => '214',
+        'prospektweb.frontcalc:OFFERS_IBLOCK_ID' => '215',
+    ];
+    $expectedCatalog = ['PRODUCTS' => 214, 'OFFERS' => 215] + $expectedCalculator;
+
     $assert(
-        $runtimeIblockId->invoke($service, $code) === $id,
-        'pinned runtime source ' . $code . ' ignores mutable runtime configuration lookups'
+        CatalogRuntimeConfigAuthorityService::runtimeIblockMap($calculatorSnapshot)
+            === $expectedCalculator,
+        'standalone calculator snapshot contains no catalog dependency'
     );
+    $assert(
+        CatalogRuntimeConfigAuthorityService::runtimeIblockMap($catalogSnapshot) === $expectedCatalog,
+        'catalog snapshot combines one Front aggregate with Admin calculator sources'
+    );
+
+    $legacyAdmin = $catalogSnapshot;
+    $legacyAdmin['prospektweb.calc:PRODUCT_IBLOCK_ID'] = '999';
+    $expectConflict(
+        static fn() => CatalogRuntimeConfigAuthorityService::runtimeIblockMap($legacyAdmin),
+        'legacy Admin product mirror is outside the exact snapshot contract'
+    );
+    $legacyFront = $catalogSnapshot;
+    $legacyFront['prospektweb.frontcalc:IBLOCK_CALC_GLOBAL_VALUES'] = '999';
+    $expectConflict(
+        static fn() => CatalogRuntimeConfigAuthorityService::runtimeIblockMap($legacyFront),
+        'legacy Front calculator mirror is outside the exact snapshot contract'
+    );
+    $badRevision = $catalogSnapshot;
+    $badRevision['frontSettingsRevision'] = '0';
+    $expectConflict(
+        static fn() => CatalogRuntimeConfigAuthorityService::runtimeIblockMap($badRevision),
+        'unactivated Front settings aggregate fails closed'
+    );
+    $badId = $catalogSnapshot;
+    $badId['prospektweb.frontcalc:OFFERS_IBLOCK_ID'] = '0215';
+    $expectConflict(
+        static fn() => CatalogRuntimeConfigAuthorityService::runtimeIblockMap($badId),
+        'non-canonical catalog ID fails closed'
+    );
+
+    $init = new InitPayloadService();
+    $reflection = new ReflectionClass($init);
+    $pinnedProperty = $reflection->getProperty('pinnedRuntimeIblockIds');
+    $pinnedProperty->setAccessible(true);
+    $pinnedProperty->setValue($init, $expectedCatalog);
+    $runtimeIblockId = $reflection->getMethod('runtimeIblockId');
+    $runtimeIblockId->setAccessible(true);
+    foreach ($expectedCatalog as $code => $id) {
+        $assert(
+            $runtimeIblockId->invoke($init, $code) === $id,
+            'pinned runtime source ' . $code . ' never falls back to another authority'
+        );
+    }
+    $resolveGlobals = $reflection->getMethod('resolvePinnedGlobalSymbolIblockId');
+    $resolveGlobals->setAccessible(true);
+    $assert(
+        $resolveGlobals->invoke($init, $catalogSnapshot) === $expectedCalculator['CALC_GLOBAL_VALUES'],
+        'global registry is owned only by the Admin calculator snapshot'
+    );
+
+    $catalogWriter = new CatalogCalculationWriteService();
+    $writerReflection = new ReflectionClass($catalogWriter);
+    $effective = $writerReflection->getMethod('effectiveRuntimeConfigIblockId');
+    $effective->setAccessible(true);
+    $assert(
+        $effective->invoke($catalogWriter, $catalogSnapshot, 'PRODUCTS') === 214
+            && $effective->invoke($catalogWriter, $catalogSnapshot, 'CALC_GLOBAL_VALUES')
+                === $expectedCalculator['CALC_GLOBAL_VALUES'],
+        'catalog writer consumes the same strict cross-module snapshot'
+    );
+
+    $initSource = (string)file_get_contents(dirname(__DIR__) . '/lib/Calculator/InitPayloadService.php');
+    $writerSource = (string)file_get_contents(
+        dirname(__DIR__) . '/lib/Services/CatalogCalculationWriteService.php'
+    );
+    $batchSource = (string)file_get_contents(
+        dirname(__DIR__) . '/lib/Services/BatchRecalculateService.php'
+    );
+    foreach ([$initSource, $writerSource, $batchSource] as $source) {
+        $assert(
+            !str_contains($source, 'prospektweb.calc:PRODUCT_IBLOCK_ID')
+                && !str_contains($source, 'prospektweb.calc:SKU_IBLOCK_ID')
+                && !str_contains($source, 'prospektweb.frontcalc:IBLOCK_CALC_'),
+            'runtime consumer source contains no legacy catalog or calculator mirrors'
+        );
+    }
+    $assert(
+        str_contains($initSource, '$offerIds === []')
+            && str_contains($initSource, 'captureCalculatorSnapshot()')
+            && str_contains($initSource, 'captureCatalogSnapshot()'),
+        'manual and catalog INIT select the appropriate exact authority boundary'
+    );
+
+    echo "Pinned runtime config tests passed\n";
 }
-
-$assert(
-    method_exists($service, 'preparePresetCalculationPayloadReadOnlyPinned'),
-    'catalog calculation exposes a dedicated read-only pinned payload builder'
-);
-
-$catalogService = new CatalogCalculationWriteService();
-$assert(
-    strpos($writerSource, "['_neutralInputRequired'] !== true") !== false,
-    'catalog writer requires the exact pinned neutral-input marker'
-);
-$effectiveIblock = (new ReflectionClass($catalogService))->getMethod('effectiveRuntimeConfigIblockId');
-$effectiveIblock->setAccessible(true);
-$assert(
-    $effectiveIblock->invoke($catalogService, $snapshot, 'CALC_GLOBAL_VALUES')
-        === $expected['CALC_GLOBAL_VALUES'],
-    'catalog writer uses the same exact global registry consensus'
-);
-$emptyCatalogAuthority = $snapshot;
-$emptyCatalogAuthority['prospektweb.calc:IBLOCK_CALC_GLOBAL_VALUES'] = '';
-try {
-    $effectiveIblock->invoke($catalogService, $emptyCatalogAuthority, 'CALC_GLOBAL_VALUES');
-    $assert(false, 'catalog writer must reject an existing empty global registry authority');
-} catch (Throwable $error) {
-    $assert($error->getCode() === 409, 'catalog writer treats empty authority as corruption');
-}
-
-echo "Pinned runtime config tests passed\n";

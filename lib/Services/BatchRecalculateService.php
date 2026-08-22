@@ -2,6 +2,8 @@
 
 namespace Prospektweb\Calc\Services;
 
+require_once __DIR__ . '/CatalogRuntimeConfigAuthorityService.php';
+
 use Bitrix\Main\Application;
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Config\ConfigManager;
@@ -1209,7 +1211,10 @@ class BatchRecalculateService
         // repair/migration/enrichment and is intentionally not used here.
         $configAuthority = new CatalogCalculationWriteService();
         $configBefore = $configAuthority->captureRuntimeConfigSnapshot();
-        $configuredUrl = trim((string)($configBefore['prospektweb.calc:CALC_SERVER_URL'] ?? ''));
+        $configuredUrl = trim(CatalogRuntimeConfigAuthorityService::adminOptionValue(
+            $configBefore,
+            'CALC_SERVER_URL'
+        ));
         $configuredUrl = self::normalizeCalcServerUrl(
             $configuredUrl !== '' ? $configuredUrl : 'https://pwrt.ru/calc-api'
         );
@@ -1421,37 +1426,15 @@ class BatchRecalculateService
     private function assertPayloadMatchesRuntimeConfig(array $catalogPayload, array $calculationPayload): void
     {
         $snapshot = is_array($catalogPayload['_runtimeConfigSnapshot'] ?? null)
-            ? $catalogPayload['_runtimeConfigSnapshot']
+            ? CatalogRuntimeConfigAuthorityService::normalizeCatalogSnapshot(
+                $catalogPayload['_runtimeConfigSnapshot']
+            )
             : [];
         if ($snapshot === []) {
             throw new \RuntimeException('Catalog payload does not pin ConfigManager option authority.');
         }
-        $effectiveId = static function (array $rows, string $code): int {
-            $candidates = [];
-            if ($code === 'PRODUCTS') {
-                $candidates = [
-                    'prospektweb.frontcalc:PRODUCTS_IBLOCK_ID',
-                    'prospektweb.calc:PRODUCT_IBLOCK_ID',
-                ];
-            } elseif ($code === 'OFFERS') {
-                $candidates = [
-                    'prospektweb.frontcalc:OFFERS_IBLOCK_ID',
-                    'prospektweb.calc:SKU_IBLOCK_ID',
-                ];
-            } else {
-                $candidates = [
-                    'prospektweb.frontcalc:IBLOCK_' . $code,
-                    'prospektweb.calc:IBLOCK_' . $code,
-                ];
-            }
-            foreach ($candidates as $candidate) {
-                $value = (int)($rows[$candidate] ?? 0);
-                if ($value > 0) {
-                    return $value;
-                }
-            }
-            return 0;
-        };
+        $effectiveId = static fn(array $rows, string $code): int =>
+            CatalogRuntimeConfigAuthorityService::runtimeIblockId($rows, $code);
         $assertId = static function (int $expected, int $actual, string $code): void {
             if ($actual > 0 && ($expected <= 0 || $actual !== $expected)) {
                 throw new \RuntimeException(
@@ -1512,29 +1495,7 @@ class BatchRecalculateService
     /** @param array<string,mixed> $snapshot */
     private function effectiveRuntimeConfigIblockId(array $snapshot, string $code): int
     {
-        if ($code === 'PRODUCTS') {
-            $keys = [
-                'prospektweb.frontcalc:PRODUCTS_IBLOCK_ID',
-                'prospektweb.calc:PRODUCT_IBLOCK_ID',
-            ];
-        } elseif ($code === 'OFFERS') {
-            $keys = [
-                'prospektweb.frontcalc:OFFERS_IBLOCK_ID',
-                'prospektweb.calc:SKU_IBLOCK_ID',
-            ];
-        } else {
-            $keys = [
-                'prospektweb.frontcalc:IBLOCK_' . $code,
-                'prospektweb.calc:IBLOCK_' . $code,
-            ];
-        }
-        foreach ($keys as $key) {
-            $id = (int)($snapshot[$key] ?? 0);
-            if ($id > 0) {
-                return $id;
-            }
-        }
-        return 0;
+        return CatalogRuntimeConfigAuthorityService::runtimeIblockId($snapshot, $code);
     }
 
     /**

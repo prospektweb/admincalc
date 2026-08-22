@@ -64,6 +64,13 @@ foreach ([
 
 $assert(str_contains($endpoint, 'storefront.revision must match expected_revision'), 'storefront save uses integer CAS');
 $assert(
+    str_contains($endpoint, "preg_match('/^[a-z0-9][a-z0-9_.-]{0,30}$/D', \$value)")
+        && !str_contains($endpoint, "[a-z0-9_.-]{0,63}")
+        && preg_match('/^[a-z0-9][a-z0-9_.-]{0,30}$/D', str_repeat('a', 31)) === 1
+        && preg_match('/^[a-z0-9][a-z0-9_.-]{0,30}$/D', str_repeat('a', 32)) === 0,
+    'storefront parser accepts at most 31 bytes and rejects a 32-byte identifier before mutation'
+);
+$assert(
     str_contains($endpoint, 'assertStorefrontProductsBelongToPreset(')
         && str_contains($endpoint, '$lockedProductIblockId'),
     'storefront product scope uses the exact locked assignment authority'

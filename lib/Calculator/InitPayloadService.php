@@ -2,10 +2,13 @@
 
 namespace Prospektweb\Calc\Calculator;
 
+require_once dirname(__DIR__) . '/Services/CatalogRuntimeConfigAuthorityService.php';
+
 use Bitrix\Main\Application;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Config\ConfigManager;
+use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
 use Prospektweb\Calc\Services\PresetProductAssignmentPropertyAuthorityService;
 
 /**
@@ -26,22 +29,6 @@ class InitPayloadService
      * @var array<string,int>|null
      */
     private ?array $pinnedRuntimeIblockIds = null;
-
-    private const PINNED_RUNTIME_IBLOCK_CODES = [
-        'PRODUCTS',
-        'OFFERS',
-        'CALC_PRESETS',
-        'CALC_STAGES',
-        'CALC_SETTINGS',
-        'CALC_GLOBAL_VALUES',
-        'CALC_CUSTOM_FIELDS',
-        'CALC_MATERIALS',
-        'CALC_MATERIALS_VARIANTS',
-        'CALC_OPERATIONS',
-        'CALC_OPERATIONS_VARIANTS',
-        'CALC_EQUIPMENT',
-        'CALC_DETAILS',
-    ];
 
     /**
      * Подготовить INIT payload для отправки в iframe
@@ -111,8 +98,13 @@ class InitPayloadService
         }
 
         $this->ensureBitrixModulesLoaded();
-        $runtimeConfigSnapshot = $this->captureRuntimeConfigSnapshotDirect();
-        $this->pinnedRuntimeIblockIds = $this->buildPinnedRuntimeIblockMap($runtimeConfigSnapshot);
+        $runtimeConfigAuthority = new CatalogRuntimeConfigAuthorityService();
+        $runtimeConfigSnapshot = $offerIds === []
+            ? $runtimeConfigAuthority->captureCalculatorSnapshot()
+            : $runtimeConfigAuthority->captureCatalogSnapshot();
+        $this->pinnedRuntimeIblockIds = CatalogRuntimeConfigAuthorityService::runtimeIblockMap(
+            $runtimeConfigSnapshot
+        );
 
         $selectedOffers = [];
         $productIds = [];
@@ -214,7 +206,9 @@ class InitPayloadService
         }
 
         $this->ensureBitrixModulesLoaded();
-        $this->pinnedRuntimeIblockIds = $this->buildPinnedRuntimeIblockMap($runtimeConfigSnapshot);
+        $this->pinnedRuntimeIblockIds = CatalogRuntimeConfigAuthorityService::runtimeIblockMap(
+            $runtimeConfigSnapshot
+        );
         $this->elementsStore = [];
 
         $preset = $this->loadPreset($presetId);
@@ -267,11 +261,13 @@ class InitPayloadService
         }
 
         $this->ensureBitrixModulesLoaded();
-        if ($pinnedRuntimeConfigSnapshot !== null) {
-            $this->pinnedRuntimeIblockIds = $this->buildPinnedRuntimeIblockMap(
-                $pinnedRuntimeConfigSnapshot
-            );
-        }
+        $runtimeConfigAuthority = new CatalogRuntimeConfigAuthorityService();
+        $pinnedRuntimeConfigSnapshot = $pinnedRuntimeConfigSnapshot === null
+            ? $runtimeConfigAuthority->captureCatalogSnapshot()
+            : CatalogRuntimeConfigAuthorityService::normalizeCatalogSnapshot($pinnedRuntimeConfigSnapshot);
+        $this->pinnedRuntimeIblockIds = CatalogRuntimeConfigAuthorityService::runtimeIblockMap(
+            $pinnedRuntimeConfigSnapshot
+        );
         $hasAnyRuntimePin = $pinnedAuthoring !== null
             || $pinnedPublishedSnapshot !== null
             || $pinnedGlobalSymbols !== null
@@ -404,9 +400,7 @@ class InitPayloadService
             '_globalSymbols' => array_values($pinnedGlobalSymbols),
             '_globalSymbolIblockId' => (int)$pinnedGlobalSymbolIblockId,
             '_productIblockIds' => $productIblockIds,
-            '_runtimeConfigSnapshot' => is_array($pinnedRuntimeConfigSnapshot)
-                ? $pinnedRuntimeConfigSnapshot
-                : [],
+            '_runtimeConfigSnapshot' => $pinnedRuntimeConfigSnapshot,
         ];
     }
 
@@ -526,59 +520,6 @@ class InitPayloadService
         ];
     }
 
-    /**
-     * Read every ConfigManager source selector directly from global b_option.
-     * Bitrix option names are case-insensitive in production, while duplicate
-     * mixed-case rows remain ambiguous and are rejected.
-     *
-     * @return array<string,string|null>
-     */
-    private function captureRuntimeConfigSnapshotDirect(): array
-    {
-        $namesByModule = [
-            'prospektweb.calc' => ['CALC_SERVER_URL', 'PRODUCT_IBLOCK_ID', 'SKU_IBLOCK_ID'],
-            'prospektweb.frontcalc' => ['PRODUCTS_IBLOCK_ID', 'OFFERS_IBLOCK_ID'],
-        ];
-        foreach (self::PINNED_RUNTIME_IBLOCK_CODES as $code) {
-            if (in_array($code, ['PRODUCTS', 'OFFERS'], true)) {
-                continue;
-            }
-            $namesByModule['prospektweb.calc'][] = 'IBLOCK_' . $code;
-            $namesByModule['prospektweb.frontcalc'][] = 'IBLOCK_' . $code;
-        }
-
-        $snapshot = [];
-        $canonicalByLookup = [];
-        $conditions = [];
-        foreach ($namesByModule as $moduleId => $names) {
-            foreach ($names as $name) {
-                $key = $moduleId . ':' . $name;
-                $snapshot[$key] = null;
-                $canonicalByLookup[strtolower($moduleId) . ':' . strtoupper($name)] = $key;
-                $conditions[] = "(MODULE_ID='" . $moduleId . "' AND NAME='" . $name . "')";
-            }
-        }
-
-        $result = Application::getConnection()->query(
-            'SELECT MODULE_ID, NAME, VALUE FROM b_option WHERE (' . implode(' OR ', $conditions)
-            . ") AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME"
-        );
-        while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
-            $actualModuleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
-            $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
-            $lookup = strtolower($actualModuleId) . ':' . strtoupper($actualName);
-            $canonicalKey = $canonicalByLookup[$lookup] ?? null;
-            if (!is_string($canonicalKey) || !array_key_exists($canonicalKey, $snapshot)) {
-                throw new \RuntimeException('Unexpected neutral INIT runtime option row.', 409);
-            }
-            if ($snapshot[$canonicalKey] !== null) {
-                throw new \RuntimeException('Duplicate global neutral INIT runtime option row.', 409);
-            }
-            $snapshot[$canonicalKey] = (string)($row['VALUE'] ?? $row['value'] ?? '');
-        }
-        return $snapshot;
-    }
-
     /** @return array{authoring:array<string,mixed>,snapshot:array<string,mixed>} */
     private function readNeutralPublishedRuntimeDirect(int $presetId): array
     {
@@ -591,7 +532,12 @@ class InitPayloadService
             || !method_exists($storeClass, 'publishedSnapshotFromRaw')) {
             throw new \RuntimeException('FrontCalc не предоставляет read-only публикацию выбранного пресета.', 409);
         }
-        $raw = $this->readOptionValueDirect('prospektweb.frontcalc', 'FORM_FIRST_PRESET_' . $presetId);
+        $optionAuthorityClass = '\\Prospektweb\\Frontcalc\\Service\\ExactGlobalOptionAuthority';
+        if (!class_exists($optionAuthorityClass)) {
+            throw new \RuntimeException('FrontCalc exact publication authority is unavailable.', 409);
+        }
+        $raw = (new $optionAuthorityClass('prospektweb.frontcalc'))
+            ->read('FORM_FIRST_PRESET_' . $presetId, '');
         $authoring = $storeClass::publishedAuthoringFromRaw($presetId, $raw);
         $snapshot = $storeClass::publishedSnapshotFromRaw($presetId, $raw);
         if (!is_array($authoring) || !is_array($snapshot)) {
@@ -709,123 +655,12 @@ class InitPayloadService
         return (int)array_key_first($presetIds);
     }
 
-    private function resolvePinnedGlobalSymbolIblockId(?array $runtimeConfigSnapshot): int
+    private function resolvePinnedGlobalSymbolIblockId(array $runtimeConfigSnapshot): int
     {
-        $keys = [
-            'prospektweb.frontcalc:IBLOCK_CALC_GLOBAL_VALUES',
-            'prospektweb.calc:IBLOCK_CALC_GLOBAL_VALUES',
-        ];
-        if ($runtimeConfigSnapshot === null) {
-            $runtimeConfigSnapshot = array_fill_keys($keys, null);
-            $result = Application::getConnection()->query(
-                "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE "
-                . "((MODULE_ID='prospektweb.frontcalc' OR MODULE_ID='prospektweb.calc') "
-                . "AND UPPER(NAME)='IBLOCK_CALC_GLOBAL_VALUES') "
-                . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME"
-            );
-            while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
-                $moduleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
-                $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
-                $siteId = array_key_exists('SITE_ID', $row)
-                    ? $row['SITE_ID']
-                    : ($row['site_id'] ?? null);
-                $canonicalName = strtoupper($actualName);
-                if (!in_array($moduleId, ['prospektweb.frontcalc', 'prospektweb.calc'], true)
-                    || $canonicalName !== 'IBLOCK_CALC_GLOBAL_VALUES'
-                    || $actualName !== trim($actualName)
-                    || !in_array($siteId, [null, ''], true)) {
-                    throw new \RuntimeException('Global-symbol iblock option authority is invalid.', 409);
-                }
-                $key = $moduleId . ':' . $canonicalName;
-                if (!array_key_exists($key, $runtimeConfigSnapshot)
-                    || $runtimeConfigSnapshot[$key] !== null) {
-                    throw new \RuntimeException('Global-symbol iblock option authority is ambiguous.', 409);
-                }
-                $runtimeConfigSnapshot[$key] = (string)($row['VALUE'] ?? $row['value'] ?? '');
-            }
-        }
-        $resolvedIds = [];
-        foreach ($keys as $key) {
-            $raw = $runtimeConfigSnapshot[$key] ?? null;
-            if ($raw === null) {
-                continue;
-            }
-            $value = (string)$raw;
-            if (preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
-                throw new \RuntimeException('IBLOCK_CALC_GLOBAL_VALUES authority is invalid.', 409);
-            }
-            $resolvedIds[(int)$value] = true;
-        }
-        if (count($resolvedIds) > 1) {
-            throw new \RuntimeException('IBLOCK_CALC_GLOBAL_VALUES authorities disagree.', 409);
-        }
-        if ($resolvedIds !== []) {
-            return (int)array_key_first($resolvedIds);
-        }
-        throw new \RuntimeException('IBLOCK_CALC_GLOBAL_VALUES is not configured for catalog calculation.');
-    }
-
-    /**
-     * @param array<string,string|null> $snapshot
-     * @return array<string,int>
-     */
-    private function buildPinnedRuntimeIblockMap(array $snapshot): array
-    {
-        $map = [];
-        foreach (self::PINNED_RUNTIME_IBLOCK_CODES as $code) {
-            if ($code === 'PRODUCTS') {
-                $keys = [
-                    'prospektweb.frontcalc:PRODUCTS_IBLOCK_ID',
-                    'prospektweb.calc:PRODUCT_IBLOCK_ID',
-                ];
-            } elseif ($code === 'OFFERS') {
-                $keys = [
-                    'prospektweb.frontcalc:OFFERS_IBLOCK_ID',
-                    'prospektweb.calc:SKU_IBLOCK_ID',
-                ];
-            } else {
-                $keys = [
-                    'prospektweb.frontcalc:IBLOCK_' . $code,
-                    'prospektweb.calc:IBLOCK_' . $code,
-                ];
-            }
-
-            $iblockId = 0;
-            if ($code === 'CALC_GLOBAL_VALUES') {
-                $resolvedIds = [];
-                foreach ($keys as $key) {
-                    $raw = $snapshot[$key] ?? null;
-                    if ($raw === null) {
-                        continue;
-                    }
-                    $value = (string)$raw;
-                    if (preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
-                        throw new \RuntimeException('Runtime source ' . $code . ' has an invalid option authority.', 409);
-                    }
-                    $resolvedIds[(int)$value] = true;
-                }
-                if (count($resolvedIds) > 1) {
-                    throw new \RuntimeException('Runtime source ' . $code . ' option authorities disagree.', 409);
-                }
-                $iblockId = $resolvedIds === [] ? 0 : (int)array_key_first($resolvedIds);
-            } else {
-                foreach ($keys as $key) {
-                    $candidate = (int)($snapshot[$key] ?? 0);
-                    if ($candidate > 0) {
-                        $iblockId = $candidate;
-                        break;
-                    }
-                }
-            }
-            if ($iblockId <= 0) {
-                throw new \RuntimeException(
-                    'Runtime source ' . $code . ' is not pinned by direct b_option authority.',
-                    409
-                );
-            }
-            $map[$code] = $iblockId;
-        }
-        return $map;
+        return CatalogRuntimeConfigAuthorityService::runtimeIblockId(
+            $runtimeConfigSnapshot,
+            'CALC_GLOBAL_VALUES'
+        );
     }
 
     private function runtimeIblockId(string $code): int
@@ -850,37 +685,6 @@ class InitPayloadService
     private function elementDataService(): ElementDataService
     {
         return new ElementDataService($this->pinnedRuntimeIblockIds ?? []);
-    }
-
-    private function readOptionValueDirect(string $moduleId, string $name): string
-    {
-        $state = $this->readOptionStateDirect($moduleId, $name);
-        return $state['exists'] ? $state['value'] : '';
-    }
-
-    /** @return array{exists:bool,value:string} */
-    private function readOptionStateDirect(string $moduleId, string $name): array
-    {
-        if ($moduleId !== 'prospektweb.frontcalc'
-            || preg_match('/^FORM_FIRST_PRESET_[1-9][0-9]*$/D', $name) !== 1) {
-            throw new \RuntimeException('Attempted to read an unsupported catalog runtime option.');
-        }
-        $connection = Application::getConnection();
-        $helper = $connection->getSqlHelper();
-        $result = $connection->query(
-            "SELECT VALUE FROM b_option WHERE MODULE_ID='" . $helper->forSql($moduleId)
-            . "' AND NAME='" . $helper->forSql($name)
-            . "' AND (SITE_ID IS NULL OR SITE_ID='')"
-        );
-        $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
-        $duplicate = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
-        if (is_array($duplicate)) {
-            throw new \RuntimeException('Duplicate global catalog runtime option row.');
-        }
-        return [
-            'exists' => is_array($row),
-            'value' => is_array($row) ? (string)($row['VALUE'] ?? $row['value'] ?? '') : '',
-        ];
     }
 
     /**
@@ -1509,8 +1313,6 @@ class InitPayloadService
     private function getIblocks(): array
     {
         $map = [
-            'PRODUCTS' => $this->runtimeIblockId('PRODUCTS'),
-            'OFFERS' => $this->runtimeIblockId('OFFERS'),
             'CALC_PRESETS' => $this->runtimeIblockId('CALC_PRESETS'),
             'CALC_STAGES' => $this->runtimeIblockId('CALC_STAGES'),
             'CALC_SETTINGS' => $this->runtimeIblockId('CALC_SETTINGS'),
@@ -1522,6 +1324,14 @@ class InitPayloadService
             'CALC_EQUIPMENT' => $this->runtimeIblockId('CALC_EQUIPMENT'),
             'CALC_DETAILS' => $this->runtimeIblockId('CALC_DETAILS'),
         ];
+        if ($this->pinnedRuntimeIblockIds !== null
+            && array_key_exists('PRODUCTS', $this->pinnedRuntimeIblockIds)
+            && array_key_exists('OFFERS', $this->pinnedRuntimeIblockIds)) {
+            $map = [
+                'PRODUCTS' => $this->runtimeIblockId('PRODUCTS'),
+                'OFFERS' => $this->runtimeIblockId('OFFERS'),
+            ] + $map;
+        }
 
         $parentMap = [
             'CALC_MATERIALS_VARIANTS' => 'CALC_MATERIALS',

@@ -2,7 +2,10 @@
 
 namespace Prospektweb\Calc\Config;
 
+require_once dirname(__DIR__) . '/Services/CatalogRuntimeConfigAuthorityService.php';
+
 use Bitrix\Main\Config\Option;
+use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
 
 /**
  * Менеджер конфигурации модуля.
@@ -31,6 +34,23 @@ class ConfigManager
         'CALC_DETAILS' => 'calculator_catalog',
     ];
 
+    private CatalogRuntimeConfigAuthorityService $runtimeConfigAuthority;
+
+    /** @var array<string,string>|null */
+    private ?array $catalogRuntimeSnapshot = null;
+
+    /** @var array<string,int>|null */
+    private ?array $calculatorIblockIds = null;
+
+    /** @param array<string,callable> $adapters */
+    public function __construct(array $adapters = [])
+    {
+        $authority = $adapters['runtime_config_authority'] ?? null;
+        $this->runtimeConfigAuthority = $authority instanceof CatalogRuntimeConfigAuthorityService
+            ? $authority
+            : new CatalogRuntimeConfigAuthorityService($adapters);
+    }
+
     /**
      * Получает ID инфоблока по коду.
      *
@@ -45,21 +65,12 @@ class ConfigManager
             throw new \InvalidArgumentException('Unknown calculator iblock code: ' . $code . '.');
         }
 
-        $optionKey = 'IBLOCK_' . $code;
-        $rawId = Option::get(self::MODULE_ID, $optionKey, '');
-        if (!is_string($rawId)
-            || preg_match('/^[1-9][0-9]*$/D', $rawId) !== 1
-            || (string)(int)$rawId !== $rawId) {
-            throw new \RuntimeException(
-                'Calculator iblock authority is not configured: ' . $code . '.',
-                409
+        if ($this->calculatorIblockIds === null) {
+            $this->calculatorIblockIds = $this->runtimeConfigAuthority->resolveCalculatorIblockIds(
+                self::IBLOCK_TYPES
             );
         }
-        $id = (int)$rawId;
-
-        $this->assertExactIblockTarget($code, $expectedType, $id);
-
-        return $id;
+        return $this->calculatorIblockIds[$code];
     }
 
     /**
@@ -69,7 +80,10 @@ class ConfigManager
      */
     public function getProductIblockId(): int
     {
-        return (int)Option::get(self::MODULE_ID, 'PRODUCT_IBLOCK_ID', 0);
+        return CatalogRuntimeConfigAuthorityService::runtimeIblockId(
+            $this->catalogRuntimeSnapshot(),
+            'PRODUCTS'
+        );
     }
 
     /**
@@ -79,7 +93,10 @@ class ConfigManager
      */
     public function getSkuIblockId(): int
     {
-        return (int)Option::get(self::MODULE_ID, 'SKU_IBLOCK_ID', 0);
+        return CatalogRuntimeConfigAuthorityService::runtimeIblockId(
+            $this->catalogRuntimeSnapshot(),
+            'OFFERS'
+        );
     }
 
     /**
@@ -121,27 +138,13 @@ class ConfigManager
         return $result;
     }
 
-    private function assertExactIblockTarget(string $code, string $expectedType, int $id): void
+    /** @return array<string,string> */
+    private function catalogRuntimeSnapshot(): array
     {
-        if (!\Bitrix\Main\Loader::includeModule('iblock')) {
-            throw new \RuntimeException('The iblock module is unavailable.', 409);
+        if ($this->catalogRuntimeSnapshot === null) {
+            $this->catalogRuntimeSnapshot = $this->runtimeConfigAuthority->captureCatalogSnapshot();
         }
-        $rows = \CIBlock::GetList(
-            ['ID' => 'ASC'],
-            ['CODE' => $code, 'TYPE' => $expectedType]
-        );
-        $first = $rows ? $rows->Fetch() : false;
-        $duplicate = $rows ? $rows->Fetch() : false;
-        if (!is_array($first)
-            || $duplicate !== false
-            || (int)($first['ID'] ?? 0) !== $id
-            || (string)($first['CODE'] ?? '') !== $code
-            || (string)($first['IBLOCK_TYPE_ID'] ?? '') !== $expectedType) {
-            throw new \RuntimeException(
-                'Calculator iblock authority does not match the exact target: ' . $code . '.',
-                409
-            );
-        }
+        return $this->catalogRuntimeSnapshot;
     }
 
 }

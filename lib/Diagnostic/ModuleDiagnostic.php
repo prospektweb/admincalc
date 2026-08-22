@@ -20,6 +20,7 @@ class ModuleDiagnostic
         'CALC_PRESETS',
         'CALC_STAGES',
         'CALC_SETTINGS',
+        'CALC_GLOBAL_VALUES',
         'CALC_MATERIALS',
         'CALC_MATERIALS_VARIANTS',
         'CALC_OPERATIONS',
@@ -30,6 +31,12 @@ class ModuleDiagnostic
     ];
 
     private const IBLOCK_REQUIRED_PROPERTIES = [
+        'CALC_GLOBAL_VALUES' => [
+            'KIND',
+            'DATA_TYPE',
+            'INITIAL_VALUE',
+            'PRESET_ID',
+        ],
         'CALC_SETTINGS' => [
             'CALCULATOR_NAME',
             'DESCRIPTION',
@@ -533,24 +540,27 @@ class ModuleDiagnostic
         $checks = [];
         $errors = [];
 
-        $productIblockId = (int)Option::get(self::MODULE_ID, 'PRODUCT_IBLOCK_ID', 0);
-        $checks[] = [
-            'label' => 'PRODUCT_IBLOCK_ID',
-            'status' => $productIblockId > 0 ? 'ok' : 'warning',
-            'value' => $productIblockId > 0 ? 'ID = ' . $productIblockId : 'Не задан',
-        ];
-        if ($productIblockId <= 0) {
-            $errors[] = 'PRODUCT_IBLOCK_ID не настроен';
-        }
-
-        $skuIblockId = (int)Option::get(self::MODULE_ID, 'SKU_IBLOCK_ID', 0);
-        $checks[] = [
-            'label' => 'SKU_IBLOCK_ID',
-            'status' => $skuIblockId > 0 ? 'ok' : 'warning',
-            'value' => $skuIblockId > 0 ? 'ID = ' . $skuIblockId : 'Не задан',
-        ];
-        if ($skuIblockId <= 0) {
-            $errors[] = 'SKU_IBLOCK_ID не настроен';
+        try {
+            $config = new ConfigManager();
+            $productIblockId = $config->getProductIblockId();
+            $offersIblockId = $config->getSkuIblockId();
+            $checks[] = [
+                'label' => 'FrontCalc PRODUCTS_IBLOCK_ID',
+                'status' => 'ok',
+                'value' => 'ID = ' . $productIblockId,
+            ];
+            $checks[] = [
+                'label' => 'FrontCalc OFFERS_IBLOCK_ID',
+                'status' => 'ok',
+                'value' => 'ID = ' . $offersIblockId,
+            ];
+        } catch (\Throwable $error) {
+            $checks[] = [
+                'label' => 'Авторитет каталога FrontCalc',
+                'status' => 'error',
+                'value' => $error->getMessage(),
+            ];
+            $errors[] = 'Полный версионированный агрегат настроек FrontCalc недоступен.';
         }
 
         return $this->buildSection('Настройки модуля', '⚙️', $checks, $errors);

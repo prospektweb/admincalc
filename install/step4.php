@@ -15,7 +15,7 @@ Loc::loadMessages(__FILE__);
 $installData = $_SESSION['PROSPEKTWEB_CALC_INSTALL'] ?? [];
 $createdResources = $installData['created_resources'] ?? [];
 $errors = $installData['errors'] ?? [];
-$productIblockId = $installData['product_iblock_id'] ?? 0;
+$productIblockId = $installData['products_iblock_id'] ?? 0;
 
 // Очищаем сессию
 unset($_SESSION['PROSPEKTWEB_CALC_INSTALL']);

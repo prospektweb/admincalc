@@ -19,6 +19,7 @@
 use Bitrix\Main\Loader;
 use Bitrix\Main\Config\Option;
 use Prospektweb\Calc\Install\SnapshotManager;
+use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
 
 if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true) {
     die();
@@ -34,8 +35,8 @@ $moduleId = 'prospektweb.calc';
 // Инициализация сессии
 if (! isset($_SESSION['PROSPEKTWEB_CALC_INSTALL'])) {
     $_SESSION['PROSPEKTWEB_CALC_INSTALL'] = [
-        'product_iblock_id' => (int)($_REQUEST['PRODUCT_IBLOCK_ID'] ?? 0),
-        'sku_iblock_id' => (int)($_REQUEST['SKU_IBLOCK_ID'] ?? 0),
+        'products_iblock_id' => (int)($_REQUEST['PRODUCTS_IBLOCK_ID'] ?? 0),
+        'offers_iblock_id' => (int)($_REQUEST['OFFERS_IBLOCK_ID'] ?? 0),
         'current_step' => 1,
         'import_snapshot_path' => (string)($_REQUEST['IMPORT_SNAPSHOT_PATH'] ?? ''),
         'iblock_ids' => [],
@@ -1170,8 +1171,33 @@ switch ($currentStep) {
             ],
             'PARAMETRS' => ['NAME' => 'Параметры', 'TYPE' => 'S', 'MULTIPLE' => 'Y', 'MULTIPLE_CNT' => 1, 'SORT' => 220, 'WITH_DESCRIPTION' => 'Y'],
         ];
-
-
+        $globalValuesProps = [
+            'KIND' => [
+                'NAME' => 'Вид глобального значения',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'N',
+                'SORT' => 100,
+            ],
+            'DATA_TYPE' => [
+                'NAME' => 'Тип данных',
+                'TYPE' => 'S',
+                'MULTIPLE' => 'N',
+                'SORT' => 200,
+            ],
+            'INITIAL_VALUE' => [
+                'NAME' => 'Начальное значение',
+                'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
+                'MULTIPLE' => 'N',
+                'SORT' => 300,
+            ],
+            'PRESET_ID' => [
+                'NAME' => 'Пресет',
+                'TYPE' => 'E',
+                'MULTIPLE' => 'N',
+                'SORT' => 400,
+            ],
+        ];
 
         // Свойства инфоблока:  Сборки для расчётов
         $presetsProps = [
@@ -1285,6 +1311,13 @@ switch ($currentStep) {
         ];
 
         $installData['iblock_ids']['CALC_PRESETS'] = createIblockWithLog('calculator', 'CALC_PRESETS', 'Пресеты', $presetsProps);
+        $globalValuesProps['PRESET_ID']['LINK_IBLOCK_ID'] = $installData['iblock_ids']['CALC_PRESETS'];
+        $installData['iblock_ids']['CALC_GLOBAL_VALUES'] = createIblockWithLog(
+            'calculator',
+            'CALC_GLOBAL_VALUES',
+            'Глобальные значения',
+            $globalValuesProps
+        );
         $installData['iblock_ids']['CALC_STAGES'] = createIblockWithLog('calculator_catalog', 'CALC_STAGES', 'Этапы', $stagesProps);
         $installData['iblock_ids']['CALC_SETTINGS'] = createIblockWithLog('calculator', 'CALC_SETTINGS', 'Калькуляторы', $settingsProps);
         $installData['iblock_ids']['CALC_MATERIALS'] = createIblockWithLog('calculator_catalog', 'CALC_MATERIALS', 'Материалы', $materialsProps);
@@ -1301,7 +1334,7 @@ switch ($currentStep) {
         $installData['iblock_ids']['CALC_DETAILS'] = createIblockWithLog('calculator_catalog', 'CALC_DETAILS', 'Детали', $detailsProps);
 
         $created = count(array_filter($installData['iblock_ids'], fn($id) => $id > 0));
-        $expected = 10;
+        $expected = 11;
         installLog("Создано инфоблоков: {$created}/{$expected}", $created === $expected ? 'success' : 'warning');
         
         // Обновление свойств CALC_STAGES с привязками к инфоблокам
@@ -1642,19 +1675,28 @@ switch ($currentStep) {
 
     case 4:
         installLog("ШАГ 4 из {$totalSteps}: СОХРАНЕНИЕ НАСТРОЕК", 'header');
-        
-        foreach ($installData['iblock_ids'] as $code => $id) {
-            if ($id > 0) {
-                Option::set($moduleId, 'IBLOCK_' . $code, $id);
-                installLog("Сохранено: IBLOCK_{$code} = {$id}", 'success');
+
+        $runtimeAuthorityPath = __DIR__ . '/../lib/Services/CatalogRuntimeConfigAuthorityService.php';
+        if (!class_exists(CatalogRuntimeConfigAuthorityService::class)) {
+            require_once $runtimeAuthorityPath;
+        }
+        $runtimeOptions = ['CALC_SERVER_URL' => 'https://pwrt.ru/calc-api'];
+        foreach (CatalogRuntimeConfigAuthorityService::canonicalAdminOptionNames() as $name) {
+            if ($name === 'CALC_SERVER_URL') {
+                continue;
             }
+            $code = substr($name, strlen('IBLOCK_'));
+            $id = (int)($installData['iblock_ids'][$code] ?? 0);
+            if ($id <= 0) {
+                throw new \RuntimeException('Не создан обязательный инфоблок ' . $code . '.');
+            }
+            $runtimeOptions[$name] = $id;
+        }
+        (new CatalogRuntimeConfigAuthorityService())->initializeAdminOptionsForInstall($runtimeOptions);
+        foreach ($runtimeOptions as $name => $value) {
+            installLog("Сохранено точное значение: {$name} = {$value}", 'success');
         }
         
-        Option::set($moduleId, 'PRODUCT_IBLOCK_ID', $installData['product_iblock_id']);
-        Option::set($moduleId, 'SKU_IBLOCK_ID', $installData['sku_iblock_id']);
-        installLog("Сохранено: PRODUCT_IBLOCK_ID = " . $installData['product_iblock_id'], 'success');
-        installLog("Сохранено: SKU_IBLOCK_ID = " . $installData['sku_iblock_id'], 'success');
-
         // Создание HighloadBlock для истории расчётов
         installLog("");
         installLog("Создание HighloadBlock для истории расчётов...", 'header');
@@ -1704,7 +1746,7 @@ switch ($currentStep) {
             }
             
             if (isset($hlblockId) && $hlblockId > 0) {
-                $skuIblockId = (int)($installData['sku_iblock_id'] ?? 0);
+                $skuIblockId = (int)($installData['offers_iblock_id'] ?? 0);
                 $fieldResult = ensureHighloadUserFields($hlblockId, $skuIblockId);
                 $totalFields = 6;
                 $processedFields = $fieldResult['created'] + $fieldResult['updated'];
@@ -1724,7 +1766,7 @@ switch ($currentStep) {
             }
 
             // Создание свойства COMPLETED_CALCS в инфоблоке ТП
-            $skuIblockId = $installData['sku_iblock_id'];
+            $skuIblockId = $installData['offers_iblock_id'];
             
             if ($skuIblockId > 0 && isset($hlblockId) && $hlblockId > 0) {
                 installLog("");
@@ -1783,7 +1825,7 @@ switch ($currentStep) {
         }
 
         // Добавление свойства CALC_PRESET в инфоблок товаров (Product)
-        $productIblockId = $installData['product_iblock_id'];
+        $productIblockId = $installData['products_iblock_id'];
         $presetsIblockId = $installData['iblock_ids']['CALC_PRESETS'] ?? 0;
 
         if ($productIblockId > 0 && $presetsIblockId > 0) {
@@ -1851,7 +1893,7 @@ switch ($currentStep) {
 
         $parametrValuesTargets = [
             'товаров' => $productIblockId,
-            'торговых предложений' => $installData['sku_iblock_id'] ?? 0,
+            'торговых предложений' => $installData['offers_iblock_id'] ?? 0,
         ];
 
         foreach ($parametrValuesTargets as $targetName => $targetIblockId) {
@@ -1890,7 +1932,7 @@ switch ($currentStep) {
             }
         }
 
-        ensureSkuCalculatorProperties((int)($installData['sku_iblock_id'] ?? 0));
+        ensureSkuCalculatorProperties((int)($installData['offers_iblock_id'] ?? 0));
         
         // Импорт данных из snapshot (если файл загружен)
         $snapshotPath = (string)($installData['import_snapshot_path'] ?? '');

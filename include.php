@@ -30,6 +30,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\CatalogCalculationScenarioService' => 'lib/Services/CatalogCalculationScenarioService.php',
     'Prospektweb\\Calc\\Services\\CatalogOutputMappingService' => 'lib/Services/CatalogOutputMappingService.php',
     'Prospektweb\\Calc\\Services\\CatalogCalculationWriteService' => 'lib/Services/CatalogCalculationWriteService.php',
+    'Prospektweb\\Calc\\Services\\CatalogRuntimeConfigAuthorityService' => 'lib/Services/CatalogRuntimeConfigAuthorityService.php',
     'Prospektweb\\Calc\\Services\\StandaloneCatalogPriceNormalizer' => 'lib/Services/StandaloneCatalogPriceNormalizer.php',
     'Prospektweb\\Calc\\Services\\BatchRecalculateService' => 'lib/Services/BatchRecalculateService.php',
     'Prospektweb\\Calc\\Services\\BatchPreviewFingerprintService' => 'lib/Services/BatchPreviewFingerprintService.php',

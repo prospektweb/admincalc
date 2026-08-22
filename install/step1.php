@@ -20,7 +20,7 @@ if (!Loader::includeModule('iblock') || !Loader::includeModule('catalog')) {
 }
 
 // Восстанавливаем выбранные значения из сессии (если есть)
-$savedProductIblockId = (int)($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['PRODUCT_IBLOCK_ID'] ?? 0);
+$savedProductsIblockId = (int)($_SESSION['PROSPEKTWEB_CALC_STEP1_DATA']['PRODUCTS_IBLOCK_ID'] ?? 0);
 
 // Получаем список инфоблоков, зарегистрированных как торговые каталоги.
 // Нельзя фильтровать только по TYPE=catalog: в готовых решениях (например Aspro)
@@ -48,7 +48,7 @@ if (!empty($catalogIblockIds)) {
             'ID' => $arIBlock['ID'],
             'NAME' => $arIBlock['NAME'],
             'CODE' => $arIBlock['CODE'],
-            'SKU_IBLOCK_ID' => $catalogInfo['IBLOCK_ID'] ?? null,
+            'OFFERS_IBLOCK_ID' => $catalogInfo['IBLOCK_ID'] ?? null,
         ];
     }
 }
@@ -127,18 +127,18 @@ if (!empty($catalogIblockIds)) {
 
         <tr>
             <td width="40%">
-                <label for="PRODUCT_IBLOCK_ID"><?= Loc::getMessage('PROSPEKTWEB_CALC_INSTALL_PRODUCT_IBLOCK') ?></label>
+                <label for="PRODUCTS_IBLOCK_ID"><?= Loc::getMessage('PROSPEKTWEB_CALC_INSTALL_PRODUCT_IBLOCK') ?></label>
             </td>
             <td width="60%">
-                <select name="PRODUCT_IBLOCK_ID" id="PRODUCT_IBLOCK_ID" class="adm-input" style="width: 300px;">
+                <select name="PRODUCTS_IBLOCK_ID" id="PRODUCTS_IBLOCK_ID" class="adm-input" style="width: 300px;">
                     <option value=""><?= Loc::getMessage('PROSPEKTWEB_CALC_INSTALL_SELECT_IBLOCK') ?></option>
                     <?php foreach ($catalogs as $catalog): ?>
                         <option value="<?= (int)$catalog['ID'] ?>" 
-                                data-sku-id="<?= (int)($catalog['SKU_IBLOCK_ID'] ?? 0) ?>"
+                                data-offers-id="<?= (int)($catalog['OFFERS_IBLOCK_ID'] ?? 0) ?>"
                                 data-name="<?= htmlspecialcharsbx($catalog['NAME']) ?>"
-                                <?= ($savedProductIblockId === (int)$catalog['ID']) ? 'selected' : '' ?>>
+                                <?= ($savedProductsIblockId === (int)$catalog['ID']) ? 'selected' : '' ?>>
                             <?= htmlspecialcharsbx($catalog['NAME']) ?> [<?= (int)$catalog['ID'] ?>]
-                            <?php if ($catalog['SKU_IBLOCK_ID']): ?>
+                            <?php if ($catalog['OFFERS_IBLOCK_ID']): ?>
                                 (<?= Loc::getMessage('PROSPEKTWEB_CALC_INSTALL_HAS_SKU') ?>)
                             <?php endif; ?>
                         </option>
@@ -182,7 +182,7 @@ if (!empty($catalogIblockIds)) {
 
 <script>
 (function() {
-    var selectIblock = document.getElementById('PRODUCT_IBLOCK_ID');
+    var selectIblock = document.getElementById('PRODUCTS_IBLOCK_ID');
     var btnNext = document.getElementById('btnNext');
     var consoleDiv = document.getElementById('installConsole');
     var confirmDiv = document.getElementById('installConfirm');
@@ -245,7 +245,7 @@ if (!empty($catalogIblockIds)) {
     function updateConsoleOnSelect() {
         var option = selectIblock.options[selectIblock.selectedIndex];
         var iblockId = selectIblock.value;
-        var skuId = option.getAttribute('data-sku-id');
+        var offersId = option.getAttribute('data-offers-id');
         var iblockName = option.getAttribute('data-name');
 
         clearConsole();
@@ -263,8 +263,8 @@ if (!empty($catalogIblockIds)) {
         logToConsole('→ ' + LANG.selected + ': ' + iblockName + ' [ID: ' + iblockId + ']', 'info');
         logToConsole('→ ' + LANG.type + ': ' + LANG.typeCatalog, 'info');
 
-        if (skuId && skuId !== '0' && skuId !== '') {
-            logToConsole('→ ' + LANG.skuDetected + ': ID ' + skuId, 'success');
+        if (offersId && offersId !== '0' && offersId !== '') {
+            logToConsole('→ ' + LANG.skuDetected + ': ID ' + offersId, 'success');
             logToConsole('→ ' + LANG.modeWithSku, 'success');
         } else {
             logToConsole('→ ' + LANG.noSku, 'warning');
@@ -275,13 +275,13 @@ if (!empty($catalogIblockIds)) {
     function buildConfirmDetails() {
         var option = selectIblock.options[selectIblock.selectedIndex];
         var iblockId = selectIblock.value;
-        var skuId = option.getAttribute('data-sku-id');
+        var offersId = option.getAttribute('data-offers-id');
         var iblockName = option.getAttribute('data-name');
 
         var html = '<p style="color: #4ec9b0;">✓ ' + LANG.productIblock + ': ' + iblockName + ' [' + iblockId + ']</p>';
 
-        if (skuId && skuId !== '0' && skuId !== '') {
-            html += '<p style="color: #4ec9b0;">✓ ' + LANG.skuIblock + ': ID ' + skuId + '</p>';
+        if (offersId && offersId !== '0' && offersId !== '') {
+            html += '<p style="color: #4ec9b0;">✓ ' + LANG.skuIblock + ': ID ' + offersId + '</p>';
         }
 
 

@@ -93,6 +93,7 @@ try {
             'CALC_OPERATIONS',
             'CALC_DETAILS',
             'CALC_EQUIPMENT',
+            'CALC_GLOBAL_VALUES',
             'CALC_PRESETS',
             'CALC_CUSTOM_FIELDS',
             'CALC_SETTINGS',
@@ -242,7 +243,19 @@ try {
     }
 
     // Удаление свойства CALC_PRESET из инфоблока товаров (Product)
-    $productIblockId = (int)Option::get($moduleId, 'PRODUCT_IBLOCK_ID', 0);
+    $productIblockId = 0;
+    if (Loader::includeModule('prospektweb.frontcalc')
+        && class_exists('\Prospektweb\Frontcalc\Config\ConfigManager')) {
+        try {
+            $productIblockId = (int)(new \Prospektweb\Frontcalc\Config\ConfigManager())
+                ->getProductIblockId();
+        } catch (\Throwable $error) {
+            uninstallLog(
+                '  → CALC_PRESET не удалён: авторитетный каталог FrontCalc недоступен.',
+                'warning'
+            );
+        }
+    }
     if ($productIblockId > 0) {
         uninstallLog('Удаление свойства CALC_PRESET из инфоблока товаров...', 'header');
         $rsProperty = \CIBlockProperty::GetList([], [

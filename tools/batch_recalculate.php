@@ -68,6 +68,7 @@ use Bitrix\Main\Loader;
 use Prospektweb\Calc\Services\BatchPreviewFingerprintService;
 use Prospektweb\Calc\Services\BatchRecalculateService;
 use Prospektweb\Calc\Services\CatalogCalculationWriteService;
+use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
 
 global $APPLICATION;
 global $USER;
@@ -162,7 +163,10 @@ function validateCommonParams(array $requestData): array
     }
     try {
         $runtimeConfig = (new CatalogCalculationWriteService())->captureRuntimeConfigSnapshot();
-        $calcServerUrl = trim((string)($runtimeConfig['prospektweb.calc:CALC_SERVER_URL'] ?? ''));
+        $calcServerUrl = trim(CatalogRuntimeConfigAuthorityService::adminOptionValue(
+            $runtimeConfig,
+            'CALC_SERVER_URL'
+        ));
         $calcServerUrl = BatchRecalculateService::normalizeCalcServerUrl(
             $calcServerUrl !== '' ? $calcServerUrl : 'https://pwrt.ru/calc-api'
         );

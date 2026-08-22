@@ -1,8 +1,10 @@
 <?php
 
-require_once dirname(__DIR__) . '/lib/Services/CatalogCalculationWriteService.php';
+declare(strict_types=1);
 
-use Prospektweb\Calc\Services\CatalogCalculationWriteService;
+require_once dirname(__DIR__) . '/lib/Services/CatalogRuntimeConfigAuthorityService.php';
+
+use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) {
@@ -11,19 +13,101 @@ $assert = static function (bool $condition, string $message): void {
     }
 };
 
-$expectFailure = static function (callable $callback, string $message, ?int $code = null) use ($assert): void {
+$expectConflict = static function (callable $callback, string $message) use ($assert): void {
     try {
         $callback();
-    } catch (Throwable $error) {
-        if ($code !== null) {
-            $assert($error->getCode() === $code, $message . ' has the expected error code');
-        }
+    } catch (RuntimeException $error) {
+        $assert($error->getCode() === 409, $message . ' has conflict status');
         return;
     }
     $assert(false, $message);
 };
 
-final class RuntimeConfigOptionCaseResult
+$canonicalNames = [
+    'CALC_SERVER_URL',
+    'IBLOCK_CALC_PRESETS',
+    'IBLOCK_CALC_STAGES',
+    'IBLOCK_CALC_SETTINGS',
+    'IBLOCK_CALC_GLOBAL_VALUES',
+    'IBLOCK_CALC_CUSTOM_FIELDS',
+    'IBLOCK_CALC_MATERIALS',
+    'IBLOCK_CALC_MATERIALS_VARIANTS',
+    'IBLOCK_CALC_OPERATIONS',
+    'IBLOCK_CALC_OPERATIONS_VARIANTS',
+    'IBLOCK_CALC_EQUIPMENT',
+    'IBLOCK_CALC_DETAILS',
+];
+$assert(
+    CatalogRuntimeConfigAuthorityService::canonicalAdminOptionNames() === $canonicalNames,
+    'source-derived canonical Admin option order is exact'
+);
+$assert(
+    CatalogRuntimeConfigAuthorityService::legacyAdminCatalogOptionNames()
+        === ['PRODUCT_IBLOCK_ID', 'SKU_IBLOCK_ID'],
+    'source-derived legacy deletion list is exact'
+);
+
+$rows = [];
+foreach ($canonicalNames as $index => $name) {
+    $rows[] = [
+        'MODULE_ID' => 'prospektweb.calc',
+        'NAME' => $name,
+        'VALUE' => $name === 'CALC_SERVER_URL' ? 'https://pwrt.ru/calc-api' : (string)(41 + $index),
+        'SITE_ID' => null,
+    ];
+}
+$selected = CatalogRuntimeConfigAuthorityService::selectExactAdminOptions($rows);
+$assert(array_keys($selected) === $canonicalNames, 'canonical Admin rows retain contract ordering');
+
+$withLegacyOutsideQuery = array_merge($rows, [[
+    'MODULE_ID' => 'prospektweb.calc',
+    'NAME' => 'PRODUCT_IBLOCK_ID',
+    'VALUE' => '14',
+    'SITE_ID' => null,
+]]);
+$assert(
+    CatalogRuntimeConfigAuthorityService::selectExactAdminOptions($withLegacyOutsideQuery) === $selected,
+    'legacy rows outside the canonical query do not participate in runtime selection'
+);
+
+$lowercaseAlias = $rows;
+$lowercaseAlias[1]['NAME'] = 'iblock_calc_presets';
+$expectConflict(
+    static fn() => CatalogRuntimeConfigAuthorityService::selectExactAdminOptions($lowercaseAlias),
+    'lowercase Admin option alias fails closed'
+);
+$moduleAlias = $rows;
+$moduleAlias[1]['MODULE_ID'] = 'PROSPEKTWEB.CALC';
+$expectConflict(
+    static fn() => CatalogRuntimeConfigAuthorityService::selectExactAdminOptions($moduleAlias),
+    'module casing alias fails closed'
+);
+$siteEmpty = $rows;
+$siteEmpty[1]['SITE_ID'] = '';
+$expectConflict(
+    static fn() => CatalogRuntimeConfigAuthorityService::selectExactAdminOptions($siteEmpty),
+    'empty SITE_ID shadow fails closed'
+);
+$siteMissing = $rows;
+unset($siteMissing[1]['SITE_ID']);
+$expectConflict(
+    static fn() => CatalogRuntimeConfigAuthorityService::selectExactAdminOptions($siteMissing),
+    'missing SITE_ID provenance fails closed'
+);
+$duplicate = $rows;
+$duplicate[] = $rows[1];
+$expectConflict(
+    static fn() => CatalogRuntimeConfigAuthorityService::selectExactAdminOptions($duplicate),
+    'duplicate canonical row fails closed'
+);
+$missing = $rows;
+array_pop($missing);
+$expectConflict(
+    static fn() => CatalogRuntimeConfigAuthorityService::selectExactAdminOptions($missing),
+    'incomplete Admin aggregate fails closed'
+);
+
+final class RuntimeConfigCaseResult
 {
     /** @var array<int,array<string,mixed>> */
     private array $rows;
@@ -38,18 +122,24 @@ final class RuntimeConfigOptionCaseResult
     /** @return array<string,mixed>|false */
     public function fetch()
     {
-        if (!isset($this->rows[$this->offset])) {
-            return false;
-        }
-        return $this->rows[$this->offset++];
+        return $this->rows[$this->offset++] ?? false;
     }
 }
 
-final class RuntimeConfigOptionCaseConnection
+final class RuntimeConfigCaseSqlHelper
+{
+    public function forSql(string $value): string
+    {
+        return str_replace("'", "''", $value);
+    }
+}
+
+final class RuntimeConfigCaseConnection
 {
     /** @var array<int,array<string,mixed>> */
     private array $rows;
-    public string $sql = '';
+    /** @var string[] */
+    public array $queries = [];
 
     /** @param array<int,array<string,mixed>> $rows */
     public function __construct(array $rows)
@@ -57,184 +147,87 @@ final class RuntimeConfigOptionCaseConnection
         $this->rows = $rows;
     }
 
-    public function query(string $sql): RuntimeConfigOptionCaseResult
+    public function getSqlHelper(): RuntimeConfigCaseSqlHelper
     {
-        $this->sql = $sql;
-        return new RuntimeConfigOptionCaseResult($this->rows);
+        return new RuntimeConfigCaseSqlHelper();
     }
+
+    public function query(string $sql): RuntimeConfigCaseResult
+    {
+        $this->queries[] = $sql;
+        if (str_contains($sql, '@@session.in_transaction')) {
+            return new RuntimeConfigCaseResult([['ACTIVE' => 0]]);
+        }
+        return new RuntimeConfigCaseResult($this->rows);
+    }
+
+    public function startTransaction(): void {}
+    public function commitTransaction(): void {}
+    public function rollbackTransaction(): void {}
 }
 
-$capture = static function (array $rows): array {
-    $service = new CatalogCalculationWriteService();
-    $connection = new RuntimeConfigOptionCaseConnection($rows);
-    $property = (new ReflectionClass($service))->getProperty('transactionConnection');
-    $property->setAccessible(true);
-    $property->setValue($service, $connection);
-    $snapshot = $service->captureRuntimeConfigSnapshot();
-    return [$snapshot, $connection->sql];
-};
+$connection = new RuntimeConfigCaseConnection($rows);
+$snapshot = (new CatalogRuntimeConfigAuthorityService())->captureCalculatorSnapshot($connection);
+$assert(
+    CatalogRuntimeConfigAuthorityService::adminOptionValue($snapshot, 'IBLOCK_CALC_PRESETS') === '42',
+    'production snapshot uses the exact canonical Admin row'
+);
+$query = implode("\n", $connection->queries);
+$assert(
+    str_contains($query, 'LOWER(NAME) IN')
+        && !str_contains($query, 'product_iblock_id')
+        && !str_contains($query, 'sku_iblock_id'),
+    'runtime SQL queries only the canonical Admin contract and never legacy names'
+);
 
-$lock = static function (array $rows): array {
-    $service = new CatalogCalculationWriteService();
-    $connection = new RuntimeConfigOptionCaseConnection($rows);
-    $reflection = new ReflectionClass($service);
-    $property = $reflection->getProperty('transactionConnection');
-    $property->setAccessible(true);
-    $property->setValue($service, $connection);
-    $presetProperty = $reflection->getProperty('activePresetId');
-    $presetProperty->setAccessible(true);
-    $presetProperty->setValue($service, 41);
-    $method = $reflection->getMethod('lockRuntimeOptionRows');
-    $method->setAccessible(true);
-    $snapshot = $method->invoke($service);
-    return [$snapshot, $connection->sql];
-};
+$source = (string)file_get_contents(
+    dirname(__DIR__) . '/lib/Services/CatalogRuntimeConfigAuthorityService.php'
+);
+$captureStart = strpos($source, 'private function captureProduction');
+$captureEnd = strpos($source, 'public static function selectExactAdminOptions', $captureStart ?: 0);
+$captureBody = substr($source, $captureStart ?: 0, ($captureEnd ?: strlen($source)) - ($captureStart ?: 0));
+$assert(
+    !str_contains($captureBody, 'legacyAdminCatalogOptionNames')
+        && !str_contains($captureBody, 'legacyFrontCalculatorOptionNames'),
+    'runtime capture does not consult source-derived legacy cutover lists'
+);
 
-[$productionSnapshot, $productionSql] = $capture([
-    [
-        'MODULE_ID' => 'prospektweb.calc',
-        'NAME' => 'iblock_calc_presets',
-        'VALUE' => '41',
-    ],
-    [
-        'MODULE_ID' => 'prospektweb.calc',
-        'NAME' => 'iblock_calc_stages',
-        'VALUE' => '42',
-    ],
-    [
-        'MODULE_ID' => 'prospektweb.calc',
-        'NAME' => 'iblock_calc_details',
-        'VALUE' => '50',
-    ],
+$resolverCalls = 0;
+$resolverAuthority = new CatalogRuntimeConfigAuthorityService([
+    'resolve_calculator_iblock' => static function () use (&$resolverCalls): int {
+        $resolverCalls++;
+        return 41;
+    },
+]);
+try {
+    $resolverAuthority->resolveCalculatorIblockId('UNKNOWN', 'calculator_catalog');
+    $assert(false, 'single-target adapter must not bypass the exact calculator source contract');
+} catch (InvalidArgumentException $error) {
+    $assert($resolverCalls === 0, 'invalid single-target authority is rejected before adapter invocation');
+}
+
+$installerAuthority = new CatalogRuntimeConfigAuthorityService([
+    'initialize_admin' => static fn(array $options): array => $options,
 ]);
 $assert(
-    $productionSnapshot['prospektweb.calc:IBLOCK_CALC_PRESETS'] === '41'
-    && $productionSnapshot['prospektweb.calc:IBLOCK_CALC_STAGES'] === '42'
-    && $productionSnapshot['prospektweb.calc:IBLOCK_CALC_DETAILS'] === '50',
-    'production lowercase Bitrix option names bind to canonical runtime keys'
+    $installerAuthority->initializeAdminOptionsForInstall($selected) === $selected,
+    'installer accepts only the complete ordered canonical Admin aggregate'
 );
+try {
+    $reordered = array_reverse($selected, true);
+    $installerAuthority->initializeAdminOptionsForInstall($reordered);
+    $assert(false, 'reordered installer contract must be rejected');
+} catch (InvalidArgumentException $error) {
+    $assert(true, 'reordered installer contract rejected');
+}
+$installerSource = (string)file_get_contents(dirname(__DIR__) . '/install/step3.php');
 $assert(
-    strpos($productionSql, "(SITE_ID IS NULL OR SITE_ID='')") !== false,
-    'runtime option authority remains restricted to exact global rows'
+    str_contains($installerSource, 'initializeAdminOptionsForInstall($runtimeOptions)')
+        && str_contains($installerSource, "['iblock_ids']['CALC_GLOBAL_VALUES']")
+        && !str_contains($installerSource, "Option::set(\$moduleId, 'IBLOCK_'")
+        && !str_contains($installerSource, "Option::set(\$moduleId, 'PRODUCT_IBLOCK_ID'")
+        && !str_contains($installerSource, "Option::set(\$moduleId, 'SKU_IBLOCK_ID'"),
+    'fresh installer creates the global registry and exact Admin aggregate without Bitrix Option aliases'
 );
 
-[$mixedSnapshot] = $capture([
-    [
-        'MODULE_ID' => 'prospektweb.frontcalc',
-        'NAME' => 'Products_Iblock_Id',
-        'VALUE' => '14',
-    ],
-]);
-$assert(
-    $mixedSnapshot['prospektweb.frontcalc:PRODUCTS_IBLOCK_ID'] === '14',
-    'mixed-case legacy option names bind to the same canonical authority'
-);
-
-$expectFailure(
-    static function () use ($capture): void {
-        $capture([
-            ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_presets', 'VALUE' => '41'],
-            ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '99'],
-        ]);
-    },
-    'canonical duplicate option authorities fail closed',
-    409
-);
-$expectFailure(
-    static function () use ($capture): void {
-        $capture([
-            ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'iblock_calc_presets ', 'VALUE' => '41'],
-        ]);
-    },
-    'whitespace aliases are not normalized into the allowlist'
-);
-$expectFailure(
-    static function () use ($capture): void {
-        $capture([
-            ['MODULE_ID' => 'PROSPEKTWEB.CALC', 'NAME' => 'IBLOCK_CALC_PRESETS', 'VALUE' => '41'],
-        ]);
-    },
-    'unexpected module-id casing remains fail closed'
-);
-
-[$lockedSnapshot, $lockedSql] = $lock([
-    [
-        'MODULE_ID' => 'prospektweb.frontcalc',
-        'NAME' => 'FORM_FIRST_PRESET_41',
-        'VALUE' => '{"contract":"prospektweb.frontcalc.form-first/v1"}',
-        'SITE_ID' => null,
-    ],
-    [
-        'MODULE_ID' => 'prospektweb.calc',
-        'NAME' => 'CALCULATOR_INPUT_MAPPING_41',
-        'VALUE' => '{"contract":"prospektweb.calc.calculator-input-mapping/v1"}',
-        'SITE_ID' => '',
-    ],
-    [
-        'MODULE_ID' => 'prospektweb.calc',
-        'NAME' => 'CATALOG_OUTPUT_MAPPING_41',
-        'VALUE' => '{"contract":"prospektweb.calc.catalog-output-mapping/v1"}',
-        'SITE_ID' => null,
-    ],
-    [
-        'MODULE_ID' => 'prospektweb.calc',
-        'NAME' => 'iblock_calc_presets',
-        'VALUE' => '41',
-        'SITE_ID' => null,
-    ],
-]);
-$assert(
-    $lockedSnapshot['prospektweb.calc:IBLOCK_CALC_PRESETS'] === '41',
-    'the production lock partitions legitimate authority rows out of the ConfigManager snapshot'
-);
-$assert(
-    strpos($lockedSql, "NAME='FORM_FIRST_PRESET_41'") !== false
-        && strpos($lockedSql, "NAME='CALCULATOR_INPUT_MAPPING_41'") !== false
-        && strpos($lockedSql, "NAME='CATALOG_OUTPUT_MAPPING_41'") !== false
-        && strpos($lockedSql, 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE') !== false,
-    'one deterministic first lock still covers all runtime and authority option rows'
-);
-
-$expectFailure(
-    static function () use ($lock): void {
-        $lock([
-            ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'CALCULATOR_INPUT_MAPPING_41', 'VALUE' => '{}'],
-            ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'calculator_input_mapping_41', 'VALUE' => '{}'],
-        ]);
-    },
-    'canonical duplicate locked authority rows fail closed',
-    409
-);
-$expectFailure(
-    static function () use ($lock): void {
-        $lock([[
-            'MODULE_ID' => 'prospektweb.calc',
-            'NAME' => 'CALCULATOR_INPUT_MAPPING_41',
-            'VALUE' => '{}',
-            'SITE_ID' => 's1',
-        ]]);
-    },
-    'site-specific authority rows cannot enter the global runtime lock snapshot'
-);
-$expectFailure(
-    static function () use ($lock): void {
-        $lock([[
-            'MODULE_ID' => 'prospektweb.calc',
-            'NAME' => 'CALCULATOR_INPUT_MAPPING_41 ',
-            'VALUE' => '{}',
-        ]]);
-    },
-    'whitespace aliases cannot enter the locked authority allowlist'
-);
-$expectFailure(
-    static function () use ($lock): void {
-        $lock([[
-            'MODULE_ID' => 'PROSPEKTWEB.CALC',
-            'NAME' => 'CALCULATOR_INPUT_MAPPING_41',
-            'VALUE' => '{}',
-        ]]);
-    },
-    'authority module-id casing remains fail closed under the physical lock'
-);
-
-echo "Runtime config option case tests passed\n";
+echo "Runtime config exact option tests passed\n";

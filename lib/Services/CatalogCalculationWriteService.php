@@ -2,6 +2,8 @@
 
 namespace Prospektweb\Calc\Services;
 
+require_once __DIR__ . '/CatalogRuntimeConfigAuthorityService.php';
+
 use Bitrix\Main\Application;
 use Prospektweb\Calc\Calculator\InitPayloadService;
 
@@ -42,56 +44,13 @@ final class CatalogCalculationWriteService
         'CATALOG_BATCH_RECEIPT_' => self::BATCH_RECEIPT_CONTRACT,
     ];
 
-    /**
-     * Every ConfigManager option that can redirect preset/catalog/runtime
-     * reads. Missing rows are part of the snapshot as explicit null values.
-     */
-    private const RUNTIME_CONFIG_OPTION_KEYS = [
-        'prospektweb.calc' => [
-            'CALC_SERVER_URL',
-            'PRODUCT_IBLOCK_ID',
-            'SKU_IBLOCK_ID',
-            'IBLOCK_CALC_PRESETS',
-            'IBLOCK_CALC_STAGES',
-            'IBLOCK_CALC_SETTINGS',
-            'IBLOCK_CALC_GLOBAL_VALUES',
-            'IBLOCK_CALC_CUSTOM_FIELDS',
-            'IBLOCK_CALC_MATERIALS',
-            'IBLOCK_CALC_MATERIALS_VARIANTS',
-            'IBLOCK_CALC_OPERATIONS',
-            'IBLOCK_CALC_OPERATIONS_VARIANTS',
-            'IBLOCK_CALC_EQUIPMENT',
-            'IBLOCK_CALC_DETAILS',
-        ],
-        'prospektweb.frontcalc' => [
-            'PRODUCTS_IBLOCK_ID',
-            'OFFERS_IBLOCK_ID',
-            'IBLOCK_CALC_PRESETS',
-            'IBLOCK_CALC_STAGES',
-            'IBLOCK_CALC_SETTINGS',
-            'IBLOCK_CALC_GLOBAL_VALUES',
-            'IBLOCK_CALC_CUSTOM_FIELDS',
-            'IBLOCK_CALC_MATERIALS',
-            'IBLOCK_CALC_MATERIALS_VARIANTS',
-            'IBLOCK_CALC_OPERATIONS',
-            'IBLOCK_CALC_OPERATIONS_VARIANTS',
-            'IBLOCK_CALC_EQUIPMENT',
-            'IBLOCK_CALC_DETAILS',
-        ],
-    ];
-
-    /**
-     * Non-ConfigManager authorities covered by the same first transaction
-     * lock. They are validated and kept locked, but never become part of the
-     * ConfigManager snapshot compared with calc-server provenance.
-     */
     /** @var array<string,callable> */
     private array $adapters;
 
     /** @var mixed */
     private $transactionConnection;
 
-    /** @var array<string,string|null>|null */
+    /** @var array<string,string>|null */
     private ?array $lockedRuntimeConfigSnapshot = null;
 
     private ?BatchRecalculateService $batchRecalculateService = null;
@@ -104,12 +63,7 @@ final class CatalogCalculationWriteService
         $this->adapters = $adapters;
     }
 
-    /**
-     * Read ConfigManager authority directly from b_option, bypassing both
-     * Bitrix Option cache and process-static ConfigManager caches.
-     *
-     * @return array<string,string|null>
-     */
+    /** @return array<string,string> */
     public function captureRuntimeConfigSnapshot(): array
     {
         if ($this->lockedRuntimeConfigSnapshot !== null) {
@@ -119,118 +73,10 @@ final class CatalogCalculationWriteService
             $snapshot = call_user_func($this->adapters['capture_runtime_config']);
             return $this->normalizeRuntimeConfigSnapshot(is_array($snapshot) ? $snapshot : []);
         }
-
-        $conditions = [];
-        foreach (self::RUNTIME_CONFIG_OPTION_KEYS as $moduleId => $names) {
-            foreach ($names as $name) {
-                $conditions[] = "(MODULE_ID='" . $moduleId . "' AND NAME='" . $name . "')";
-            }
-        }
-        $connection = $this->transactionConnection ?? Application::getConnection();
-        $result = $connection->query(
-            'SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE (' . implode(' OR ', $conditions)
-            . ") AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME, SITE_ID"
+        return (new CatalogRuntimeConfigAuthorityService())->captureCatalogSnapshot(
+            $this->transactionConnection,
+            false
         );
-        $rows = [];
-        while (is_object($result) && method_exists($result, 'fetch') && ($row = $result->fetch())) {
-            $rows[] = $row;
-        }
-        return $this->runtimeConfigSnapshotFromRows($rows);
-    }
-
-    /**
-     * @param array<int,array<string,mixed>> $rows
-     * @return array<string,string|null>
-     */
-    private function runtimeConfigSnapshotFromRows(array $rows): array
-    {
-        $snapshot = [];
-        foreach (self::RUNTIME_CONFIG_OPTION_KEYS as $moduleId => $names) {
-            foreach ($names as $name) {
-                $snapshot[$moduleId . ':' . $name] = null;
-            }
-        }
-        foreach ($rows as $row) {
-            // Bitrix option names in long-lived installations may be stored in
-            // lowercase even though current ConfigManager constants are
-            // uppercase. MySQL compares NAME case-insensitively here, so bind
-            // every returned row to the canonical allowlist key explicitly.
-            // Preserve all other bytes: whitespace aliases and an unexpected
-            // module id must still fail closed.
-            $key = $this->canonicalGlobalRuntimeOptionRowKey($row);
-            if (!array_key_exists($key, $snapshot)) {
-                throw new \RuntimeException('Unexpected runtime config option row.');
-            }
-            if ($snapshot[$key] !== null) {
-                throw new \RuntimeException('Duplicate global runtime config option row.', 409);
-            }
-            $snapshot[$key] = (string)($row['VALUE'] ?? $row['value'] ?? '');
-        }
-        return $this->normalizeRuntimeConfigSnapshot($snapshot);
-    }
-
-    /**
-     * Partition the production FOR UPDATE result without weakening its lock
-     * coverage. Authority rows remain locked by the originating SELECT while
-     * only ConfigManager rows participate in the calc-server snapshot.
-     *
-     * @param array<int,array<string,mixed>> $rows
-     * @return array<string,string|null>
-     */
-    private function runtimeConfigSnapshotFromLockedRows(array $rows): array
-    {
-        $runtimeKeys = [];
-        foreach (self::RUNTIME_CONFIG_OPTION_KEYS as $moduleId => $names) {
-            foreach ($names as $name) {
-                $runtimeKeys[$moduleId . ':' . $name] = true;
-            }
-        }
-
-        $runtimeRows = [];
-        $authorityRows = [];
-        foreach ($rows as $row) {
-            $key = $this->canonicalGlobalRuntimeOptionRowKey($row);
-            if ($this->isLockedRuntimeAuthorityKey($key)) {
-                if (isset($authorityRows[$key])) {
-                    throw new \RuntimeException('Duplicate global runtime authority option row.', 409);
-                }
-                $authorityRows[$key] = true;
-                continue;
-            }
-            if (!isset($runtimeKeys[$key])) {
-                throw new \RuntimeException('Unexpected locked runtime option row.');
-            }
-            $runtimeRows[] = $row;
-        }
-
-        return $this->runtimeConfigSnapshotFromRows($runtimeRows);
-    }
-
-    private function isLockedRuntimeAuthorityKey(string $key): bool
-    {
-        if ($this->activePresetId <= 0) {
-            return false;
-        }
-        return in_array($key, [
-            'prospektweb.frontcalc:FORM_FIRST_PRESET_' . $this->activePresetId,
-            'prospektweb.calc:CALCULATOR_INPUT_MAPPING_' . $this->activePresetId,
-            'prospektweb.calc:CATALOG_OUTPUT_MAPPING_' . $this->activePresetId,
-        ], true);
-    }
-
-    /** @param array<string,mixed> $row */
-    private function canonicalGlobalRuntimeOptionRowKey(array $row): string
-    {
-        $siteId = array_key_exists('SITE_ID', $row)
-            ? $row['SITE_ID']
-            : ($row['site_id'] ?? null);
-        if ($siteId !== null && $siteId !== '') {
-            throw new \RuntimeException('Unexpected site-specific runtime option row.');
-        }
-
-        $moduleId = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
-        $actualName = (string)($row['NAME'] ?? $row['name'] ?? '');
-        return $moduleId . ':' . strtoupper($actualName);
     }
 
     /**
@@ -1635,77 +1481,16 @@ final class CatalogCalculationWriteService
         ];
     }
 
-    /** @param array<string,mixed> $snapshot @return array<string,string|null> */
+    /** @param array<string,mixed> $snapshot @return array<string,string> */
     private function normalizeRuntimeConfigSnapshot(array $snapshot): array
     {
-        $expectedKeys = [];
-        foreach (self::RUNTIME_CONFIG_OPTION_KEYS as $moduleId => $names) {
-            foreach ($names as $name) {
-                $expectedKeys[] = $moduleId . ':' . $name;
-            }
-        }
-        sort($expectedKeys, SORT_STRING);
-        $actualKeys = array_map('strval', array_keys($snapshot));
-        sort($actualKeys, SORT_STRING);
-        if ($actualKeys !== $expectedKeys) {
-            throw new \RuntimeException('Runtime ConfigManager snapshot does not match the strict option allowlist.');
-        }
-        $normalized = [];
-        foreach ($expectedKeys as $key) {
-            $value = $snapshot[$key];
-            if ($value !== null && !is_scalar($value)) {
-                throw new \RuntimeException('Runtime ConfigManager snapshot contains a non-scalar value.');
-            }
-            $normalized[$key] = $value === null ? null : (string)$value;
-        }
-        return $normalized;
+        return CatalogRuntimeConfigAuthorityService::normalizeCatalogSnapshot($snapshot);
     }
 
-    /** @param array<string,string|null> $snapshot */
+    /** @param array<string,mixed> $snapshot */
     private function effectiveRuntimeConfigIblockId(array $snapshot, string $code): int
     {
-        if ($code === 'PRODUCTS') {
-            $candidates = [
-                'prospektweb.frontcalc:PRODUCTS_IBLOCK_ID',
-                'prospektweb.calc:PRODUCT_IBLOCK_ID',
-            ];
-        } elseif ($code === 'OFFERS') {
-            $candidates = [
-                'prospektweb.frontcalc:OFFERS_IBLOCK_ID',
-                'prospektweb.calc:SKU_IBLOCK_ID',
-            ];
-        } else {
-            $candidates = [
-                'prospektweb.frontcalc:IBLOCK_' . $code,
-                'prospektweb.calc:IBLOCK_' . $code,
-            ];
-        }
-        if ($code !== 'CALC_GLOBAL_VALUES') {
-            foreach ($candidates as $candidate) {
-                $value = (int)($snapshot[$candidate] ?? 0);
-                if ($value > 0) {
-                    return $value;
-                }
-            }
-            return 0;
-        }
-
-        $resolvedIds = [];
-        foreach ($candidates as $candidate) {
-            $raw = $snapshot[$candidate] ?? null;
-            if ($raw === null) {
-                continue;
-            }
-            $value = (string)$raw;
-            if (preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
-                throw new \RuntimeException('Runtime source ' . $code . ' has an invalid option authority.', 409);
-            }
-            $resolvedIds[(int)$value] = true;
-        }
-        if (count($resolvedIds) > 1) {
-            throw new \RuntimeException('Runtime source ' . $code . ' option authorities disagree.', 409);
-        }
-        return $resolvedIds === [] ? 0 : (int)array_key_first($resolvedIds);
+        return CatalogRuntimeConfigAuthorityService::runtimeIblockId($snapshot, $code);
     }
 
     /** @param array<string,mixed> $locks @return array<string,mixed> */
@@ -2709,7 +2494,10 @@ final class CatalogCalculationWriteService
     {
         if ($this->batchRecalculateService === null) {
             $snapshot = $this->captureRuntimeConfigSnapshot();
-            $url = trim((string)($snapshot['prospektweb.calc:CALC_SERVER_URL'] ?? ''));
+            $url = trim(CatalogRuntimeConfigAuthorityService::adminOptionValue(
+                $snapshot,
+                'CALC_SERVER_URL'
+            ));
             if ($url === '') {
                 $url = 'https://pwrt.ru/calc-api';
             }
@@ -2891,21 +2679,11 @@ final class CatalogCalculationWriteService
         if ($this->transactionConnection === null) {
             throw new \RuntimeException('Locked runtime option cannot be read outside a transaction.');
         }
-        $result = $this->transactionConnection->query(
-            "SELECT VALUE FROM b_option WHERE MODULE_ID='" . $moduleId
-            . "' AND NAME='" . $name
-            . "' AND (SITE_ID IS NULL OR SITE_ID='') "
-            . 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE'
-        );
-        $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
-        $duplicate = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
-        if (is_array($duplicate)) {
-            throw new \RuntimeException('Duplicate global runtime option row.', 409);
+        $authorityClass = '\\Prospektweb\\Frontcalc\\Service\\ExactGlobalOptionAuthority';
+        if (!class_exists($authorityClass)) {
+            throw new \RuntimeException('Exact global option authority is unavailable.', 409);
         }
-        return [
-            'exists' => is_array($row),
-            'value' => is_array($row) ? (string)($row['VALUE'] ?? $row['value'] ?? '') : '',
-        ];
+        return (new $authorityClass($moduleId, $this->transactionConnection))->inspectForUpdate($name);
     }
 
     /** @return array<int,array<string,mixed>> */
@@ -3200,21 +2978,22 @@ final class CatalogCalculationWriteService
             if ($this->activePresetId <= 0) {
                 throw new \RuntimeException('Runtime options require an active preset.');
             }
-            $conditions = [
-                "(MODULE_ID='prospektweb.frontcalc' AND NAME='FORM_FIRST_PRESET_" . $this->activePresetId . "')",
-                "(MODULE_ID='prospektweb.calc' AND NAME='CALCULATOR_INPUT_MAPPING_" . $this->activePresetId . "')",
-                "(MODULE_ID='prospektweb.calc' AND NAME='CATALOG_OUTPUT_MAPPING_" . $this->activePresetId . "')",
-            ];
-            foreach (self::RUNTIME_CONFIG_OPTION_KEYS as $moduleId => $names) {
-                foreach ($names as $name) {
-                    $conditions[] = "(MODULE_ID='" . $moduleId . "' AND NAME='" . $name . "')";
-                }
-            }
-            $lockedRows = $this->selectForUpdate(
-                'SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE (' . implode(' OR ', $conditions)
-                . ") AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE"
+            $lockedSnapshot = (new CatalogRuntimeConfigAuthorityService())->captureCatalogSnapshot(
+                $this->transactionConnection,
+                true
             );
-            $lockedSnapshot = $this->runtimeConfigSnapshotFromLockedRows($lockedRows);
+            $this->readLockedOptionState(
+                'prospektweb.frontcalc',
+                'FORM_FIRST_PRESET_' . $this->activePresetId
+            );
+            $this->readLockedOptionState(
+                'prospektweb.calc',
+                'CALCULATOR_INPUT_MAPPING_' . $this->activePresetId
+            );
+            $this->readLockedOptionState(
+                'prospektweb.calc',
+                'CATALOG_OUTPUT_MAPPING_' . $this->activePresetId
+            );
         }
         if ($lockedSnapshot === null) {
             throw new \RuntimeException('Locked runtime configuration snapshot is unavailable.', 409);

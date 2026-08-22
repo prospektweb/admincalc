@@ -129,6 +129,7 @@ class SnapshotManager
             'CALC_OPERATIONS',
             'CALC_OPERATIONS_VARIANTS',
             'CALC_EQUIPMENT',
+            'CALC_GLOBAL_VALUES',
             'CALC_DETAILS',
             'CALC_PRESETS',
             'CALC_CUSTOM_FIELDS',
@@ -163,16 +164,10 @@ class SnapshotManager
             }
         }
 
-        $productIblockId = (int)Option::get($moduleId, 'PRODUCT_IBLOCK_ID', 0);
-        $skuIblockId = (int)Option::get($moduleId, 'SKU_IBLOCK_ID', 0);
-        unset($targetIblockIds[$productIblockId], $targetIblockIds[$skuIblockId]);
-
         $snapshot = [
             'meta' => [
                 'generated_at' => date('c'),
                 'module_id' => $moduleId,
-                'excluded_product_iblock_id' => $productIblockId,
-                'excluded_sku_iblock_id' => $skuIblockId,
                 'resolved_codes' => $resolvedBy,
                 'target_iblock_ids' => array_values($targetIblockIds),
             ],
