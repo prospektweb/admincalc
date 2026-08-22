@@ -16,46 +16,73 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $forUpdateSeen = false;
+$presetIblockSeen = 0;
 $authority = new PresetProductAssignmentPropertyAuthorityService([
-    'read_rows' => static function (int $iblockId, bool $forUpdate) use (&$forUpdateSeen): array {
+    'read_rows' => static function (
+        int $iblockId,
+        int $presetIblockId,
+        bool $forUpdate
+    ) use (&$forUpdateSeen, &$presetIblockSeen): array {
         $forUpdateSeen = $forUpdate;
+        $presetIblockSeen = $presetIblockId;
         return [[
             'ID' => 91,
             'IBLOCK_ID' => $iblockId,
             'CODE' => 'CALC_PRESET',
+            'ACTIVE' => 'Y',
+            'PROPERTY_TYPE' => 'E',
             'MULTIPLE' => 'N',
+            'LINK_IBLOCK_ID' => $presetIblockId,
         ]];
     },
 ]);
-$resolved = $authority->resolve(7, true);
+$resolved = $authority->resolve(7, 41, true);
 $assert(
     $forUpdateSeen
-        && $resolved === ['productIblockId' => 7, 'propertyId' => 91, 'multiple' => false],
+        && $presetIblockSeen === 41
+        && $resolved === ['productIblockId' => 7, 'presetIblockId' => 41, 'propertyId' => 91],
     'The exact property row must be pinned under the requested transaction lock.'
 );
 
-foreach ([
-    [],
-    [[
+$exactRow = [
+    'ID' => 91,
+    'IBLOCK_ID' => 7,
+    'CODE' => 'CALC_PRESET',
+    'ACTIVE' => 'Y',
+    'PROPERTY_TYPE' => 'E',
+    'MULTIPLE' => 'N',
+    'LINK_IBLOCK_ID' => 41,
+];
+$invalidAuthorities = [
+    'missing' => [],
+    'case collision' => [[
         'ID' => 92,
         'IBLOCK_ID' => 7,
         'CODE' => 'calc_preset',
+        'ACTIVE' => 'Y',
+        'PROPERTY_TYPE' => 'E',
         'MULTIPLE' => 'N',
+        'LINK_IBLOCK_ID' => 41,
     ]],
-    [
-        ['ID' => 91, 'IBLOCK_ID' => 7, 'CODE' => 'CALC_PRESET', 'MULTIPLE' => 'N'],
-        ['ID' => 92, 'IBLOCK_ID' => 7, 'CODE' => 'calc_preset', 'MULTIPLE' => 'N'],
+    'duplicate' => [
+        $exactRow,
+        array_replace($exactRow, ['ID' => 92]),
     ],
-] as $rows) {
+    'inactive' => [array_replace($exactRow, ['ACTIVE' => 'N'])],
+    'wrong type' => [array_replace($exactRow, ['PROPERTY_TYPE' => 'S'])],
+    'multiple' => [array_replace($exactRow, ['MULTIPLE' => 'Y'])],
+    'wrong link' => [array_replace($exactRow, ['LINK_IBLOCK_ID' => 42])],
+];
+foreach ($invalidAuthorities as $label => $rows) {
     $rejected = false;
     try {
         (new PresetProductAssignmentPropertyAuthorityService([
             'read_rows' => static fn(): array => $rows,
-        ]))->resolve(7, true);
+        ]))->resolve(7, 41, true);
     } catch (RuntimeException $error) {
         $rejected = $error->getCode() === 409;
     }
-    $assert($rejected, 'Missing, case-colliding or duplicate CALC_PRESET rows must fail closed.');
+    $assert($rejected, 'Invalid CALC_PRESET authority must fail closed: ' . $label);
 }
 
 $domainMutationCalls = 0;
@@ -97,13 +124,30 @@ foreach (['PROPERTY_CALC_PRESET', "['CODE' => 'CALC_PRESET']", "['CALC_PRESET' =
 $authoritySource = (string)file_get_contents(
     dirname(__DIR__) . '/lib/Services/PresetProductAssignmentPropertyAuthorityService.php'
 );
+$editorsSource = (string)file_get_contents(
+    dirname(__DIR__) . '/lib/Services/ControlCenterEditorsService.php'
+);
+$endpointSource = (string)file_get_contents(
+    dirname(__DIR__) . '/tools/control_center_editors.php'
+);
 $assert(
     str_contains($authoritySource, 'FROM b_iblock_property')
         && str_contains($authoritySource, "AND CODE='")
         && str_contains($authoritySource, "' FOR UPDATE'")
         && str_contains($authoritySource, 'count($rows) !== 1')
-        && str_contains($authoritySource, '$code !== self::PROPERTY_CODE'),
-    'Property authority must enumerate collation-equivalent rows, lock them and require one binary-exact code.'
+        && str_contains($authoritySource, '$code !== self::PROPERTY_CODE')
+        && str_contains($authoritySource, "!== 'Y'")
+        && str_contains($authoritySource, "!== 'E'")
+        && str_contains($authoritySource, "!== 'N'")
+        && str_contains($authoritySource, '!== $presetIblockId'),
+    'Property authority must lock collation-equivalent rows and require the exact active single element link.'
+);
+$assert(
+    str_contains($endpointSource, "lockedIblockIds['CALC_PRESETS']")
+        && str_contains($editorsSource, "lockedIblockIds['CALC_PRESETS']")
+        && !str_contains($editorsSource, "['multiple']")
+        && !str_contains($editorsSource, "? \$mutation['next']"),
+    'Storefront and assignment mutations must consume the coordinator-pinned preset iblock and scalar property contract.'
 );
 
 echo "Preset product assignment property authority tests passed\n";

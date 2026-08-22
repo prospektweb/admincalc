@@ -300,7 +300,8 @@ class BatchRecalculateService
             return [];
         }
         $propertyAuthority = (new PresetProductAssignmentPropertyAuthorityService())->resolve(
-            $productIblockId
+            $productIblockId,
+            $this->configManager->getIblockId('CALC_PRESETS')
         );
         $propertyId = (int)$propertyAuthority['propertyId'];
 

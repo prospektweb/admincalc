@@ -58,8 +58,10 @@ final class PresetSectionSelectorService
             return $rows;
         };
         $this->productLoader = $adapters['products'] ?? static function (int $presetId, int $productIblockId): array {
+            $presetIblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
             $propertyAuthority = (new PresetProductAssignmentPropertyAuthorityService())->resolve(
-                $productIblockId
+                $productIblockId,
+                $presetIblockId
             );
             $propertyId = (int)$propertyAuthority['propertyId'];
             $rows = [];

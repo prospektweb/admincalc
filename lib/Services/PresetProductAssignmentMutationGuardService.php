@@ -176,7 +176,10 @@ final class PresetProductAssignmentMutationGuardService
         if (isset($this->adapters['property_id'])) {
             $propertyId = (int)call_user_func($this->adapters['property_id'], $iblockId);
         } else {
-            $authority = (new PresetProductAssignmentPropertyAuthorityService())->resolve($iblockId);
+            $authority = (new PresetProductAssignmentPropertyAuthorityService())->resolve(
+                $iblockId,
+                (int)(new ConfigManager())->getIblockId('CALC_PRESETS')
+            );
             $propertyId = (int)$authority['propertyId'];
         }
         if ($propertyId <= 0) {

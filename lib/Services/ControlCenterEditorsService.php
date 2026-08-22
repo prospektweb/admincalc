@@ -425,9 +425,13 @@ final class ControlCenterEditorsService
                 ];
             };
         $this->presetProductPropertyAuthority = $presetProductPropertyAuthority
-            ?? static function (int $productIblockId, bool $forUpdate): array {
+            ?? static function (int $productIblockId, bool $forUpdate, int $presetIblockId = 0): array {
+                if ($presetIblockId <= 0) {
+                    $presetIblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
+                }
                 return (new PresetProductAssignmentPropertyAuthorityService())->resolve(
                     $productIblockId,
+                    $presetIblockId,
                     $forUpdate
                 );
             };
@@ -637,10 +641,9 @@ final class ControlCenterEditorsService
                         'entity_type' => 'preset_products',
                         'entity_id' => (string)$presetId,
                         'expected_revision' => $expectedRevision,
-                        'expected_impact_fingerprint' => $expectedImpactFingerprint,
                         'product_ids' => $normalizedProductIds,
                     ],
-                    function () use (
+                    function (?CalculatorMutationAuthorityService $calculatorAuthority = null) use (
                         $presetId,
                         $normalizedProductIds,
                         $expectedRevision,
@@ -648,8 +651,15 @@ final class ControlCenterEditorsService
                         $productIblockId,
                         &$propertyAuthority
                     ): array {
+                        $lockedIblockIds = $calculatorAuthority instanceof CalculatorMutationAuthorityService
+                            ? $calculatorAuthority->lockedIblockIds()
+                            : [];
                         $propertyAuthority = $propertyAuthority
-                            ?? $this->resolvePresetProductPropertyAuthority($productIblockId, true);
+                            ?? $this->resolvePresetProductPropertyAuthority(
+                                $productIblockId,
+                                true,
+                                (int)($lockedIblockIds['CALC_PRESETS'] ?? 0)
+                            );
                         // The impact proof is consumed only while both the product-assignment
                         // lock and the preset mutation coordinator are held. This prevents a
                         // storefront changed after preview from being silently detached.
@@ -692,9 +702,20 @@ final class ControlCenterEditorsService
                             50
                         );
                     },
-                    function () use ($presetId, $productIblockId, &$propertyAuthority): array {
+                    function (?CalculatorMutationAuthorityService $calculatorAuthority = null) use (
+                        $presetId,
+                        $productIblockId,
+                        &$propertyAuthority
+                    ): array {
+                        $lockedIblockIds = $calculatorAuthority instanceof CalculatorMutationAuthorityService
+                            ? $calculatorAuthority->lockedIblockIds()
+                            : [];
                         $propertyAuthority = $propertyAuthority
-                            ?? $this->resolvePresetProductPropertyAuthority($productIblockId, true);
+                            ?? $this->resolvePresetProductPropertyAuthority(
+                                $productIblockId,
+                                true,
+                                (int)($lockedIblockIds['CALC_PRESETS'] ?? 0)
+                            );
                         return $this->getPresetProductCatalog(
                             $presetId,
                             '',
@@ -946,7 +967,8 @@ final class ControlCenterEditorsService
     public function assertStorefrontProductsBelongToPreset(
         int $presetId,
         array $productIds,
-        int $lockedProductIblockId = 0
+        int $lockedProductIblockId = 0,
+        int $lockedPresetIblockId = 0
     ): void
     {
         if ($presetId <= 0) {
@@ -977,7 +999,8 @@ final class ControlCenterEditorsService
             : $this->resolveProductIblockId();
         $propertyAuthority = $this->resolvePresetProductPropertyAuthority(
             $productIblockId,
-            $lockedProductIblockId > 0
+            $lockedProductIblockId > 0,
+            $lockedPresetIblockId
         );
         $assignments = call_user_func(
             $this->storefrontProductAssignmentLoader,
@@ -1008,8 +1031,8 @@ final class ControlCenterEditorsService
     }
 
     /**
-     * A product launch has one unambiguous calculator preset. MULTIPLE metadata
-     * on the legacy Bitrix property does not relax this domain invariant.
+     * A product launch has one unambiguous calculator preset. The managed
+     * CALC_PRESET property is an exact single-valued element link.
      *
      * @param int[] $requestedProductIds
      * @param array<int,int[]> $currentAssignments
@@ -1853,7 +1876,6 @@ final class ControlCenterEditorsService
 
         $affectedProductIds = array_values(array_unique(array_merge($currentProductIds, $productIds)));
         sort($affectedProductIds, SORT_NUMERIC);
-        $multiple = $authority['multiple'];
         $currentAssignments = [];
         foreach ($affectedProductIds as $productId) {
             $currentAssignments[$productId] = $this->loadProductPresetIds(
@@ -1890,13 +1912,12 @@ final class ControlCenterEditorsService
                     $productId,
                     $productIblockId,
                     $propertyId,
-                    $multiple,
                     $mutation
                 ): void {
                     \CIBlockElement::SetPropertyValuesEx(
                         (int)$productId,
                         $productIblockId,
-                        [$propertyId => $multiple ? $mutation['next'] : ($mutation['next'][0] ?? false)]
+                        [$propertyId => ($mutation['next'][0] ?? false)]
                     );
                 });
                 $readback = $this->loadProductPresetIds(
@@ -1939,13 +1960,12 @@ final class ControlCenterEditorsService
                     $productId,
                     $productIblockId,
                     $propertyId,
-                    $multiple,
                     $original
                 ): void {
                     \CIBlockElement::SetPropertyValuesEx(
                         $productId,
                         $productIblockId,
-                        [$propertyId => $multiple ? $original : ($original[0] ?? false)]
+                        [$propertyId => ($original[0] ?? false)]
                     );
                 });
             }
@@ -2058,31 +2078,56 @@ final class ControlCenterEditorsService
         return $productIblockId;
     }
 
-    /** @return array{productIblockId:int,propertyId:int,multiple:bool} */
-    private function resolvePresetProductPropertyAuthority(int $productIblockId, bool $forUpdate): array
+    /** @return array{productIblockId:int,presetIblockId:int,propertyId:int} */
+    private function resolvePresetProductPropertyAuthority(
+        int $productIblockId,
+        bool $forUpdate,
+        int $presetIblockId = 0
+    ): array
     {
-        $raw = call_user_func($this->presetProductPropertyAuthority, $productIblockId, $forUpdate);
+        $raw = call_user_func(
+            $this->presetProductPropertyAuthority,
+            $productIblockId,
+            $forUpdate,
+            $presetIblockId
+        );
         if (!is_array($raw)) {
             throw new \RuntimeException('CALC_PRESET property authority is invalid.', 409);
         }
-        return $this->normalizePresetProductPropertyAuthority($raw, $productIblockId);
+        if ($presetIblockId <= 0) {
+            $presetIblockId = (int)($raw['presetIblockId'] ?? 0);
+        }
+        return $this->normalizePresetProductPropertyAuthority(
+            $raw,
+            $productIblockId,
+            $presetIblockId
+        );
     }
 
     /**
      * @param array<string,mixed> $raw
-     * @return array{productIblockId:int,propertyId:int,multiple:bool}
+     * @return array{productIblockId:int,presetIblockId:int,propertyId:int}
      */
-    private function normalizePresetProductPropertyAuthority(array $raw, int $productIblockId): array
+    private function normalizePresetProductPropertyAuthority(
+        array $raw,
+        int $productIblockId,
+        int $presetIblockId = 0
+    ): array
     {
+        if ($presetIblockId <= 0) {
+            $presetIblockId = (int)($raw['presetIblockId'] ?? 0);
+        }
         if ((int)($raw['productIblockId'] ?? 0) !== $productIblockId
+            || (int)($raw['presetIblockId'] ?? 0) !== $presetIblockId
+            || $presetIblockId <= 0
             || (int)($raw['propertyId'] ?? 0) <= 0
-            || !is_bool($raw['multiple'] ?? null)) {
+        ) {
             throw new \RuntimeException('CALC_PRESET property authority is invalid.', 409);
         }
         return [
             'productIblockId' => $productIblockId,
+            'presetIblockId' => $presetIblockId,
             'propertyId' => (int)$raw['propertyId'],
-            'multiple' => $raw['multiple'],
         ];
     }
 

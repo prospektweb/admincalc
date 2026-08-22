@@ -197,10 +197,10 @@ $presetLoader = static function (int $presetId): array {
     ];
 };
 
-$exactPropertyAuthority = static fn(int $productIblockId, bool $forUpdate): array => [
+$exactPropertyAuthority = static fn(int $productIblockId, bool $forUpdate, int $presetIblockId = 0): array => [
     'productIblockId' => $productIblockId,
+    'presetIblockId' => $presetIblockId > 0 ? $presetIblockId : 41,
     'propertyId' => 91,
-    'multiple' => false,
 ];
 $service = new ControlCenterEditorsService(
     $presetLoader,

@@ -658,7 +658,11 @@ class InitPayloadService
         }
 
         $calcPresetPropertyId = (int)(new PresetProductAssignmentPropertyAuthorityService())
-            ->resolve($productIblockId, $this->pinnedRuntimeIblockIds !== null)['propertyId'];
+            ->resolve(
+                $productIblockId,
+                $this->runtimeIblockId('CALC_PRESETS'),
+                $this->pinnedRuntimeIblockIds !== null
+            )['propertyId'];
 
         foreach ($productIds as $productId) {
             $presetIds = [];
@@ -1401,7 +1405,11 @@ class InitPayloadService
         
         if ($product = $rsProduct->Fetch()) {
             $calcPresetPropertyId = (int)(new PresetProductAssignmentPropertyAuthorityService())
-                ->resolve($productIblockId, $this->pinnedRuntimeIblockIds !== null)['propertyId'];
+                ->resolve(
+                    $productIblockId,
+                    $this->runtimeIblockId('CALC_PRESETS'),
+                    $this->pinnedRuntimeIblockIds !== null
+                )['propertyId'];
             $presetIds = [];
             $properties = \CIBlockElement::GetProperty(
                 $productIblockId,

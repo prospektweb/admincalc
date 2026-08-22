@@ -81,6 +81,7 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_ad
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Services\CalculatorInputMappingService;
 use Prospektweb\Calc\Services\CalculatorInputSourceCatalogService;
+use Prospektweb\Calc\Services\CalculatorMutationAuthorityService;
 use Prospektweb\Calc\Services\CatalogOutputMappingService;
 use Prospektweb\Calc\Services\ControlCenterEditorsService;
 use Prospektweb\Calc\Services\PresetSectionSelectorService;
@@ -552,7 +553,7 @@ try {
                         'expected_revision' => $expectedRevision,
                         'product_ids' => $productIds,
                     ],
-                    static function () use (
+                    static function (?CalculatorMutationAuthorityService $calculatorAuthority = null) use (
                         $service,
                         $presetId,
                         $productIds,
@@ -561,10 +562,14 @@ try {
                         $validateStorefrontPresentation,
                         $repository
                     ): array {
+                        $lockedIblockIds = $calculatorAuthority instanceof CalculatorMutationAuthorityService
+                            ? $calculatorAuthority->lockedIblockIds()
+                            : [];
                         $service->assertStorefrontProductsBelongToPreset(
                             $presetId,
                             $productIds,
-                            $lockedProductIblockId
+                            $lockedProductIblockId,
+                            (int)($lockedIblockIds['CALC_PRESETS'] ?? 0)
                         );
                         $validateStorefrontPresentation($presetId, $definition);
                         $saved = $repository->save($definition);

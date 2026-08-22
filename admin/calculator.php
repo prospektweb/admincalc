@@ -171,8 +171,9 @@ if ($isValidLaunch && $validatedProductIds !== []) {
 
 if ($isValidLaunch && $controlCenterMode && !$isStandalonePresetLaunch) {
     try {
+        $presetIblockId = (int)$configManager->getIblockId('CALC_PRESETS');
         $calcPresetPropertyId = (int)(new PresetProductAssignmentPropertyAuthorityService())
-            ->resolve($productIblockId)['propertyId'];
+            ->resolve($productIblockId, $presetIblockId)['propertyId'];
     } catch (\Throwable $error) {
         $calcPresetPropertyId = 0;
         $isValidLaunch = false;

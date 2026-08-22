@@ -100,7 +100,8 @@ final class CatalogTreeService
             return [];
         }
         $propertyAuthority = (new PresetProductAssignmentPropertyAuthorityService())->resolve(
-            $productIblockId
+            $productIblockId,
+            (int)$config->getIblockId('CALC_PRESETS')
         );
         $propertyId = (int)$propertyAuthority['propertyId'];
 

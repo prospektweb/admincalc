@@ -24,15 +24,23 @@ final class PresetProductAssignmentPropertyAuthorityService
         $this->adapters = $adapters;
     }
 
-    /** @return array{productIblockId:int,propertyId:int,multiple:bool} */
-    public function resolve(int $productIblockId, bool $forUpdate = false): array
+    /** @return array{productIblockId:int,presetIblockId:int,propertyId:int} */
+    public function resolve(int $productIblockId, int $presetIblockId, bool $forUpdate = false): array
     {
         if ($productIblockId <= 0 || $productIblockId > 9007199254740991) {
             throw new \InvalidArgumentException('Product iblock ID must be a safe positive integer.', 422);
         }
+        if ($presetIblockId <= 0 || $presetIblockId > 9007199254740991) {
+            throw new \InvalidArgumentException('Preset iblock ID must be a safe positive integer.', 422);
+        }
 
         if (isset($this->adapters['read_rows'])) {
-            $rows = call_user_func($this->adapters['read_rows'], $productIblockId, $forUpdate);
+            $rows = call_user_func(
+                $this->adapters['read_rows'],
+                $productIblockId,
+                $presetIblockId,
+                $forUpdate
+            );
             if (!is_array($rows) || !array_is_list($rows)) {
                 throw new \RuntimeException('CALC_PRESET property authority readback is invalid.', 409);
             }
@@ -43,7 +51,8 @@ final class PresetProductAssignmentPropertyAuthorityService
             $connection = Application::getConnection();
             $helper = $connection->getSqlHelper();
             $cursor = $connection->query(
-                'SELECT ID, IBLOCK_ID, CODE, MULTIPLE FROM b_iblock_property'
+                'SELECT ID, IBLOCK_ID, CODE, ACTIVE, PROPERTY_TYPE, MULTIPLE, LINK_IBLOCK_ID'
+                . ' FROM b_iblock_property'
                 . ' WHERE IBLOCK_ID=' . $productIblockId
                 . " AND CODE='" . $helper->forSql(self::PROPERTY_CODE) . "'"
                 . ' ORDER BY ID'
@@ -68,18 +77,20 @@ final class PresetProductAssignmentPropertyAuthorityService
         $propertyId = (int)($row['ID'] ?? $row['id'] ?? 0);
         $iblockId = (int)($row['IBLOCK_ID'] ?? $row['iblock_id'] ?? 0);
         $code = (string)($row['CODE'] ?? $row['code'] ?? '');
-        $multiple = (string)($row['MULTIPLE'] ?? $row['multiple'] ?? '');
         if ($propertyId <= 0
             || $iblockId !== $productIblockId
             || $code !== self::PROPERTY_CODE
-            || !in_array($multiple, ['Y', 'N'], true)) {
+            || (string)($row['ACTIVE'] ?? $row['active'] ?? '') !== 'Y'
+            || (string)($row['PROPERTY_TYPE'] ?? $row['property_type'] ?? '') !== 'E'
+            || (string)($row['MULTIPLE'] ?? $row['multiple'] ?? '') !== 'N'
+            || (int)($row['LINK_IBLOCK_ID'] ?? $row['link_iblock_id'] ?? 0) !== $presetIblockId) {
             throw new \RuntimeException('CALC_PRESET property authority does not match the exact target.', 409);
         }
 
         return [
             'productIblockId' => $productIblockId,
+            'presetIblockId' => $presetIblockId,
             'propertyId' => $propertyId,
-            'multiple' => $multiple === 'Y',
         ];
     }
 }

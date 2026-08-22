@@ -240,8 +240,9 @@ class AdminHandler
             return;
         }
         try {
+            $presetIblockId = (int)$config->getIblockId('CALC_PRESETS');
             $propertyAuthority = (new \Prospektweb\Calc\Services\PresetProductAssignmentPropertyAuthorityService())
-                ->resolve($iblockId);
+                ->resolve($iblockId, $presetIblockId);
             $propertyId = (int)$propertyAuthority['propertyId'];
         } catch (\Throwable $error) {
             // The persistent server guard fails closed. Never guess a property

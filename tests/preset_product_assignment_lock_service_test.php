@@ -7,6 +7,7 @@ require_once dirname(__DIR__) . '/lib/Services/PresetMutationCoordinatorService.
 require_once dirname(__DIR__) . '/lib/Services/ControlCenterEditorsService.php';
 
 use Prospektweb\Calc\Services\ControlCenterEditorsService;
+use Prospektweb\Calc\Services\PresetMutationCoordinatorService;
 use Prospektweb\Calc\Services\PresetProductAssignmentLockService;
 
 $assert = static function (bool $condition, string $message): void {
@@ -56,6 +57,23 @@ $mutation = static function (
     $events[] = 'preset-products-mutation';
     return $catalogProvider($presetId, '', 1, 50);
 };
+$coordinatorRevision = 0;
+$coordinatorAudits = [];
+$realCoordinator = new PresetMutationCoordinatorService([
+    'actor_id' => static fn(): int => 42,
+    'audit' => static function (array $audit) use (&$coordinatorAudits): int {
+        $coordinatorAudits[] = $audit;
+        return count($coordinatorAudits);
+    },
+    'with_locked_revision' => static function (
+        int $presetId,
+        callable $criticalSection
+    ) use (&$coordinatorRevision) {
+        $envelope = $criticalSection($coordinatorRevision);
+        $coordinatorRevision = (int)$envelope['next_revision'];
+        return $envelope;
+    },
+]);
 
 $service = new ControlCenterEditorsService(
     presetLoader: static fn(int $presetId): array => ['preset' => ['id' => $presetId]],
@@ -70,20 +88,17 @@ $service = new ControlCenterEditorsService(
         array $metadata,
         callable $mutation,
         callable $authoritativeReadback
-    ) {
-        $authoritativeReadback();
-        $result = $mutation();
-        $authoritativeReadback();
-        return $result;
+    ) use ($realCoordinator) {
+        return $realCoordinator->mutate($presetId, $metadata, $mutation, $authoritativeReadback);
     },
     storefrontProductReadbackLoader: static fn(int $presetId): array => [
         'preset_id' => $presetId,
         'items' => [],
     ],
-    presetProductPropertyAuthority: static fn(int $productIblockId, bool $forUpdate): array => [
+    presetProductPropertyAuthority: static fn(int $productIblockId, bool $forUpdate, int $presetIblockId = 0): array => [
         'productIblockId' => $productIblockId,
+        'presetIblockId' => $presetIblockId > 0 ? $presetIblockId : 41,
         'propertyId' => 91,
-        'multiple' => false,
     ]
 );
 
@@ -93,6 +108,12 @@ $service->setPresetProducts(
     [11],
     str_repeat('a', 64),
     (string)$initialImpact['impactFingerprint']
+);
+$assert(
+    $coordinatorRevision === 1
+        && count($coordinatorAudits) === 1
+        && ($coordinatorAudits[0]['action'] ?? '') === 'set_preset_products',
+    'preset-product impact CAS must pass through the real strict coordinator metadata boundary'
 );
 $interleavingBlocked = false;
 $storefrontResult = $service->withPresetProductAssignmentLock(
