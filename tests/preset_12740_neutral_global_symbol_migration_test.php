@@ -995,6 +995,23 @@ $assert(
 );
 $historicalEvidence = $historicalEvidenceMethod->invoke(null, json_encode($marker), $backupRaw);
 $assert(is_array($historicalEvidence) && is_array($historicalEvidence['targetState'] ?? null), 'historical evidence independently reconstructs the reviewed migration target');
+$heightTarget = $next;
+foreach ($heightTarget['rows'] as &$heightTargetRow) {
+    if (($heightTargetRow['code'] ?? '') === 'value_format_text') {
+        $heightTargetRow['initialValue'] = 'toString(get(input, "values.format.width")) + "×" + toString(get(input, "values.format.height")) + " мм"';
+    }
+}
+unset($heightTargetRow);
+$heightMarker = $marker;
+$heightMarker['afterFingerprint'] = $fingerprintMethod->invoke(null, $heightTarget);
+$heightEvidence = $historicalEvidenceMethod->invoke(null, json_encode($heightMarker), $backupRaw);
+$assert(
+    is_array($heightEvidence)
+        && ($heightEvidence['targetState']['rows'][array_search(12979, array_column($heightEvidence['targetState']['rows'], 'id'), true)]['initialValue'] ?? '')
+            === 'toString(get(input, "values.format.width")) + "×" + toString(get(input, "values.format.height")) + " мм"',
+    'immutable v2 evidence remains valid after the safe height-to-length authoring rename'
+);
+$currentNeutralMethod->invoke(null, $next, $heightEvidence['targetState']);
 $retainedBackup = $retainedBackupMethod->invoke(null, $legacyState, $backupRaw);
 $retainedAudit = $auditedPlanMethod->invoke(
     new Preset12740NeutralGlobalSymbolMigrationService(),

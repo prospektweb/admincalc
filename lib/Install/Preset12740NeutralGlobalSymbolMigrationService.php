@@ -24,6 +24,16 @@ final class Preset12740NeutralGlobalSymbolMigrationService
     public const EXPECTED_MUTATION_COUNT = 24;
     public const EXPECTED_PROSPECTIVE_RUNTIME_ROW_COUNT = 37;
 
+    /**
+     * The immutable v2 evidence was produced before the public form dimension
+     * was renamed from height to length. Keep that exact historical target
+     * available only for evidence verification; current authoring continues
+     * to use the canonical length formula from SYMBOLS.
+     */
+    private const HISTORICAL_V2_VALUE_FORMAT_TEXT =
+        'toString(get(input, "values.format.width")) + "×" + '
+        . 'toString(get(input, "values.format.height")) + " мм"';
+
     private const MODULE_ID = 'prospektweb.calc';
     private const CONFIG_OPTION = 'IBLOCK_CALC_GLOBAL_VALUES';
     private const ACTIVE_OPTION = Preset12740NeutralInputMigrationService::ACTIVE_OPTION;
@@ -1400,6 +1410,12 @@ final class Preset12740NeutralGlobalSymbolMigrationService
         $backupPlan = is_array($backup) && is_array($backup['state'] ?? null)
             ? self::buildPlan($backup['state'])
             : null;
+        $targetState = is_array($backupPlan)
+            ? self::resolveHistoricalEvidenceTarget(
+                $backupPlan,
+                (string)($marker['afterFingerprint'] ?? '')
+            )
+            : null;
         if (!is_array($marker)
             || !is_array($backup)
             || !is_array($backupPlan)
@@ -1416,14 +1432,57 @@ final class Preset12740NeutralGlobalSymbolMigrationService
             || count((array)($backupPlan['mutations'] ?? [])) !== self::EXPECTED_MUTATION_COUNT
             || !is_array($backupPlan['_nextState'] ?? null)
             || (string)($backupPlan['fingerprint'] ?? '') !== (string)($marker['beforeFingerprint'] ?? '')
-            || (string)($backupPlan['nextFingerprint'] ?? '') !== (string)($marker['afterFingerprint'] ?? '')) {
+            || !is_array($targetState)) {
             throw new \RuntimeException('Global-symbol migration evidence is incomplete or corrupted.', 409);
         }
         return [
             'marker' => $marker,
             'backup' => $backup,
-            'targetState' => $backupPlan['_nextState'],
+            'targetState' => $targetState,
         ];
+    }
+
+    /**
+     * Resolve only known deterministic targets for the immutable v2 marker.
+     * This keeps historical evidence valid when a later safe authoring change
+     * updates a formula without weakening any authority, backup or fingerprint
+     * check.
+     *
+     * @param array<string,mixed> $backupPlan
+     * @return array<string,mixed>|null
+     */
+    private static function resolveHistoricalEvidenceTarget(
+        array $backupPlan,
+        string $expectedAfterFingerprint
+    ): ?array {
+        $currentTarget = $backupPlan['_nextState'] ?? null;
+        if (!is_array($currentTarget)) {
+            return null;
+        }
+        if (hash_equals($expectedAfterFingerprint, self::fingerprint($currentTarget))) {
+            return $currentTarget;
+        }
+
+        $historicalTarget = $currentTarget;
+        $replaced = false;
+        foreach ((array)($historicalTarget['rows'] ?? []) as $index => $row) {
+            if (!is_array($row)
+                || (int)($row['id'] ?? 0) !== 12979
+                || (string)($row['code'] ?? '') !== 'value_format_text') {
+                continue;
+            }
+            if ((string)($row['initialValue'] ?? '') !== self::SYMBOLS['value_format_text']['neutral']) {
+                return null;
+            }
+            $historicalTarget['rows'][$index]['initialValue'] = self::HISTORICAL_V2_VALUE_FORMAT_TEXT;
+            $replaced = true;
+            break;
+        }
+
+        return $replaced
+            && hash_equals($expectedAfterFingerprint, self::fingerprint($historicalTarget))
+            ? $historicalTarget
+            : null;
     }
 
     /**
