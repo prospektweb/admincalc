@@ -896,13 +896,6 @@ switch ($currentStep) {
                 'WITH_DESCRIPTION' => 'Y',
                 'SORT' => 170,
             ],
-            'GLOBAL_ASSIGNMENTS' => [
-                'NAME' => 'Определения глобальных значений этапа',
-                'TYPE' => 'S',
-                'USER_TYPE' => 'HTML',
-                'SORT' => 180,
-                'HINT' => 'JSON назначений глобальных переменных и однократных определений констант',
-            ],
             'ACTIVATION_CONDITION' => [
                 'NAME' => 'Условие активации опционального этапа',
                 'TYPE' => 'S',
@@ -979,19 +972,25 @@ switch ($currentStep) {
                 'SORT' => 700,
             ],
             'OPTIONS_OPERATION' => [
-                'NAME' => 'Настройки выбора варианта операции',
+                'NAME' => 'Сопоставление варианта операции по входам формы',
                 'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
                 'SORT' => 800,
+                'HINT' => 'prospektweb.calc.stage-variant-mapping/v1; только ID полей и вариантов формы',
             ],
             'OPTIONS_MATERIAL' => [
-                'NAME' => 'Настройки выбора варианта материала',
+                'NAME' => 'Сопоставление варианта материала по входам формы',
                 'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
                 'SORT' => 810,
+                'HINT' => 'prospektweb.calc.stage-variant-mapping/v1; только ID полей и вариантов формы',
             ],
             'OPTIONS_EQUIPMENT' => [
-                'NAME' => 'Настройки выбора оборудования',
+                'NAME' => 'Сопоставление оборудования по входам формы',
                 'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
                 'SORT' => 820,
+                'HINT' => 'prospektweb.calc.stage-variant-mapping/v1; только ID полей и вариантов формы',
             ],
         ];
         
@@ -1294,14 +1293,10 @@ switch ($currentStep) {
         $installData['iblock_ids']['CALC_OPERATIONS_VARIANTS'] = createIblockWithLog('calculator_catalog', 'CALC_OPERATIONS_VARIANTS', 'Варианты операций', $operationsVariantsProps);
         $installData['iblock_ids']['CALC_EQUIPMENT'] = createIblockWithLog('calculator_catalog', 'CALC_EQUIPMENT', 'Оборудование', $equipmentProps);
         $installData['iblock_ids']['CALC_CUSTOM_FIELDS'] = createIblockWithLog(
-            'calculator', 
-            'CALC_CUSTOM_FIELDS', 
-            'Дополнительные поля', 
-            $customFieldsProps,
-            [
-                'EDIT_FILE_AFTER' => '/bitrix/admin/prospektweb_calc_custom_field.php',
-                'SORT' => 900,
-            ]
+            'calculator',
+            'CALC_CUSTOM_FIELDS',
+            'Дополнительные поля',
+            $customFieldsProps
         );
         $installData['iblock_ids']['CALC_DETAILS'] = createIblockWithLog('calculator_catalog', 'CALC_DETAILS', 'Детали', $detailsProps);
 
@@ -1407,6 +1402,27 @@ switch ($currentStep) {
                         'IS_REQUIRED' => 'N',
                     ]);
                     installLog("  → Обновлено свойство MATERIAL_VARIANT", 'success');
+                }
+            }
+
+            // OPTIONS_* остаются внутренними слотами хранения, но их значение
+            // теперь является только каноническим stage-variant-mapping/v1.
+            foreach ([
+                'OPTIONS_OPERATION' => 'Сопоставление варианта операции по входам формы',
+                'OPTIONS_MATERIAL' => 'Сопоставление варианта материала по входам формы',
+                'OPTIONS_EQUIPMENT' => 'Сопоставление оборудования по входам формы',
+            ] as $mappingPropertyCode => $mappingPropertyName) {
+                $rsProperty = \CIBlockProperty::GetList([], [
+                    'IBLOCK_ID' => $stagesIblockId,
+                    'CODE' => $mappingPropertyCode,
+                ]);
+                if ($arProperty = $rsProperty->Fetch()) {
+                    $ibp->Update((int)$arProperty['ID'], [
+                        'NAME' => $mappingPropertyName,
+                        'USER_TYPE' => 'HTML',
+                        'HINT' => 'prospektweb.calc.stage-variant-mapping/v1; только ID полей и вариантов формы',
+                    ]);
+                    installLog("  → Обновлено хранилище {$mappingPropertyCode}", 'success');
                 }
             }
 

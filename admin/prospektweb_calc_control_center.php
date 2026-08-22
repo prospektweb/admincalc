@@ -334,7 +334,7 @@ body {
         }
         if (!(targetUrl instanceof URL)
             || targetUrl.origin !== window.location.origin
-            || ['/bitrix/admin/prospektweb_calc_calculator.php', '/bitrix/admin/prospektweb_frontcalc_editor.php'].indexOf(targetUrl.pathname) === -1) {
+            || targetUrl.pathname !== '/bitrix/admin/prospektweb_calc_calculator.php') {
             throw new Error('Недопустимый адрес редактора');
         }
 
@@ -449,38 +449,6 @@ body {
         });
     }
 
-    function launchStorefrontEditor(payload) {
-        if (launchPending || activeEditor) {
-            return;
-        }
-        if (!hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'productId'])) {
-            return;
-        }
-        var productId = Number.isSafeInteger(payload.productId) ? payload.productId : 0;
-        if (productId <= 0) {
-            return;
-        }
-
-        launchPending = true;
-        postEditorAction('validate_storefront_launch', {productId: productId}).then(function (data) {
-            if (data.productId !== productId
-                || !Number.isSafeInteger(data.productIblockId)
-                || data.productIblockId <= 0) {
-                throw new Error('Сервер вернул некорректный товар');
-            }
-            var targetUrl = new URL('/bitrix/admin/prospektweb_frontcalc_editor.php', window.location.origin);
-            targetUrl.searchParams.set('IBLOCK_ID', String(data.productIblockId));
-            targetUrl.searchParams.set('ID', String(data.productId));
-            targetUrl.searchParams.set('control_center', 'Y');
-            targetUrl.searchParams.set('lang', <?= json_encode($languageId) ?>);
-            targetUrl.searchParams.set('IFRAME', 'Y');
-            targetUrl.searchParams.set('IFRAME_TYPE', 'SIDE_SLIDER');
-            openOwnedEditor('storefront', targetUrl);
-        }).catch(reportEditorError).finally(function () {
-            launchPending = false;
-        });
-    }
-
     function resizeControlCenter() {
         if (!container) {
             return;
@@ -544,14 +512,6 @@ body {
                 return;
             }
             launchCalculationEditor(message.payload);
-            return;
-        }
-
-        if (message.type === 'OPEN_STOREFRONT_EDITOR') {
-            if (!message.payload || message.payload.controlCenterInstanceId !== controlCenterInstanceId) {
-                return;
-            }
-            launchStorefrontEditor(message.payload);
             return;
         }
 

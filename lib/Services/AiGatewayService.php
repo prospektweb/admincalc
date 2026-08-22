@@ -99,12 +99,18 @@ final class AiGatewayService
     {
         $this->assertAdmin();
         $apiKey = trim((string)Option::get(self::MODULE_ID, self::KEY_OPTION, ''));
-        $models = [];
-        $modelsError = '';
-        if ($apiKey !== '') {
-            try { $models = $this->getModels(false); } catch (\Throwable $error) { $modelsError = $error->getMessage(); }
-        }
-        return ['status' => 'ok', 'hasApiKey' => $apiKey !== '', 'templates' => $this->getTemplates(), 'models' => $models, 'modelsError' => $modelsError];
+        $cached = json_decode((string)Option::get(self::MODULE_ID, self::MODELS_CACHE_OPTION, ''), true);
+        $models = is_array($cached) && is_array($cached['models'] ?? null)
+            ? array_values($cached['models'])
+            : [];
+        return [
+            'status' => 'ok',
+            'hasApiKey' => $apiKey !== '',
+            'templates' => $this->getTemplates(),
+            'models' => $models,
+            'modelsError' => '',
+            'modelsCacheStale' => !is_array($cached) || (int)($cached['expiresAt'] ?? 0) <= time(),
+        ];
     }
 
     public function saveSettings(array $request): array
@@ -113,18 +119,40 @@ final class AiGatewayService
         $apiKey = trim((string)($request['apiKey'] ?? ''));
         if ($apiKey !== '') {
             Option::set(self::MODULE_ID, self::KEY_OPTION, $apiKey);
-            Option::delete(self::MODULE_ID, ['name' => self::MODELS_CACHE_OPTION]);
         }
         $templates = $this->sanitizeTemplates(is_array($request['templates'] ?? null) ? $request['templates'] : []);
-        $models = [];
-        $modelsError = '';
-        try { $models = $this->getModels(true); } catch (\Throwable $error) { $modelsError = $error->getMessage(); }
         foreach ($templates as &$template) {
             if ($template['model'] === '') $template['model'] = self::DEFAULT_MODEL;
         }
         unset($template);
-        Option::set(self::MODULE_ID, self::TEMPLATES_OPTION, json_encode($templates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        return ['status' => 'ok', 'hasApiKey' => trim((string)Option::get(self::MODULE_ID, self::KEY_OPTION, '')) !== '', 'templates' => $templates, 'models' => $models, 'modelsError' => $modelsError];
+        $encodedTemplates = json_encode($templates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($encodedTemplates)) {
+            throw new \RuntimeException('Не удалось сериализовать шаблоны AI-сервиса');
+        }
+        Option::set(self::MODULE_ID, self::TEMPLATES_OPTION, $encodedTemplates);
+
+        // This method executes under the global calculator transaction. Its
+        // readback must remain local and deterministic: model discovery/cache
+        // belongs to a separate non-authoritative read contour.
+        $storedTemplates = json_decode((string)Option::get(self::MODULE_ID, self::TEMPLATES_OPTION, ''), true);
+        if (!is_array($storedTemplates)
+            || self::canonicalTemplates($this->sanitizeTemplates($storedTemplates))
+                !== self::canonicalTemplates($templates)
+            || ($apiKey !== ''
+                && !hash_equals($apiKey, trim((string)Option::get(self::MODULE_ID, self::KEY_OPTION, ''))))) {
+            throw new \RuntimeException('Проверка сохранённых настроек AI-сервиса не прошла');
+        }
+        return $this->getSettings();
+    }
+
+    /** @param mixed $templates */
+    private static function canonicalTemplates($templates): string
+    {
+        if (!is_array($templates)) {
+            return '';
+        }
+        $encoded = json_encode($templates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return is_string($encoded) ? $encoded : '';
     }
 
     public function generateStagePreview(array $request): array

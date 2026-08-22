@@ -2,187 +2,106 @@
 
 declare(strict_types=1);
 
-require_once dirname(__DIR__) . '/lib/Services/StandaloneCatalogSelectionMapper.php';
+require_once dirname(__DIR__) . '/lib/Services/PresetProductAssignmentLockService.php';
+require_once dirname(__DIR__) . '/lib/Services/PresetMutationCoordinatorService.php';
 require_once dirname(__DIR__) . '/lib/Services/ControlCenterEditorsService.php';
 
 use Prospektweb\Calc\Services\ControlCenterEditorsService;
 
-class TestStorefrontEditorProvider
+$coordinatedMutation = static function (
+    int $presetId,
+    array $metadata,
+    callable $mutation,
+    callable $authoritativeReadback
+) {
+    $authoritativeReadback();
+    $result = $mutation();
+    $authoritativeReadback();
+    return $result;
+};
+
+class TestFormFirstAuthoringProvider
 {
     /** @var array<int, array<int, mixed>> */
     public $calls = [];
 
-    public function loadWorkspace(
-        int $productId,
-        string $target = 'effective',
-        string $templateId = '',
-        array $allowedProductIds = []
-    ): array
-    {
-        $this->calls[] = ['loadWorkspace', $productId, $target, $templateId, $allowedProductIds];
-        return $this->result('load', ['target' => $target, 'templateId' => $templateId]);
-    }
-
-    public function validateSchema(int $productId, string $target, array $schema, array $allowedProductIds = []): array
-    {
-        $this->calls[] = ['validateSchema', $productId, $target, $schema, $allowedProductIds];
-        return $this->result('validate', ['target' => $target]);
-    }
-
-    public function saveTemplate(
-        int $productId,
-        string $templateId,
-        int $expectedRevision,
-        string $name,
-        int $sectionId,
-        array $schema,
-        array $allowedProductIds = []
-    ): array {
-        $this->calls[] = [
-            'saveTemplate',
-            $productId,
-            $templateId,
-            $expectedRevision,
-            $name,
-            $sectionId,
-            $schema,
-            $allowedProductIds,
-        ];
-        return $this->result('saveTemplate');
-    }
-
-    public function saveProduct(
-        int $productId,
-        string $expectedRevision,
-        array $schema,
-        array $allowedProductIds = []
-    ): array
-    {
-        $this->calls[] = ['saveProduct', $productId, $expectedRevision, $schema, $allowedProductIds];
-        return $this->result('saveProduct');
-    }
-
-    public function enableInheritance(int $productId, string $expectedRevision, array $allowedProductIds = []): array
-    {
-        $this->calls[] = ['enableInheritance', $productId, $expectedRevision, $allowedProductIds];
-        return $this->result('enableInheritance');
-    }
-
-    public function deleteTemplate(
-        int $productId,
-        string $templateId,
-        int $expectedRevision,
-        array $allowedProductIds = []
-    ): array
-    {
-        $this->calls[] = ['deleteTemplate', $productId, $templateId, $expectedRevision, $allowedProductIds];
-        return $this->result('deleteTemplate');
-    }
-
     public function loadFormFirstWorkspace(
-        int $productId,
         int $presetId,
-        array $allowedProductIds = [],
         array $dependencyContract = []
     ): array {
-        $this->calls[] = ['loadFormFirstWorkspace', $productId, $presetId, $allowedProductIds, $dependencyContract];
-        return $this->formFirstResult('load', $dependencyContract, $productId, $presetId);
+        $this->calls[] = ['loadFormFirstWorkspace', $presetId, $dependencyContract];
+        return $this->formFirstResult('load', $dependencyContract, $presetId);
     }
 
     public function saveFormFirstDraft(
-        int $productId,
         int $presetId,
         string $expectedAggregateRevision,
         array $formDefinition,
         array $bindingDefinition,
-        array $allowedProductIds = [],
         array $dependencyContract = []
     ): array {
         $this->calls[] = [
             'saveFormFirstDraft',
-            $productId,
             $presetId,
             $expectedAggregateRevision,
             $formDefinition,
             $bindingDefinition,
-            $allowedProductIds,
             $dependencyContract,
         ];
-        return $this->formFirstResult('save_draft', $dependencyContract, $productId, $presetId);
+        return $this->formFirstResult('save_draft', $dependencyContract, $presetId);
     }
 
     public function previewFormFirst(
-        int $productId,
         int $presetId,
         array $formDefinition,
         array $bindingDefinition,
-        array $allowedProductIds = [],
         array $dependencyContract = []
     ): array {
         $this->calls[] = [
             'previewFormFirst',
-            $productId,
             $presetId,
             $formDefinition,
             $bindingDefinition,
-            $allowedProductIds,
             $dependencyContract,
         ];
-        return $this->formFirstResult('preview', $dependencyContract, $productId, $presetId);
+        return $this->formFirstResult('preview', $dependencyContract, $presetId);
     }
 
     public function publishFormFirst(
-        int $productId,
         int $presetId,
         string $expectedAggregateRevision,
         string $expectedCompileHash,
-        array $allowedProductIds = [],
         array $dependencyContract = []
     ): array {
         $this->calls[] = [
             'publishFormFirst',
-            $productId,
             $presetId,
             $expectedAggregateRevision,
             $expectedCompileHash,
-            $allowedProductIds,
             $dependencyContract,
         ];
-        return $this->formFirstResult('publish', $dependencyContract, $productId, $presetId);
+        return $this->formFirstResult('publish', $dependencyContract, $presetId);
     }
 
     public function rollbackFormFirst(
-        int $productId,
         int $presetId,
         string $expectedAggregateRevision,
         int $targetPublishedRevision,
-        array $allowedProductIds = [],
         array $dependencyContract = []
     ): array {
         $this->calls[] = [
             'rollbackFormFirst',
-            $productId,
             $presetId,
             $expectedAggregateRevision,
             $targetPublishedRevision,
-            $allowedProductIds,
             $dependencyContract,
         ];
-        return $this->formFirstResult('rollback', $dependencyContract, $productId, $presetId);
-    }
-
-    private function result(string $operation, array $extra = []): array
-    {
-        return array_merge([
-            'contract' => ControlCenterEditorsService::STOREFRONT_EDITOR_CONTRACT,
-            'operation' => $operation,
-        ], $extra);
+        return $this->formFirstResult('rollback', $dependencyContract, $presetId);
     }
 
     private function formFirstResult(
         string $operation,
         array $dependencyContract,
-        int $productId,
         int $presetId
     ): array
     {
@@ -190,7 +109,6 @@ class TestStorefrontEditorProvider
             'contract' => ControlCenterEditorsService::FORM_FIRST_AUTHORING_CONTRACT,
             'operation' => $operation,
             'preset' => ['id' => $presetId, 'name' => 'Preset #' . $presetId],
-            'product' => $productId > 0 ? ['id' => $productId] : null,
             'presetId' => $presetId,
             'dependencyFingerprint' => (string)($dependencyContract['fingerprint'] ?? ''),
             'aggregateRevision' => str_repeat('a', 64),
@@ -207,21 +125,6 @@ class TestStorefrontEditorProvider
                 'hash' => str_repeat('c', 64),
             ],
         ];
-    }
-}
-
-final class LegacyStorefrontEditorProvider
-{
-    public function loadWorkspace(int $productId, string $target = 'effective', string $templateId = '', array $allowedProductIds = []): array { return $this->result(); }
-    public function validateSchema(int $productId, string $target, array $schema, array $allowedProductIds = []): array { return $this->result(); }
-    public function saveTemplate(int $productId, string $templateId, int $expectedRevision, string $name, int $sectionId, array $schema, array $allowedProductIds = []): array { return $this->result(); }
-    public function saveProduct(int $productId, string $expectedRevision, array $schema, array $allowedProductIds = []): array { return $this->result(); }
-    public function enableInheritance(int $productId, string $expectedRevision, array $allowedProductIds = []): array { return $this->result(); }
-    public function deleteTemplate(int $productId, string $templateId, int $expectedRevision, array $allowedProductIds = []): array { return $this->result(); }
-
-    private function result(): array
-    {
-        return ['contract' => ControlCenterEditorsService::STOREFRONT_EDITOR_CONTRACT];
     }
 }
 
@@ -255,7 +158,7 @@ $presetLoader = static function (int $presetId): array {
         'products' => [
             [
                 'id' => 4267,
-                'name' => 'Phase 5A pilot',
+                'name' => 'Test product',
                 'offers' => [
                     ['id' => 13142, 'name' => 'Pilot offer'],
                 ],
@@ -294,14 +197,24 @@ $presetLoader = static function (int $presetId): array {
     ];
 };
 
-$service = new ControlCenterEditorsService($presetLoader, static fn(): int => 7, static fn(): bool => true);
+$exactPropertyAuthority = static fn(int $productIblockId, bool $forUpdate): array => [
+    'productIblockId' => $productIblockId,
+    'propertyId' => 91,
+    'multiple' => false,
+];
+$service = new ControlCenterEditorsService(
+    $presetLoader,
+    static fn(): int => 7,
+    static fn(): bool => true,
+    presetProductPropertyAuthority: $exactPropertyAuthority
+);
 $catalog = $service->getCatalog();
 
 $assert($catalog['contract'] === ControlCenterEditorsService::CONTRACT, 'Catalog contract must be versioned');
-$assert($catalog['focusPresetId'] === 12740, 'Only preset 12740 is in the Phase 4A workspace');
-$assert(($catalog['calculations'][0]['offerCount'] ?? -1) === 0, 'Bootstrap catalog must expose only lightweight registry counts');
-$assert(!isset($catalog['calculations'][0]['products']), 'Bootstrap registry rows must never embed product or offer payloads');
-$presetWorkspace = $service->loadPresetWorkspace(12740);
+$assert(!array_key_exists('focusPresetId', $catalog), 'Catalog has no hard-coded focus preset');
+$assert(is_array($catalog['calculations']), 'Bootstrap catalog exposes lightweight registry rows');
+$assert(!isset($catalog['calculations'][0]['products']), 'Bootstrap registry rows never embed product or offer payloads');
+$presetWorkspace = $service->loadPresetWorkspace(41);
 $assert(($presetWorkspace['offerCount'] ?? 0) === 7, 'Preset detail must lazy-load its authoritative product and offer scope');
 $assert(($presetWorkspace['products'][3]['offers'][1]['id'] ?? 0) === 15321, 'Preset detail must expose server-authored offer choices');
 $broaderUsageService = new ControlCenterEditorsService(
@@ -324,12 +237,12 @@ $broaderUsageService = new ControlCenterEditorsService(
         return $snapshot;
     }
 );
-$broaderUsage = $broaderUsageService->loadPresetWorkspace(12740);
+$broaderUsage = $broaderUsageService->loadPresetWorkspace(41);
 $assert(
     ($broaderUsage['presetName'] ?? '') === 'Full usage preset'
         && ($broaderUsage['productCount'] ?? 0) === 6
         && ($broaderUsage['offerCount'] ?? 0) === 8,
-    'Preset usage detail must use the full storefront scope rather than the optional catalog-write adapter'
+    'Preset usage detail must use the full preset membership rather than optional writeback configuration'
 );
 $assignedProductIds = [11, 12];
 $productCatalogProvider = static function (
@@ -360,8 +273,12 @@ $productCatalogProvider = static function (
 $productMutationHandler = static function (
     int $presetId,
     array $productIds,
-    string $expectedRevision
+    string $expectedRevision,
+    int $lockedProductIblockId
 ) use (&$assignedProductIds, $productCatalogProvider): array {
+    if ($lockedProductIblockId !== 7) {
+        throw new RuntimeException('Product mutation did not receive the locked iblock authority.');
+    }
     sort($assignedProductIds, SORT_NUMERIC);
     $currentRevision = hash('sha256', json_encode([
         'presetId' => $presetId,
@@ -385,76 +302,349 @@ $productManagerService = new ControlCenterEditorsService(
     null,
     null,
     $productCatalogProvider,
-    $productMutationHandler
+    $productMutationHandler,
+    storefrontProductReadbackLoader: static fn(int $presetId): array => [
+        'preset_id' => $presetId,
+        'items' => [],
+    ],
+    presetProductAssignmentLocker: static fn(int $productIblockId, callable $criticalSection) => $criticalSection($productIblockId),
+    presetMutationCoordinator: $coordinatedMutation,
+    presetProductPropertyAuthority: $exactPropertyAuthority
 );
-$productCatalog = $productManagerService->getPresetProductCatalog(12740, '12727', 1, 50);
+$productCatalog = $productManagerService->getPresetProductCatalog(41, '12727', 1, 50);
 $assert(($productCatalog['linkedProductIds'] ?? []) === [11, 12], 'Product manager must return the complete authoritative linked set beside filtered rows');
 $assert(($productCatalog['rows'][0]['id'] ?? 0) === 12727 && empty($productCatalog['rows'][0]['linked']), 'Product search must expose an unlinked candidate');
 $assert(preg_match('/^[a-f0-9]{64}$/', (string)($productCatalog['revision'] ?? '')) === 1, 'Product manager must expose an optimistic revision');
-$savedProductCatalog = $productManagerService->setPresetProducts(12740, [11, 12727], $productCatalog['revision']);
+$managerImpact = $productManagerService->previewPresetProductImpact(
+    41,
+    [11, 12727],
+    $productCatalog['revision']
+);
+$previewMutationCalls = 0;
+$productImpactService = new ControlCenterEditorsService(
+    $presetLoader,
+    static fn(): int => 7,
+    static fn(): bool => true,
+    presetProductCatalogLoader: $productCatalogProvider,
+    presetProductMutationHandler: static function () use (&$previewMutationCalls): array {
+        $previewMutationCalls++;
+        throw new RuntimeException('Read-only impact preview attempted a mutation.');
+    },
+    storefrontProductDetacher: static fn(int $presetId, array $productIds): array => [],
+    storefrontProductReadbackLoader: static fn(int $presetId): array => [
+        'preset_id' => $presetId,
+        'items' => [[
+            'id' => 'storefront-a',
+            'name' => 'Product presentation',
+            'active' => true,
+            'revision' => 3,
+            'product_ids' => [11, 12],
+        ]],
+    ]
+);
+$impact = $productImpactService->previewPresetProductImpact(
+    41,
+    [11, 12727],
+    $productCatalog['revision']
+);
+$assert(
+    $impact['contract'] === ControlCenterEditorsService::PRESET_PRODUCT_IMPACT_CONTRACT
+        && $impact['addedProductIds'] === [12727]
+        && $impact['removedProductIds'] === [12]
+        && ($impact['affectedStorefronts'][0]['id'] ?? '') === 'storefront-a'
+        && ($impact['affectedStorefronts'][0]['removedProductIds'] ?? []) === [12]
+        && $assignedProductIds === [11, 12]
+        && $previewMutationCalls === 0,
+    'Product impact preview is read-only and lists exact storefront detachments before confirmation'
+);
+$savedProductCatalog = $productManagerService->setPresetProducts(
+    41,
+    [11, 12727],
+    $productCatalog['revision'],
+    $managerImpact['impactFingerprint']
+);
 $assert(($savedProductCatalog['linkedProductIds'] ?? []) === [11, 12727], 'Product manager must return authoritative assignment readback');
 $expectInvalid(static function () use ($productManagerService): void {
-    $productManagerService->setPresetProducts(12740, [11], 'not-a-revision');
+    $productManagerService->setPresetProducts(41, [11], 'not-a-revision', str_repeat('a', 64));
 }, 'Product assignment must reject an invalid revision before mutation');
 $conflictRaised = false;
 try {
-    $productManagerService->setPresetProducts(12740, [11], $productCatalog['revision']);
+    $productManagerService->setPresetProducts(
+        41,
+        [11],
+        $productCatalog['revision'],
+        $managerImpact['impactFingerprint']
+    );
 } catch (RuntimeException $exception) {
     $conflictRaised = $exception->getCode() === 409;
 }
 $assert($conflictRaised, 'Product assignment must reject a stale revision');
-$assert(count($catalog['storefront']['products'] ?? []) === 5, 'Storefront editing must retain the full preset-linked product catalog');
-$assert(($catalog['storefront']['productIblockId'] ?? 0) === 7, 'Storefront launch catalog must expose the configured product iblock');
-$assert(($catalog['storefront']['products'][0]['presetIds'] ?? []) === [12740], 'Storefront products must carry the focus-preset relation');
-$assert(($catalog['storefront']['visualEditorAvailable'] ?? true) === false, 'The visual editor must fail closed without a provider');
+
+$raceStorefrontRevision = 1;
+$raceAssignedProductIds = [11, 12];
+$raceMutationCalls = 0;
+$raceSuccessfulCoordinations = 0;
+$raceCatalogProvider = static function (
+    int $presetId,
+    string $query,
+    int $page,
+    int $pageSize
+) use (&$raceAssignedProductIds): array {
+    return [
+        'presetName' => 'Race preset',
+        'productIblockId' => 7,
+        'linkedProductIds' => $raceAssignedProductIds,
+        'rows' => [],
+        'page' => $page,
+        'pageSize' => $pageSize,
+        'total' => 0,
+    ];
+};
+$raceReadback = static function (int $presetId) use (&$raceStorefrontRevision): array {
+    return [
+        'preset_id' => $presetId,
+        'items' => [[
+            'id' => 'race-storefront',
+            'name' => 'Race storefront',
+            'active' => true,
+            'revision' => $raceStorefrontRevision,
+            'product_ids' => [11, 12],
+        ]],
+    ];
+};
+$raceCoordinator = static function (
+    int $presetId,
+    array $metadata,
+    callable $mutation,
+    callable $authoritativeReadback
+) use (&$raceSuccessfulCoordinations) {
+    $authoritativeReadback();
+    $result = $mutation();
+    $authoritativeReadback();
+    $raceSuccessfulCoordinations++;
+    return $result;
+};
+$raceService = new ControlCenterEditorsService(
+    $presetLoader,
+    static fn(): int => 7,
+    static fn(): bool => true,
+    presetProductCatalogLoader: $raceCatalogProvider,
+    presetProductMutationHandler: static function () use (&$raceMutationCalls): array {
+        $raceMutationCalls++;
+        throw new RuntimeException('Stale impact reached the product writer.');
+    },
+    storefrontProductReadbackLoader: $raceReadback,
+    presetProductAssignmentLocker: static fn(int $iblockId, callable $criticalSection) => $criticalSection($iblockId),
+    presetMutationCoordinator: $raceCoordinator,
+    presetProductPropertyAuthority: $exactPropertyAuthority
+);
+$raceCatalog = $raceService->getPresetProductCatalog(41);
+$raceImpact = $raceService->previewPresetProductImpact(41, [11], $raceCatalog['revision']);
+$raceStorefrontRevision = 2;
+$raceConflict = false;
+try {
+    $raceService->setPresetProducts(
+        41,
+        [11],
+        $raceCatalog['revision'],
+        $raceImpact['impactFingerprint']
+    );
+} catch (RuntimeException $exception) {
+    $raceConflict = $exception->getCode() === 409;
+}
 $assert(
-    ($catalog['storefront']['visualEditorContract'] ?? '') === ControlCenterEditorsService::STOREFRONT_EDITOR_CONTRACT,
-    'The storefront catalog must advertise the native editor contract'
+    $raceConflict
+        && $raceMutationCalls === 0
+        && $raceSuccessfulCoordinations === 0
+        && $raceAssignedProductIds === [11, 12],
+    'A storefront changed after preview must fail before assignment mutation, revision advancement or success audit'
 );
 
-$calculationLaunch = $service->validateCalculationLaunch(12740, [15326, 15321, 15320]);
+$inactiveAssignedProductIds = [7001];
+$inactiveProductIsPublished = false;
+$inactiveAssignmentCatalog = static function (
+    int $presetId,
+    string $query,
+    int $page,
+    int $pageSize
+) use (&$inactiveAssignedProductIds, &$inactiveProductIsPublished): array {
+    sort($inactiveAssignedProductIds, SORT_NUMERIC);
+    return [
+        'presetName' => 'Focus preset',
+        'productIblockId' => 7,
+        'linkedProductIds' => $inactiveAssignedProductIds,
+        'revision' => hash('sha256', json_encode([
+            'presetId' => $presetId,
+            'linkedProductIds' => $inactiveAssignedProductIds,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
+        'rows' => [[
+            'id' => 7001,
+            'name' => 'Temporarily unavailable product',
+            'active' => $inactiveProductIsPublished,
+            'presetIds' => $inactiveAssignedProductIds === [] ? [] : [$presetId],
+        ]],
+        'page' => $page,
+        'pageSize' => $pageSize,
+        'total' => 1,
+    ];
+};
+$inactiveAssignmentService = new ControlCenterEditorsService(
+    $presetLoader,
+    static fn(): int => 7,
+    static fn(): bool => true,
+    presetProductCatalogLoader: $inactiveAssignmentCatalog,
+    presetProductMutationHandler: static function (
+        int $presetId,
+        array $productIds,
+        string $expectedRevision,
+        int $productIblockId
+    ) use (&$inactiveAssignedProductIds, $inactiveAssignmentCatalog): array {
+        $currentRevision = hash('sha256', json_encode([
+            'presetId' => $presetId,
+            'linkedProductIds' => $inactiveAssignedProductIds,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        if (!hash_equals($currentRevision, $expectedRevision)) {
+            throw new RuntimeException('inactive assignment CAS mismatch', 409);
+        }
+        $inactiveAssignedProductIds = $productIds;
+        return $inactiveAssignmentCatalog($presetId, '', 1, 50);
+    },
+    storefrontProductReadbackLoader: static fn(int $presetId): array => [
+        'preset_id' => $presetId,
+        'items' => [],
+    ],
+    presetProductAssignmentLocker: static fn(int $iblockId, callable $criticalSection) => $criticalSection($iblockId),
+    presetMutationCoordinator: $coordinatedMutation,
+    presetProductPropertyAuthority: $exactPropertyAuthority
+);
+$inactiveAssignmentBefore = $inactiveAssignmentService->getPresetProductCatalog(41);
+$inactiveImpact = $inactiveAssignmentService->previewPresetProductImpact(
+    41,
+    [],
+    (string)$inactiveAssignmentBefore['revision']
+);
+$assert(
+    ($inactiveAssignmentBefore['linkedProductIds'] ?? []) === [7001]
+        && ($inactiveAssignmentBefore['rows'][0]['active'] ?? true) === false,
+    'inactive linked product remains part of assignment CAS while launch availability is metadata only'
+);
+$inactiveAssignmentAfter = $inactiveAssignmentService->setPresetProducts(
+    41,
+    [],
+    (string)$inactiveAssignmentBefore['revision'],
+    (string)$inactiveImpact['impactFingerprint']
+);
+$inactiveProductIsPublished = true;
+$inactiveAssignmentAfterReactivation = $inactiveAssignmentService->getPresetProductCatalog(41);
+$assert(
+    ($inactiveAssignmentAfter['linkedProductIds'] ?? null) === []
+        && ($inactiveAssignmentAfterReactivation['linkedProductIds'] ?? null) === []
+        && ($inactiveAssignmentAfterReactivation['rows'][0]['active'] ?? false) === true,
+    'detaching an inactive product is authoritative and it does not resurrect after reactivation'
+);
+$assert(
+    array_keys($catalog['storefront'] ?? []) === ['formFirstAuthoringAvailable', 'formFirstAuthoringContract']
+        && ($catalog['storefront']['formFirstAuthoringAvailable'] ?? true) === false
+        && ($catalog['storefront']['formFirstAuthoringContract'] ?? '')
+            === ControlCenterEditorsService::FORM_FIRST_AUTHORING_CONTRACT,
+    'The bootstrap catalog must expose only the active preset-owned form authoring capability'
+);
+
+$service->assertStorefrontProductsBelongToPreset(41, [10, 12727]);
+$scopeError = '';
+try {
+    $service->assertStorefrontProductsBelongToPreset(41, [999, 12728]);
+} catch (InvalidArgumentException $exception) {
+    $scopeError = $exception->getMessage();
+}
+$assert(
+    $scopeError === 'Storefront product_ids are not linked to preset #41: #999, #12728',
+    'vNext storefront assignment must report every product outside current CALC_PRESET authority'
+);
+$expectInvalid(static function () use ($service): void {
+    $service->assertStorefrontProductsBelongToPreset(41, [10, 10]);
+}, 'vNext storefront assignment must reject duplicate product IDs');
+
+$inactiveMembershipService = new ControlCenterEditorsService(
+    $presetLoader,
+    static fn(): int => 7,
+    static fn(): bool => true,
+    storefrontProductAssignmentLoader: static fn(int $presetId, array $productIds, int $iblockId): array => [
+        7001 => [41], // inactive/expired but still canonically assigned
+        7002 => [42], // inactive foreign assignment
+    ],
+    presetProductPropertyAuthority: $exactPropertyAuthority
+);
+$inactiveMembershipService->assertStorefrontProductsBelongToPreset(41, [7001], 7);
+$inactiveForeignRejected = false;
+try {
+    $inactiveMembershipService->assertStorefrontProductsBelongToPreset(41, [7002], 7);
+} catch (InvalidArgumentException $error) {
+    $inactiveForeignRejected = str_contains($error->getMessage(), '#7002');
+}
+$assert(
+    $inactiveForeignRejected,
+    'inactive linked products remain valid storefront members while inactive foreign products are rejected'
+);
+
+$exclusiveError = '';
+try {
+    ControlCenterEditorsService::assertExclusivePresetAssignments(
+        41,
+        [12, 11, 13],
+        [
+            11 => [41],
+            12 => [12742, 12741],
+            13 => [12743, 41],
+        ]
+    );
+} catch (InvalidArgumentException $exception) {
+    $exclusiveError = $exception->getMessage();
+}
+$assert(
+    $exclusiveError === 'Products already assigned to other presets: #12 -> #12741, #12742; #13 -> #12743',
+    'Product assignment must reject every foreign preset regardless of legacy MULTIPLE metadata'
+);
+
+$calculationLaunch = $service->validateCalculationLaunch(41, [15326, 15321, 15320]);
 $assert(($calculationLaunch['offerIds'] ?? []) === [15320, 15321, 15326], 'Calculation launch must reconstruct offers from multiple products in authoritative server order');
 $assert(($calculationLaunch['productIds'] ?? []) === [12727, 12764], 'Calculation launch must reconstruct all selected parent products server-side');
-$assert(!in_array(102, $calculationLaunch['offerIds'], true), 'Calculation launch must exclude offers outside the adapter-supported preset scope');
+$assert(!in_array(102, $calculationLaunch['offerIds'], true), 'Calculation launch returns only the explicitly selected offers');
 
-$presetLaunch = $service->validatePresetLaunch(12740);
-$assert(($presetLaunch['focusPresetId'] ?? 0) === 12740, 'Standalone launch must retain the focus preset');
+$presetLaunch = $service->validatePresetLaunch(41);
+$assert(($presetLaunch['focusPresetId'] ?? 0) === 41, 'Standalone launch must retain the focus preset');
 $assert(($presetLaunch['presetName'] ?? '') === 'Focus preset', 'Standalone launch must resolve the authoritative preset name');
 $secondaryPresetLaunch = $service->validatePresetLaunch(12741);
 $assert(($secondaryPresetLaunch['focusPresetId'] ?? 0) === 12741, 'Standalone launch must accept another authoritative preset');
 $secondaryCalculationLaunch = $service->validateCalculationLaunch(12741, [15320]);
-$assert(($secondaryCalculationLaunch['offerIds'] ?? []) === [15320], 'A non-focus preset may use its own optional catalog adapter');
+$assert(($secondaryCalculationLaunch['offerIds'] ?? []) === [15320], 'Any authoritative preset may launch its assigned offer');
+$singleProductLaunch = $service->validateCalculationLaunch(41, [100]);
+$assert(
+    ($singleProductLaunch['offerIds'] ?? []) === [100]
+        && ($singleProductLaunch['productIds'] ?? []) === [10],
+    'Calculation launch scope comes only from current preset membership'
+);
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, [100]);
-}, 'An offer outside the adapter-supported preset scope must be rejected');
-$expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, [15320, 15320]);
+    $service->validateCalculationLaunch(41, [15320, 15320]);
 }, 'Duplicate offer IDs must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, []);
+    $service->validateCalculationLaunch(41, []);
 }, 'An empty offer selection must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, ['15320']);
+    $service->validateCalculationLaunch(41, ['15320']);
 }, 'String offer IDs must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, [0]);
+    $service->validateCalculationLaunch(41, [0]);
 }, 'Zero offer IDs must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, [-100]);
+    $service->validateCalculationLaunch(41, [-100]);
 }, 'Negative offer IDs must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, [100.5]);
+    $service->validateCalculationLaunch(41, [100.5]);
 }, 'Fractional offer IDs must be rejected');
 $expectInvalid(static function () use ($service): void {
-    $service->validateCalculationLaunch(12740, [9007199254740992]);
+    $service->validateCalculationLaunch(41, [9007199254740992]);
 }, 'Unsafe JavaScript-sized offer IDs must be rejected');
-
-$storefrontLaunch = $service->validateStorefrontLaunch(11);
-$assert(($storefrontLaunch['productIblockId'] ?? 0) === 7, 'Storefront launch must use the configured product iblock');
-$assert(($storefrontLaunch['productName'] ?? '') === 'Product B', 'Storefront launch must resolve the product server-side');
-$expectInvalid(static function () use ($service): void {
-    $service->validateStorefrontLaunch(999);
-}, 'A storefront product outside preset 12740 must be rejected');
 
 $emptyOffersService = new ControlCenterEditorsService(
     static function (int $presetId): array {
@@ -468,7 +658,7 @@ $emptyOffersService = new ControlCenterEditorsService(
     static fn(): bool => true
 );
 $expectInvalid(static function () use ($emptyOffersService): void {
-    $emptyOffersService->validateCalculationLaunch(12740, [1]);
+    $emptyOffersService->validateCalculationLaunch(41, [1]);
 }, 'A product without active offers must be rejected');
 
 $tooManyOffersService = new ControlCenterEditorsService(
@@ -487,22 +677,21 @@ $tooManyOffersService = new ControlCenterEditorsService(
     static fn(): bool => true
 );
 $expectInvalid(static function () use ($tooManyOffersService): void {
-    $tooManyOffersService->validateCalculationLaunch(12740, range(1, 501));
+    $tooManyOffersService->validateCalculationLaunch(41, range(1, 501));
 }, 'An oversized selective offer list must be rejected');
 
 $dependencyResolveCalls = [];
-$dependencyContractResolver = static function (int $presetId, array $allowedProductIds) use (&$dependencyResolveCalls): array {
-    $dependencyResolveCalls[] = [$presetId, $allowedProductIds];
+$dependencyContractResolver = static function (int $presetId) use (&$dependencyResolveCalls): array {
+    $dependencyResolveCalls[] = [$presetId];
     $categoryStatus = [];
     foreach ([
         'ui',
-        'passive_context',
+        'catalog_input_mapping',
         'stage_inputs',
         'globals',
         'options_mappings',
-        'routes',
         'basket',
-        'seo_display',
+        'storefront_presentation',
     ] as $category) {
         $categoryStatus[$category] = [
             'scanned' => true,
@@ -543,22 +732,64 @@ $dependencyContractResolver = static function (int $presetId, array $allowedProd
     return $contract;
 };
 
-$provider = new TestStorefrontEditorProvider();
-$visualService = new ControlCenterEditorsService(
+$provider = new TestFormFirstAuthoringProvider();
+$activeStorefrontValidationCalls = [];
+$formFirstService = new ControlCenterEditorsService(
     $presetLoader,
     static fn(): int => 7,
     static fn(): bool => true,
     static fn() => $provider,
-    $dependencyContractResolver
+    $dependencyContractResolver,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    static function (int $presetId, string $fieldId): array {
+        if ($presetId !== 41) {
+            return [];
+        }
+        if ($fieldId === 'ui.note') {
+            return [[
+                'fieldId' => 'ui.note',
+                'category' => 'storefront_presentation',
+                'source' => 'prospektweb.frontcalc.storefront-definition/v2',
+                'path' => 'storefront.main.presentation.field_patches.ui.note',
+                'provenance' => 'declared',
+            ]];
+        }
+        if ($fieldId !== 'volume') {
+            return [];
+        }
+        return [[
+            'fieldId' => 'volume',
+            'category' => 'catalog_input_mapping',
+            'source' => 'prospektweb.calc.calculator-input-mapping/v1',
+            'path' => 'calculator_input_mapping.mappings.0.target.field_id',
+            'provenance' => 'declared',
+        ], [
+            'fieldId' => 'volume',
+            'category' => 'storefront_presentation',
+            'source' => 'prospektweb.frontcalc.storefront-definition/v2',
+            'path' => 'storefront.main.presentation.field_patches.volume',
+            'provenance' => 'declared',
+        ]];
+    },
+    presetMutationCoordinator: $coordinatedMutation,
+    activeStorefrontPublicationValidator: static function (int $presetId) use (&$activeStorefrontValidationCalls): void {
+        $activeStorefrontValidationCalls[] = $presetId;
+    }
 );
-$visualCatalog = $visualService->getCatalog();
-$assert(($visualCatalog['storefront']['visualEditorAvailable'] ?? false) === true, 'A complete provider enables the visual editor');
+$formFirstCatalog = $formFirstService->getCatalog();
 $assert(
-    ($visualCatalog['storefront']['formFirstAuthoringAvailable'] ?? false) === true
-        && ($visualCatalog['storefront']['formFirstAuthoringContract'] ?? '')
-            === ControlCenterEditorsService::FORM_FIRST_AUTHORING_CONTRACT
-        && ($visualCatalog['storefront']['formFirstPilotProductIds'] ?? []) === [4267],
-    'The catalog must expose the exact form-first pilot gate and provider contract'
+    array_keys($formFirstCatalog['storefront'] ?? []) === ['formFirstAuthoringAvailable', 'formFirstAuthoringContract']
+        && ($formFirstCatalog['storefront']['formFirstAuthoringAvailable'] ?? false) === true
+        && ($formFirstCatalog['storefront']['formFirstAuthoringContract'] ?? '')
+            === ControlCenterEditorsService::FORM_FIRST_AUTHORING_CONTRACT,
+    'The catalog must expose only the active form-first capability and exact provider contract'
 );
 
 $multiPresetService = new ControlCenterEditorsService(
@@ -569,103 +800,198 @@ $multiPresetService = new ControlCenterEditorsService(
     null,
     static function (): array {
         return [
-            ['id' => 12740, 'name' => 'Focus preset'],
+            ['id' => 41, 'name' => 'Focus preset'],
             ['id' => 12741, 'name' => 'Second preset'],
         ];
     },
-    static fn(string $name): int => $name === 'Independent preset' ? 12800 : 0
+    static fn(string $name): array => $name === 'Independent preset' ? [
+        'presetId' => 12800,
+        'presetName' => 'Independent preset',
+        'identityRevision' => str_repeat('d', 64),
+    ] : []
 );
 $multiCatalog = $multiPresetService->getCatalog();
 $assert(count($multiCatalog['calculations']) === 2, 'Catalog must list all independent presets');
 $multiRegistry = $multiPresetService->getPresetRegistry('', 'all', 'name_asc', 1, 1);
 $assert(($multiRegistry['total'] ?? 0) === 2 && count($multiRegistry['rows'] ?? []) === 1, 'Registry must page independent preset summaries');
-$createdPreset = $multiPresetService->createStandalonePreset('Independent preset');
-$assert(($createdPreset['presetId'] ?? 0) === 12800, 'Standalone preset creation must return its authoritative ID');
-$legacyCatalog = (new ControlCenterEditorsService(
+$assert(
+    preg_match('/^[a-f0-9]{64}$/D', (string)($multiRegistry['rows'][0]['revision'] ?? '')) === 1,
+    'Every registry row exposes an exact CAS revision'
+);
+
+$activationState = ['id' => 41, 'name' => 'Focus preset', 'active' => true, 'updatedAt' => '2026-08-22 10:00:00'];
+$activationMetadata = [];
+$activationLockedReads = 0;
+$activationCoordinator = static function (
+    int $presetId,
+    array $metadata,
+    callable $mutation,
+    callable $authoritativeReadback
+) use (&$activationState, &$activationMetadata) {
+    $before = $activationState;
+    try {
+        $authoritativeReadback();
+        $result = $mutation();
+        $authoritativeReadback();
+        $activationMetadata[] = $metadata;
+        return $result;
+    } catch (Throwable $error) {
+        $activationState = $before;
+        throw $error;
+    }
+};
+$activationService = new ControlCenterEditorsService(
     $presetLoader,
     static fn(): int => 7,
     static fn(): bool => true,
-    static fn() => new LegacyStorefrontEditorProvider(),
-    $dependencyContractResolver
-))->getCatalog();
+    presetMutationCoordinator: $activationCoordinator,
+    presetActiveStateLoader: static function (int $presetId) use (&$activationState): array {
+        return $activationState;
+    },
+    presetActiveMutationHandler: static function (int $presetId, bool $active) use (&$activationState): void {
+        $activationState['active'] = $active;
+        $activationState['updatedAt'] = '2026-08-22 10:00:01';
+    },
+    presetActiveLockedStateLoader: static function (int $presetId) use (&$activationState, &$activationLockedReads): array {
+        $activationLockedReads++;
+        return $activationState;
+    }
+);
+$activationRevision = hash('sha256', json_encode([
+    'presetId' => 41,
+    'active' => true,
+    'updatedAt' => '2026-08-22 10:00:00',
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+$activationResult = $activationService->setPresetActive(41, $activationRevision, false);
 $assert(
-    ($legacyCatalog['storefront']['visualEditorAvailable'] ?? false) === true
-        && ($legacyCatalog['storefront']['formFirstAuthoringAvailable'] ?? true) === false,
-    'A legacy provider must retain the old visual editor while the form-first gate stays disabled'
+    ($activationResult['active'] ?? true) === false
+        && preg_match('/^[a-f0-9]{64}$/D', (string)($activationResult['revision'] ?? '')) === 1
+        && ($activationMetadata[0]['action'] ?? '') === 'set_preset_active'
+        && ($activationMetadata[0]['expected_revision'] ?? '') === $activationRevision
+        && $activationLockedReads >= 3,
+    'Single-preset activation locks the authoritative row before CAS and for mutation readback'
+);
+$staleActivationRejected = false;
+try {
+    $activationService->setPresetActive(41, $activationRevision, true);
+} catch (RuntimeException $error) {
+    $staleActivationRejected = $error->getCode() === 409;
+}
+$assert($staleActivationRejected, 'Single-preset activation rejects a stale registry revision');
+
+$failedActivationState = ['id' => 41, 'name' => 'Focus preset', 'active' => false, 'updatedAt' => '2026-08-22 10:00:01'];
+$failedReadback = false;
+$failedActivationCoordinator = static function (
+    int $presetId,
+    array $metadata,
+    callable $mutation,
+    callable $authoritativeReadback
+) use (&$failedActivationState, &$failedReadback) {
+    $before = $failedActivationState;
+    try {
+        $authoritativeReadback();
+        $result = $mutation();
+        $authoritativeReadback();
+        return $result;
+    } catch (Throwable $error) {
+        $failedActivationState = $before;
+        $failedReadback = false;
+        throw $error;
+    }
+};
+$failedActivationService = new ControlCenterEditorsService(
+    $presetLoader,
+    static fn(): int => 7,
+    static fn(): bool => true,
+    presetMutationCoordinator: $failedActivationCoordinator,
+    presetActiveStateLoader: static function (int $presetId) use (&$failedActivationState, &$failedReadback): array {
+        $readback = $failedActivationState;
+        if ($failedReadback) {
+            $readback['active'] = false;
+        }
+        return $readback;
+    },
+    presetActiveMutationHandler: static function (int $presetId, bool $active) use (&$failedActivationState, &$failedReadback): void {
+        $failedActivationState['active'] = $active;
+        $failedActivationState['updatedAt'] = '2026-08-22 10:00:02';
+        $failedReadback = true;
+    },
+    presetActiveLockedStateLoader: static function (int $presetId) use (&$failedActivationState, &$failedReadback): array {
+        $readback = $failedActivationState;
+        if ($failedReadback) {
+            $readback['active'] = false;
+        }
+        return $readback;
+    }
+);
+$failedRevision = hash('sha256', json_encode([
+    'presetId' => 41,
+    'active' => false,
+    'updatedAt' => '2026-08-22 10:00:01',
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+$readbackFailureRaised = false;
+try {
+    $failedActivationService->setPresetActive(41, $failedRevision, true);
+} catch (RuntimeException $error) {
+    $readbackFailureRaised = str_contains($error->getMessage(), 'Контрольное чтение');
+}
+$assert(
+    $readbackFailureRaised && $failedActivationState['active'] === false,
+    'Activation readback failure rolls back the mutation boundary'
+);
+$activationSource = (string)file_get_contents(dirname(__DIR__) . '/lib/Services/ControlCenterEditorsService.php');
+$assert(
+    str_contains($activationSource, 'FROM b_iblock_element')
+        && str_contains($activationSource, 'AND IBLOCK_ID = ')
+        && str_contains($activationSource, " . ' FOR UPDATE'"),
+    'Production activation CAS locks the exact preset element row and validates its CALC_PRESETS iblock'
+);
+$createdPreset = $multiPresetService->createStandalonePreset('Independent preset');
+$assert(
+    ($createdPreset['presetId'] ?? 0) === 12800
+        && ($createdPreset['presetName'] ?? '') === 'Independent preset'
+        && ($createdPreset['revision'] ?? '') === str_repeat('d', 64),
+    'Standalone preset creation must return the transactional lifecycle receipt without a post-commit identity reread'
 );
 $assert(
-    ($visualService->loadStorefrontWorkspace(10, 'effective')['operation'] ?? '') === 'load',
-    'The service must delegate an effective workspace load'
-);
-$assert(
-    ($visualService->loadStorefrontWorkspace(10, 'template', 'abcdef0123456789')['templateId'] ?? '') === 'abcdef0123456789',
-    'The service must delegate an exact template workspace load'
-);
-$assert(
-    ($visualService->validateStorefrontSchema(10, 'product', ['version' => 2, 'fields' => [['property_code' => 'A']]])['operation'] ?? '') === 'validate',
-    'The service must delegate structured schema validation'
-);
-$assert(
-    ($visualService->saveStorefrontTemplate(
-        10,
-        '',
-        0,
-        'New template',
-        0,
-        ['version' => 2, 'fields' => [['property_code' => 'A']]]
-    )['operation'] ?? '') === 'saveTemplate',
-    'The service must delegate template creation with an empty provider ID'
-);
-$individualRevision = str_repeat('a', 64);
-$assert(
-    ($visualService->saveStorefrontProduct(
-        10,
-        $individualRevision,
-        ['version' => 2, 'fields' => [['property_code' => 'A']]]
-    )['operation'] ?? '') === 'saveProduct',
-    'The service must delegate an individual product save'
-);
-$assert(
-    ($visualService->enableStorefrontInheritance(10, $individualRevision)['operation'] ?? '') === 'enableInheritance',
-    'The service must delegate inheritance activation'
-);
-$assert(
-    ($visualService->deleteStorefrontTemplate(10, 'abcdef0123456789', 4)['operation'] ?? '') === 'deleteTemplate',
-    'The service must delegate revisioned template deletion'
-);
-$assert(
-    in_array(['loadWorkspace', 10, 'effective', '', [4267, 10, 11, 12727, 12764]], $provider->calls, true),
-    'The provider must receive the current server-authorized product allowlist and load target'
+    !str_contains($activationSource, '$snapshot = call_user_func($this->presetIdentityLoader, $presetId);'),
+    'Create must not race by rereading preset identity after the lifecycle transaction commits'
 );
 $aggregateRevision = str_repeat('b', 64);
 $compileHash = str_repeat('c', 64);
 $formDefinition = ['version' => 1, 'fields' => [['id' => 'quantity', 'type' => 'number']]];
 $bindingDefinition = ['version' => 1, 'bindings' => [['fieldId' => 'quantity', 'target' => 'CALC_PROP_VOLUME']]];
 $assert(
-    ($visualService->loadFormFirstWorkspace(4267, 12740)['operation'] ?? '') === 'load',
+    ($formFirstService->loadFormFirstWorkspace(41)['operation'] ?? '') === 'load',
     'The service must delegate the form-first workspace load'
 );
-$deleteImpact = $visualService->inspectFormFirstFieldDeletion(4267, 12740, 'volume', 'CALC_PROP_VOLUME');
+$deleteImpact = $formFirstService->inspectFormFirstFieldDeletion(41, 'volume', 'CALC_PROP_VOLUME');
 $assert(
     ($deleteImpact['contract'] ?? '') === ControlCenterEditorsService::FORM_FIRST_FIELD_DELETE_IMPACT_CONTRACT
         && ($deleteImpact['removable'] ?? true) === false
-        && ($deleteImpact['blockers'][0]['category'] ?? '') === 'stage_inputs',
-    'Field deletion impact must block a field referenced by the current calculation logic'
+        && array_column($deleteImpact['blockers'] ?? [], 'category') === [
+            'stage_inputs',
+            'catalog_input_mapping',
+            'storefront_presentation',
+        ],
+    'Field deletion impact must include logic, input-mapping and storefront-presentation blockers'
 );
-$displayOnlyImpact = $visualService->inspectFormFirstFieldDeletion(4267, 12740, 'ui.note', null);
+$displayOnlyImpact = $formFirstService->inspectFormFirstFieldDeletion(41, 'ui.note', null);
 $assert(
-    ($displayOnlyImpact['removable'] ?? false) === true && ($displayOnlyImpact['blockers'] ?? null) === [],
-    'A display-only field without a calculator property must be removable'
+    ($displayOnlyImpact['removable'] ?? true) === false
+        && ($displayOnlyImpact['blockers'][0]['category'] ?? '') === 'storefront_presentation'
+        && array_key_exists('propertyCode', $displayOnlyImpact['blockers'][0] ?? [])
+        && $displayOnlyImpact['blockers'][0]['propertyCode'] === null,
+    'A display-only field patched by a storefront must be blocked without a fabricated property code'
 );
-$invalidDraftImpact = $visualService->inspectFormFirstFieldDeletion(4267, 12740, '23423423', null);
+$invalidDraftImpact = $formFirstService->inspectFormFirstFieldDeletion(41, '23423423', null);
 $assert(
     ($invalidDraftImpact['removable'] ?? false) === true,
     'The impact check must allow removing a numeric field id from an otherwise invalid unsaved draft'
 );
 $assert(
-    ($visualService->saveFormFirstDraft(
-        4267,
-        12740,
+    ($formFirstService->saveFormFirstDraft(
+        41,
         $aggregateRevision,
         $formDefinition,
         $bindingDefinition
@@ -673,27 +999,30 @@ $assert(
     'The service must delegate a revisioned form-first draft save'
 );
 $assert(
-    ($visualService->previewFormFirst(
-        4267,
-        12740,
+    ($formFirstService->previewFormFirst(
+        41,
         $formDefinition,
         $bindingDefinition
     )['operation'] ?? '') === 'preview',
     'The service must delegate form-first compile preview'
 );
 $assert(
-    ($visualService->publishFormFirst(4267, 12740, $aggregateRevision, $compileHash)['operation'] ?? '')
+    ($formFirstService->publishFormFirst(41, $aggregateRevision, $compileHash)['operation'] ?? '')
         === 'publish',
     'The service must delegate form-first publication with CAS and compile hash'
 );
 $assert(
-    ($visualService->rollbackFormFirst(4267, 12740, $aggregateRevision, 0)['operation'] ?? '')
+    ($formFirstService->rollbackFormFirst(41, $aggregateRevision, 0)['operation'] ?? '')
         === 'rollback',
     'The service must allow rollback to the pre-form-first revision zero'
 );
 $assert(
-    count($dependencyResolveCalls) === 8
-        && array_column($dependencyResolveCalls, 0) === [12740, 12740, 12740, 12740, 12740, 12740, 12740, 12740],
+    $activeStorefrontValidationCalls === [41, 41],
+    'Publish and rollback must validate all active storefronts after the provider mutation'
+);
+$assert(
+    count($dependencyResolveCalls) === 14
+        && array_column($dependencyResolveCalls, 0) === array_fill(0, 14, 41),
     'Every form-first action and deletion impact must freshly resolve the server-owned dependency authority'
 );
 $formFirstCalls = array_values(array_filter($provider->calls, static function (array $call): bool {
@@ -705,52 +1034,42 @@ $formFirstCalls = array_values(array_filter($provider->calls, static function (a
         'rollbackFormFirst',
     ], true);
 }));
-$assert(count($formFirstCalls) === 5, 'All five form-first calls must reach the provider');
+$assert(count($formFirstCalls) === 11, 'Form mutations must include authoritative before/after workspace readbacks');
 foreach ($formFirstCalls as $formFirstCall) {
     $passedContract = $formFirstCall[count($formFirstCall) - 1] ?? null;
-    $passedAllowlist = $formFirstCall[count($formFirstCall) - 2] ?? null;
     $assert(
-        $passedAllowlist === [4267, 10, 11, 12727, 12764]
+        ($formFirstCall[1] ?? null) === 41
             && is_array($passedContract)
             && ($passedContract['contract'] ?? '') === 'prospektweb.calc.preset-public-inputs/v1'
             && preg_match('/^[a-f0-9]{64}$/D', (string)($passedContract['fingerprint'] ?? '')) === 1,
-        'Each form-first provider call must receive the current allowlist and fingerprinted dependency contract'
+        'Each preset-owned form provider call must receive only the preset and fingerprinted dependency contract'
     );
 }
 $assert(
-    ($visualService->loadFormFirstWorkspace(10, 12741)['operation'] ?? '') === 'load',
+    ($formFirstService->loadFormFirstWorkspace(12741)['operation'] ?? '') === 'load',
     'Form-first authoring must be available to another authoritative preset'
 );
-$productlessWorkspace = $visualService->loadFormFirstWorkspace(0, 12741);
+$productlessWorkspace = $formFirstService->loadFormFirstWorkspace(12741);
 $assert(
-    array_key_exists('product', $productlessWorkspace) && $productlessWorkspace['product'] === null,
-    'Preset-owned form-first authoring must not require a product context'
+    !array_key_exists('product', $productlessWorkspace)
+        && !array_key_exists('productId', $productlessWorkspace),
+    'Preset-owned form-first authoring must not expose a product context'
 );
-$expectInvalid(static function () use ($visualService, $aggregateRevision, $formDefinition, $bindingDefinition): void {
-    $visualService->saveFormFirstDraft(
-        999,
-        12740,
-        $aggregateRevision,
-        $formDefinition,
-        $bindingDefinition
-    );
-}, 'Form-first actions must reject a product outside the current preset allowlist');
-$expectInvalid(static function () use ($visualService, $formDefinition, $bindingDefinition): void {
-    $visualService->saveFormFirstDraft(4267, 12740, 'stale', $formDefinition, $bindingDefinition);
+$expectInvalid(static function () use ($formFirstService, $formDefinition, $bindingDefinition): void {
+    $formFirstService->saveFormFirstDraft(41, 'stale', $formDefinition, $bindingDefinition);
 }, 'Form-first draft saves must require an exact lowercase SHA-256 aggregate revision');
-$expectInvalid(static function () use ($visualService, $aggregateRevision, $bindingDefinition): void {
-    $visualService->saveFormFirstDraft(
-        4267,
-        12740,
+$expectInvalid(static function () use ($formFirstService, $aggregateRevision, $bindingDefinition): void {
+    $formFirstService->saveFormFirstDraft(
+        41,
         $aggregateRevision,
         ['version' => 1, 'padding' => str_repeat('x', 60001)],
         $bindingDefinition
     );
 }, 'Form-first documents must be rejected above the 60 KB service cap');
-$expectInvalid(static function () use ($visualService, $aggregateRevision): void {
-    $visualService->rollbackFormFirst(4267, 12740, $aggregateRevision, -1);
+$expectInvalid(static function () use ($formFirstService, $aggregateRevision): void {
+    $formFirstService->rollbackFormFirst(41, $aggregateRevision, -1);
 }, 'Form-first rollback must reject negative published revisions');
-$invalidContractProvider = new TestStorefrontEditorProvider();
+$invalidContractProvider = new TestFormFirstAuthoringProvider();
 $invalidContractService = new ControlCenterEditorsService(
     $presetLoader,
     static fn(): int => 7,
@@ -771,7 +1090,7 @@ $invalidContractService = new ControlCenterEditorsService(
     $dependencyContractResolver
 );
 $expectRuntime(static function () use ($invalidContractService): void {
-    $invalidContractService->loadFormFirstWorkspace(4267, 12740);
+    $invalidContractService->loadFormFirstWorkspace(41);
 }, 'Form-first facade must reject non-string aggregate revisions from the provider');
 
 $mismatchedWorkspaceService = new ControlCenterEditorsService(
@@ -779,20 +1098,16 @@ $mismatchedWorkspaceService = new ControlCenterEditorsService(
     static fn(): int => 7,
     static fn(): bool => true,
     static function () {
-        return new class extends TestStorefrontEditorProvider {
+        return new class extends TestFormFirstAuthoringProvider {
             public function loadFormFirstWorkspace(
-                int $productId,
                 int $presetId,
-                array $allowedProductIds = [],
                 array $dependencyContract = []
             ): array {
                 $result = parent::loadFormFirstWorkspace(
-                    $productId,
                     $presetId,
-                    $allowedProductIds,
                     $dependencyContract
                 );
-                $result['product']['id'] = 4403;
+                $result['product'] = ['id' => 4403];
                 return $result;
             }
         };
@@ -800,25 +1115,43 @@ $mismatchedWorkspaceService = new ControlCenterEditorsService(
     $dependencyContractResolver
 );
 $expectRuntime(static function () use ($mismatchedWorkspaceService): void {
-    $mismatchedWorkspaceService->loadFormFirstWorkspace(4267, 12740);
-}, 'Form-first facade must reject a provider workspace for another product');
+    $mismatchedWorkspaceService->loadFormFirstWorkspace(41);
+}, 'Form-first facade must reject product-scoped provider output');
+
+$catalogSideChannelService = new ControlCenterEditorsService(
+    $presetLoader,
+    static fn(): int => 7,
+    static fn(): bool => true,
+    static function () {
+        return new class extends TestFormFirstAuthoringProvider {
+            public function loadFormFirstWorkspace(
+                int $presetId,
+                array $dependencyContract = []
+            ): array {
+                $result = parent::loadFormFirstWorkspace($presetId, $dependencyContract);
+                $result['catalog'] = [];
+                return $result;
+            }
+        };
+    },
+    $dependencyContractResolver
+);
+$expectRuntime(static function () use ($catalogSideChannelService): void {
+    $catalogSideChannelService->loadFormFirstWorkspace(41);
+}, 'Form-first facade must reject the removed catalog side channel');
 
 $mismatchedOperationService = new ControlCenterEditorsService(
     $presetLoader,
     static fn(): int => 7,
     static fn(): bool => true,
     static function () {
-        return new class extends TestStorefrontEditorProvider {
+        return new class extends TestFormFirstAuthoringProvider {
             public function loadFormFirstWorkspace(
-                int $productId,
                 int $presetId,
-                array $allowedProductIds = [],
                 array $dependencyContract = []
             ): array {
                 $result = parent::loadFormFirstWorkspace(
-                    $productId,
                     $presetId,
-                    $allowedProductIds,
                     $dependencyContract
                 );
                 $result['operation'] = 'publish';
@@ -829,7 +1162,7 @@ $mismatchedOperationService = new ControlCenterEditorsService(
     $dependencyContractResolver
 );
 $expectRuntime(static function () use ($mismatchedOperationService): void {
-    $mismatchedOperationService->loadFormFirstWorkspace(4267, 12740);
+    $mismatchedOperationService->loadFormFirstWorkspace(41);
 }, 'Form-first facade must reject a provider response for another operation');
 
 $mismatchedDependencyService = new ControlCenterEditorsService(
@@ -837,17 +1170,13 @@ $mismatchedDependencyService = new ControlCenterEditorsService(
     static fn(): int => 7,
     static fn(): bool => true,
     static function () {
-        return new class extends TestStorefrontEditorProvider {
+        return new class extends TestFormFirstAuthoringProvider {
             public function loadFormFirstWorkspace(
-                int $productId,
                 int $presetId,
-                array $allowedProductIds = [],
                 array $dependencyContract = []
             ): array {
                 $result = parent::loadFormFirstWorkspace(
-                    $productId,
                     $presetId,
-                    $allowedProductIds,
                     $dependencyContract
                 );
                 $result['dependencyFingerprint'] = str_repeat('f', 64);
@@ -858,31 +1187,31 @@ $mismatchedDependencyService = new ControlCenterEditorsService(
     $dependencyContractResolver
 );
 $expectRuntime(static function () use ($mismatchedDependencyService): void {
-    $mismatchedDependencyService->loadFormFirstWorkspace(4267, 12740);
+    $mismatchedDependencyService->loadFormFirstWorkspace(41);
 }, 'Form-first facade must reject a provider response compiled against a stale dependency fingerprint');
 
-$incompleteDependencyResolver = static function (int $presetId, array $allowedProductIds) use (
+$incompleteDependencyResolver = static function (int $presetId) use (
     $dependencyContractResolver
 ): array {
-    $contract = $dependencyContractResolver($presetId, $allowedProductIds);
-    unset($contract['categoryStatus']['routes']);
+    $contract = $dependencyContractResolver($presetId);
+    unset($contract['categoryStatus']['storefront_presentation']);
     return $contract;
 };
 $incompleteDependencyService = new ControlCenterEditorsService(
     $presetLoader,
     static fn(): int => 7,
     static fn(): bool => true,
-    static fn() => new TestStorefrontEditorProvider(),
+    static fn() => new TestFormFirstAuthoringProvider(),
     $incompleteDependencyResolver
 );
 $expectRuntime(static function () use ($incompleteDependencyService): void {
-    $incompleteDependencyService->loadFormFirstWorkspace(4267, 12740);
+    $incompleteDependencyService->loadFormFirstWorkspace(41);
 }, 'Form-first facade must fail closed when any dependency category is unproven');
 
-$tamperedDependencyResolver = static function (int $presetId, array $allowedProductIds) use (
+$tamperedDependencyResolver = static function (int $presetId) use (
     $dependencyContractResolver
 ): array {
-    $contract = $dependencyContractResolver($presetId, $allowedProductIds);
+    $contract = $dependencyContractResolver($presetId);
     $contract['requiredPropertyCodes'][] = 'CALC_PROP_FORGED';
     return $contract;
 };
@@ -890,88 +1219,54 @@ $tamperedDependencyService = new ControlCenterEditorsService(
     $presetLoader,
     static fn(): int => 7,
     static fn(): bool => true,
-    static fn() => new TestStorefrontEditorProvider(),
+    static fn() => new TestFormFirstAuthoringProvider(),
     $tamperedDependencyResolver
 );
 $expectRuntime(static function () use ($tamperedDependencyService): void {
-    $tamperedDependencyService->loadFormFirstWorkspace(4267, 12740);
+    $tamperedDependencyService->loadFormFirstWorkspace(41);
 }, 'Form-first facade must reject a dependency contract whose fingerprint no longer matches its contents');
 
-$mutableProducts = [
-    ['id' => 4267, 'name' => 'Phase 5A pilot', 'offers' => [['id' => 13142, 'name' => 'Pilot offer']]],
-    ['id' => 11, 'name' => 'Product B', 'offers' => [['id' => 101, 'name' => 'Offer B1']]],
-];
-$mutableLoader = static function (int $presetId) use (&$mutableProducts): array {
-    return [
-        'status' => 'ok',
-        'preset' => ['id' => $presetId, 'name' => 'Focus preset'],
-        'products' => $mutableProducts,
-    ];
-};
-$mutableProvider = new TestStorefrontEditorProvider();
-$mutableService = new ControlCenterEditorsService(
-    $mutableLoader,
+$catalogLoaderCalls = 0;
+$catalogIndependentProvider = new TestFormFirstAuthoringProvider();
+$catalogIndependentService = new ControlCenterEditorsService(
+    static function () use (&$catalogLoaderCalls): array {
+        $catalogLoaderCalls++;
+        throw new RuntimeException('The product catalog must not authorize preset form authoring');
+    },
     static fn(): int => 7,
     static fn(): bool => true,
-    static fn() => $mutableProvider,
-    $dependencyContractResolver
+    static fn() => $catalogIndependentProvider,
+    $dependencyContractResolver,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    static fn(int $presetId): array => ['id' => $presetId, 'name' => 'Preset #' . $presetId]
 );
-$mutableService->loadStorefrontWorkspace(4267, 'effective');
-$mutableProducts = [
-    ['id' => 11, 'name' => 'Product B', 'offers' => [['id' => 101, 'name' => 'Offer B1']]],
-];
-$callsBeforeStaleProduct = count($mutableProvider->calls);
-$expectInvalid(static function () use ($mutableService): void {
-    $mutableService->saveStorefrontProduct(4267, str_repeat('d', 64), ['version' => 2, 'fields' => [['property_code' => 'A']]]);
-}, 'A stale product must be re-resolved and rejected before a legacy save');
-$expectInvalid(static function () use ($mutableService): void {
-    $mutableService->loadFormFirstWorkspace(4267, 12740);
-}, 'A stale product must be re-resolved and rejected before a form-first action');
+$catalogIndependentWorkspace = $catalogIndependentService->loadFormFirstWorkspace(41);
 $assert(
-    count($mutableProvider->calls) === $callsBeforeStaleProduct,
-    'A stale product must never reach either legacy or form-first provider methods'
+    !array_key_exists('product', $catalogIndependentWorkspace)
+        && !array_key_exists('productId', $catalogIndependentWorkspace)
+        && $catalogLoaderCalls === 0
+        && ($catalogIndependentProvider->calls[0][1] ?? null) === 41
+        && is_array($catalogIndependentProvider->calls[0][2] ?? null),
+    'Preset form authoring must not read, authorize against, or scope itself to the product catalog'
 );
-$mutableProducts = [
-    ['id' => 4267, 'name' => 'Phase 5A pilot', 'offers' => [['id' => 13142, 'name' => 'Pilot offer']]],
-];
-$mutableService->loadFormFirstWorkspace(4267, 12740);
-$mutableLastCall = $mutableProvider->calls[count($mutableProvider->calls) - 1] ?? [];
-$assert(
-    ($mutableLastCall[0] ?? '') === 'loadFormFirstWorkspace'
-        && ($mutableLastCall[3] ?? null) === [4267]
-        && is_array($mutableLastCall[4] ?? null),
-    'Each provider action must receive the newly resolved allowlist and dependency contract'
-);
-$callsBeforeRejectedProduct = count($provider->calls);
-$expectInvalid(static function () use ($visualService): void {
-    $visualService->loadStorefrontWorkspace(999, 'effective');
-}, 'A product outside the focus preset must be rejected before visual-editor delegation');
-$assert(
-    count($provider->calls) === $callsBeforeRejectedProduct,
-    'Rejected products must never reach the FrontCalc provider'
-);
-$expectInvalid(static function () use ($visualService): void {
-    $visualService->loadStorefrontWorkspace(10, 'template');
-}, 'Template loads must require an exact template ID');
-$expectInvalid(static function () use ($visualService): void {
-    $visualService->loadStorefrontWorkspace(10, 'effective', 'abcdef0123456789');
-}, 'Non-template loads must not carry a template ID');
-$expectInvalid(static function () use ($visualService): void {
-    $visualService->validateStorefrontSchema(10, 'effective', ['fields' => [['property_code' => 'A']]]);
-}, 'Schema validation must use a mutable product or template target');
-
-$unavailableVisualService = new ControlCenterEditorsService(
+$unavailableFormFirstService = new ControlCenterEditorsService(
     $presetLoader,
     static fn(): int => 7,
     static fn(): bool => true,
     static fn() => null
 );
 $assert(
-    ($unavailableVisualService->getCatalog()['storefront']['visualEditorAvailable'] ?? true) === false,
-    'An unavailable provider must be advertised fail-closed'
+    ($unavailableFormFirstService->getCatalog()['storefront']['formFirstAuthoringAvailable'] ?? true) === false,
+    'An unavailable form-first provider must be advertised fail-closed'
 );
-$expectRuntime(static function () use ($unavailableVisualService): void {
-    $unavailableVisualService->loadStorefrontWorkspace(10, 'effective');
-}, 'A native load must fail closed when the provider is unavailable');
+$expectRuntime(static function () use ($unavailableFormFirstService): void {
+    $unavailableFormFirstService->loadFormFirstWorkspace(41);
+}, 'A form-first load must fail closed when the provider is unavailable');
 
 echo "Control center editors service tests passed\n";

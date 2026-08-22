@@ -10,6 +10,7 @@ use Bitrix\Main\Loader;
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\Page\Asset;
 use Prospektweb\Calc\Config\ConfigManager;
+use Prospektweb\Calc\Services\PresetProductAssignmentPropertyAuthorityService;
 
 Loc::loadMessages(__FILE__);
 
@@ -118,16 +119,6 @@ if ($isValidLaunch && !$isStandalonePresetLaunch) {
             $isValidLaunch = false;
             break;
         }
-        if ($isCatalogPresetLaunch
-            && $standalonePresetId === 12740
-            && !in_array(
-                $parentProductId,
-                \Prospektweb\Calc\Services\StandaloneCatalogSelectionMapper::supportedProductIds(),
-                true
-            )) {
-            $isValidLaunch = false;
-            break;
-        }
         if (!$isCatalogPresetLaunch
             && $validatedProductId > 0
             && $validatedProductId !== $parentProductId) {
@@ -179,13 +170,23 @@ if ($isValidLaunch && $validatedProductIds !== []) {
 }
 
 if ($isValidLaunch && $controlCenterMode && !$isStandalonePresetLaunch) {
+    try {
+        $calcPresetPropertyId = (int)(new PresetProductAssignmentPropertyAuthorityService())
+            ->resolve($productIblockId)['propertyId'];
+    } catch (\Throwable $error) {
+        $calcPresetPropertyId = 0;
+        $isValidLaunch = false;
+    }
     foreach (array_keys($validatedProductIds) as $productId) {
+        if (!$isValidLaunch) {
+            break;
+        }
         $hasSelectedPreset = false;
         $presetCursor = \CIBlockElement::GetProperty(
             $productIblockId,
             (int)$productId,
             ['ID' => 'ASC'],
-            ['CODE' => 'CALC_PRESET']
+            ['ID' => $calcPresetPropertyId]
         );
         while ($presetProperty = $presetCursor->Fetch()) {
             if ((int)($presetProperty['VALUE'] ?? 0) === $standalonePresetId) {

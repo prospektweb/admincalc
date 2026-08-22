@@ -63,7 +63,102 @@ namespace Bitrix\Main {
     {
         public static function includeModule(string $moduleId): bool
         {
-            return $moduleId === 'prospektweb.calc';
+            return in_array($moduleId, ['prospektweb.calc', 'prospektweb.frontcalc'], true);
+        }
+    }
+}
+
+namespace Prospektweb\Frontcalc\Service {
+    class StorefrontRepository
+    {
+        public const CONTRACT = 'prospektweb.frontcalc.storefront-definition/v2';
+
+        private array $records = [];
+
+        private array $deleted = [];
+
+        public function listStorefronts(int $presetId): array
+        {
+            return ['contract' => self::CONTRACT, 'preset_id' => $presetId, 'items' => []];
+        }
+
+        public function get(string $id): ?array
+        {
+            if (isset($this->deleted[$id])) {
+                return null;
+            }
+            return $this->records[$id] ?? $this->definition($id, 4);
+        }
+
+        public function save(array $definition): array
+        {
+            if (($definition['name'] ?? '') === 'Must not reach repository') {
+                throw new \RuntimeException('repository save invoked after semantic rejection');
+            }
+            if (($definition['name'] ?? '') === 'Conflict') {
+                throw new \RuntimeException('Storefront revision conflict', 409);
+            }
+            $definition['revision'] = (int)$definition['revision'] + 1;
+            $this->records[(string)$definition['id']] = $definition;
+            return $definition;
+        }
+
+        public function delete(string $id, int $expectedRevision): array
+        {
+            if ($id === 'must-not-delete') {
+                throw new \RuntimeException('delete was called before preset verification', 409);
+            }
+            $definition = $this->get($id) ?? $this->definition($id, $expectedRevision);
+            $this->deleted[$id] = true;
+            unset($this->records[$id]);
+            return $definition;
+        }
+
+        private function definition(string $id, int $revision): array
+        {
+            return [
+                'contract' => self::CONTRACT,
+                'id' => $id,
+                'preset_id' => 41,
+                'name' => 'Main storefront',
+                'active' => true,
+                'revision' => $revision,
+                'presentation' => ['field_patches' => []],
+                'product_ids' => [11],
+            ];
+        }
+    }
+
+    class FormFirstAuthoringStore
+    {
+        public static function publishedBundleForPreset(int $presetId): ?array
+        {
+            $authoring = [
+                'formDefinition' => ['contract' => 'prospektweb.frontcalc.form-definition/v1'],
+                'bindingDefinition' => ['contract' => 'prospektweb.frontcalc.binding-definition/v1'],
+                'publication' => ['revision' => 3, 'compileHash' => str_repeat('a', 64)],
+            ];
+            $snapshot = [
+                '_form_first' => ['publishedRevision' => 3, 'compileHash' => str_repeat('a', 64)],
+                'fields' => ['paper' => ['label' => 'Paper']],
+            ];
+            return ['authoring' => $authoring, 'snapshot' => $snapshot];
+        }
+    }
+
+    class StorefrontPresentationProjector
+    {
+        public function apply(array $snapshot, array $authoring, ?array $storefront): array
+        {
+            if (isset($storefront['presentation']['field_patches']['unknown.field'])) {
+                throw new \InvalidArgumentException('Unknown storefront presentation field: unknown.field');
+            }
+            foreach (($storefront['presentation']['field_patches'] ?? []) as $fieldId => $patch) {
+                foreach ($patch as $key => $value) {
+                    $snapshot['fields'][$fieldId][$key] = $value;
+                }
+            }
+            return $snapshot;
         }
     }
 }
@@ -116,20 +211,41 @@ namespace Prospektweb\Calc\Services {
         {
             return [
                 'contract' => 'prospektweb.control-center.editors/v1',
-                'focusPresetId' => 12740,
                 'calculations' => [],
                 'storefront' => [
-                    'available' => true,
-                    'visualEditorAvailable' => true,
-                    'visualEditorContract' => 'prospektweb.frontcalc.storefront-editor/v1',
                     'formFirstAuthoringAvailable' => true,
                     'formFirstAuthoringContract' => 'prospektweb.frontcalc.form-first-authoring/v1',
-                    'formFirstPilotProductIds' => [4267],
-                    'productIblockId' => 7,
-                    'products' => [],
                 ],
                 'transport' => 'ok',
             ];
+        }
+
+        public function assertStorefrontProductsBelongToPreset(int $presetId, array $productIds): void
+        {
+            $missing = array_values(array_diff($productIds, [11]));
+            if ($missing !== []) {
+                throw new \InvalidArgumentException(
+                    'Storefront product_ids are not linked to preset #' . $presetId . ': #'
+                    . implode(', #', $missing)
+                );
+            }
+        }
+
+        public function withPresetProductAssignmentLock(callable $criticalSection)
+        {
+            return $criticalSection(7);
+        }
+
+        public function withPresetMutation(
+            int $presetId,
+            array $metadata,
+            callable $mutation,
+            callable $authoritativeReadback
+        ) {
+            $authoritativeReadback();
+            $result = $mutation();
+            $authoritativeReadback();
+            return $result;
         }
 
         public function validateCalculationLaunch(int $presetId, array $offerIds): array
@@ -143,91 +259,12 @@ namespace Prospektweb\Calc\Services {
             ];
         }
 
-        public function validateStorefrontLaunch(int $productId): array
+        public function loadFormFirstWorkspace(int $presetId): array
         {
-            return [
-                'contract' => 'prospektweb.control-center.editors/v1',
-                'productIblockId' => 7,
-                'productId' => $productId,
-                'transport' => 'ok',
-            ];
-        }
-
-        public function loadStorefrontWorkspace(int $productId, string $target = 'effective', string $templateId = ''): array
-        {
-            if ($productId === 99) {
-                throw new \RuntimeException('Visual editor unavailable');
-            }
-            return $this->storefrontResult('load', [
-                'productId' => $productId,
-                'target' => $target,
-                'templateId' => $templateId,
-            ]);
-        }
-
-        public function validateStorefrontSchema(int $productId, string $target, array $schema): array
-        {
-            return $this->storefrontResult('validate', [
-                'productId' => $productId,
-                'target' => $target,
-                'schema' => $schema,
-            ]);
-        }
-
-        public function saveStorefrontTemplate(
-            int $productId,
-            string $templateId,
-            int $expectedRevision,
-            string $name,
-            int $sectionId,
-            array $schema
-        ): array {
-            return $this->storefrontResult('save_template', [
-                'productId' => $productId,
-                'templateId' => $templateId,
-                'expectedRevision' => $expectedRevision,
-                'name' => $name,
-                'sectionId' => $sectionId,
-                'schema' => $schema,
-            ]);
-        }
-
-        public function saveStorefrontProduct(int $productId, string $expectedRevision, array $schema): array
-        {
-            if ($expectedRevision === str_repeat('b', 64)) {
-                throw new \RuntimeException('Individual settings changed', 409);
-            }
-            return $this->storefrontResult('save_product', [
-                'productId' => $productId,
-                'expectedRevision' => $expectedRevision,
-                'schema' => $schema,
-            ]);
-        }
-
-        public function enableStorefrontInheritance(int $productId, string $expectedRevision): array
-        {
-            return $this->storefrontResult('enable_inheritance', [
-                'productId' => $productId,
-                'expectedRevision' => $expectedRevision,
-            ]);
-        }
-
-        public function deleteStorefrontTemplate(int $productId, string $templateId, int $expectedRevision): array
-        {
-            return $this->storefrontResult('delete_template', [
-                'productId' => $productId,
-                'templateId' => $templateId,
-                'expectedRevision' => $expectedRevision,
-            ]);
-        }
-
-        public function loadFormFirstWorkspace(int $productId, int $presetId): array
-        {
-            return $this->formFirstResult('form_first_load', compact('productId', 'presetId'));
+            return $this->formFirstResult('form_first_load', compact('presetId'));
         }
 
         public function inspectFormFirstFieldDeletion(
-            int $productId,
             int $presetId,
             string $fieldId,
             ?string $propertyCode
@@ -240,12 +277,10 @@ namespace Prospektweb\Calc\Services {
                 'removable' => true,
                 'blockers' => [],
                 'dependencyFingerprint' => str_repeat('d', 64),
-                'productId' => $productId,
             ];
         }
 
         public function saveFormFirstDraft(
-            int $productId,
             int $presetId,
             string $expectedAggregateRevision,
             array $formDefinition,
@@ -264,7 +299,6 @@ namespace Prospektweb\Calc\Services {
                 ];
             }
             return $this->formFirstResult('form_first_save_draft', compact(
-                'productId',
                 'presetId',
                 'expectedAggregateRevision',
                 'formDefinition',
@@ -274,13 +308,11 @@ namespace Prospektweb\Calc\Services {
         }
 
         public function previewFormFirst(
-            int $productId,
             int $presetId,
             array $formDefinition,
             array $bindingDefinition
         ): array {
             return $this->formFirstResult('form_first_preview', compact(
-                'productId',
                 'presetId',
                 'formDefinition',
                 'bindingDefinition'
@@ -288,13 +320,11 @@ namespace Prospektweb\Calc\Services {
         }
 
         public function publishFormFirst(
-            int $productId,
             int $presetId,
             string $expectedAggregateRevision,
             string $expectedCompileHash
         ): array {
             return $this->formFirstResult('form_first_publish', compact(
-                'productId',
                 'presetId',
                 'expectedAggregateRevision',
                 'expectedCompileHash'
@@ -302,26 +332,15 @@ namespace Prospektweb\Calc\Services {
         }
 
         public function rollbackFormFirst(
-            int $productId,
             int $presetId,
             string $expectedAggregateRevision,
             int $targetPublishedRevision
         ): array {
             return $this->formFirstResult('form_first_rollback', compact(
-                'productId',
                 'presetId',
                 'expectedAggregateRevision',
                 'targetPublishedRevision'
             ));
-        }
-
-        private function storefrontResult(string $operation, array $extra): array
-        {
-            return array_merge([
-                'contract' => 'prospektweb.frontcalc.storefront-editor/v1',
-                'operation' => $operation,
-                'transport' => 'ok',
-            ], $extra);
         }
 
         private function formFirstResult(string $operation, array $extra): array
@@ -334,29 +353,6 @@ namespace Prospektweb\Calc\Services {
         }
     }
 
-    class Phase5aParityContractService
-    {
-        public function build(): array
-        {
-            return [
-                'contract' => 'prospektweb.calc.form-first-parity/v1',
-                'presetId' => 12740,
-                'readOnly' => true,
-                'transport' => 'ok',
-            ];
-        }
-
-        public function compare(array $baseline, array $candidate): array
-        {
-            return [
-                'contract' => 'prospektweb.calc.form-first-golden-comparison/v1',
-                'presetId' => 12740,
-                'readOnly' => true,
-                'valid' => $baseline === $candidate,
-                'transport' => 'ok',
-            ];
-        }
-    }
 }
 
 namespace {
@@ -554,126 +550,126 @@ PHP;
         'payload' => json_encode(['action' => 'catalog'], JSON_UNESCAPED_SLASHES),
     ]));
     $assert($editorsCatalog['status'] === 200
-        && ($editorsCatalog['body']['data']['focusPresetId'] ?? 0) === 12740
-        && ($editorsCatalog['body']['data']['storefront']['visualEditorAvailable'] ?? false) === true
-        && ($editorsCatalog['body']['data']['storefront']['visualEditorContract'] ?? '')
-            === 'prospektweb.frontcalc.storefront-editor/v1'
+        && !array_key_exists('focusPresetId', $editorsCatalog['body']['data'] ?? [])
+        && array_keys($editorsCatalog['body']['data']['storefront'] ?? [])
+            === ['formFirstAuthoringAvailable', 'formFirstAuthoringContract']
         && ($editorsCatalog['body']['data']['storefront']['formFirstAuthoringAvailable'] ?? false) === true
-        && ($editorsCatalog['body']['data']['storefront']['formFirstPilotProductIds'] ?? []) === [4267]
+        && ($editorsCatalog['body']['data']['storefront']['formFirstAuthoringContract'] ?? '')
+            === 'prospektweb.frontcalc.form-first-authoring/v1'
         && ($editorsCatalog['body']['data']['transport'] ?? '') === 'ok',
-        'Editors catalog form payload must pass prolog and decode');
+        'Editors catalog must expose only the active preset-owned form capability');
 
     $editorsCalculation = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'validate_calculation_launch',
-        'presetId' => 12740,
+        'presetId' => 41,
         'offerIds' => [101],
     ], JSON_UNESCAPED_SLASHES));
     $assert($editorsCalculation['status'] === 200
         && ($editorsCalculation['body']['data']['offerIds'] ?? []) === [101],
         'Editors raw JSON must pass the selective list through server validation');
 
-    $editorsStorefront = $post('editors.php', 'application/x-www-form-urlencoded', $form([
-        'sessid' => 'valid',
-        'payload' => json_encode([
-            'action' => 'validate_storefront_launch',
-            'productId' => 11,
-        ], JSON_UNESCAPED_SLASHES),
-    ]));
-    $assert($editorsStorefront['status'] === 200
-        && ($editorsStorefront['body']['data']['productIblockId'] ?? 0) === 7,
-        'Editors storefront form payload must preserve the validated product ID');
-
-    $editorSchema = [
-        'version' => 2,
-        'fields' => [[
-            'property_code' => 'CALC_PROP_VOLUME',
-            'title' => 'Quantity',
+    $storefrontId = 'main-storefront';
+    $storefrontDefinition = [
+        'contract' => 'prospektweb.frontcalc.storefront-definition/v2',
+        'id' => $storefrontId,
+        'preset_id' => 41,
+        'name' => 'Main storefront',
+        'active' => true,
+        'revision' => 0,
+        'presentation' => ['field_patches' => [
+            'paper' => ['label' => 'Choose paper'],
         ]],
+        'product_ids' => [11],
     ];
-    $templateId = 'abcdef0123456789';
-    $individualRevision = str_repeat('a', 64);
 
-    $editorsStorefrontLoad = $post('editors.php', 'application/x-www-form-urlencoded', $form([
+    $editorsStorefrontList = $post('editors.php', 'application/x-www-form-urlencoded', $form([
         'sessid' => 'valid',
-        'payload' => json_encode([
-            'action' => 'storefront_load',
-            'productId' => 11,
-            'target' => 'template',
-            'templateId' => $templateId,
-        ], JSON_UNESCAPED_SLASHES),
+        'payload' => json_encode(['action' => 'storefront_list', 'preset_id' => 41], JSON_UNESCAPED_SLASHES),
     ]));
-    $assert($editorsStorefrontLoad['status'] === 200
-        && ($editorsStorefrontLoad['body']['data']['operation'] ?? '') === 'load'
-        && ($editorsStorefrontLoad['body']['data']['target'] ?? '') === 'template'
-        && ($editorsStorefrontLoad['body']['data']['templateId'] ?? '') === $templateId,
-        'Storefront load must preserve a validated template target');
+    $assert($editorsStorefrontList['status'] === 200
+        && ($editorsStorefrontList['body']['data']['contract'] ?? '') === 'prospektweb.frontcalc.storefront-definition/v2'
+        && ($editorsStorefrontList['body']['data']['preset_id'] ?? 0) === 41
+        && ($editorsStorefrontList['body']['data']['items'] ?? null) === [],
+        'Storefront list must preserve the vNext preset-owned envelope');
 
-    $editorsStorefrontValidate = $post('editors.php', 'application/json', json_encode([
+    $editorsStorefrontGet = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'action' => 'storefront_validate',
-        'productId' => 11,
-        'target' => 'product',
-        'schema' => $editorSchema,
+        'action' => 'storefront_get',
+        'preset_id' => 41,
+        'id' => $storefrontId,
     ], JSON_UNESCAPED_SLASHES));
-    $assert($editorsStorefrontValidate['status'] === 200
-        && ($editorsStorefrontValidate['body']['data']['operation'] ?? '') === 'validate'
-        && ($editorsStorefrontValidate['body']['data']['schema'] ?? []) === $editorSchema,
-        'Storefront validate must preserve the typed schema object');
+    $assert($editorsStorefrontGet['status'] === 200
+        && ($editorsStorefrontGet['body']['data']['id'] ?? '') === $storefrontId
+        && ($editorsStorefrontGet['body']['data']['product_ids'] ?? []) === [11],
+        'Storefront get must preserve the independent definition identity');
 
-    $editorsStorefrontTemplateCreate = $post('editors.php', 'application/x-www-form-urlencoded', $form([
+    $editorsStorefrontSave = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'payload' => json_encode([
-            'action' => 'storefront_save_template',
-            'productId' => 11,
-            'templateId' => null,
-            'expectedRevision' => 0,
-            'name' => 'New template',
-            'sectionId' => 0,
-            'schema' => $editorSchema,
-        ], JSON_UNESCAPED_SLASHES),
-    ]));
-    $assert($editorsStorefrontTemplateCreate['status'] === 200
-        && ($editorsStorefrontTemplateCreate['body']['data']['operation'] ?? '') === 'save_template'
-        && ($editorsStorefrontTemplateCreate['body']['data']['templateId'] ?? null) === ''
-        && ($editorsStorefrontTemplateCreate['body']['data']['expectedRevision'] ?? -1) === 0,
-        'Storefront template create must map a null template ID to the provider empty ID');
-
-    $editorsStorefrontProductSave = $post('editors.php', 'application/json', json_encode([
-        'sessid' => 'valid',
-        'action' => 'storefront_save_product',
-        'productId' => 11,
-        'expectedRevision' => $individualRevision,
-        'schema' => $editorSchema,
+        'action' => 'storefront_save',
+        'expected_revision' => 0,
+        'storefront' => $storefrontDefinition,
     ], JSON_UNESCAPED_SLASHES));
-    $assert($editorsStorefrontProductSave['status'] === 200
-        && ($editorsStorefrontProductSave['body']['data']['operation'] ?? '') === 'save_product'
-        && ($editorsStorefrontProductSave['body']['data']['expectedRevision'] ?? '') === $individualRevision,
-        'Storefront product save must preserve the individual SHA-256 revision');
+    $assert($editorsStorefrontSave['status'] === 200
+        && ($editorsStorefrontSave['body']['data']['id'] ?? '') === $storefrontId
+        && ($editorsStorefrontSave['body']['data']['revision'] ?? 0) === 1,
+        'Storefront save must preserve exact vNext definition and CAS revision');
 
-    $editorsStorefrontInheritance = $post('editors.php', 'application/x-www-form-urlencoded', $form([
+    $semanticallyInvalidStorefront = $storefrontDefinition;
+    $semanticallyInvalidStorefront['name'] = 'Must not reach repository';
+    $semanticallyInvalidStorefront['presentation']['field_patches'] = [
+        'unknown.field' => ['label' => 'Unknown'],
+    ];
+    $editorsStorefrontSemanticError = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'payload' => json_encode([
-            'action' => 'storefront_enable_inheritance',
-            'productId' => 11,
-            'expectedRevision' => $individualRevision,
-        ], JSON_UNESCAPED_SLASHES),
-    ]));
-    $assert($editorsStorefrontInheritance['status'] === 200
-        && ($editorsStorefrontInheritance['body']['data']['operation'] ?? '') === 'enable_inheritance',
-        'Storefront inheritance must pass through the existing editors transport');
+        'action' => 'storefront_save',
+        'expected_revision' => 0,
+        'storefront' => $semanticallyInvalidStorefront,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontSemanticError['status'] === 422
+        && ($editorsStorefrontSemanticError['body']['errorCode'] ?? '') === 'VALIDATION_ERROR'
+        && str_contains(
+            (string)($editorsStorefrontSemanticError['body']['error'] ?? ''),
+            'Unknown storefront presentation field'
+        ),
+        'Storefront semantic projection must reject unknown fields before repository save');
+
+    $outOfPresetStorefront = $storefrontDefinition;
+    $outOfPresetStorefront['product_ids'] = [11, 12];
+    $editorsStorefrontOutOfPreset = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_save',
+        'expected_revision' => 0,
+        'storefront' => $outOfPresetStorefront,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontOutOfPreset['status'] === 422
+        && ($editorsStorefrontOutOfPreset['body']['errorCode'] ?? '') === 'VALIDATION_ERROR'
+        && ($editorsStorefrontOutOfPreset['body']['error'] ?? '')
+            === 'Storefront product_ids are not linked to preset #41: #12',
+        'Storefront save must reject product IDs outside current CALC_PRESET authority');
 
     $editorsStorefrontDelete = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'action' => 'storefront_delete_template',
-        'productId' => 11,
-        'templateId' => $templateId,
-        'expectedRevision' => 4,
+        'action' => 'storefront_delete',
+        'preset_id' => 41,
+        'id' => $storefrontId,
+        'expected_revision' => 4,
     ], JSON_UNESCAPED_SLASHES));
     $assert($editorsStorefrontDelete['status'] === 200
-        && ($editorsStorefrontDelete['body']['data']['operation'] ?? '') === 'delete_template'
-        && ($editorsStorefrontDelete['body']['data']['expectedRevision'] ?? 0) === 4,
-        'Storefront template delete must preserve the positive template revision');
+        && ($editorsStorefrontDelete['body']['data']['deleted'] ?? false) === true
+        && ($editorsStorefrontDelete['body']['data']['revision'] ?? 0) === 4,
+        'Storefront delete must return the exact vNext CAS acknowledgement');
+
+    $editorsStorefrontForeignDelete = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'storefront_delete',
+        'preset_id' => 999,
+        'id' => 'must-not-delete',
+        'expected_revision' => 4,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($editorsStorefrontForeignDelete['status'] === 422
+        && ($editorsStorefrontForeignDelete['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront delete must verify preset ownership before repository mutation');
 
     $formDefinition = ['version' => 1, 'fields' => [['id' => 'quantity', 'type' => 'number']]];
     $bindingDefinition = [
@@ -686,19 +682,29 @@ PHP;
     $formFirstLoad = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_load',
-        'productId' => 4267,
-        'presetId' => 12740,
+        'presetId' => 41,
     ], JSON_UNESCAPED_SLASHES));
     $assert($formFirstLoad['status'] === 200
         && ($formFirstLoad['body']['data']['operation'] ?? '') === 'form_first_load'
-        && ($formFirstLoad['body']['data']['presetId'] ?? 0) === 12740,
-        'Form-first load must preserve the exact product and preset pilot IDs');
+        && ($formFirstLoad['body']['data']['presetId'] ?? 0) === 41,
+        'Form-first load must preserve the exact preset ID without product scope');
+
+    $formFirstProductScoped = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_load',
+        'presetId' => 41,
+        'productId' => 4267,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert(
+        $formFirstProductScoped['status'] === 422
+            && ($formFirstProductScoped['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Preset-owned form authoring must reject the removed product-scoped request key'
+    );
 
     $formFirstDeleteImpact = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_field_delete_impact',
-        'productId' => 4267,
-        'presetId' => 12740,
+        'presetId' => 41,
         'fieldId' => 'volume',
         'propertyCode' => 'CALC_PROP_VOLUME',
     ], JSON_UNESCAPED_SLASHES));
@@ -711,8 +717,7 @@ PHP;
     $formFirstSave = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_save_draft',
-        'productId' => 4267,
-        'presetId' => 12740,
+        'presetId' => 41,
         'expectedAggregateRevision' => $aggregateRevision,
         'formDefinition' => $formDefinition,
         'bindingDefinition' => $bindingDefinition,
@@ -725,8 +730,7 @@ PHP;
     $nodeKindsPayload = '{'
         . '"sessid":"valid",'
         . '"action":"form_first_save_draft",'
-        . '"productId":4267,'
-        . '"presetId":12740,'
+        . '"presetId":41,'
         . '"expectedAggregateRevision":"' . $aggregateRevision . '",'
         . '"formDefinition":{'
             . '"version":1,'
@@ -755,8 +759,7 @@ PHP;
     $formFirstPreview = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_preview',
-        'productId' => 4267,
-        'presetId' => 12740,
+        'presetId' => 41,
         'formDefinition' => $formDefinition,
         'bindingDefinition' => $bindingDefinition,
     ], JSON_UNESCAPED_SLASHES));
@@ -767,8 +770,7 @@ PHP;
     $formFirstPublish = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_publish',
-        'productId' => 4267,
-        'presetId' => 12740,
+        'presetId' => 41,
         'expectedAggregateRevision' => $aggregateRevision,
         'expectedCompileHash' => $compileHash,
     ], JSON_UNESCAPED_SLASHES));
@@ -780,8 +782,7 @@ PHP;
     $formFirstRollback = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_rollback',
-        'productId' => 4267,
-        'presetId' => 12740,
+        'presetId' => 41,
         'expectedAggregateRevision' => $aggregateRevision,
         'targetPublishedRevision' => 0,
     ], JSON_UNESCAPED_SLASHES));
@@ -792,8 +793,7 @@ PHP;
     $formFirstInvalidPreset = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_load',
-        'productId' => 4267,
-        'presetId' => '12740',
+        'presetId' => '41',
     ], JSON_UNESCAPED_SLASHES));
     $assert($formFirstInvalidPreset['status'] === 422,
         'Form-first requests must reject a string preset ID before provider delegation');
@@ -801,8 +801,7 @@ PHP;
     $formFirstInvalidRevision = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_publish',
-        'productId' => 4267,
-        'presetId' => 12740,
+        'presetId' => 41,
         'expectedAggregateRevision' => 'invalid',
         'expectedCompileHash' => $compileHash,
     ], JSON_UNESCAPED_SLASHES));
@@ -812,8 +811,7 @@ PHP;
     $formFirstOversizedBinding = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_preview',
-        'productId' => 4267,
-        'presetId' => 12740,
+        'presetId' => 41,
         'formDefinition' => $formDefinition,
         'bindingDefinition' => ['version' => 1, 'padding' => str_repeat('x', 60001)],
     ], JSON_UNESCAPED_SLASHES));
@@ -823,8 +821,7 @@ PHP;
     $formFirstConflict = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_save_draft',
-        'productId' => 4267,
-        'presetId' => 12740,
+        'presetId' => 41,
         'expectedAggregateRevision' => str_repeat('f', 64),
         'formDefinition' => $formDefinition,
         'bindingDefinition' => $bindingDefinition,
@@ -833,128 +830,78 @@ PHP;
         && ($formFirstConflict['body']['errorCode'] ?? '') === 'REVISION_CONFLICT',
         'Form-first CAS conflicts must retain the stable HTTP 409 mapping');
 
-    $parityContract = $post('editors.php', 'application/json', json_encode([
-        'sessid' => 'valid',
-        'action' => 'phase5a_parity_contract',
-    ], JSON_UNESCAPED_SLASHES));
-    $assert($parityContract['status'] === 200
-        && ($parityContract['body']['data']['contract'] ?? '')
-            === 'prospektweb.calc.form-first-parity/v1'
-        && ($parityContract['body']['data']['readOnly'] ?? false) === true,
-        'The Phase 5A parity contract must be available through the read-only POST action');
-
-    $observation = [
-        'contract' => 'prospektweb.calc.form-first-golden-observation/v1',
-        'presetId' => 12740,
-        'products' => [],
-    ];
-    $parityCompare = $post('editors.php', 'application/json', json_encode([
-        'sessid' => 'valid',
-        'action' => 'phase5a_parity_compare',
-        'baseline' => $observation,
-        'candidate' => $observation,
-    ], JSON_UNESCAPED_SLASHES));
-    $assert($parityCompare['status'] === 200
-        && ($parityCompare['body']['data']['valid'] ?? false) === true,
-        'The Phase 5A comparator must accept bounded read-only observation objects');
-
-    $parityCompareOversized = $post('editors.php', 'application/json', json_encode([
-        'sessid' => 'valid',
-        'action' => 'phase5a_parity_compare',
-        'baseline' => ['padding' => str_repeat('x', 60001)],
-        'candidate' => $observation,
-    ], JSON_UNESCAPED_SLASHES));
-    $assert($parityCompareOversized['status'] === 422,
-        'The Phase 5A comparator must reject oversized observation objects');
-
     $editorsStorefrontExtraField = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'action' => 'storefront_load',
-        'productId' => 11,
-        'target' => 'effective',
+        'action' => 'storefront_list',
+        'preset_id' => 41,
         'unexpected' => true,
     ], JSON_UNESCAPED_SLASHES));
     $assert($editorsStorefrontExtraField['status'] === 422
         && ($editorsStorefrontExtraField['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
         'Storefront requests must reject keys outside the exact action allowlist');
 
-    $editorsStorefrontListSchema = $post('editors.php', 'application/json', json_encode([
+    $editorsStorefrontListDefinition = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'action' => 'storefront_validate',
-        'productId' => 11,
-        'target' => 'product',
-        'schema' => [['version' => 2]],
+        'action' => 'storefront_save',
+        'expected_revision' => 0,
+        'storefront' => [['contract' => 'prospektweb.frontcalc.storefront-definition/v2']],
     ], JSON_UNESCAPED_SLASHES));
-    $assert($editorsStorefrontListSchema['status'] === 422
-        && ($editorsStorefrontListSchema['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
-        'Storefront schema must be a JSON object rather than a list');
+    $assert($editorsStorefrontListDefinition['status'] === 422
+        && ($editorsStorefrontListDefinition['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront definition must be a JSON object rather than a list');
 
-    $editorsStorefrontOversizedSchema = $post('editors.php', 'application/json', json_encode([
+    $oversizedStorefront = $storefrontDefinition;
+    $oversizedStorefront['presentation']['field_patches'] = ['paper' => ['help' => str_repeat('x', 131073)]];
+    $editorsStorefrontOversized = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'action' => 'storefront_validate',
-        'productId' => 11,
-        'target' => 'product',
-        'schema' => ['version' => 2, 'padding' => str_repeat('x', 60001)],
+        'action' => 'storefront_save',
+        'expected_revision' => 0,
+        'storefront' => $oversizedStorefront,
     ], JSON_UNESCAPED_SLASHES));
-    $assert($editorsStorefrontOversizedSchema['status'] === 422
-        && ($editorsStorefrontOversizedSchema['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
-        'Storefront schema must be rejected above the 60 KB JSON cap');
+    $assert($editorsStorefrontOversized['status'] === 422
+        && ($editorsStorefrontOversized['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront definition must be rejected above its transport cap');
 
     $editorsStorefrontInvalidRevision = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'action' => 'storefront_save_product',
-        'productId' => 11,
-        'expectedRevision' => 'not-a-revision',
-        'schema' => $editorSchema,
+        'action' => 'storefront_save',
+        'expected_revision' => '0',
+        'storefront' => $storefrontDefinition,
     ], JSON_UNESCAPED_SLASHES));
     $assert($editorsStorefrontInvalidRevision['status'] === 422
         && ($editorsStorefrontInvalidRevision['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
-        'Storefront product mutations must require an exact lowercase SHA-256 revision');
+        'Storefront mutations must retain strict integer revisions');
 
-    $editorsStorefrontStringTemplateRevision = $post('editors.php', 'application/json', json_encode([
+    $editorsStorefrontMissingDefinition = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'action' => 'storefront_delete_template',
-        'productId' => 11,
-        'templateId' => $templateId,
-        'expectedRevision' => '4',
+        'action' => 'storefront_save',
+        'expected_revision' => 0,
     ], JSON_UNESCAPED_SLASHES));
-    $assert($editorsStorefrontStringTemplateRevision['status'] === 422
-        && ($editorsStorefrontStringTemplateRevision['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
-        'Storefront template revisions must retain their strict integer type');
+    $assert($editorsStorefrontMissingDefinition['status'] === 422
+        && ($editorsStorefrontMissingDefinition['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront save must require its exact definition');
 
-    $editorsStorefrontMissingTemplateId = $post('editors.php', 'application/json', json_encode([
-        'sessid' => 'valid',
-        'action' => 'storefront_save_template',
-        'productId' => 11,
-        'expectedRevision' => 0,
-        'name' => 'New template',
-        'sectionId' => 0,
-        'schema' => $editorSchema,
-    ], JSON_UNESCAPED_SLASHES));
-    $assert($editorsStorefrontMissingTemplateId['status'] === 422
-        && ($editorsStorefrontMissingTemplateId['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
-        'Storefront template creation must distinguish an explicit null ID from an omitted field');
-
+    $conflictingStorefront = $storefrontDefinition;
+    $conflictingStorefront['name'] = 'Conflict';
     $editorsStorefrontConflict = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'action' => 'storefront_save_product',
-        'productId' => 11,
-        'expectedRevision' => str_repeat('b', 64),
-        'schema' => $editorSchema,
+        'action' => 'storefront_save',
+        'expected_revision' => 0,
+        'storefront' => $conflictingStorefront,
     ], JSON_UNESCAPED_SLASHES));
     $assert($editorsStorefrontConflict['status'] === 409
         && ($editorsStorefrontConflict['body']['errorCode'] ?? '') === 'REVISION_CONFLICT',
-        'Provider revision conflicts must map to HTTP 409 REVISION_CONFLICT');
+        'Storefront CAS conflicts must map to HTTP 409 REVISION_CONFLICT');
 
-    $editorsStorefrontUnavailable = $post('editors.php', 'application/json', json_encode([
+    $editorsStorefrontWrongPreset = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
-        'action' => 'storefront_load',
-        'productId' => 99,
-        'target' => 'effective',
+        'action' => 'storefront_get',
+        'preset_id' => 999,
+        'id' => $storefrontId,
     ], JSON_UNESCAPED_SLASHES));
-    $assert($editorsStorefrontUnavailable['status'] === 409
-        && ($editorsStorefrontUnavailable['body']['errorCode'] ?? '') === 'EDITOR_UNAVAILABLE',
-        'Unavailable storefront providers must fail closed with HTTP 409');
+    $assert($editorsStorefrontWrongPreset['status'] === 422
+        && ($editorsStorefrontWrongPreset['body']['errorCode'] ?? '') === 'VALIDATION_ERROR',
+        'Storefront get must remain scoped to the requested preset');
 
     $editorsInvalid = $post('editors.php', 'application/x-www-form-urlencoded', $form([
         'sessid' => 'valid',

@@ -46,6 +46,16 @@ final class AiCalculatorContextService
 
     public function save(array $request): array
     {
+        throw new \RuntimeException('USE_SEMANTIC_MUTATION_BOUNDARY', 409);
+    }
+
+    /** @param array<string,int> $pinnedIblockIds */
+    public function saveLocked(
+        array $request,
+        int $presetId,
+        CalculatorMutationAuthorityService $authority,
+        array $pinnedIblockIds
+    ): array {
         $this->assertAdmin();
         $this->includeModules();
         $settingsId = (int)($request['settingsId'] ?? 0);
@@ -57,17 +67,37 @@ final class AiCalculatorContextService
         if (!is_string($json) || strlen($json) > self::MAX_BYTES) {
             throw new \InvalidArgumentException('Контекст AI-конструктора слишком велик');
         }
-        $settingsIblockId = (new ConfigManager())->getIblockId('CALC_SETTINGS');
+        $settingsIblockId = (int)($pinnedIblockIds['CALC_SETTINGS'] ?? 0);
+        $authority->assertSettingsMutationAllowed($presetId, $settingsId);
         if ($settingsIblockId <= 0 || !\CIBlockElement::GetList([], [
             'ID' => $settingsId,
             'IBLOCK_ID' => $settingsIblockId,
         ], false, ['nTopCount' => 1], ['ID'])->Fetch()) {
             throw new \RuntimeException('Калькулятор не найден');
         }
-        $this->ensureProperty($settingsIblockId);
+        $property = \CIBlockProperty::GetList([], [
+            'IBLOCK_ID' => $settingsIblockId,
+            '=CODE' => self::PROPERTY_CODE,
+        ])->Fetch();
+        if (!is_array($property) || (int)($property['ID'] ?? 0) <= 0) {
+            throw new \RuntimeException('Свойство AI_CONTEXT_JSON не установлено. Выполните версионированную миграцию.', 409);
+        }
         \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
             self::PROPERTY_CODE => ['VALUE' => ['TEXT' => $json, 'TYPE' => 'text']],
         ]);
+        $readback = \CIBlockElement::GetProperty(
+            $settingsIblockId,
+            $settingsId,
+            ['sort' => 'asc'],
+            ['CODE' => self::PROPERTY_CODE]
+        )->Fetch();
+        $readbackValue = $readback['~VALUE'] ?? $readback['VALUE'] ?? null;
+        if (is_array($readbackValue)) {
+            $readbackValue = $readbackValue['TEXT'] ?? null;
+        }
+        if (!is_string($readbackValue) || !hash_equals(hash('sha256', $json), hash('sha256', $readbackValue))) {
+            throw new \RuntimeException('Контрольное чтение AI_CONTEXT_JSON не совпало с записью.', 409);
+        }
         return ['status' => 'ok', 'settingsId' => $settingsId, 'context' => $context];
     }
 
@@ -335,26 +365,6 @@ final class AiCalculatorContextService
             }
         }
         return $nodes;
-    }
-
-    private function ensureProperty(int $iblockId): void
-    {
-        if (\CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, 'CODE' => self::PROPERTY_CODE])->Fetch()) {
-            return;
-        }
-        $property = new \CIBlockProperty();
-        if (!$property->Add([
-            'IBLOCK_ID' => $iblockId,
-            'ACTIVE' => 'Y',
-            'CODE' => self::PROPERTY_CODE,
-            'NAME' => 'Контекст AI-конструктора',
-            'PROPERTY_TYPE' => 'S',
-            'USER_TYPE' => 'HTML',
-            'MULTIPLE' => 'N',
-            'SORT' => 820,
-        ])) {
-            throw new \RuntimeException('Не удалось создать свойство AI_CONTEXT_JSON: ' . trim((string)$property->LAST_ERROR));
-        }
     }
 
     private function includeModules(): void

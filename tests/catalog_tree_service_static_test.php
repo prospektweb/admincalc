@@ -42,9 +42,6 @@ if (substr_count($batchService, "'ACTIVE_DATE' => 'Y'") < 1) {
 if (substr_count($service, "'ACTIVE_DATE' => 'Y'") < 1) {
     throw new RuntimeException('Preset offer catalog must reject expired and future-dated offers');
 }
-if (!str_contains($service, 'StandaloneCatalogSelectionMapper::supportedProductIds()')) {
-    throw new RuntimeException('Preset 12740 authoring catalog must retain the fixed prepared-product allowlist');
-}
 foreach ([
     'CALC_CUSTOM_FIELDS',
     'CALC_MATERIALS',
@@ -65,8 +62,9 @@ foreach (['CALC_PRESETS', 'CALC_DETAILS', 'CALC_STAGES', 'CALC_SETTINGS', 'CALC_
         throw new RuntimeException("Executable iblock {$executableCode} must not enter the generic mutation allowlist");
     }
 }
-if (!str_contains($batchService, '$this->catalogAdapterService->supportedProductIds()')) {
-    throw new RuntimeException('Batch calculation must retain the current persisted adapter scope');
+if (str_contains($batchService, 'CatalogAdapterDefinitionService')
+    || str_contains($batchService, 'StandaloneCatalogSelectionMapper')) {
+    throw new RuntimeException('Batch calculation must not retain legacy adapter product allowlists');
 }
 
 foreach (['getPresetLoadOptions', 'PRESET_LOAD_OPTIONS_RESPONSE', 'presetLoadOptions'] as $action) {

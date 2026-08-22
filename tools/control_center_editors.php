@@ -79,8 +79,11 @@ if (empty($_REQUEST['sessid']) && isset($request['sessid']) && is_scalar($reques
 require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php';
 
 use Bitrix\Main\Loader;
+use Prospektweb\Calc\Services\CalculatorInputMappingService;
+use Prospektweb\Calc\Services\CalculatorInputSourceCatalogService;
+use Prospektweb\Calc\Services\CatalogOutputMappingService;
 use Prospektweb\Calc\Services\ControlCenterEditorsService;
-use Prospektweb\Calc\Services\Phase5aParityContractService;
+use Prospektweb\Calc\Services\PresetSectionSelectorService;
 
 global $APPLICATION, $USER;
 
@@ -175,56 +178,9 @@ $parseStrictNonNegativeInt = static function ($value, string $field): int {
 
     return $value;
 };
-$parseTemplateId = static function ($value, bool $allowEmpty): string {
-    if ($allowEmpty && $value === null) {
-        return '';
-    }
-    if (!is_string($value)) {
-        throw new \InvalidArgumentException('templateId must be a valid template identifier');
-    }
-    if ($allowEmpty && $value === '') {
-        return '';
-    }
-    if (preg_match('/^[a-f0-9]{16,32}$/D', $value) !== 1) {
-        throw new \InvalidArgumentException('templateId must be a valid template identifier');
-    }
-
-    return $value;
-};
-$parseIndividualRevision = static function ($value): string {
-    if (!is_string($value) || preg_match('/^[a-f0-9]{64}$/D', $value) !== 1) {
-        throw new \InvalidArgumentException('expectedRevision must be a SHA-256 revision');
-    }
-
-    return $value;
-};
 $parseAggregateRevision = static function ($value, string $field): string {
     if (!is_string($value) || preg_match('/^[a-f0-9]{64}$/D', $value) !== 1) {
         throw new \InvalidArgumentException($field . ' must be a lowercase SHA-256 revision');
-    }
-
-    return $value;
-};
-$parseTarget = static function ($value, array $allowedTargets): string {
-    if (!is_string($value) || !in_array($value, $allowedTargets, true)) {
-        throw new \InvalidArgumentException('target is not supported');
-    }
-
-    return $value;
-};
-$parseSchema = static function ($value): array {
-    if (!is_array($value) || $value === []) {
-        throw new \InvalidArgumentException('schema must be a non-empty object');
-    }
-    if (array_keys($value) === range(0, count($value) - 1)) {
-        throw new \InvalidArgumentException('schema must be a non-empty object');
-    }
-    $encoded = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if (!is_string($encoded)) {
-        throw new \InvalidArgumentException('schema must be valid JSON data');
-    }
-    if (strlen($encoded) > 60000) {
-        throw new \InvalidArgumentException('schema must not exceed 60000 bytes');
     }
 
     return $value;
@@ -248,6 +204,86 @@ $parseEditorDocument = static function ($value, string $field): array {
     }
 
     return $value;
+};
+$parseInputMappingDocument = static function ($value): array {
+    if (!is_array($value) || $value === [] || array_keys($value) === range(0, count($value) - 1)) {
+        throw new \InvalidArgumentException('mapping must be a non-empty JSON object');
+    }
+    $encoded = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded) || strlen($encoded) > 131072) {
+        throw new \InvalidArgumentException('mapping must be valid JSON data not exceeding 131072 bytes');
+    }
+
+    return $value;
+};
+$parseStorefrontId = static function ($value): string {
+    if (!is_string($value) || preg_match('/^[a-z0-9][a-z0-9_.-]{0,63}$/D', $value) !== 1) {
+        throw new \InvalidArgumentException('id must be a valid storefront identifier');
+    }
+    return $value;
+};
+$parseStorefrontDefinition = static function ($value): array {
+    if (!is_array($value) || $value === [] || array_keys($value) === range(0, count($value) - 1)) {
+        throw new \InvalidArgumentException('storefront must be a non-empty JSON object');
+    }
+    $encoded = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded) || strlen($encoded) > 131072) {
+        throw new \InvalidArgumentException('storefront must be valid JSON data not exceeding 131072 bytes');
+    }
+    return $value;
+};
+$storefrontRepository = static function () {
+    if (!Loader::includeModule('prospektweb.frontcalc')) {
+        throw new \RuntimeException('Module prospektweb.frontcalc is not installed');
+    }
+    $class = '\\Prospektweb\\Frontcalc\\Service\\StorefrontRepository';
+    if (!class_exists($class)) {
+        throw new \RuntimeException('Storefront vNext repository is unavailable');
+    }
+    return new $class();
+};
+$validateStorefrontPresentation = static function (int $presetId, array $definition): void {
+    $presentation = is_array($definition['presentation'] ?? null) ? $definition['presentation'] : [];
+    $fieldPatches = is_array($presentation['field_patches'] ?? null)
+        ? $presentation['field_patches']
+        : [];
+    if ($fieldPatches === []) {
+        if (($definition['active'] ?? false) === true) {
+            throw new \InvalidArgumentException('Активная витрина должна изменять представление базовой формы.');
+        }
+        return;
+    }
+    if (!Loader::includeModule('prospektweb.frontcalc')) {
+        throw new \RuntimeException('Module prospektweb.frontcalc is required to validate storefront presentation');
+    }
+    $storeClass = '\\Prospektweb\\Frontcalc\\Service\\FormFirstAuthoringStore';
+    $projectorClass = '\\Prospektweb\\Frontcalc\\Service\\StorefrontPresentationProjector';
+    if (!class_exists($storeClass)
+        || !is_callable([$storeClass, 'publishedBundleForPreset'])
+        || !class_exists($projectorClass)) {
+        throw new \RuntimeException('Published form storefront validation is unavailable');
+    }
+    $publishedBundle = $storeClass::publishedBundleForPreset($presetId);
+    $authoring = is_array($publishedBundle['authoring'] ?? null) ? $publishedBundle['authoring'] : null;
+    $snapshot = is_array($publishedBundle['snapshot'] ?? null) ? $publishedBundle['snapshot'] : null;
+    if (!is_array($authoring) || !is_array($snapshot)) {
+        throw new \InvalidArgumentException('Storefront field patches require an exact published preset form.');
+    }
+    $publication = is_array($authoring['publication'] ?? null) ? $authoring['publication'] : [];
+    $runtimeMeta = is_array($snapshot['_form_first'] ?? null) ? $snapshot['_form_first'] : [];
+    if ((int)($publication['revision'] ?? 0) <= 0
+        || (int)($publication['revision'] ?? 0) !== (int)($runtimeMeta['publishedRevision'] ?? -1)
+        || !is_string($publication['compileHash'] ?? null)
+        || !hash_equals((string)$publication['compileHash'], (string)($runtimeMeta['compileHash'] ?? ''))) {
+        throw new \RuntimeException('Published preset form changed during storefront validation', 409);
+    }
+    // The projector is the runtime authority for unknown fields, absent
+    // bindings and required/conditionally-required fields hidden by a patch.
+    $projected = (new $projectorClass())->apply($snapshot, $authoring, $definition);
+    if (($definition['active'] ?? false) === true
+        && ($projected['fields'] ?? null) === ($snapshot['fields'] ?? null)) {
+        throw new \InvalidArgumentException('Активная витрина не содержит отличий от базовой формы.');
+    }
 };
 
 try {
@@ -307,6 +343,41 @@ try {
     }
 
     if ($action === 'set_preset_products') {
+        $assertAllowedRequestKeys([
+            'action',
+            'sessid',
+            'presetId',
+            'productIds',
+            'expectedRevision',
+            'impactFingerprint',
+        ]);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $productIds = $request['productIds'] ?? null;
+        $expectedRevision = $request['expectedRevision'] ?? null;
+        $impactFingerprint = $request['impactFingerprint'] ?? null;
+        if (!is_array($productIds)
+            || !is_string($expectedRevision)
+            || !is_string($impactFingerprint)) {
+            throw new \InvalidArgumentException(
+                'productIds, expectedRevision and impactFingerprint are required'
+            );
+        }
+        $normalizedProductIds = [];
+        foreach ($productIds as $productId) {
+            $normalizedProductIds[] = $parseStrictPositiveInt($productId, 'productId');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $service->setPresetProducts(
+                $presetId,
+                $normalizedProductIds,
+                $expectedRevision,
+                $impactFingerprint
+            ),
+        ]);
+    }
+
+    if ($action === 'preset_products_impact') {
         $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'productIds', 'expectedRevision']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $productIds = $request['productIds'] ?? null;
@@ -320,7 +391,246 @@ try {
         }
         $respond(200, [
             'success' => true,
-            'data' => $service->setPresetProducts($presetId, $normalizedProductIds, $expectedRevision),
+            'data' => $service->previewPresetProductImpact($presetId, $normalizedProductIds, $expectedRevision),
+        ]);
+    }
+
+    if ($action === 'calculator_input_source_catalog') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'preset_id']);
+        $presetId = $parseStrictPositiveInt($request['preset_id'] ?? null, 'preset_id');
+        $respond(200, [
+            'success' => true,
+            'data' => (new CalculatorInputSourceCatalogService())->load($presetId),
+        ]);
+    }
+
+    if ($action === 'calculator_input_mapping_load') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'preset_id']);
+        $presetId = $parseStrictPositiveInt($request['preset_id'] ?? null, 'preset_id');
+        $respond(200, [
+            'success' => true,
+            'data' => (new CalculatorInputMappingService())->load($presetId),
+        ]);
+    }
+
+    if ($action === 'calculator_input_mapping_validate') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'mapping']);
+        $mapping = $parseInputMappingDocument($request['mapping'] ?? null);
+        $presetId = $parseStrictPositiveInt($mapping['preset_id'] ?? null, 'mapping.preset_id');
+        $respond(200, [
+            'success' => true,
+            'data' => (new CalculatorInputMappingService())->validate($presetId, $mapping),
+        ]);
+    }
+
+    if ($action === 'calculator_input_mapping_save') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'expected_revision', 'mapping']);
+        $mapping = $parseInputMappingDocument($request['mapping'] ?? null);
+        $presetId = $parseStrictPositiveInt($mapping['preset_id'] ?? null, 'mapping.preset_id');
+        $expectedRevision = $parseStrictNonNegativeInt(
+            $request['expected_revision'] ?? null,
+            'expected_revision'
+        );
+        $respond(200, [
+            'success' => true,
+            'data' => (new CalculatorInputMappingService())->save(
+                $presetId,
+                $expectedRevision,
+                $mapping
+            ),
+        ]);
+    }
+
+    if ($action === 'catalog_output_mapping_load') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'preset_id']);
+        $presetId = $parseStrictPositiveInt($request['preset_id'] ?? null, 'preset_id');
+        $respond(200, [
+            'success' => true,
+            'data' => (new CatalogOutputMappingService())->load($presetId),
+        ]);
+    }
+
+    if ($action === 'catalog_output_mapping_validate') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'mapping']);
+        $mapping = $parseInputMappingDocument($request['mapping'] ?? null);
+        $presetId = $parseStrictPositiveInt($mapping['preset_id'] ?? null, 'mapping.preset_id');
+        $respond(200, [
+            'success' => true,
+            'data' => (new CatalogOutputMappingService())->validate($presetId, $mapping),
+        ]);
+    }
+
+    if ($action === 'catalog_output_mapping_save') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'expected_revision', 'mapping']);
+        $mapping = $parseInputMappingDocument($request['mapping'] ?? null);
+        $presetId = $parseStrictPositiveInt($mapping['preset_id'] ?? null, 'mapping.preset_id');
+        $expectedRevision = $parseStrictNonNegativeInt(
+            $request['expected_revision'] ?? null,
+            'expected_revision'
+        );
+        $respond(200, [
+            'success' => true,
+            'data' => (new CatalogOutputMappingService())->save(
+                $presetId,
+                $expectedRevision,
+                $mapping
+            ),
+        ]);
+    }
+
+    if ($action === 'preset_sections') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'preset_id']);
+        $presetId = $parseStrictPositiveInt($request['preset_id'] ?? null, 'preset_id');
+        $respond(200, [
+            'success' => true,
+            'data' => (new PresetSectionSelectorService())->listSections($presetId),
+        ]);
+    }
+
+    if ($action === 'preset_section_preview') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'preset_id', 'section_id']);
+        $presetId = $parseStrictPositiveInt($request['preset_id'] ?? null, 'preset_id');
+        $sectionId = $parseStrictPositiveInt($request['section_id'] ?? null, 'section_id');
+        $respond(200, [
+            'success' => true,
+            'data' => (new PresetSectionSelectorService())->preview($presetId, $sectionId),
+        ]);
+    }
+
+    if ($action === 'storefront_list') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'preset_id']);
+        $presetId = $parseStrictPositiveInt($request['preset_id'] ?? null, 'preset_id');
+        $respond(200, [
+            'success' => true,
+            'data' => $storefrontRepository()->listStorefronts($presetId),
+        ]);
+    }
+
+    if ($action === 'storefront_get') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'preset_id', 'id']);
+        $presetId = $parseStrictPositiveInt($request['preset_id'] ?? null, 'preset_id');
+        $storefrontId = $parseStorefrontId($request['id'] ?? null);
+        $definition = $storefrontRepository()->get($storefrontId);
+        if (!is_array($definition) || (int)($definition['preset_id'] ?? 0) !== $presetId) {
+            throw new \InvalidArgumentException('Storefront not found in the requested preset');
+        }
+        $respond(200, ['success' => true, 'data' => $definition]);
+    }
+
+    if ($action === 'storefront_save') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'expected_revision', 'storefront']);
+        $expectedRevision = $parseStrictNonNegativeInt($request['expected_revision'] ?? null, 'expected_revision');
+        $definition = $parseStorefrontDefinition($request['storefront'] ?? null);
+        if (!is_int($definition['revision'] ?? null) || (int)$definition['revision'] !== $expectedRevision) {
+            throw new \InvalidArgumentException('storefront.revision must match expected_revision');
+        }
+        $presetId = $parseStrictPositiveInt($definition['preset_id'] ?? null, 'storefront.preset_id');
+        $productIds = $definition['product_ids'] ?? null;
+        if (!is_array($productIds)
+            || array_keys($productIds) !== ($productIds === [] ? [] : range(0, count($productIds) - 1))) {
+            throw new \InvalidArgumentException('storefront.product_ids must be a JSON array');
+        }
+        $repository = $storefrontRepository();
+        $storefrontId = $parseStorefrontId($definition['id'] ?? null);
+        $savedStorefront = $service->withPresetProductAssignmentLock(
+            static function (int $lockedProductIblockId) use (
+                $service,
+                $presetId,
+                $productIds,
+                $definition,
+                $expectedRevision,
+                $storefrontId,
+                $validateStorefrontPresentation,
+                $repository
+            ): array {
+                return $service->withPresetMutation(
+                    $presetId,
+                    [
+                        'action' => 'storefront_save',
+                        'entity_type' => 'storefront',
+                        'entity_id' => $storefrontId,
+                        'expected_revision' => $expectedRevision,
+                        'product_ids' => $productIds,
+                    ],
+                    static function () use (
+                        $service,
+                        $presetId,
+                        $productIds,
+                        $lockedProductIblockId,
+                        $definition,
+                        $validateStorefrontPresentation,
+                        $repository
+                    ): array {
+                        $service->assertStorefrontProductsBelongToPreset(
+                            $presetId,
+                            $productIds,
+                            $lockedProductIblockId
+                        );
+                        $validateStorefrontPresentation($presetId, $definition);
+                        $saved = $repository->save($definition);
+                        $readBack = $repository->get((string)$saved['id']);
+                        if (!is_array($readBack) || $readBack !== $saved) {
+                            throw new \RuntimeException('Storefront authoritative save readback does not match the write');
+                        }
+                        return $readBack;
+                    },
+                    static function () use ($repository, $storefrontId) {
+                        return $repository->get($storefrontId);
+                    }
+                );
+            }
+        );
+        $respond(200, [
+            'success' => true,
+            'data' => $savedStorefront,
+        ]);
+    }
+
+    if ($action === 'storefront_delete') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'preset_id', 'id', 'expected_revision']);
+        $presetId = $parseStrictPositiveInt($request['preset_id'] ?? null, 'preset_id');
+        $storefrontId = $parseStorefrontId($request['id'] ?? null);
+        $expectedRevision = $parseStrictPositiveInt($request['expected_revision'] ?? null, 'expected_revision');
+        $repository = $storefrontRepository();
+        $existing = $repository->get($storefrontId);
+        if (!is_array($existing) || (int)($existing['preset_id'] ?? 0) !== $presetId) {
+            throw new \InvalidArgumentException('Storefront not found in the requested preset');
+        }
+        $deleted = $service->withPresetMutation(
+            $presetId,
+            [
+                'action' => 'storefront_delete',
+                'entity_type' => 'storefront',
+                'entity_id' => $storefrontId,
+                'expected_revision' => $expectedRevision,
+                'product_ids' => is_array($existing['product_ids'] ?? null) ? $existing['product_ids'] : [],
+            ],
+            static function () use ($repository, $storefrontId, $expectedRevision): array {
+                $deleted = $repository->delete($storefrontId, $expectedRevision);
+                if ($repository->get($storefrontId) !== null) {
+                    throw new \RuntimeException('Deleted storefront remains present during authoritative readback');
+                }
+                return $deleted;
+            },
+            static function () use ($repository, $storefrontId) {
+                return $repository->get($storefrontId);
+            }
+        );
+        if ((int)($deleted['preset_id'] ?? 0) !== $presetId) {
+            throw new \RuntimeException('Deleted storefront readback does not match the requested preset');
+        }
+        if ($repository->get($storefrontId) !== null) {
+            throw new \RuntimeException('Deleted storefront remains present after authoritative readback');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => [
+                'contract' => \Prospektweb\Frontcalc\Service\StorefrontRepository::CONTRACT,
+                'preset_id' => $presetId,
+                'id' => $storefrontId,
+                'deleted' => true,
+                'revision' => $expectedRevision,
+            ],
         ]);
     }
 
@@ -334,19 +644,16 @@ try {
     }
 
     if ($action === 'set_preset_active') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'presetIds', 'active']);
-        $presetIds = $request['presetIds'] ?? null;
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expected_revision', 'active']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedRevision = $request['expected_revision'] ?? null;
         $active = $request['active'] ?? null;
-        if (!is_array($presetIds) || !is_bool($active)) {
-            throw new \InvalidArgumentException('presetIds and active are required');
-        }
-        $normalizedPresetIds = [];
-        foreach ($presetIds as $presetId) {
-            $normalizedPresetIds[] = $parseStrictPositiveInt($presetId, 'presetId');
+        if (!is_string($expectedRevision) || !is_bool($active)) {
+            throw new \InvalidArgumentException('expected_revision and active are required');
         }
         $respond(200, [
             'success' => true,
-            'data' => $service->setPresetActive($normalizedPresetIds, $active),
+            'data' => $service->setPresetActive($presetId, $expectedRevision, $active),
         ]);
     }
 
@@ -386,130 +693,18 @@ try {
         ]);
     }
 
-    if ($action === 'validate_storefront_launch') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'productId']);
-        $productId = $parsePositiveInt($request['productId'] ?? null, 'productId');
-
-        $respond(200, [
-            'success' => true,
-            'data' => $service->validateStorefrontLaunch($productId),
-        ]);
-    }
-
-    if ($action === 'storefront_load') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'target', 'templateId']);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
-        $target = $parseTarget($request['target'] ?? null, ['effective', 'product', 'template']);
-        $templateId = $parseTemplateId($request['templateId'] ?? null, true);
-
-        $respond(200, [
-            'success' => true,
-            'data' => $service->loadStorefrontWorkspace($productId, $target, $templateId),
-        ]);
-    }
-
-    if ($action === 'storefront_validate') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'target', 'schema']);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
-        $target = $parseTarget($request['target'] ?? null, ['product', 'template']);
-        $schema = $parseSchema($request['schema'] ?? null);
-
-        $respond(200, [
-            'success' => true,
-            'data' => $service->validateStorefrontSchema($productId, $target, $schema),
-        ]);
-    }
-
-    if ($action === 'storefront_save_template') {
-        $assertAllowedRequestKeys([
-            'action',
-            'sessid',
-            'productId',
-            'templateId',
-            'expectedRevision',
-            'name',
-            'sectionId',
-            'schema',
-        ]);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
-        if (!array_key_exists('templateId', $request)) {
-            throw new \InvalidArgumentException('templateId is required and may be null only for creation');
-        }
-        $templateId = $parseTemplateId($request['templateId'], true);
-        $expectedRevision = $parseStrictNonNegativeInt($request['expectedRevision'] ?? null, 'expectedRevision');
-        if (($templateId === '' && $expectedRevision !== 0)
-            || ($templateId !== '' && $expectedRevision <= 0)) {
-            throw new \InvalidArgumentException('expectedRevision does not match the template target');
-        }
-        $name = $request['name'] ?? null;
-        if (!is_string($name) || trim($name) === '') {
-            throw new \InvalidArgumentException('name must be a non-empty string');
-        }
-        $sectionId = $parseStrictNonNegativeInt($request['sectionId'] ?? null, 'sectionId');
-        $schema = $parseSchema($request['schema'] ?? null);
-
-        $respond(200, [
-            'success' => true,
-            'data' => $service->saveStorefrontTemplate(
-                $productId,
-                $templateId,
-                $expectedRevision,
-                $name,
-                $sectionId,
-                $schema
-            ),
-        ]);
-    }
-
-    if ($action === 'storefront_save_product') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'expectedRevision', 'schema']);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
-        $expectedRevision = $parseIndividualRevision($request['expectedRevision'] ?? null);
-        $schema = $parseSchema($request['schema'] ?? null);
-
-        $respond(200, [
-            'success' => true,
-            'data' => $service->saveStorefrontProduct($productId, $expectedRevision, $schema),
-        ]);
-    }
-
-    if ($action === 'storefront_enable_inheritance') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'expectedRevision']);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
-        $expectedRevision = $parseIndividualRevision($request['expectedRevision'] ?? null);
-
-        $respond(200, [
-            'success' => true,
-            'data' => $service->enableStorefrontInheritance($productId, $expectedRevision),
-        ]);
-    }
-
-    if ($action === 'storefront_delete_template') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'templateId', 'expectedRevision']);
-        $productId = $parseStrictPositiveInt($request['productId'] ?? null, 'productId');
-        $templateId = $parseTemplateId($request['templateId'] ?? null, false);
-        $expectedRevision = $parseStrictPositiveInt($request['expectedRevision'] ?? null, 'expectedRevision');
-
-        $respond(200, [
-            'success' => true,
-            'data' => $service->deleteStorefrontTemplate($productId, $templateId, $expectedRevision),
-        ]);
-    }
-
     if ($action === 'form_first_load') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'presetId']);
-        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
 
         $respond(200, [
             'success' => true,
-            'data' => $service->loadFormFirstWorkspace($productId, $presetId),
+            'data' => $service->loadFormFirstWorkspace($presetId),
         ]);
     }
 
     if ($action === 'form_first_field_delete_impact') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'productId', 'presetId', 'fieldId', 'propertyCode']);
-        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'fieldId', 'propertyCode']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         if (!is_string($request['fieldId'] ?? null)) {
             throw new \InvalidArgumentException('fieldId must be a string');
@@ -522,7 +717,6 @@ try {
         $respond(200, [
             'success' => true,
             'data' => $service->inspectFormFirstFieldDeletion(
-                $productId,
                 $presetId,
                 (string)$request['fieldId'],
                 $propertyCode
@@ -534,13 +728,11 @@ try {
         $assertAllowedRequestKeys([
             'action',
             'sessid',
-            'productId',
             'presetId',
             'expectedAggregateRevision',
             'formDefinition',
             'bindingDefinition',
         ]);
-        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedAggregateRevision = $parseAggregateRevision(
             $request['expectedAggregateRevision'] ?? null,
@@ -558,7 +750,6 @@ try {
         $respond(200, [
             'success' => true,
             'data' => $service->saveFormFirstDraft(
-                $productId,
                 $presetId,
                 $expectedAggregateRevision,
                 $formDefinition,
@@ -571,12 +762,10 @@ try {
         $assertAllowedRequestKeys([
             'action',
             'sessid',
-            'productId',
             'presetId',
             'formDefinition',
             'bindingDefinition',
         ]);
-        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $formDefinition = $parseEditorDocument(
             $requestWithJsonNodeKinds['formDefinition'] ?? $request['formDefinition'] ?? null,
@@ -590,7 +779,6 @@ try {
         $respond(200, [
             'success' => true,
             'data' => $service->previewFormFirst(
-                $productId,
                 $presetId,
                 $formDefinition,
                 $bindingDefinition
@@ -602,12 +790,10 @@ try {
         $assertAllowedRequestKeys([
             'action',
             'sessid',
-            'productId',
             'presetId',
             'expectedAggregateRevision',
             'expectedCompileHash',
         ]);
-        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedAggregateRevision = $parseAggregateRevision(
             $request['expectedAggregateRevision'] ?? null,
@@ -621,7 +807,6 @@ try {
         $respond(200, [
             'success' => true,
             'data' => $service->publishFormFirst(
-                $productId,
                 $presetId,
                 $expectedAggregateRevision,
                 $expectedCompileHash
@@ -633,12 +818,10 @@ try {
         $assertAllowedRequestKeys([
             'action',
             'sessid',
-            'productId',
             'presetId',
             'expectedAggregateRevision',
             'targetPublishedRevision',
         ]);
-        $productId = $parseStrictNonNegativeInt($request['productId'] ?? 0, 'productId');
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedAggregateRevision = $parseAggregateRevision(
             $request['expectedAggregateRevision'] ?? null,
@@ -652,29 +835,10 @@ try {
         $respond(200, [
             'success' => true,
             'data' => $service->rollbackFormFirst(
-                $productId,
                 $presetId,
                 $expectedAggregateRevision,
                 $targetPublishedRevision
             ),
-        ]);
-    }
-
-    if ($action === 'phase5a_parity_contract') {
-        $assertAllowedRequestKeys(['action', 'sessid']);
-        $respond(200, [
-            'success' => true,
-            'data' => (new Phase5aParityContractService())->build(),
-        ]);
-    }
-
-    if ($action === 'phase5a_parity_compare') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'baseline', 'candidate']);
-        $baseline = $parseEditorDocument($request['baseline'] ?? null, 'baseline');
-        $candidate = $parseEditorDocument($request['candidate'] ?? null, 'candidate');
-        $respond(200, [
-            'success' => true,
-            'data' => (new Phase5aParityContractService())->compare($baseline, $candidate),
         ]);
     }
 

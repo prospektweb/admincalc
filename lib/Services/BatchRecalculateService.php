@@ -7,7 +7,6 @@ use Bitrix\Main\Loader;
 use Prospektweb\Calc\Config\ConfigManager;
 use Prospektweb\Calc\Calculator\InitPayloadService;
 use Prospektweb\Calc\Services\OfferUpdateService;
-use Prospektweb\Calc\Calculator\CalculationHistoryHandler;
 
 /**
  * Сервис пакетного пересчёта калькуляций
@@ -23,7 +22,7 @@ class BatchRecalculateService
     private ConfigManager $configManager;
     private InitPayloadService $initPayloadService;
     private ?CalcServerRequestSigner $requestSigner;
-    private CatalogAdapterDefinitionService $catalogAdapterService;
+    private CatalogOutputMappingService $catalogOutputMappingService;
 
     /**
      * @param string $calcServerUrl URL сервера расчётов
@@ -36,7 +35,7 @@ class BatchRecalculateService
         $this->configManager = new ConfigManager();
         $this->initPayloadService = new InitPayloadService();
         $this->requestSigner = $requestSigner;
-        $this->catalogAdapterService = new CatalogAdapterDefinitionService();
+        $this->catalogOutputMappingService = new CatalogOutputMappingService();
     }
 
     public static function normalizeCalcServerUrl(string $url): string
@@ -87,7 +86,7 @@ class BatchRecalculateService
     public static function normalizeRequestedPresetIds(array $presetIds): array
     {
         if ($presetIds === []) {
-            return [CatalogAdapterDefinitionService::PRESET_ID];
+            throw new \InvalidArgumentException('Batch recalculation requires exactly one preset.', 400);
         }
         if (array_keys($presetIds) !== range(0, count($presetIds) - 1)
             || count($presetIds) !== 1) {
@@ -103,16 +102,13 @@ class BatchRecalculateService
             throw new \InvalidArgumentException('Batch preset ID is invalid.', 400);
         }
         self::assertSupportedBatchPresetId((int)$rawPresetId);
-        return [CatalogAdapterDefinitionService::PRESET_ID];
+        return [(int)$rawPresetId];
     }
 
     public static function assertSupportedBatchPresetId(int $presetId): void
     {
-        if ($presetId !== CatalogAdapterDefinitionService::PRESET_ID) {
-            throw new \RuntimeException(
-                'Batch recalculation is supported only for preset 12740.',
-                409
-            );
+        if ($presetId <= 0) {
+            throw new \RuntimeException('Batch recalculation requires a positive preset ID.', 409);
         }
     }
 
@@ -140,7 +136,7 @@ class BatchRecalculateService
                 }
             )));
             sort($normalizedProductIds, SORT_NUMERIC);
-            $result[CatalogAdapterDefinitionService::PRESET_ID] = $normalizedProductIds;
+            $result[(int)$rawPresetId] = $normalizedProductIds;
         }
         return $result;
     }
@@ -303,6 +299,10 @@ class BatchRecalculateService
         if ($productIblockId <= 0) {
             return [];
         }
+        $propertyAuthority = (new PresetProductAssignmentPropertyAuthorityService())->resolve(
+            $productIblockId
+        );
+        $propertyId = (int)$propertyAuthority['propertyId'];
 
         $products = [];
         $res = \CIBlockElement::GetList(
@@ -311,7 +311,7 @@ class BatchRecalculateService
                 'IBLOCK_ID' => $productIblockId,
                 'ACTIVE' => 'Y',
                 'ACTIVE_DATE' => 'Y',
-                'PROPERTY_CALC_PRESET' => $presetId,
+                'PROPERTY_' . $propertyId => $presetId,
             ],
             false,
             false,
@@ -343,13 +343,6 @@ class BatchRecalculateService
                     . '&find_section_section=0&WF=Y',
                 'offerCount' => 0,
             ];
-        }
-
-        if ($presetId === CatalogAdapterDefinitionService::PRESET_ID) {
-            $supportedProductIds = $this->catalogAdapterService->supportedProductIds();
-            $products = array_values(array_filter($products, static function (array $product) use ($supportedProductIds): bool {
-                return in_array((int)$product['id'], $supportedProductIds, true);
-            }));
         }
 
         $offerCounts = $this->countOffersByProductIds(array_column($products, 'id'));
@@ -447,7 +440,7 @@ class BatchRecalculateService
                     throw new \RuntimeException('calc-server вернул некорректный список результатов');
                 }
                 $offerResults = $this->normalizeStandaloneCatalogPrices($offerResults, $requestPayload);
-                $offerResults = $this->projectCatalogAdapterResults($offerResults, $requestPayload);
+                $offerResults = $this->projectCatalogOutputResults($offerResults, $requestPayload);
 
                 $chunkPreview = $offerUpdateService->previewOffersFromCalculation($offerResults, $offerChunk);
             } catch (\Throwable $e) {
@@ -535,8 +528,11 @@ class BatchRecalculateService
     public function captureOfferWriteStateFingerprintsAtSite(array $offerIds, string $siteId): array
     {
         $calculation = $this->captureOfferStateFingerprintsAtSite($offerIds, $siteId);
+        $catalogPayload = $this->initPayloadService->prepareCatalogWritePayload($offerIds, $siteId);
+        $presetId = (int)($catalogPayload['presetId'] ?? 0);
+        self::assertSupportedBatchPresetId($presetId);
         $catalog = (new CatalogCalculationWriteService())->captureCatalogWriteStateFingerprints(
-            CatalogAdapterDefinitionService::PRESET_ID,
+            $presetId,
             $offerIds,
             $siteId
         );
@@ -605,6 +601,7 @@ class BatchRecalculateService
             $initPayload = $this->prepareCalculationPayload($offerChunk, $siteId);
             $fingerprints += $this->captureStateFingerprintsFromPayload($initPayload, $offerChunk);
             $requestPayload = $this->buildPayloadForOffers($initPayload, $offerChunk);
+            $this->assertNeutralCalcServerPayload($requestPayload);
             $runtimeLocks = $this->mergeRuntimeLocks(
                 $runtimeLocks,
                 $this->extractRuntimeLocks($requestPayload)
@@ -620,14 +617,21 @@ class BatchRecalculateService
                 ? $requestPayload['editorRuntime']
                 : [];
             $publication = is_array($runtime['publication'] ?? null) ? $runtime['publication'] : [];
-            $adapter = is_array($runtime['catalogAdapter'] ?? null) ? $runtime['catalogAdapter'] : [];
+            $inputMapping = is_array($runtime['calculatorInputMapping'] ?? null)
+                ? $runtime['calculatorInputMapping']
+                : [];
+            $outputMapping = is_array($runtime['catalogOutputMapping'] ?? null)
+                ? $runtime['catalogOutputMapping']
+                : [];
             $chunkPins = [
                 'publication' => [
                     'revision' => (int)($publication['revision'] ?? 0),
                     'compileHash' => strtolower(trim((string)($publication['compileHash'] ?? ''))),
                 ],
-                'adapterRevision' => strtolower(trim((string)($adapter['revision'] ?? ''))),
-                'neutralInputRequired' => ($requestPayload['neutralInputRequired'] ?? false) === true,
+                'inputMappingRevision' => (int)($inputMapping['revision'] ?? 0),
+                'outputMappingRevision' => (int)($outputMapping['revision'] ?? 0),
+                'presetId' => (int)($requestPayload['preset']['id'] ?? 0),
+                'neutralInputRequired' => true,
                 'runtimeConfigSnapshot' => is_array($requestPayload['_runtimeConfigSnapshot'] ?? null)
                     ? $requestPayload['_runtimeConfigSnapshot']
                     : [],
@@ -636,7 +640,7 @@ class BatchRecalculateService
                 $sourcePins = $chunkPins;
             } elseif ($this->canonicalizeStateHashValue($sourcePins)
                 !== $this->canonicalizeStateHashValue($chunkPins)) {
-                throw new \RuntimeException('Публикация формы или адаптер изменились между частями серверного расчёта.');
+                throw new \RuntimeException('Публикация формы или сопоставления изменились между частями серверного расчёта.');
             }
 
             $calcResult = $this->callCalcServer($requestPayload);
@@ -686,12 +690,13 @@ class BatchRecalculateService
             'stateFingerprints' => $fingerprints,
             'provenance' => [
                 'contract' => self::SERVER_CALCULATION_CONTRACT . '/provenance',
-                'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
+                'presetId' => (int)($sourcePins['presetId'] ?? 0),
                 'publication' => is_array($sourcePins['publication'] ?? null)
                     ? $sourcePins['publication']
                     : [],
-                'adapterRevision' => (string)($sourcePins['adapterRevision'] ?? ''),
-                'neutralInputRequired' => ($sourcePins['neutralInputRequired'] ?? false) === true,
+                'inputMappingRevision' => (int)($sourcePins['inputMappingRevision'] ?? 0),
+                'outputMappingRevision' => (int)($sourcePins['outputMappingRevision'] ?? 0),
+                'neutralInputRequired' => true,
                 'runtimeConfigSnapshot' => is_array($sourcePins['runtimeConfigSnapshot'] ?? null)
                     ? $sourcePins['runtimeConfigSnapshot']
                     : [],
@@ -1039,8 +1044,7 @@ class BatchRecalculateService
             $initPayload = $this->prepareCalculationPayload($offerIds, $siteId);
             $resolvedPresetId = (int)($initPayload['preset']['id'] ?? 0);
             // Resolve the server-owned payload first, then fail closed before
-            // fingerprints, network or the authoritative writer. Batch writes
-            // intentionally support only the standalone preset 12740 path.
+            // fingerprints, network or the authoritative writer.
             self::assertSupportedBatchPresetId($resolvedPresetId);
 
             $offersToProcess = [];
@@ -1087,7 +1091,7 @@ class BatchRecalculateService
                     || !is_string($resultFingerprint)
                     || preg_match('/^[a-f0-9]{64}$/D', strtolower(trim($resultFingerprint))) !== 1) {
                     throw new \RuntimeException(
-                        'Пакетная запись пресета 12740 не содержит подтверждённые catalog/result fingerprints.'
+                        'Пакетная запись пресета не содержит подтверждённые catalog/result fingerprints.'
                     );
                 }
                 $approvedStates[$offerId] = $state;
@@ -1095,8 +1099,9 @@ class BatchRecalculateService
             }
 
             $catalogWriter = new CatalogCalculationWriteService();
+            $presetId = (int)($requestPayload['preset']['id'] ?? 0);
             $writeResult = $catalogWriter->replayAuthoritativeBatch(
-                CatalogAdapterDefinitionService::PRESET_ID,
+                $presetId,
                 $offersToProcess,
                 $siteId,
                 $approvedStates,
@@ -1107,7 +1112,7 @@ class BatchRecalculateService
             if (is_array($writeResult)) {
                 // Receipt replay is deliberately resolved before any
                 // calc-server call. Only offer IDs are needed below to
-                // rebuild the job result; history is not duplicated.
+                // rebuild the job result; the transaction audit is not duplicated.
                 $offerResults = array_map(static function (array $row): array {
                     return ['offerId' => (int)($row['offerId'] ?? 0)];
                 }, is_array($writeResult['offers'] ?? null) ? $writeResult['offers'] : []);
@@ -1117,7 +1122,7 @@ class BatchRecalculateService
                     ? $authoritativeCalculation['results']
                     : [];
                 $writeResult = $catalogWriter->applyAuthoritativeBatch(
-                    CatalogAdapterDefinitionService::PRESET_ID,
+                    $presetId,
                     $offersToProcess,
                     $authoritativeCalculation,
                     $siteId,
@@ -1138,7 +1143,6 @@ class BatchRecalculateService
             }
 
             $returnedOfferIds = [];
-            $successfulOfferResults = [];
             foreach ($offerResults as $offerResult) {
                 $returnedOfferId = (int)($offerResult['offerId'] ?? 0);
                 if ($returnedOfferId <= 0) {
@@ -1163,9 +1167,6 @@ class BatchRecalculateService
                     'status' => 'recalculated',
                     'resultCount' => 1,
                 ];
-                if (($writeResult['replayed'] ?? false) !== true) {
-                    $successfulOfferResults[] = $offerResult;
-                }
             }
 
             foreach ($offersToProcess as $offerId) {
@@ -1177,24 +1178,6 @@ class BatchRecalculateService
                 }
             }
 
-            try {
-                $historyHandler = new CalculationHistoryHandler();
-                $historyOffers = [];
-                foreach ($successfulOfferResults as $offerResult) {
-                    $historyOffers[] = [
-                        'offerId' => (int)($offerResult['offerId'] ?? 0),
-                        'json' => $offerResult,
-                    ];
-                }
-
-                if (!empty($historyOffers)) {
-                    $historyHandler->handle([
-                        'offers' => $historyOffers,
-                    ]);
-                }
-            } catch (\Exception $e) {
-                error_log('Ошибка сохранения истории пакетного расчёта: ' . $e->getMessage());
-            }
         } catch (\Exception $e) {
             $message = $e->getMessage();
             foreach ($offerIds as $offerId) {
@@ -1211,7 +1194,7 @@ class BatchRecalculateService
     }
 
     /**
-     * Preset 12740 is calculated from its published standalone form. Real
+     * Every preset is calculated from its published standalone form. Real
      * products and offers are read only to resolve the output target matrix;
      * calc-server receives product=null and virtual offers.
      *
@@ -1220,7 +1203,7 @@ class BatchRecalculateService
      */
     private function prepareCalculationPayload(array $offerIds, string $siteId): array
     {
-        // Preset 12740 preview/recalculation must be strictly read-only until
+        // Catalog preview/recalculation must be strictly read-only until
         // the explicit writer transaction. prepareInitPayload() performs
         // repair/migration/enrichment and is intentionally not used here.
         $configAuthority = new CatalogCalculationWriteService();
@@ -1235,7 +1218,6 @@ class BatchRecalculateService
         $catalogPayload = $this->initPayloadService->prepareCatalogWritePayload(
             $offerIds,
             $siteId,
-            null,
             null,
             null,
             null,
@@ -1276,12 +1258,14 @@ class BatchRecalculateService
         $editorRuntime = is_array($catalogPayload['editorRuntime'] ?? null)
             ? $catalogPayload['editorRuntime']
             : [];
-        $catalogMapping = is_array($editorRuntime['catalogMapping'] ?? null)
-            ? $editorRuntime['catalogMapping']
+        $catalogMapping = is_array($editorRuntime['catalogInputMapping'] ?? null)
+            ? $editorRuntime['catalogInputMapping']
             : [];
-        if (($catalogMapping['adapterPersisted'] ?? null) !== true) {
+        if (($catalogMapping['ready'] ?? null) !== true) {
+            $errors = is_array($catalogMapping['errors'] ?? null) ? $catalogMapping['errors'] : [];
             throw new \RuntimeException(
-                'Catalog calculation requires an explicitly persisted adapter.',
+                'Catalog input mapping is not ready for every selected offer: '
+                    . json_encode($errors, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 409
             );
         }
@@ -1294,8 +1278,10 @@ class BatchRecalculateService
             ? $catalogPayload['_publishedSnapshot']
             : [];
         if ($schema === []) {
-            throw new \RuntimeException('Не найдена опубликованная форма пресета 12740.');
+            throw new \RuntimeException('Не найдена опубликованная форма пресета.');
         }
+        $presetId = (int)($catalogPayload['presetId'] ?? 0);
+        self::assertSupportedBatchPresetId($presetId);
 
         $expectedOfferIds = [];
         foreach ((array)($catalogPayload['selectedOffers'] ?? []) as $targetOffer) {
@@ -1307,28 +1293,43 @@ class BatchRecalculateService
         $expectedOfferIds = array_values(array_unique($expectedOfferIds));
         sort($expectedOfferIds, SORT_NUMERIC);
 
-        $runtime = new \Prospektweb\Frontcalc\Service\StandalonePresetRuntime();
-        $schemaCatalog = $runtime->buildSchemaCatalog($schema, CatalogAdapterDefinitionService::PRESET_ID);
+        $runtimeCatalog = new \Prospektweb\Frontcalc\Service\PresetRuntimeCatalog();
+        $schemaCatalog = $runtimeCatalog->build($schema, $presetId);
         $validator = new \Prospektweb\Frontcalc\Service\CustomSelectionValidator();
         $builder = new \Prospektweb\Frontcalc\Service\VirtualOfferBatchBuilder();
-        $mapper = new StandaloneCatalogSelectionMapper($this->catalogAdapterService);
         $virtualOffers = [];
+        $scenariosByOfferId = [];
+        foreach ((array)($editorRuntime['catalogScenarios'] ?? []) as $scenario) {
+            $scenarioOfferId = is_array($scenario) ? (int)($scenario['target']['offerId'] ?? 0) : 0;
+            if ($scenarioOfferId > 0 && !isset($scenariosByOfferId[$scenarioOfferId])) {
+                $scenariosByOfferId[$scenarioOfferId] = $scenario;
+            }
+        }
 
         foreach ((array)($catalogPayload['selectedOffers'] ?? []) as $targetOffer) {
             if (!is_array($targetOffer)) {
                 continue;
             }
-            $mapped = $mapper->map($targetOffer);
+            $offerId = (int)($targetOffer['id'] ?? 0);
+            $productId = (int)($targetOffer['productId'] ?? 0);
+            $scenario = is_array($scenariosByOfferId[$offerId] ?? null)
+                ? $scenariosByOfferId[$offerId]
+                : null;
+            if ($scenario === null
+                || (int)($scenario['presetId'] ?? 0) !== $presetId
+                || (string)($scenario['source'] ?? '') !== 'catalog-input-mapping') {
+                throw new \RuntimeException('ТП #' . $offerId . ': отсутствует допустимый сценарий сопоставления входов.');
+            }
             $validated = $validator->validate(
                 $schema,
-                $mapped['selection'],
+                is_array($scenario['values'] ?? null) ? $scenario['values'] : [],
                 is_array($schemaCatalog['enumValues'] ?? null) ? $schemaCatalog['enumValues'] : [],
                 is_array($schemaCatalog['presetBuckets'] ?? null) ? $schemaCatalog['presetBuckets'] : []
             );
             if (empty($validated['ok'])) {
                 $error = is_array($validated['error'] ?? null) ? $validated['error'] : [];
                 throw new \RuntimeException(
-                    'ТП #' . $mapped['offerId'] . ': '
+                    'ТП #' . $offerId . ': '
                     . (string)($error['message'] ?? 'не удалось сопоставить с опубликованной формой пресета')
                 );
             }
@@ -1337,25 +1338,24 @@ class BatchRecalculateService
                 is_array($validated['values'] ?? null) ? $validated['values'] : [],
                 0,
                 0,
-                [$mapped['quantity']]
+                [(int)($scenario['quantity'] ?? 0)]
             );
             if (count($built) !== 1) {
-                throw new \RuntimeException('ТП #' . $mapped['offerId'] . ': не удалось построить точный виртуальный расчёт.');
+                throw new \RuntimeException('ТП #' . $offerId . ': не удалось построить точный виртуальный расчёт.');
             }
             $virtualOffer = $built[0];
-            $virtualOffer['id'] = $mapped['offerId'];
-            $virtualOffer['name'] = $mapped['offerName'] !== ''
-                ? $mapped['offerName']
-                : 'Расчётное ТП #' . $mapped['offerId'];
+            $virtualOffer['id'] = $offerId;
+            $offerName = trim((string)($scenario['target']['name'] ?? $targetOffer['name'] ?? ''));
+            $virtualOffer['name'] = $offerName !== '' ? $offerName : 'Расчётное ТП #' . $offerId;
             // Catalog identity remains transport/provenance only. Neutral
             // calc-server execution strips it from the formula context.
-            $virtualOffer['productId'] = (int)$mapped['productId'];
+            $virtualOffer['productId'] = $productId;
             $virtualOffer['iblockId'] = 0;
             $virtualOffers[] = $virtualOffer;
         }
 
         if (count($virtualOffers) !== count($expectedOfferIds)) {
-            throw new \RuntimeException('Не все выбранные ТП сопоставлены с автономным пресетом 12740.');
+            throw new \RuntimeException('Не все выбранные ТП сопоставлены с пресетом.');
         }
 
         if (!array_key_exists('_neutralInputRequired', $catalogPayload)
@@ -1378,8 +1378,8 @@ class BatchRecalculateService
             ->decorateOffers(
                 $virtualOffers,
                 $publishedAuthoring,
-                CatalogAdapterDefinitionService::PRESET_ID,
-                'catalog-adapter'
+                $presetId,
+                'catalog-input-mapping'
             );
 
         $globalSymbols = is_array($catalogPayload['_globalSymbols'] ?? null)
@@ -1395,7 +1395,7 @@ class BatchRecalculateService
             throw new \RuntimeException('Catalog payload does not pin ConfigManager option authority.');
         }
         $payload = (new InitPayloadService())->preparePresetCalculationPayloadReadOnlyPinned(
-            CatalogAdapterDefinitionService::PRESET_ID,
+            $presetId,
             $virtualOffers,
             $siteId,
             $globalSymbols,
@@ -1543,8 +1543,7 @@ class BatchRecalculateService
      */
     private function normalizeStandaloneCatalogPrices(array $offerResults, array $requestPayload): array
     {
-        if ((int)($requestPayload['preset']['id'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID
-            || array_key_exists('product', $requestPayload) && $requestPayload['product'] !== null) {
+        if (array_key_exists('product', $requestPayload) && $requestPayload['product'] !== null) {
             return $offerResults;
         }
         if (!Loader::includeModule('prospektweb.frontcalc')) {
@@ -1559,148 +1558,35 @@ class BatchRecalculateService
     }
 
     /**
-     * Apply the same adapter output allowlist to preview and write flows.
+     * Apply the preset-owned output allowlist to preview and write flows.
      *
      * @param array<int,array<string,mixed>> $offerResults
      * @param array<string,mixed> $requestPayload
      * @return array<int,array<string,mixed>>
      */
-    private function projectCatalogAdapterResults(array $offerResults, array $requestPayload): array
+    private function projectCatalogOutputResults(array $offerResults, array $requestPayload): array
     {
-        if ((int)($requestPayload['preset']['id'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID) {
-            return $offerResults;
-        }
+        $presetId = (int)($requestPayload['preset']['id'] ?? 0);
+        self::assertSupportedBatchPresetId($presetId);
         $editorRuntime = is_array($requestPayload['editorRuntime'] ?? null)
             ? $requestPayload['editorRuntime']
             : [];
-        $definition = is_array($editorRuntime['catalogAdapter'] ?? null)
-            ? $editorRuntime['catalogAdapter']
+        $definition = is_array($editorRuntime['catalogOutputMapping'] ?? null)
+            ? $editorRuntime['catalogOutputMapping']
             : null;
         $publication = is_array($editorRuntime['publication'] ?? null)
             ? $editorRuntime['publication']
             : null;
         if (!is_array($definition) || !is_array($publication)) {
-            throw new \RuntimeException('Расчёт пресета 12740 не содержит подтверждённые ревизии формы и адаптера каталога.');
+            throw new \RuntimeException('Расчёт пресета не содержит подтверждённые ревизии формы и записи каталога.');
         }
-        return $this->catalogAdapterService->projectResultsForWrite(
+        return $this->catalogOutputMappingService->projectResultsForWrite(
+            $presetId,
             $offerResults,
             is_array($requestPayload['priceTypes'] ?? null) ? $requestPayload['priceTypes'] : [],
             $definition,
             $publication
         );
-    }
-
-    /**
-     * Выполнить пересчёт одного торгового предложения
-     *
-     * @param int $offerId ID торгового предложения
-     * @param bool $onlyChanged Пропускать неизменившиеся
-     * @return array{status: string, error?: string, resultCount?: int}
-     */
-    public function recalculateOffer(int $offerId, bool $onlyChanged = true): array
-    {
-        $results = $this->recalculateOffers([$offerId], $onlyChanged);
-
-        return $results[$offerId] ?? [
-            'status' => 'error',
-            'error' => 'Не удалось получить результат пересчёта',
-        ];
-    }
-
-    /**
-     * Выполнить пересчёт для набора пресетов
-     * 
-     * @param int[] $presetIds Пустой массив = все пресеты
-     * @param bool $onlyChanged Пропускать неизменившиеся
-     * @param callable|null $progressCallback function(int $current, int $total, string $message)
-     * @return array Сводка результатов
-     */
-    public function recalculate(
-        array $presetIds = [],
-        bool $onlyChanged = true,
-        ?callable $progressCallback = null
-    ): array {
-        $startTime = microtime(true);
-        
-        // Получаем список пресетов для обработки
-        $allPresets = $this->getPresetsWithOfferCount();
-        
-        if (!empty($presetIds)) {
-            $allPresets = array_filter($allPresets, function($preset) use ($presetIds) {
-                return in_array($preset['id'], $presetIds, true);
-            });
-        }
-
-        $summary = [
-            'totalPresets' => count($allPresets),
-            'processedPresets' => 0,
-            'totalOffers' => 0,
-            'recalculated' => 0,
-            'skipped' => 0,
-            'errors' => 0,
-            'duration' => 0,
-        ];
-
-        $details = [];
-        $errors = [];
-
-        foreach ($allPresets as $index => $preset) {
-            $presetId = $preset['id'];
-            $presetName = $preset['name'];
-            
-            if ($progressCallback) {
-                $progressCallback($index + 1, count($allPresets), "Обработка пресета: {$presetName}");
-            }
-
-            $offerIds = $this->getOfferIdsForPreset($presetId);
-            $summary['totalOffers'] += count($offerIds);
-
-            $presetStats = [
-                'presetId' => $presetId,
-                'presetName' => $presetName,
-                'offerCount' => count($offerIds),
-                'recalculated' => 0,
-                'skipped' => 0,
-                'errors' => [],
-            ];
-
-            foreach ($offerIds as $offerId) {
-                $offerResult = $this->recalculateOffer((int)$offerId, $onlyChanged);
-
-                if (($offerResult['status'] ?? '') === 'recalculated') {
-                    $presetStats['recalculated']++;
-                    $summary['recalculated']++;
-                    continue;
-                }
-
-                if (($offerResult['status'] ?? '') === 'skipped') {
-                    $presetStats['skipped']++;
-                    $summary['skipped']++;
-                    continue;
-                }
-
-                $errorMessage = (string)($offerResult['error'] ?? 'Неизвестная ошибка');
-                $presetStats['errors'][] = $errorMessage;
-                $errors[] = [
-                    'presetId' => $presetId,
-                    'offerId' => $offerId,
-                    'error' => $errorMessage,
-                ];
-                $summary['errors']++;
-            }
-
-            $details[] = $presetStats;
-            $summary['processedPresets']++;
-        }
-
-        $summary['duration'] = round(microtime(true) - $startTime, 2);
-
-        return [
-            'success' => true,
-            'summary' => $summary,
-            'details' => $details,
-            'errors' => $errors,
-        ];
     }
 
     /**
@@ -1712,6 +1598,7 @@ class BatchRecalculateService
      */
     private function callCalcServer(array $initPayload): array
     {
+        $this->assertNeutralCalcServerPayload($initPayload);
         $baseUrl = rtrim($this->calcServerUrl, '/');
         $url = preg_match('#/calculate$#', $baseUrl) ? $baseUrl : $baseUrl . '/calculate';
         $requestBody = json_encode(['initPayload' => $initPayload], JSON_UNESCAPED_UNICODE);
@@ -1890,7 +1777,7 @@ class BatchRecalculateService
             'preset' => $initPayload['preset'] ?? [],
             'priceTypes' => $initPayload['priceTypes'] ?? [],
             'globalSymbols' => $initPayload['globalSymbols'] ?? [],
-            'neutralInputRequired' => ($initPayload['neutralInputRequired'] ?? false) === true,
+            'neutralInputRequired' => $initPayload['neutralInputRequired'] ?? null,
             'runtimeConfigSnapshot' => $initPayload['_runtimeConfigSnapshot'] ?? [],
             'editorRuntime' => $initPayload['editorRuntime'] ?? null,
         ];
@@ -2039,6 +1926,77 @@ class BatchRecalculateService
         }
 
         return $payload;
+    }
+
+    /**
+     * Calc-server accepts only the published neutral form contract. This guard
+     * sits immediately before every network call, so no legacy payload branch
+     * can silently omit form provenance or per-offer semantic input.
+     *
+     * @param array<string,mixed> $payload
+     */
+    private function assertNeutralCalcServerPayload(array $payload): void
+    {
+        if (($payload['neutralInputRequired'] ?? null) !== true) {
+            throw new \RuntimeException('calc-server payload must require neutral input.', 409);
+        }
+        if (!is_array($payload['globalSymbols'] ?? null)) {
+            throw new \RuntimeException('calc-server payload must carry the global symbol registry.', 409);
+        }
+
+        $preset = is_array($payload['preset'] ?? null) ? $payload['preset'] : [];
+        $presetId = (int)($preset['id'] ?? 0);
+        $runtime = is_array($payload['editorRuntime'] ?? null) ? $payload['editorRuntime'] : [];
+        $launch = is_array($runtime['launchContext'] ?? null) ? $runtime['launchContext'] : [];
+        $publication = is_array($runtime['publication'] ?? null) ? $runtime['publication'] : [];
+        if ($presetId <= 0
+            || (string)($runtime['contract'] ?? '') !== 'prospektweb.calc.editor-runtime/v2'
+            || (string)($launch['contract'] ?? '') !== 'prospektweb.calc.launch-context/v2'
+            || (int)($launch['presetId'] ?? 0) !== $presetId
+            || !in_array((string)($launch['mode'] ?? ''), ['manual', 'catalog'], true)
+            || !is_array($runtime['formDefinition'] ?? null)
+            || !is_array($runtime['bindingDefinition'] ?? null)
+            || (int)($publication['revision'] ?? 0) <= 0
+            || preg_match('/^[a-f0-9]{64}$/D', (string)($publication['compileHash'] ?? '')) !== 1) {
+            throw new \RuntimeException('calc-server payload has invalid published editor runtime provenance.', 409);
+        }
+
+        $offers = $payload['selectedOffers'] ?? null;
+        if (!is_array($offers) || $offers === []) {
+            throw new \RuntimeException('calc-server payload must contain neutral calculation offers.', 409);
+        }
+        $offerIds = [];
+        foreach ($offers as $offer) {
+            if (!is_array($offer)) {
+                throw new \RuntimeException('calc-server payload contains an invalid offer.', 409);
+            }
+            $offerId = (int)($offer['id'] ?? 0);
+            $input = is_array($offer['calculationInput'] ?? null) ? $offer['calculationInput'] : [];
+            $inputPreset = is_array($input['preset'] ?? null) ? $input['preset'] : [];
+            if ($offerId <= 0
+                || (string)($input['contract'] ?? '') !== 'prospektweb.calc.input-context/v1'
+                || !in_array((string)($input['source'] ?? ''), ['manual', 'catalog-input-mapping'], true)
+                || !is_array($input['scenario'] ?? null)
+                || !is_array($input['values'] ?? null)
+                || (int)($inputPreset['id'] ?? 0) !== $presetId
+                || (int)($inputPreset['revision'] ?? 0) !== (int)$publication['revision']
+                || !hash_equals(
+                    (string)$publication['compileHash'],
+                    (string)($inputPreset['compileHash'] ?? '')
+                )) {
+                throw new \RuntimeException(
+                    'Offer #' . $offerId . ' lacks exact neutral calculation input provenance.',
+                    409
+                );
+            }
+            $offerIds[] = $offerId;
+        }
+        sort($offerIds, SORT_NUMERIC);
+        $launchOfferIds = array_values(array_map('intval', (array)($launch['offerIds'] ?? [])));
+        sort($launchOfferIds, SORT_NUMERIC);
+        if ($offerIds !== $launchOfferIds) {
+            throw new \RuntimeException('calc-server payload launch context does not match its offers.', 409);
+        }
     }
 
     /**

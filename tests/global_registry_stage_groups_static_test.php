@@ -4,6 +4,7 @@ $root = dirname(__DIR__);
 $gateway = file_get_contents($root . '/lib/Services/AiGatewayService.php');
 $globals = file_get_contents($root . '/lib/Services/GlobalSymbolService.php');
 $refactor = file_get_contents($root . '/lib/Services/GlobalCodeRefactorService.php');
+$globalCoordinator = file_get_contents($root . '/lib/Services/GlobalCalculatorMutationCoordinatorService.php');
 $groups = file_get_contents($root . '/lib/Services/StageGroupService.php');
 $service = file_get_contents($root . '/lib/Calculator/ElementDataService.php');
 $integration = file_get_contents($root . '/install/assets/js/integration.js');
@@ -24,24 +25,30 @@ $checks = [
     'AI global rename is previewed, fingerprinted and transactionally applied' => strpos($refactor, 'function preview(') !== false
         && strpos($refactor, 'function apply(') !== false
         && strpos($refactor, 'hash_equals(') !== false
-        && strpos($refactor, 'startTransaction()') !== false
+        && strpos($refactor, 'GlobalCalculatorMutationCoordinatorService())->mutate(') !== false
+        && strpos($refactor, "mutationState(\$lockedPlan['mutations'], 'current')") !== false
+        && strpos($globalCoordinator, 'startTransaction()') !== false
+        && strpos($globalCoordinator, 'GLOBAL_CALCULATOR_MUTATION_REVISION') !== false
+        && strpos($globalCoordinator, 'CEventLog::Add') !== false
         && strpos($refactor, 'replaceIdentifiers(') !== false,
     'init exposes symbols scoped to the current preset' => strpos($init, "'globalSymbols'") !== false
         && strpos($init, 'GlobalSymbolService())') !== false
         && strpos($init, 'listReadOnlyFromIblockId(') !== false,
-    'runtime reads of global symbols never create storage or claim legacy rows' => strpos($globals, 'public function listReadOnly(') !== false
-        && strpos($globals, 'return $this->readRows($iblockId, $presetId);') !== false,
-    'global registry owns every row by preset and filters scoped reads' => strpos($globals, "'PRESET_ID', 'Пресет'") !== false
+    'runtime reads of global symbols require an explicitly pinned iblock and contain no storage provisioning' => strpos($globals, 'public function listReadOnlyFromIblockId(') !== false
+        && strpos($globals, 'ensureStorage') === false
+        && strpos($globals, 'storageIblockIdReadOnly') === false
+        && strpos($globals, 'new \\CIBlock(') === false,
+    'global registry owns every row by preset and filters scoped reads without legacy claiming' => strpos($globals, "propertyId(\$iblockId, 'PRESET_ID')") !== false
         && strpos($globals, "'=PROPERTY_PRESET_ID'") !== false
         && strpos($globals, "'PRESET_ID' => " . '$presetId') !== false
-        && strpos($globals, 'claimLegacyRows') !== false,
+        && strpos($globals, 'claimLegacyRows') === false,
     'global registry saves value and type by stable property ids and verifies the write' => strpos($globals, "'INITIAL_VALUE' => \$this->propertyId") !== false
         && strpos($globals, 'SetPropertyValues(') !== false
         && strpos($globals, "Глобальное значение не было полностью записано") !== false,
     'global registry persists the exact submitted order through Bitrix SORT' => strpos($globals, 'foreach ($rows as $rowIndex => $row)') !== false
         && strpos($globals, "'SORT' => 100 + ((int)\$rowIndex * 10)") !== false
         && strpos($globals, "['SORT' => 'ASC', 'ID' => 'ASC']") !== false,
-    'global registry resolves property codes with the supported legacy filter' => substr_count($globals, "'CODE' => \$code") >= 2
+    'global registry resolves property and generated element codes with exact scoped filters' => substr_count($globals, "'CODE' => \$code") === 1
         && substr_count($globals, "'=CODE' => \$code") === 1,
     'AI audit is a dedicated contract' => strpos($gateway, 'LOGIC_AUDIT_PROPOSAL_SCHEMA') !== false,
     'stage groups are stored on preset' => strpos($groups, "STAGE_GROUPS") !== false,
@@ -77,6 +84,7 @@ $checks = [
         && strpos($integration, "operands: operands") !== false,
     'new services are registered in Bitrix autoload map' => strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalSymbolService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalCodeRefactorService'") !== false
+        && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalCalculatorMutationCoordinatorService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\StageGroupService'") !== false,
     'actions are routed through PHP service' => strpos($service, "case 'saveGlobalSymbols'") !== false
         && strpos($service, "(int)(\$request['presetId'] ?? 0)") !== false
@@ -93,7 +101,10 @@ $checks = [
         $integration,
         'const presetId = Number(payload.presetId || this.initData?.preset?.id || 0);'
     ) !== false
-        && strpos($integration, "action: 'saveGlobalSymbols',\n                    presetId: presetId,") !== false,
+        && strpos($integration, "action: 'saveCalculatorGlobals',\n                    presetId: presetId,") !== false
+        && strpos($integration, "symbols: Array.isArray(payload.symbols)") !== false
+        && strpos($integration, "variables: Array.isArray(payload.variables)") !== false
+        && strpos($integration, "constants: Array.isArray(payload.constants)") !== false,
     'ajax error mapper accepts every throwable without corrupting JSON errors' => strpos($ajax, 'function resolveErrorType(\\Throwable $e)') !== false,
 ];
 

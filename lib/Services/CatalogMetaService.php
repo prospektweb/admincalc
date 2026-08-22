@@ -13,6 +13,15 @@ final class CatalogMetaService
         'material' => ['CALC_MATERIALS', 'CALC_MATERIALS_VARIANTS'],
     ];
 
+    /** @var array<string,int> */
+    private array $pinnedIblockIds;
+
+    /** @param array<string,int> $pinnedIblockIds */
+    public function __construct(array $pinnedIblockIds = [])
+    {
+        $this->pinnedIblockIds = $pinnedIblockIds;
+    }
+
     public function get(array $request): array
     {
         $this->assertAdmin();
@@ -42,7 +51,7 @@ final class CatalogMetaService
     {
         $this->assertAdmin();
         $type = (string)($request['entityType'] ?? '');
-        $iblocks = $this->getIblocks($type);
+        $iblocks = $this->getIblocks($type, true);
         $supportsExtendedMetadata = $type !== 'calculator';
         $entities = is_array($request['entities'] ?? null) ? $request['entities'] : [];
         if ($entities === []) throw new \InvalidArgumentException('Не переданы элементы для сохранения');
@@ -132,7 +141,7 @@ final class CatalogMetaService
         $type = (string)($request['entityType'] ?? '');
         $entityId = (int)($request['entityId'] ?? 0);
         $sectionId = (int)($request['sectionId'] ?? 0);
-        $iblocks = $this->getIblocks($type);
+        $iblocks = $this->getIblocks($type, true);
         if ($entityId <= 0) throw new \InvalidArgumentException('Элемент не выбран');
 
         $entity = $this->loadElement($entityId, $iblocks);
@@ -164,7 +173,7 @@ final class CatalogMetaService
         $type = (string)($request['entityType'] ?? '');
         $name = trim((string)($request['name'] ?? ''));
         $parentSectionId = (int)($request['parentSectionId'] ?? 0);
-        $iblocks = $this->getIblocks($type);
+        $iblocks = $this->getIblocks($type, true);
         $iblockId = (int)$iblocks[0];
         if ($name === '') throw new \InvalidArgumentException('Введите название раздела');
 
@@ -207,11 +216,23 @@ final class CatalogMetaService
         return $allowed;
     }
 
-    private function getIblocks(string $type): array
+    private function getIblocks(string $type, bool $requirePinned = false): array
     {
         if (!isset(self::IBLOCK_CODES[$type])) throw new \InvalidArgumentException('Неизвестный тип технического элемента');
-        $config = new ConfigManager();
-        $ids = array_map(static fn(string $code): int => $config->getIblockId($code), self::IBLOCK_CODES[$type]);
+        if ($this->pinnedIblockIds !== []) {
+            $ids = array_map(function (string $code): int {
+                return (int)($this->pinnedIblockIds[$code] ?? 0);
+            }, self::IBLOCK_CODES[$type]);
+        } else {
+            if ($requirePinned) {
+                throw new \RuntimeException(
+                    'Catalog metadata mutation requires pinned calculator iblock authority.',
+                    409
+                );
+            }
+            $config = new ConfigManager();
+            $ids = array_map(static fn(string $code): int => $config->getIblockId($code), self::IBLOCK_CODES[$type]);
+        }
         if (in_array(0, $ids, true)) throw new \RuntimeException('Инфоблок технического элемента не настроен');
         return $ids;
     }

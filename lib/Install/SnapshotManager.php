@@ -655,7 +655,12 @@ class SnapshotManager
                         : ((string)$code === 'OPTIONS_MATERIAL'
                             ? (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? [])
                             : (array)($elementIdMapsByCode['CALC_EQUIPMENT'] ?? []));
-                    $value = $this->remapVariantIdsInOptionsJson($value, $targetMap);
+                    $value = $this->remapStageVariantMappingJson(
+                        $value,
+                        $targetMap,
+                        (array)($elementIdMapsByCode['CALC_DETAILS'] ?? []),
+                        (array)($elementIdMapsByCode['CALC_STAGES'] ?? [])
+                    );
                 }
 
                 if ($propertyType === 'F' && is_array($value)) {
@@ -723,7 +728,12 @@ class SnapshotManager
                         : ((string)$code === 'OPTIONS_MATERIAL'
                             ? (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? [])
                             : (array)($elementIdMapsByCode['CALC_EQUIPMENT'] ?? []));
-                    $description = $this->remapVariantIdsInOptionsJson($description, $targetMap);
+                    $description = $this->remapStageVariantMappingJson(
+                        $description,
+                        $targetMap,
+                        (array)($elementIdMapsByCode['CALC_DETAILS'] ?? []),
+                        (array)($elementIdMapsByCode['CALC_STAGES'] ?? [])
+                    );
                 }
 
                 $values[] = $description !== '' ? ['VALUE' => $value, 'DESCRIPTION' => $description] : $value;
@@ -945,33 +955,58 @@ class SnapshotManager
         }, $raw) ?? $raw;
     }
 
-    private function remapVariantIdsInOptionsJson($raw, array $variantIdMap)
+    private function remapStageVariantMappingJson(
+        $raw,
+        array $variantIdMap,
+        array $detailIdMap,
+        array $stageIdMap
+    )
     {
-        if (!is_string($raw) || $raw === '' || empty($variantIdMap)) {
+        $htmlValue = null;
+        if (is_array($raw) && is_string($raw['TEXT'] ?? null)) {
+            $htmlValue = $raw;
+            $raw = $raw['TEXT'];
+        }
+        if (!is_string($raw) || $raw === '') {
             return $raw;
         }
 
-        $data = json_decode($raw, true);
-        if (!is_array($data)) {
-            return $raw;
+        $mappingService = new \Prospektweb\Calc\Services\StageVariantMappingService();
+        try {
+            $canonical = $mappingService->normalizeJson(
+                html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8')
+            );
+        } catch (\InvalidArgumentException $error) {
+            // Snapshot restore must not resurrect the removed property-code
+            // mapping model. An invalid/legacy slot is restored as unset.
+            return '';
         }
+        $data = json_decode($canonical, true);
 
-        $updated = false;
-        foreach ((array)($data['mappings'] ?? []) as $idx => $mapping) {
-            $oldVariantId = (int)($mapping['variantId'] ?? 0);
+        foreach ((array)($data['rules'] ?? []) as $idx => $rule) {
+            $oldVariantId = (int)($rule['variant_id'] ?? 0);
             if ($oldVariantId > 0 && isset($variantIdMap[$oldVariantId])) {
-                $data['mappings'][$idx]['variantId'] = (int)$variantIdMap[$oldVariantId];
-                $updated = true;
+                $data['rules'][$idx]['variant_id'] = (int)$variantIdMap[$oldVariantId];
+            }
+        }
+        if (is_array($data['metric_source'] ?? null)) {
+            $oldDetailId = (int)($data['metric_source']['detail_id'] ?? 0);
+            $oldStageId = (int)($data['metric_source']['stage_id'] ?? 0);
+            if ($oldDetailId > 0 && isset($detailIdMap[$oldDetailId])) {
+                $data['metric_source']['detail_id'] = (int)$detailIdMap[$oldDetailId];
+            }
+            if ($oldStageId > 0 && isset($stageIdMap[$oldStageId])) {
+                $data['metric_source']['stage_id'] = (int)$stageIdMap[$oldStageId];
             }
         }
 
-        if (!$updated) {
-            return $raw;
+        $canonical = $mappingService->encode($data);
+        if ($htmlValue !== null) {
+            $htmlValue['TEXT'] = $canonical;
+            return $htmlValue;
         }
 
-        $encoded = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-        return $encoded !== false ? $encoded : $raw;
+        return $canonical;
     }
 
     private function importCatalogData(int $elementId, array $elementData, array &$errors): void

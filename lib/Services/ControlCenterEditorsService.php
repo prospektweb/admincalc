@@ -6,34 +6,23 @@ namespace Prospektweb\Calc\Services;
 
 use Bitrix\Main\Loader;
 use Bitrix\Main\ModuleManager;
+use Bitrix\Main\Application;
 use Prospektweb\Calc\Config\ConfigManager;
 
 /**
- * Server-side authority for editor launches and the native storefront-editor
- * adapter used by the control center.
- *
- * Presets own their form and calculation graph. Products are optional catalog
- * adapters and are re-resolved only when a product-scoped operation is used.
+ * Server-side authority for calculator launches, preset product assignments,
+ * and preset-owned form-first authoring used by the control center.
  */
 final class ControlCenterEditorsService
 {
     public const CONTRACT = 'prospektweb.control-center.editors/v1';
-    public const STOREFRONT_EDITOR_CONTRACT = 'prospektweb.frontcalc.storefront-editor/v1';
     public const FORM_FIRST_AUTHORING_CONTRACT = 'prospektweb.frontcalc.form-first-authoring/v1';
     public const FORM_FIRST_FIELD_DELETE_IMPACT_CONTRACT = 'prospektweb.calc.form-first-field-delete-impact/v1';
-    public const FOCUS_PRESET_ID = 12740;
+    public const PRESET_PRODUCT_IMPACT_CONTRACT = 'prospektweb.calc.preset-product-impact/v1';
 
     private const MAX_CALCULATION_OFFERS = 500;
     private const MAX_EDITOR_DOCUMENT_BYTES = 60000;
-    private const STOREFRONT_EDITOR_PROVIDER = '\\Prospektweb\\Frontcalc\\Service\\ControlCenterStorefrontEditorService';
-    private const STOREFRONT_EDITOR_METHODS = [
-        'loadWorkspace',
-        'validateSchema',
-        'saveTemplate',
-        'saveProduct',
-        'enableInheritance',
-        'deleteTemplate',
-    ];
+    private const FORM_FIRST_AUTHORING_PROVIDER = '\\Prospektweb\\Frontcalc\\Service\\ControlCenterFormFirstAuthoringService';
     private const FORM_FIRST_AUTHORING_METHODS = [
         'loadFormFirstWorkspace',
         'saveFormFirstDraft',
@@ -45,9 +34,8 @@ final class ControlCenterEditorsService
         'stage_inputs',
         'globals',
         'options_mappings',
-        'routes',
-        'passive_context',
-        'seo_display',
+        'catalog_input_mapping',
+        'storefront_presentation',
     ];
 
     /** @var callable */
@@ -60,7 +48,7 @@ final class ControlCenterEditorsService
     private $frontcalcAvailabilityResolver;
 
     /** @var callable */
-    private $frontcalcEditorResolver;
+    private $formFirstAuthoringResolver;
 
     /** @var callable */
     private $dependencyContractResolver;
@@ -83,19 +71,68 @@ final class ControlCenterEditorsService
     /** @var callable */
     private $presetProductMutationHandler;
 
+    /** @var callable */
+    private $storefrontProductDetacher;
+
+    /** @var callable */
+    private $presetIdentityLoader;
+
+    /** @var callable */
+    private $formFieldReferenceResolver;
+
+    /** @var callable */
+    private $presetProductAssignmentLocker;
+
+    /** @var callable */
+    private $presetMutationCoordinator;
+
+    /** @var callable */
+    private $storefrontProductReadbackLoader;
+
+    /** @var callable */
+    private $activeStorefrontPublicationValidator;
+
+    /** @var callable */
+    private $presetActiveStateLoader;
+
+    /** @var callable */
+    private $presetActiveMutationHandler;
+
+    /** @var callable */
+    private $presetActiveLockedStateLoader;
+
+    /** @var callable */
+    private $storefrontProductAssignmentLoader;
+
+    /** @var callable */
+    private $presetProductPropertyAuthority;
+
     public function __construct(
         ?callable $presetLoader = null,
         ?callable $productIblockIdResolver = null,
         ?callable $frontcalcAvailabilityResolver = null,
-        ?callable $frontcalcEditorResolver = null,
+        ?callable $formFirstAuthoringResolver = null,
         ?callable $dependencyContractResolver = null,
         ?callable $presetListLoader = null,
         ?callable $presetCreator = null,
         ?callable $presetUsageLoader = null,
         ?callable $storefrontPresetLoader = null,
         ?callable $presetProductCatalogLoader = null,
-        ?callable $presetProductMutationHandler = null
+        ?callable $presetProductMutationHandler = null,
+        ?callable $storefrontProductDetacher = null,
+        ?callable $presetIdentityLoader = null,
+        ?callable $formFieldReferenceResolver = null,
+        ?callable $presetProductAssignmentLocker = null,
+        ?callable $presetMutationCoordinator = null,
+        ?callable $storefrontProductReadbackLoader = null,
+        ?callable $activeStorefrontPublicationValidator = null,
+        ?callable $presetActiveStateLoader = null,
+        ?callable $presetActiveMutationHandler = null,
+        ?callable $presetActiveLockedStateLoader = null,
+        ?callable $storefrontProductAssignmentLoader = null,
+        ?callable $presetProductPropertyAuthority = null
     ) {
+        $usesDefaultStorefrontDetacher = $storefrontProductDetacher === null;
         $this->presetLoader = $presetLoader ?? static function (int $presetId): array {
             if (!Loader::includeModule('iblock')) {
                 throw new \RuntimeException('The iblock module is not available');
@@ -109,24 +146,21 @@ final class ControlCenterEditorsService
         $this->frontcalcAvailabilityResolver = $frontcalcAvailabilityResolver ?? static function (): bool {
             return ModuleManager::isModuleInstalled('prospektweb.frontcalc');
         };
-        $this->frontcalcEditorResolver = $frontcalcEditorResolver ?? static function () {
+        $this->formFirstAuthoringResolver = $formFirstAuthoringResolver ?? static function () {
             if (!Loader::includeModule('prospektweb.frontcalc')) {
                 return null;
             }
 
-            $providerClass = self::STOREFRONT_EDITOR_PROVIDER;
+            $providerClass = self::FORM_FIRST_AUTHORING_PROVIDER;
             return class_exists($providerClass) ? new $providerClass() : null;
         };
         $this->dependencyContractResolver = $dependencyContractResolver
-            ?? static function (int $presetId, array $allowedProductIds): array {
-                return (new Phase5aParityContractService())->buildPublicInputContract(
-                    $presetId,
-                    $allowedProductIds
-                );
+            ?? static function (int $presetId): array {
+                return (new FormFirstDependencyContractService())->buildPublicInputContract($presetId);
             };
         $this->presetListLoader = $presetListLoader ?? ($presetLoader !== null
             ? static function (): array {
-                return [['id' => self::FOCUS_PRESET_ID, 'name' => 'Пресет #' . self::FOCUS_PRESET_ID]];
+                return [];
             }
             : static function (string $query = '', string $status = 'all', string $sort = 'updated_desc', int $page = 1, int $pageSize = 50): array {
                 if (!Loader::includeModule('iblock')) {
@@ -183,13 +217,8 @@ final class ControlCenterEditorsService
                         : count($rows),
                 ];
             });
-        $this->presetCreator = $presetCreator ?? static function (string $name): int {
-            if (!Loader::includeModule('iblock')) {
-                throw new \RuntimeException('The iblock module is not available');
-            }
-            $iblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
-            return (new \Prospektweb\Calc\Calculator\BundleHandler())
-                ->createStandalonePreset($name, $iblockId);
+        $this->presetCreator = $presetCreator ?? static function (string $name): array {
+            return (new PresetLifecycleMutationService())->createPreset($name);
         };
         $this->presetUsageLoader = $presetUsageLoader ?? ($presetLoader !== null
             ? static function (array $presetIds): array {
@@ -208,48 +237,239 @@ final class ControlCenterEditorsService
                 return (new CatalogTreeService())->presetStorefrontOptions(['presetId' => $presetId]);
             });
         $this->presetProductCatalogLoader = $presetProductCatalogLoader
-            ?? function (int $presetId, string $query, int $page, int $pageSize): array {
-                return $this->loadPresetProductCatalogFromBitrix($presetId, $query, $page, $pageSize);
+            ?? function (int $presetId, string $query, int $page, int $pageSize, ?array $propertyAuthority = null): array {
+                return $this->loadPresetProductCatalogFromBitrix(
+                    $presetId,
+                    $query,
+                    $page,
+                    $pageSize,
+                    $propertyAuthority
+                );
             };
         $this->presetProductMutationHandler = $presetProductMutationHandler
-            ?? function (int $presetId, array $productIds, string $expectedRevision): array {
-                return $this->mutatePresetProductsInBitrix($presetId, $productIds, $expectedRevision);
+            ?? function (
+                int $presetId,
+                array $productIds,
+                string $expectedRevision,
+                int $productIblockId,
+                array $propertyAuthority
+            ): array {
+                return $this->mutatePresetProductsInBitrix(
+                    $presetId,
+                    $productIds,
+                    $expectedRevision,
+                    $productIblockId,
+                    $propertyAuthority
+                );
             };
+        $this->presetProductAssignmentLocker = $presetProductAssignmentLocker
+            ?? static function (int $productIblockId, callable $criticalSection) {
+                return (new PresetProductAssignmentLockService())->withLock($productIblockId, $criticalSection);
+            };
+        $this->storefrontProductDetacher = $storefrontProductDetacher
+            ?? static function (int $presetId, array $productIds): array {
+                if (!$productIds) {
+                    return [];
+                }
+                if (!Loader::includeModule('prospektweb.frontcalc')) {
+                    throw new \RuntimeException('Module prospektweb.frontcalc is required to detach storefront assignments');
+                }
+                $class = '\\Prospektweb\\Frontcalc\\Service\\StorefrontRepository';
+                if (!class_exists($class)) {
+                    throw new \RuntimeException('Storefront vNext repository is unavailable');
+                }
+                return (new $class())->detachProducts($presetId, $productIds);
+            };
+        $this->presetIdentityLoader = $presetIdentityLoader ?? ($presetLoader !== null
+            ? static function (int $presetId) use ($presetLoader): array {
+                $raw = call_user_func($presetLoader, $presetId);
+                $rawPreset = is_array($raw['preset'] ?? null) ? $raw['preset'] : [];
+                if ((int)($rawPreset['id'] ?? 0) !== $presetId) {
+                    throw new \InvalidArgumentException('Preset not found');
+                }
+                return ['id' => $presetId, 'name' => (string)($rawPreset['name'] ?? ('Пресет #' . $presetId))];
+            }
+            : static function (int $presetId): array {
+                if (!Loader::includeModule('iblock')) {
+                    throw new \RuntimeException('The iblock module is not available');
+                }
+                $iblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
+                if ($iblockId <= 0) {
+                    throw new \RuntimeException('The CALC_PRESETS iblock is not configured');
+                }
+                $row = \CIBlockElement::GetList(
+                    [],
+                    ['ID' => $presetId, 'IBLOCK_ID' => $iblockId],
+                    false,
+                    ['nTopCount' => 1],
+                    ['ID', 'NAME']
+                )->Fetch();
+                if (!$row) {
+                    throw new \InvalidArgumentException('Preset not found');
+                }
+                return ['id' => $presetId, 'name' => (string)($row['NAME'] ?? ('Пресет #' . $presetId))];
+            });
+        $this->formFieldReferenceResolver = $formFieldReferenceResolver
+            ?? static function (int $presetId, string $fieldId): array {
+                return (new FormFirstDependencyContractService())->fieldReferences($presetId, $fieldId);
+            };
+        $this->presetMutationCoordinator = $presetMutationCoordinator
+            ?? static function (
+                int $presetId,
+                array $metadata,
+                callable $mutation,
+                callable $authoritativeReadback
+            ) {
+                return (new PresetMutationCoordinatorService())->mutate(
+                    $presetId,
+                    $metadata,
+                    $mutation,
+                    $authoritativeReadback
+                );
+            };
+        $this->storefrontProductReadbackLoader = $storefrontProductReadbackLoader
+            ?? ($usesDefaultStorefrontDetacher
+                ? static function (int $presetId): array {
+                    if (!Loader::includeModule('prospektweb.frontcalc')) {
+                        throw new \RuntimeException('Module prospektweb.frontcalc is required for storefront readback');
+                    }
+                    $class = '\\Prospektweb\\Frontcalc\\Service\\StorefrontRepository';
+                    if (!class_exists($class)) {
+                        throw new \RuntimeException('Storefront vNext repository is unavailable for readback');
+                    }
+                    return (new $class())->listStorefronts($presetId);
+                }
+                : static fn(int $presetId): array => [
+                    'preset_id' => $presetId,
+                    'items' => [],
+                ]);
+        $this->activeStorefrontPublicationValidator = $activeStorefrontPublicationValidator
+            ?? static function (int $presetId): void {
+                if (!Loader::includeModule('prospektweb.frontcalc')) {
+                    throw new \RuntimeException(
+                        'Module prospektweb.frontcalc is required to validate active storefronts'
+                    );
+                }
+                $class = '\\Prospektweb\\Frontcalc\\Service\\ActiveStorefrontPublicationValidator';
+                if (!class_exists($class)) {
+                    throw new \RuntimeException('Active storefront publication validator is unavailable');
+                }
+                $validator = new $class();
+                if (!is_callable([$validator, 'validate'])) {
+                    throw new \RuntimeException('Active storefront publication validator is unavailable');
+                }
+                $validator->validate($presetId);
+            };
+        $this->presetActiveStateLoader = $presetActiveStateLoader
+            ?? static function (int $presetId): array {
+                if (!Loader::includeModule('iblock')) {
+                    throw new \RuntimeException('The iblock module is not available');
+                }
+                $iblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
+                if ($iblockId <= 0) {
+                    throw new \RuntimeException('The CALC_PRESETS iblock is not configured');
+                }
+                $row = \CIBlockElement::GetList(
+                    [],
+                    ['ID' => $presetId, 'IBLOCK_ID' => $iblockId],
+                    false,
+                    ['nTopCount' => 1],
+                    ['ID', 'NAME', 'ACTIVE', 'TIMESTAMP_X']
+                )->Fetch();
+                if (!is_array($row)) {
+                    throw new \InvalidArgumentException('Preset not found');
+                }
+                return [
+                    'id' => (int)($row['ID'] ?? 0),
+                    'name' => (string)($row['NAME'] ?? ''),
+                    'active' => (string)($row['ACTIVE'] ?? 'N') === 'Y',
+                    'updatedAt' => (string)($row['TIMESTAMP_X'] ?? ''),
+                ];
+            };
+        $this->presetActiveMutationHandler = $presetActiveMutationHandler
+            ?? static function (int $presetId, bool $active): void {
+                if (!Loader::includeModule('iblock')) {
+                    throw new \RuntimeException('The iblock module is not available');
+                }
+                $element = new \CIBlockElement();
+                if (!$element->Update($presetId, ['ACTIVE' => $active ? 'Y' : 'N'])) {
+                    throw new \RuntimeException('Не удалось изменить состояние пресета #' . $presetId);
+                }
+            };
+        $this->presetActiveLockedStateLoader = $presetActiveLockedStateLoader
+            ?? static function (int $presetId): array {
+                if (!Loader::includeModule('iblock')) {
+                    throw new \RuntimeException('The iblock module is not available');
+                }
+                $iblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
+                if ($iblockId <= 0) {
+                    throw new \RuntimeException('The CALC_PRESETS iblock is not configured');
+                }
+                $connection = Application::getConnection();
+                $row = $connection->query(
+                    'SELECT ID, IBLOCK_ID, NAME, ACTIVE, TIMESTAMP_X FROM b_iblock_element'
+                    . ' WHERE ID = ' . $presetId
+                    . ' AND IBLOCK_ID = ' . $iblockId
+                    . ' FOR UPDATE'
+                )->fetch();
+                if (!is_array($row)
+                    || (int)($row['ID'] ?? $row['id'] ?? 0) !== $presetId
+                    || (int)($row['IBLOCK_ID'] ?? $row['iblock_id'] ?? 0) !== $iblockId) {
+                    throw new \InvalidArgumentException('Preset not found');
+                }
+                return [
+                    'id' => $presetId,
+                    'name' => (string)($row['NAME'] ?? $row['name'] ?? ''),
+                    'active' => (string)($row['ACTIVE'] ?? $row['active'] ?? 'N') === 'Y',
+                    'updatedAt' => (string)($row['TIMESTAMP_X'] ?? $row['timestamp_x'] ?? ''),
+                ];
+            };
+        $this->presetProductPropertyAuthority = $presetProductPropertyAuthority
+            ?? static function (int $productIblockId, bool $forUpdate): array {
+                return (new PresetProductAssignmentPropertyAuthorityService())->resolve(
+                    $productIblockId,
+                    $forUpdate
+                );
+            };
+        $this->storefrontProductAssignmentLoader = $storefrontProductAssignmentLoader
+            ?? ($presetLoader !== null
+                ? function (int $presetId, array $productIds, int $productIblockId, ?array $propertyAuthority = null): array {
+                    $snapshot = $this->loadStorefrontSnapshot($presetId);
+                    $assignments = [];
+                    foreach ($snapshot['products'] as $product) {
+                        $productId = (int)($product['id'] ?? 0);
+                        if ($productId > 0 && in_array($productId, $productIds, true)) {
+                            $assignments[$productId] = [$presetId];
+                        }
+                    }
+                    return $assignments;
+                }
+                : function (int $presetId, array $productIds, int $productIblockId, ?array $propertyAuthority = null): array {
+                    $authority = $this->normalizePresetProductPropertyAuthority(
+                        $propertyAuthority ?? $this->resolvePresetProductPropertyAuthority($productIblockId, true),
+                        $productIblockId
+                    );
+                    return $this->loadExactProductAssignments(
+                        $productIblockId,
+                        $authority['propertyId'],
+                        $productIds
+                    );
+                });
     }
 
     public function getCatalog(): array
     {
-        $snapshot = $this->loadStorefrontSnapshot(self::FOCUS_PRESET_ID);
-        $productIblockId = $this->resolveProductIblockId();
         $frontcalcAvailable = (bool)call_user_func($this->frontcalcAvailabilityResolver);
-        $visualEditorAvailable = $frontcalcAvailable && $this->isStorefrontEditorAvailable();
         $formFirstAuthoringAvailable = $frontcalcAvailable && $this->isFormFirstAuthoringAvailable();
-
-        $storefrontProducts = [];
-        foreach ($snapshot['products'] as $product) {
-            $storefrontProducts[] = [
-                'id' => $product['id'],
-                'name' => $product['name'],
-                'presetIds' => [self::FOCUS_PRESET_ID],
-                'offerCount' => $product['offerCount'],
-            ];
-        }
 
         $registry = $this->getPresetRegistry('', 'all', 'updated_desc', 1, 50);
 
         return [
             'contract' => self::CONTRACT,
-            'focusPresetId' => self::FOCUS_PRESET_ID,
             'calculations' => $registry['rows'],
             'storefront' => [
-                'available' => $frontcalcAvailable,
-                'visualEditorAvailable' => $visualEditorAvailable,
-                'visualEditorContract' => self::STOREFRONT_EDITOR_CONTRACT,
                 'formFirstAuthoringAvailable' => $formFirstAuthoringAvailable,
                 'formFirstAuthoringContract' => self::FORM_FIRST_AUTHORING_CONTRACT,
-                'formFirstPilotProductIds' => [4267],
-                'productIblockId' => $productIblockId,
-                'products' => $storefrontProducts,
             ],
         ];
     }
@@ -317,7 +537,7 @@ final class ControlCenterEditorsService
         if (!is_array($usage)) {
             throw new \RuntimeException('The preset usage provider returned an invalid result');
         }
-        $normalizedRows = array_map(static function (array $row) use ($usage): array {
+        $normalizedRows = array_map(function (array $row) use ($usage): array {
             $id = (int)$row['id'];
             $counts = is_array($usage[$id] ?? null) ? $usage[$id] : [];
             return [
@@ -327,6 +547,7 @@ final class ControlCenterEditorsService
                 'productCount' => max(0, (int)($counts['productCount'] ?? 0)),
                 'offerCount' => max(0, (int)($counts['offerCount'] ?? 0)),
                 'updatedAt' => (string)($row['updatedAt'] ?? ''),
+                'revision' => $this->presetRegistryRevision($row),
             ];
         }, $pageRows);
 
@@ -360,7 +581,8 @@ final class ControlCenterEditorsService
         int $presetId,
         string $query = '',
         int $page = 1,
-        int $pageSize = 50
+        int $pageSize = 50,
+        ?array $propertyAuthority = null
     ): array {
         if ($presetId <= 0) {
             throw new \InvalidArgumentException('Preset ID must be positive');
@@ -373,76 +595,524 @@ final class ControlCenterEditorsService
             throw new \InvalidArgumentException('Invalid product catalog page');
         }
 
-        $raw = call_user_func($this->presetProductCatalogLoader, $presetId, $query, $page, $pageSize);
+        $raw = call_user_func(
+            $this->presetProductCatalogLoader,
+            $presetId,
+            $query,
+            $page,
+            $pageSize,
+            $propertyAuthority
+        );
         return $this->normalizePresetProductCatalog($raw, $presetId, $query, $page, $pageSize);
     }
 
     /** @param int[] $productIds */
-    public function setPresetProducts(int $presetId, array $productIds, string $expectedRevision): array
+    public function setPresetProducts(
+        int $presetId,
+        array $productIds,
+        string $expectedRevision,
+        string $expectedImpactFingerprint
+    ): array
     {
         if ($presetId <= 0) {
             throw new \InvalidArgumentException('Preset ID must be positive');
         }
         $this->assertSha256($expectedRevision, 'expectedRevision');
-        if (count($productIds) > 1000) {
-            throw new \InvalidArgumentException('A preset cannot be connected to more than 1000 products at once');
-        }
-
-        $normalizedProductIds = [];
-        foreach ($productIds as $productId) {
-            if (!is_int($productId) || $productId <= 0 || $productId > 9007199254740991) {
-                throw new \InvalidArgumentException('productIds must contain positive integer IDs');
+        $this->assertSha256($expectedImpactFingerprint, 'expectedImpactFingerprint');
+        $normalizedProductIds = $this->normalizePresetProductIds($productIds);
+        $expectedRevision = strtolower($expectedRevision);
+        $expectedImpactFingerprint = strtolower($expectedImpactFingerprint);
+        $raw = $this->withPresetProductAssignmentLock(
+            function (int $productIblockId) use (
+                $presetId,
+                $normalizedProductIds,
+                $expectedRevision,
+                $expectedImpactFingerprint
+            ): array {
+                $propertyAuthority = null;
+                return $this->withPresetMutation(
+                    $presetId,
+                    [
+                        'action' => 'set_preset_products',
+                        'entity_type' => 'preset_products',
+                        'entity_id' => (string)$presetId,
+                        'expected_revision' => $expectedRevision,
+                        'expected_impact_fingerprint' => $expectedImpactFingerprint,
+                        'product_ids' => $normalizedProductIds,
+                    ],
+                    function () use (
+                        $presetId,
+                        $normalizedProductIds,
+                        $expectedRevision,
+                        $expectedImpactFingerprint,
+                        $productIblockId,
+                        &$propertyAuthority
+                    ): array {
+                        $propertyAuthority = $propertyAuthority
+                            ?? $this->resolvePresetProductPropertyAuthority($productIblockId, true);
+                        // The impact proof is consumed only while both the product-assignment
+                        // lock and the preset mutation coordinator are held. This prevents a
+                        // storefront changed after preview from being silently detached.
+                        $lockedCatalog = $this->getPresetProductCatalog(
+                            $presetId,
+                            '',
+                            1,
+                            50,
+                            $propertyAuthority
+                        );
+                        $lockedImpact = $this->buildPresetProductImpact(
+                            $presetId,
+                            $normalizedProductIds,
+                            $expectedRevision,
+                            $lockedCatalog
+                        );
+                        if (!hash_equals(
+                            (string)$lockedImpact['impactFingerprint'],
+                            $expectedImpactFingerprint
+                        )) {
+                            throw new \RuntimeException(
+                                'Витрины или связи товаров изменились после предварительной проверки. '
+                                . 'Обновите данные и подтвердите влияние заново.',
+                                409
+                            );
+                        }
+                        $mutationResult = call_user_func(
+                            $this->presetProductMutationHandler,
+                            $presetId,
+                            $normalizedProductIds,
+                            $expectedRevision,
+                            $productIblockId,
+                            $propertyAuthority
+                        );
+                        return $this->normalizePresetProductCatalog(
+                            $mutationResult,
+                            $presetId,
+                            '',
+                            1,
+                            50
+                        );
+                    },
+                    function () use ($presetId, $productIblockId, &$propertyAuthority): array {
+                        $propertyAuthority = $propertyAuthority
+                            ?? $this->resolvePresetProductPropertyAuthority($productIblockId, true);
+                        return $this->getPresetProductCatalog(
+                            $presetId,
+                            '',
+                            1,
+                            50,
+                            $propertyAuthority
+                        );
+                    }
+                );
             }
-            $normalizedProductIds[$productId] = $productId;
-        }
-        ksort($normalizedProductIds, SORT_NUMERIC);
-
-        $raw = call_user_func(
-            $this->presetProductMutationHandler,
-            $presetId,
-            array_values($normalizedProductIds),
-            strtolower($expectedRevision)
         );
 
-        return $this->normalizePresetProductCatalog($raw, $presetId, '', 1, 50);
+        return $raw;
     }
 
-    /** @param int[] $presetIds */
-    public function setPresetActive(array $presetIds, bool $active): array
+    /**
+     * Read-only impact preview for an exact product-assignment revision.
+     * No product or storefront data is changed until setPresetProducts receives
+     * the same explicit IDs and revision after operator confirmation.
+     *
+     * @param int[] $productIds
+     * @return array<string,mixed>
+     */
+    public function previewPresetProductImpact(
+        int $presetId,
+        array $productIds,
+        string $expectedRevision
+    ): array {
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Preset ID must be positive');
+        }
+        $this->assertSha256($expectedRevision, 'expected_revision');
+        $expectedRevision = strtolower($expectedRevision);
+        $nextProductIds = $this->normalizePresetProductIds($productIds);
+        $catalog = $this->getPresetProductCatalog($presetId, '', 1, 50);
+        return $this->buildPresetProductImpact(
+            $presetId,
+            $nextProductIds,
+            $expectedRevision,
+            $catalog
+        );
+    }
+
+    /**
+     * Build the one canonical proof consumed by setPresetProducts. The hash
+     * covers the requested assignment, the exact current assignment, the full
+     * storefront readback and the precise detachments shown to the operator.
+     *
+     * @param int[] $nextProductIds
+     * @param array<string,mixed> $catalog
+     * @return array<string,mixed>
+     */
+    private function buildPresetProductImpact(
+        int $presetId,
+        array $nextProductIds,
+        string $expectedRevision,
+        array $catalog
+    ): array {
+        if (!hash_equals((string)$catalog['revision'], $expectedRevision)) {
+            throw new \RuntimeException(
+                'Связи товаров уже изменены в другой сессии. Обновите данные перед подтверждением.',
+                409
+            );
+        }
+
+        $currentProductIds = $this->normalizePresetProductIds(
+            is_array($catalog['linkedProductIds'] ?? null) ? $catalog['linkedProductIds'] : []
+        );
+        $addedProductIds = array_values(array_diff($nextProductIds, $currentProductIds));
+        $removedProductIds = array_values(array_diff($currentProductIds, $nextProductIds));
+        sort($addedProductIds, SORT_NUMERIC);
+        sort($removedProductIds, SORT_NUMERIC);
+        $removedMap = array_fill_keys($removedProductIds, true);
+
+        $storefrontReadback = call_user_func($this->storefrontProductReadbackLoader, $presetId);
+        if (!is_array($storefrontReadback)) {
+            throw new \RuntimeException('Не удалось прочитать витрины для предварительной проверки.');
+        }
+        $storefrontItems = is_array($storefrontReadback['items'] ?? null)
+            ? $storefrontReadback['items']
+            : null;
+        if ($storefrontItems === null || !array_is_list($storefrontItems)) {
+            throw new \RuntimeException('Не удалось прочитать витрины для предварительной проверки.');
+        }
+        if (array_key_exists('preset_id', $storefrontReadback)
+            && (!is_int($storefrontReadback['preset_id']) || $storefrontReadback['preset_id'] !== $presetId)) {
+            throw new \RuntimeException('Прочитаны витрины другого пресета.');
+        }
+        $affectedStorefronts = [];
+        $canonicalStorefronts = [];
+        $seenStorefrontIds = [];
+        foreach ($storefrontItems as $position => $storefront) {
+            if (!is_array($storefront)) {
+                throw new \RuntimeException('Витрина #' . $position . ' имеет некорректный формат.');
+            }
+            $storefrontId = trim((string)($storefront['id'] ?? ''));
+            if ($storefrontId === '' || isset($seenStorefrontIds[$storefrontId])) {
+                throw new \RuntimeException('Витрина без уникального точного ID не может участвовать в preview.');
+            }
+            $seenStorefrontIds[$storefrontId] = true;
+            if (!is_string($storefront['name'] ?? null)
+                || !is_bool($storefront['active'] ?? null)
+                || !is_int($storefront['revision'] ?? null)
+                || $storefront['revision'] < 0
+                || !is_array($storefront['product_ids'] ?? null)
+                || !array_is_list($storefront['product_ids'])) {
+                throw new \RuntimeException('Витрина ' . $storefrontId . ' имеет некорректное контрольное чтение.');
+            }
+            $storefrontProductIds = $this->normalizePresetProductIds($storefront['product_ids']);
+            $canonicalStorefront = $storefront;
+            $canonicalStorefront['id'] = $storefrontId;
+            $canonicalStorefront['name'] = trim($storefront['name']) ?: $storefrontId;
+            $canonicalStorefront['active'] = $storefront['active'];
+            $canonicalStorefront['revision'] = $storefront['revision'];
+            $canonicalStorefront['product_ids'] = $storefrontProductIds;
+            $canonicalStorefronts[] = $this->canonicalizeImpactValue($canonicalStorefront);
+            $affectedIds = [];
+            foreach ($storefrontProductIds as $productId) {
+                if (isset($removedMap[$productId])) {
+                    $affectedIds[$productId] = $productId;
+                }
+            }
+            if ($affectedIds === []) {
+                continue;
+            }
+            ksort($affectedIds, SORT_NUMERIC);
+            $affectedStorefronts[] = [
+                'id' => $storefrontId,
+                'name' => $canonicalStorefront['name'],
+                'active' => $canonicalStorefront['active'],
+                'revision' => $canonicalStorefront['revision'],
+                'removedProductIds' => array_values($affectedIds),
+            ];
+        }
+        usort(
+            $canonicalStorefronts,
+            static fn(array $left, array $right): int => strcmp((string)$left['id'], (string)$right['id'])
+        );
+        usort(
+            $affectedStorefronts,
+            static fn(array $left, array $right): int => strcmp((string)$left['id'], (string)$right['id'])
+        );
+
+        $canonicalReadback = $storefrontReadback;
+        $canonicalReadback['items'] = $canonicalStorefronts;
+        $canonicalReadback = $this->canonicalizeImpactValue($canonicalReadback);
+        $proof = [
+            'contract' => self::PRESET_PRODUCT_IMPACT_CONTRACT,
+            'presetId' => $presetId,
+            'expectedRevision' => $expectedRevision,
+            'currentProductIds' => $currentProductIds,
+            'nextProductIds' => $nextProductIds,
+            'addedProductIds' => $addedProductIds,
+            'removedProductIds' => $removedProductIds,
+            'storefrontReadback' => $canonicalReadback,
+            'affectedStorefronts' => $affectedStorefronts,
+        ];
+        $encodedProof = json_encode(
+            $this->canonicalizeImpactValue($proof),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+        if (!is_string($encodedProof)) {
+            throw new \RuntimeException('Не удалось сформировать точный отпечаток влияния.');
+        }
+
+        return [
+            'contract' => self::PRESET_PRODUCT_IMPACT_CONTRACT,
+            'presetId' => $presetId,
+            'expectedRevision' => $expectedRevision,
+            'impactFingerprint' => hash('sha256', $encodedProof),
+            'nextProductIds' => $nextProductIds,
+            'addedProductIds' => $addedProductIds,
+            'removedProductIds' => $removedProductIds,
+            'affectedStorefronts' => $affectedStorefronts,
+        ];
+    }
+
+    /** @param mixed $value @return mixed */
+    private function canonicalizeImpactValue($value)
     {
-        $presetIds = array_values(array_unique(array_map('intval', $presetIds)));
-        if ($presetIds === [] || count($presetIds) > 100 || min($presetIds) <= 0) {
-            throw new \InvalidArgumentException('Select from 1 to 100 presets');
+        if ($value instanceof \stdClass) {
+            $value = get_object_vars($value);
         }
-        if (!$active && in_array(self::FOCUS_PRESET_ID, $presetIds, true)) {
-            throw new \InvalidArgumentException('Рабочий пресет 12740 нельзя архивировать');
+        if (!is_array($value)) {
+            if (is_scalar($value) || $value === null) {
+                return $value;
+            }
+            throw new \RuntimeException('Контрольное чтение витрин содержит неподдерживаемое значение.');
         }
-        if (!Loader::includeModule('iblock')) {
-            throw new \RuntimeException('The iblock module is not available');
+        if (array_is_list($value)) {
+            return array_map(fn($item) => $this->canonicalizeImpactValue($item), $value);
         }
-        $iblockId = (int)(new ConfigManager())->getIblockId('CALC_PRESETS');
-        $element = new \CIBlockElement();
-        foreach ($presetIds as $presetId) {
-            $exists = \CIBlockElement::GetList([], ['ID' => $presetId, 'IBLOCK_ID' => $iblockId], false, false, ['ID'])->Fetch();
-            if (!$exists || !$element->Update($presetId, ['ACTIVE' => $active ? 'Y' : 'N'])) {
-                throw new \RuntimeException('Не удалось изменить состояние пресета #' . $presetId);
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalizeImpactValue($item);
+        }
+        return $value;
+    }
+
+    /**
+     * Serialize every mutation or proof that depends on CALC_PRESET product
+     * assignments. The critical section receives the exact locked iblock ID.
+     *
+     * @return mixed
+     */
+    public function withPresetProductAssignmentLock(callable $criticalSection)
+    {
+        $productIblockId = (int)call_user_func($this->productIblockIdResolver);
+        if ($productIblockId <= 0 || $productIblockId > 9007199254740991) {
+            throw new \RuntimeException('Product iblock is not configured');
+        }
+
+        return call_user_func(
+            $this->presetProductAssignmentLocker,
+            $productIblockId,
+            $criticalSection
+        );
+    }
+
+    /**
+     * Shared durable per-preset document boundary used by form, mapping,
+     * storefront, product-assignment and single-preset activation writes.
+     * The public domain result is returned unchanged.
+     *
+     * @param array<string,mixed> $metadata
+     * @return mixed
+     */
+    public function withPresetMutation(
+        int $presetId,
+        array $metadata,
+        callable $mutation,
+        callable $authoritativeReadback
+    ) {
+        return call_user_func(
+            $this->presetMutationCoordinator,
+            $presetId,
+            $metadata,
+            $mutation,
+            $authoritativeReadback
+        );
+    }
+
+    /**
+     * Prove the vNext storefront assignment against the current CALC_PRESET
+     * authority immediately before repository mutation.
+     *
+     * @param int[] $productIds
+     */
+    public function assertStorefrontProductsBelongToPreset(
+        int $presetId,
+        array $productIds,
+        int $lockedProductIblockId = 0
+    ): void
+    {
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('preset_id must be positive');
+        }
+        if (array_keys($productIds) !== ($productIds === [] ? [] : range(0, count($productIds) - 1))) {
+            throw new \InvalidArgumentException('storefront.product_ids must be a JSON array');
+        }
+        $requested = [];
+        foreach ($productIds as $position => $productId) {
+            if (!is_int($productId) || $productId <= 0 || $productId > 9007199254740991) {
+                throw new \InvalidArgumentException(
+                    'storefront.product_ids[' . $position . '] must be a safe positive integer'
+                );
+            }
+            if (isset($requested[$productId])) {
+                throw new \InvalidArgumentException('storefront.product_ids must not contain duplicates');
+            }
+            $requested[$productId] = $productId;
+        }
+        if ($requested === []) {
+            return;
+        }
+        ksort($requested, SORT_NUMERIC);
+
+        $productIblockId = $lockedProductIblockId > 0
+            ? $lockedProductIblockId
+            : $this->resolveProductIblockId();
+        $propertyAuthority = $this->resolvePresetProductPropertyAuthority(
+            $productIblockId,
+            $lockedProductIblockId > 0
+        );
+        $assignments = call_user_func(
+            $this->storefrontProductAssignmentLoader,
+            $presetId,
+            array_values($requested),
+            $productIblockId,
+            $propertyAuthority
+        );
+        if (!is_array($assignments)) {
+            throw new \RuntimeException('Storefront product assignment authority is invalid.');
+        }
+        $missing = [];
+        foreach ($requested as $productId) {
+            $presetIds = is_array($assignments[$productId] ?? null)
+                ? array_values(array_unique(array_map('intval', $assignments[$productId])))
+                : [];
+            sort($presetIds, SORT_NUMERIC);
+            if ($presetIds !== [$presetId]) {
+                $missing[] = $productId;
             }
         }
-        return ['contract' => self::CONTRACT, 'presetIds' => $presetIds, 'active' => $active];
+        if ($missing !== []) {
+            throw new \InvalidArgumentException(
+                'Storefront product_ids are not linked to preset #' . $presetId . ': #'
+                . implode(', #', $missing)
+            );
+        }
+    }
+
+    /**
+     * A product launch has one unambiguous calculator preset. MULTIPLE metadata
+     * on the legacy Bitrix property does not relax this domain invariant.
+     *
+     * @param int[] $requestedProductIds
+     * @param array<int,int[]> $currentAssignments
+     */
+    public static function assertExclusivePresetAssignments(
+        int $presetId,
+        array $requestedProductIds,
+        array $currentAssignments
+    ): void {
+        $requested = array_fill_keys(array_map('intval', $requestedProductIds), true);
+        $conflicts = [];
+        foreach ($currentAssignments as $productId => $presetIds) {
+            $productId = (int)$productId;
+            if ($productId <= 0 || !isset($requested[$productId])) {
+                continue;
+            }
+            $foreign = [];
+            foreach ($presetIds as $assignedPresetId) {
+                $assignedPresetId = (int)$assignedPresetId;
+                if ($assignedPresetId > 0 && $assignedPresetId !== $presetId) {
+                    $foreign[$assignedPresetId] = $assignedPresetId;
+                }
+            }
+            if ($foreign !== []) {
+                ksort($foreign, SORT_NUMERIC);
+                $conflicts[$productId] = array_values($foreign);
+            }
+        }
+        if ($conflicts === []) {
+            return;
+        }
+        ksort($conflicts, SORT_NUMERIC);
+        $parts = [];
+        foreach ($conflicts as $productId => $presetIds) {
+            $parts[] = '#' . $productId . ' -> #' . implode(', #', $presetIds);
+        }
+        throw new \InvalidArgumentException(
+            'Products already assigned to other presets: ' . implode('; ', $parts)
+        );
+    }
+
+    public function setPresetActive(int $presetId, string $expectedRevision, bool $active): array
+    {
+        if ($presetId <= 0 || $presetId > 9007199254740991) {
+            throw new \InvalidArgumentException('presetId must be a safe positive integer');
+        }
+        $this->assertSha256($expectedRevision, 'expected_revision');
+        $expectedRevision = strtolower($expectedRevision);
+
+        $lockedState = null;
+        return $this->withPresetMutation(
+            $presetId,
+            [
+                'action' => 'set_preset_active',
+                'entity_type' => 'preset_registry',
+                'entity_id' => (string)$presetId,
+                'expected_revision' => $expectedRevision,
+                'product_ids' => [],
+            ],
+            function () use ($presetId, $expectedRevision, $active, &$lockedState): array {
+                $before = is_array($lockedState)
+                    ? $lockedState
+                    : $this->loadPresetActiveState($presetId, true);
+                if (!hash_equals((string)$before['revision'], $expectedRevision)) {
+                    throw new \RuntimeException(
+                        'Состояние калькулятора уже изменено в другой сессии. Обновите реестр.',
+                        409
+                    );
+                }
+                if ((bool)$before['active'] === $active) {
+                    throw new \RuntimeException('Калькулятор уже находится в выбранном состоянии.', 409);
+                }
+                call_user_func($this->presetActiveMutationHandler, $presetId, $active);
+                $after = $this->loadPresetActiveState($presetId, true);
+                $lockedState = $after;
+                if ((bool)$after['active'] !== $active
+                    || hash_equals((string)$after['revision'], $expectedRevision)) {
+                    throw new \RuntimeException('Контрольное чтение состояния калькулятора не подтвердило изменение.');
+                }
+                return [
+                    'contract' => self::CONTRACT,
+                    'presetId' => $presetId,
+                    'presetName' => (string)$after['name'],
+                    'active' => $active,
+                    'updatedAt' => (string)$after['updatedAt'],
+                    'revision' => (string)$after['revision'],
+                ];
+            },
+            function () use ($presetId, &$lockedState): array {
+                $lockedState = $this->loadPresetActiveState($presetId, true);
+                return $lockedState;
+            }
+        );
     }
 
     public function duplicatePreset(int $presetId): array
     {
-        $this->loadSnapshot($presetId);
-        $newPresetId = (new \Prospektweb\Calc\Calculator\BundleHandler())->clonePreset($presetId);
-        if ($newPresetId <= 0) {
-            throw new \RuntimeException('Не удалось создать копию пресета');
-        }
-        $snapshot = $this->loadSnapshot($newPresetId);
+        $receipt = (new PresetLifecycleMutationService())->duplicatePreset($presetId);
+        $newPresetId = (int)($receipt['newPresetId'] ?? 0);
         return [
             'contract' => self::CONTRACT,
             'presetId' => $newPresetId,
-            'presetName' => $snapshot['presetName'],
+            'presetName' => trim((string)($receipt['presetName'] ?? '')) ?: ('Пресет #' . $newPresetId),
         ];
     }
 
@@ -453,15 +1123,21 @@ final class ControlCenterEditorsService
         if ($name === '' || $nameLength > 200) {
             throw new \InvalidArgumentException('Preset name must contain 1 to 200 characters');
         }
-        $presetId = (int)call_user_func($this->presetCreator, $name);
-        if ($presetId <= 0) {
-            throw new \RuntimeException('The preset creator returned an invalid ID');
+        $receipt = call_user_func($this->presetCreator, $name);
+        if (!is_array($receipt)) {
+            throw new \RuntimeException('The preset lifecycle authority returned an invalid receipt');
         }
-        $snapshot = $this->loadSnapshot($presetId);
+        $presetId = (int)($receipt['presetId'] ?? 0);
+        $presetName = trim((string)($receipt['presetName'] ?? ''));
+        $identityRevision = strtolower(trim((string)($receipt['identityRevision'] ?? '')));
+        if ($presetId <= 0 || $presetName === '' || preg_match('/^[a-f0-9]{64}$/D', $identityRevision) !== 1) {
+            throw new \RuntimeException('The preset lifecycle authority returned an invalid receipt');
+        }
         return [
             'contract' => self::CONTRACT,
             'presetId' => $presetId,
-            'presetName' => $snapshot['presetName'],
+            'presetName' => $presetName,
+            'revision' => $identityRevision,
         ];
     }
 
@@ -473,16 +1149,11 @@ final class ControlCenterEditorsService
         $requestedOfferIds = $this->normalizeRequestedOfferIds($offerIds);
 
         $snapshot = $this->loadSnapshot($presetId);
-        $supportedProductIds = $presetId === self::FOCUS_PRESET_ID
-            ? array_fill_keys(StandaloneCatalogSelectionMapper::supportedProductIds(), true)
-            : null;
         $serverOfferIds = [];
         $offerProductIds = [];
         foreach ($snapshot['products'] as $product) {
             $productId = (int)($product['id'] ?? 0);
-            if ($productId <= 0
-                || ($supportedProductIds !== null && !isset($supportedProductIds[$productId]))
-                || !is_array($product['offers'] ?? null)) {
+            if ($productId <= 0 || !is_array($product['offers'] ?? null)) {
                 continue;
             }
             foreach ($product['offers'] as $offer) {
@@ -540,142 +1211,16 @@ final class ControlCenterEditorsService
         ];
     }
 
-    public function validateStorefrontLaunch(int $productId): array
+    public function loadFormFirstWorkspace(int $presetId): array
     {
-        $authority = $this->resolveStorefrontAuthority($productId);
-
-        return [
-            'contract' => self::CONTRACT,
-            'focusPresetId' => self::FOCUS_PRESET_ID,
-            'productIblockId' => $this->resolveProductIblockId(),
-            'productId' => $productId,
-            'productName' => $authority['productName'],
-        ];
-    }
-
-    public function loadStorefrontWorkspace(int $productId, string $target = 'effective', string $templateId = ''): array
-    {
-        $authority = $this->resolveStorefrontAuthority($productId);
-        if (!in_array($target, ['effective', 'product', 'template'], true)) {
-            throw new \InvalidArgumentException('Unsupported storefront editor target');
-        }
-        if ($target === 'template' && $templateId === '') {
-            throw new \InvalidArgumentException('templateId is required for the template target');
-        }
-        if ($target !== 'template' && $templateId !== '') {
-            throw new \InvalidArgumentException('templateId is allowed only for the template target');
-        }
-
-        return $this->assertStorefrontEditorResult(
-            $this->requireStorefrontEditor()->loadWorkspace(
-                $productId,
-                $target,
-                $templateId,
-                $authority['allowedProductIds']
-            )
-        );
-    }
-
-    public function validateStorefrontSchema(int $productId, string $target, array $schema): array
-    {
-        $authority = $this->resolveStorefrontAuthority($productId);
-        if (!in_array($target, ['product', 'template'], true)) {
-            throw new \InvalidArgumentException('Unsupported storefront editor target');
-        }
-        $this->assertEditorDocument($schema, 'schema');
-
-        return $this->assertStorefrontEditorResult(
-            $this->requireStorefrontEditor()->validateSchema(
-                $productId,
-                $target,
-                $schema,
-                $authority['allowedProductIds']
-            )
-        );
-    }
-
-    public function saveStorefrontTemplate(
-        int $productId,
-        string $templateId,
-        int $expectedRevision,
-        string $name,
-        int $sectionId,
-        array $schema
-    ): array {
-        $authority = $this->resolveStorefrontAuthority($productId);
-        $this->assertEditorDocument($schema, 'schema');
-
-        return $this->assertStorefrontEditorResult(
-            $this->requireStorefrontEditor()->saveTemplate(
-                $productId,
-                $templateId,
-                $expectedRevision,
-                $name,
-                $sectionId,
-                $schema,
-                $authority['allowedProductIds']
-            )
-        );
-    }
-
-    public function saveStorefrontProduct(
-        int $productId,
-        string $expectedRevision,
-        array $schema
-    ): array {
-        $authority = $this->resolveStorefrontAuthority($productId);
-        $this->assertEditorDocument($schema, 'schema');
-
-        return $this->assertStorefrontEditorResult(
-            $this->requireStorefrontEditor()->saveProduct(
-                $productId,
-                $expectedRevision,
-                $schema,
-                $authority['allowedProductIds']
-            )
-        );
-    }
-
-    public function enableStorefrontInheritance(int $productId, string $expectedRevision): array
-    {
-        $authority = $this->resolveStorefrontAuthority($productId);
-
-        return $this->assertStorefrontEditorResult(
-            $this->requireStorefrontEditor()->enableInheritance(
-                $productId,
-                $expectedRevision,
-                $authority['allowedProductIds']
-            )
-        );
-    }
-
-    public function deleteStorefrontTemplate(int $productId, string $templateId, int $expectedRevision): array
-    {
-        $authority = $this->resolveStorefrontAuthority($productId);
-
-        return $this->assertStorefrontEditorResult(
-            $this->requireStorefrontEditor()->deleteTemplate(
-                $productId,
-                $templateId,
-                $expectedRevision,
-                $authority['allowedProductIds']
-            )
-        );
-    }
-
-    public function loadFormFirstWorkspace(int $productId, int $presetId): array
-    {
-        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
-        $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
+        $this->assertPresetFormAuthority($presetId);
+        $dependencyContract = $this->resolveDependencyContract($presetId);
 
         return $this->assertFormFirstEditorResult(
             $this->requireFormFirstAuthoring()->loadFormFirstWorkspace(
-                $productId,
                 $presetId,
-                $authority['allowedProductIds'],
                 $dependencyContract
             ),
-            $productId,
             $presetId,
             'load',
             $dependencyContract['fingerprint']
@@ -684,12 +1229,11 @@ final class ControlCenterEditorsService
 
     /** @return array<string,mixed> */
     public function inspectFormFirstFieldDeletion(
-        int $productId,
         int $presetId,
         string $fieldId,
         ?string $propertyCode
     ): array {
-        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
+        $this->assertPresetFormAuthority($presetId);
         $fieldId = trim($fieldId);
         // The impact check must also let an operator remove an invalid field
         // from an unsaved draft (for example, a numeric code entered before
@@ -702,7 +1246,7 @@ final class ControlCenterEditorsService
             throw new \InvalidArgumentException('propertyCode must be a valid calculator property code or null');
         }
 
-        $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
+        $dependencyContract = $this->resolveDependencyContract($presetId);
         $blockers = [];
         if ($propertyCode !== null) {
             foreach ($dependencyContract['consumers'] as $consumer) {
@@ -712,6 +1256,21 @@ final class ControlCenterEditorsService
                 }
             }
         }
+        foreach ((array)call_user_func($this->formFieldReferenceResolver, $presetId, $fieldId) as $reference) {
+            if (!is_array($reference)
+                || !in_array((string)($reference['category'] ?? ''), self::FIELD_DELETE_BLOCKING_CATEGORIES, true)
+                || (string)($reference['fieldId'] ?? '') !== $fieldId) {
+                throw new \RuntimeException('The current field reference authority is invalid');
+            }
+            $reference['propertyCode'] = $propertyCode;
+            $blockers[] = $reference;
+        }
+        $deduplicatedBlockers = [];
+        foreach ($blockers as $blocker) {
+            $key = hash('sha256', (string)json_encode($blocker, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $deduplicatedBlockers[$key] = $blocker;
+        }
+        $blockers = array_values($deduplicatedBlockers);
 
         return [
             'contract' => self::FORM_FIRST_FIELD_DELETE_IMPACT_CONTRACT,
@@ -725,56 +1284,67 @@ final class ControlCenterEditorsService
     }
 
     public function saveFormFirstDraft(
-        int $productId,
         int $presetId,
         string $expectedAggregateRevision,
         array $formDefinition,
         array $bindingDefinition
     ): array {
-        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
+        $this->assertPresetFormAuthority($presetId);
         $this->assertSha256($expectedAggregateRevision, 'expectedAggregateRevision');
         $this->assertEditorDocument($formDefinition, 'formDefinition');
         $this->assertEditorDocument($bindingDefinition, 'bindingDefinition');
-        $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
-
-        return $this->assertFormFirstEditorResult(
-            $this->requireFormFirstAuthoring()->saveFormFirstDraft(
-                $productId,
+        return $this->withPresetMutation(
+            $presetId,
+            [
+                'action' => 'form_first_save_draft',
+                'entity_type' => 'form_first',
+                'entity_id' => (string)$presetId,
+                'expected_revision' => $expectedAggregateRevision,
+                'product_ids' => [],
+            ],
+            function () use (
                 $presetId,
                 $expectedAggregateRevision,
                 $formDefinition,
-                $bindingDefinition,
-                $authority['allowedProductIds'],
-                $dependencyContract
-            ),
-            $productId,
-            $presetId,
-            'save_draft',
-            $dependencyContract['fingerprint']
+                $bindingDefinition
+            ): array {
+                $dependencyContract = $this->resolveDependencyContract($presetId);
+                return $this->assertFormFirstEditorResult(
+                    $this->requireFormFirstAuthoring()->saveFormFirstDraft(
+                        $presetId,
+                        $expectedAggregateRevision,
+                        $formDefinition,
+                        $bindingDefinition,
+                        $dependencyContract
+                    ),
+                    $presetId,
+                    'save_draft',
+                    $dependencyContract['fingerprint']
+                );
+            },
+            function () use ($presetId): array {
+                return $this->loadFormFirstWorkspace($presetId);
+            }
         );
     }
 
     public function previewFormFirst(
-        int $productId,
         int $presetId,
         array $formDefinition,
         array $bindingDefinition
     ): array {
-        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
+        $this->assertPresetFormAuthority($presetId);
         $this->assertEditorDocument($formDefinition, 'formDefinition');
         $this->assertEditorDocument($bindingDefinition, 'bindingDefinition');
-        $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
+        $dependencyContract = $this->resolveDependencyContract($presetId);
 
         return $this->assertFormFirstEditorResult(
             $this->requireFormFirstAuthoring()->previewFormFirst(
-                $productId,
                 $presetId,
                 $formDefinition,
                 $bindingDefinition,
-                $authority['allowedProductIds'],
                 $dependencyContract
             ),
-            $productId,
             $presetId,
             'preview',
             $dependencyContract['fingerprint']
@@ -782,58 +1352,82 @@ final class ControlCenterEditorsService
     }
 
     public function publishFormFirst(
-        int $productId,
         int $presetId,
         string $expectedAggregateRevision,
         string $expectedCompileHash
     ): array {
-        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
+        $this->assertPresetFormAuthority($presetId);
         $this->assertSha256($expectedAggregateRevision, 'expectedAggregateRevision');
         $this->assertSha256($expectedCompileHash, 'expectedCompileHash');
-        $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
-
-        return $this->assertFormFirstEditorResult(
-            $this->requireFormFirstAuthoring()->publishFormFirst(
-                $productId,
-                $presetId,
-                $expectedAggregateRevision,
-                $expectedCompileHash,
-                $authority['allowedProductIds'],
-                $dependencyContract
-            ),
-            $productId,
+        return $this->withPresetMutation(
             $presetId,
-            'publish',
-            $dependencyContract['fingerprint']
+            [
+                'action' => 'form_first_publish',
+                'entity_type' => 'form_first',
+                'entity_id' => (string)$presetId,
+                'expected_revision' => $expectedAggregateRevision,
+                'product_ids' => [],
+            ],
+            function () use ($presetId, $expectedAggregateRevision, $expectedCompileHash): array {
+                $dependencyContract = $this->resolveDependencyContract($presetId);
+                $result = $this->assertFormFirstEditorResult(
+                    $this->requireFormFirstAuthoring()->publishFormFirst(
+                        $presetId,
+                        $expectedAggregateRevision,
+                        $expectedCompileHash,
+                        $dependencyContract
+                    ),
+                    $presetId,
+                    'publish',
+                    $dependencyContract['fingerprint']
+                );
+                call_user_func($this->activeStorefrontPublicationValidator, $presetId);
+                return $result;
+            },
+            function () use ($presetId): array {
+                return $this->loadFormFirstWorkspace($presetId);
+            }
         );
     }
 
     public function rollbackFormFirst(
-        int $productId,
         int $presetId,
         string $expectedAggregateRevision,
         int $targetPublishedRevision
     ): array {
-        $authority = $this->resolvePresetFormAuthority($presetId, $productId);
+        $this->assertPresetFormAuthority($presetId);
         $this->assertSha256($expectedAggregateRevision, 'expectedAggregateRevision');
         if ($targetPublishedRevision < 0) {
             throw new \InvalidArgumentException('targetPublishedRevision must be a non-negative integer');
         }
-        $dependencyContract = $this->resolveDependencyContract($presetId, $authority['allowedProductIds']);
-
-        return $this->assertFormFirstEditorResult(
-            $this->requireFormFirstAuthoring()->rollbackFormFirst(
-                $productId,
-                $presetId,
-                $expectedAggregateRevision,
-                $targetPublishedRevision,
-                $authority['allowedProductIds'],
-                $dependencyContract
-            ),
-            $productId,
+        return $this->withPresetMutation(
             $presetId,
-            'rollback',
-            $dependencyContract['fingerprint']
+            [
+                'action' => 'form_first_rollback',
+                'entity_type' => 'form_first',
+                'entity_id' => (string)$presetId,
+                'expected_revision' => $expectedAggregateRevision,
+                'product_ids' => [],
+            ],
+            function () use ($presetId, $expectedAggregateRevision, $targetPublishedRevision): array {
+                $dependencyContract = $this->resolveDependencyContract($presetId);
+                $result = $this->assertFormFirstEditorResult(
+                    $this->requireFormFirstAuthoring()->rollbackFormFirst(
+                        $presetId,
+                        $expectedAggregateRevision,
+                        $targetPublishedRevision,
+                        $dependencyContract
+                    ),
+                    $presetId,
+                    'rollback',
+                    $dependencyContract['fingerprint']
+                );
+                call_user_func($this->activeStorefrontPublicationValidator, $presetId);
+                return $result;
+            },
+            function () use ($presetId): array {
+                return $this->loadFormFirstWorkspace($presetId);
+            }
         );
     }
 
@@ -900,7 +1494,7 @@ final class ControlCenterEditorsService
 
     /**
      * The storefront uses every active product linked to the preset. The
-     * catalog-write adapter may intentionally expose a narrower allowlist.
+     * catalog calculation may intentionally expose a narrower eligible set.
      *
      * @return array{presetName:string,offerCount:int,products:array<int,array{id:int,name:string,offerCount:int,offers:array<int,array{id:int,name:string}>}>}
      */
@@ -939,6 +1533,8 @@ final class ControlCenterEditorsService
         if ($productIblockId <= 0) {
             return [];
         }
+        $propertyAuthority = $this->resolvePresetProductPropertyAuthority($productIblockId, false);
+        $propertyId = $propertyAuthority['propertyId'];
 
         $usage = [];
         foreach ($presetIds as $presetId) {
@@ -949,18 +1545,30 @@ final class ControlCenterEditorsService
             ['ID' => 'ASC'],
             [
                 'IBLOCK_ID' => $productIblockId,
-                'ACTIVE' => 'Y',
-                'ACTIVE_DATE' => 'Y',
-                'PROPERTY_CALC_PRESET' => $presetIds,
+                'PROPERTY_' . $propertyId => $presetIds,
             ],
             false,
             false,
-            ['ID', 'PROPERTY_CALC_PRESET']
+            ['ID']
         );
         while ($productCursor && ($row = $productCursor->Fetch())) {
             $productId = (int)($row['ID'] ?? 0);
-            $presetId = (int)($row['PROPERTY_CALC_PRESET_VALUE'] ?? 0);
-            if ($productId <= 0 || !isset($usage[$presetId])) {
+            if ($productId <= 0 || isset($productPresetMap[$productId])) {
+                continue;
+            }
+            $assignedPresetIds = $this->loadProductPresetIds(
+                $productIblockId,
+                $propertyId,
+                $productId
+            );
+            if (count($assignedPresetIds) !== 1) {
+                throw new \RuntimeException(
+                    'Product #' . $productId . ' has an ambiguous CALC_PRESET assignment.',
+                    409
+                );
+            }
+            $presetId = $assignedPresetIds[0];
+            if (!isset($usage[$presetId])) {
                 continue;
             }
             $productPresetMap[$productId] = $presetId;
@@ -1030,16 +1638,6 @@ final class ControlCenterEditorsService
                     : (string)($rawRow['ACTIVE'] ?? 'Y') === 'Y',
                 'sort' => (int)($rawRow['sort'] ?? $rawRow['SORT'] ?? 500),
                 'updatedAt' => (string)($rawRow['updatedAt'] ?? $rawRow['TIMESTAMP_X'] ?? ''),
-            ];
-        }
-        if (!$serverPaged && $query === '' && !isset($rows[self::FOCUS_PRESET_ID])) {
-            $focus = $this->loadSnapshot(self::FOCUS_PRESET_ID);
-            $rows[self::FOCUS_PRESET_ID] = [
-                'id' => self::FOCUS_PRESET_ID,
-                'name' => $focus['presetName'],
-                'active' => true,
-                'sort' => 500,
-                'updatedAt' => '',
             ];
         }
         if (!$serverPaged) {
@@ -1133,7 +1731,8 @@ final class ControlCenterEditorsService
         int $presetId,
         string $query,
         int $page,
-        int $pageSize
+        int $pageSize,
+        ?array $propertyAuthority = null
     ): array {
         if (!Loader::includeModule('iblock')) {
             throw new \RuntimeException('The iblock module is not available');
@@ -1154,19 +1753,15 @@ final class ControlCenterEditorsService
         if (!$preset) {
             throw new \InvalidArgumentException('Пресет не найден');
         }
-        $property = \CIBlockProperty::GetList(
-            [],
-            ['IBLOCK_ID' => $productIblockId, 'CODE' => 'CALC_PRESET']
-        )->Fetch();
-        if (!$property) {
-            throw new \RuntimeException('Свойство CALC_PRESET не найдено в инфоблоке товаров');
-        }
+        $authority = $this->normalizePresetProductPropertyAuthority(
+            $propertyAuthority ?? $this->resolvePresetProductPropertyAuthority($productIblockId, false),
+            $productIblockId
+        );
+        $propertyId = $authority['propertyId'];
 
-        $linkedProductIds = $this->loadLinkedProductIds($productIblockId, $presetId);
+        $linkedProductIds = $this->loadLinkedProductIds($productIblockId, $propertyId, $presetId);
         $filter = [
             'IBLOCK_ID' => $productIblockId,
-            'ACTIVE' => 'Y',
-            'ACTIVE_DATE' => 'Y',
         ];
         if ($query !== '') {
             $filter[] = ctype_digit($query)
@@ -1190,7 +1785,7 @@ final class ControlCenterEditorsService
                 'id' => $productId,
                 'name' => (string)($row['NAME'] ?? ''),
                 'active' => (string)($row['ACTIVE'] ?? 'N') === 'Y',
-                'presetIds' => $this->loadProductPresetIds($productIblockId, $productId),
+                'presetIds' => $this->loadProductPresetIds($productIblockId, $propertyId, $productId),
             ];
         }
         $total = $cursor && method_exists($cursor, 'SelectedRowsCount')
@@ -1213,139 +1808,166 @@ final class ControlCenterEditorsService
     private function mutatePresetProductsInBitrix(
         int $presetId,
         array $productIds,
-        string $expectedRevision
+        string $expectedRevision,
+        int $productIblockId,
+        array $propertyAuthority
     ): array {
         if (!Loader::includeModule('iblock')) {
             throw new \RuntimeException('The iblock module is not available');
         }
-        $config = new ConfigManager();
-        $productIblockId = (int)$config->getProductIblockId();
         if ($productIblockId <= 0) {
             throw new \RuntimeException('Product iblock is not configured');
         }
-        $property = \CIBlockProperty::GetList(
-            [],
-            ['IBLOCK_ID' => $productIblockId, 'CODE' => 'CALC_PRESET']
-        )->Fetch();
-        if (!$property) {
-            throw new \RuntimeException('Свойство CALC_PRESET не найдено в инфоблоке товаров');
+        $authority = $this->normalizePresetProductPropertyAuthority(
+            $propertyAuthority,
+            $productIblockId
+        );
+        $propertyId = $authority['propertyId'];
+
+        $currentProductIds = $this->loadLinkedProductIds($productIblockId, $propertyId, $presetId);
+        if (!hash_equals($this->presetProductRevision($presetId, $currentProductIds), $expectedRevision)) {
+            throw new \RuntimeException('Список товаров уже изменён в другой вкладке. Обновите его и повторите сохранение.', 409);
         }
 
-        $lockPath = rtrim((string)sys_get_temp_dir(), '/\\')
-            . DIRECTORY_SEPARATOR . 'prospektweb-calc-preset-products-' . $productIblockId . '.lock';
-        $lock = fopen($lockPath, 'c+');
-        if (!$lock || !flock($lock, LOCK_EX)) {
-            if (is_resource($lock)) {
-                fclose($lock);
+        $requestedMap = array_fill_keys($productIds, true);
+        $detachedProductIds = array_values(array_diff($currentProductIds, $productIds));
+        if ($productIds) {
+            $existingIds = [];
+            $cursor = \CIBlockElement::GetList(
+                ['ID' => 'ASC'],
+                [
+                    'IBLOCK_ID' => $productIblockId,
+                    'ID' => $productIds,
+                ],
+                false,
+                false,
+                ['ID']
+            );
+            while ($cursor && ($row = $cursor->Fetch())) {
+                $existingIds[(int)$row['ID']] = true;
             }
-            throw new \RuntimeException('Не удалось заблокировать изменение списка товаров');
+            if (count($existingIds) !== count($requestedMap)) {
+                throw new \InvalidArgumentException('Один или несколько выбранных товаров больше не существуют');
+            }
         }
 
+        $affectedProductIds = array_values(array_unique(array_merge($currentProductIds, $productIds)));
+        sort($affectedProductIds, SORT_NUMERIC);
+        $multiple = $authority['multiple'];
+        $currentAssignments = [];
+        foreach ($affectedProductIds as $productId) {
+            $currentAssignments[$productId] = $this->loadProductPresetIds(
+                $productIblockId,
+                $propertyId,
+                $productId
+            );
+        }
+        self::assertExclusivePresetAssignments($presetId, $productIds, $currentAssignments);
+        $mutations = [];
+        foreach ($affectedProductIds as $productId) {
+            $originalPresetIds = $currentAssignments[$productId];
+            $nextPresetIds = array_values(array_filter(
+                $originalPresetIds,
+                static fn(int $currentPresetId): bool => $currentPresetId !== $presetId
+            ));
+            if (isset($requestedMap[$productId])) {
+                $nextPresetIds[] = $presetId;
+            }
+            $nextPresetIds = array_values(array_unique($nextPresetIds));
+            sort($nextPresetIds, SORT_NUMERIC);
+            if ($nextPresetIds !== $originalPresetIds) {
+                $mutations[$productId] = [
+                    'original' => $originalPresetIds,
+                    'next' => $nextPresetIds,
+                ];
+            }
+        }
+
+        $applied = [];
         try {
-            $currentProductIds = $this->loadLinkedProductIds($productIblockId, $presetId);
-            if (!hash_equals($this->presetProductRevision($presetId, $currentProductIds), $expectedRevision)) {
-                throw new \RuntimeException('Список товаров уже изменён в другой вкладке. Обновите его и повторите сохранение.', 409);
-            }
-
-            $requestedMap = array_fill_keys($productIds, true);
-            if ($productIds) {
-                $existingIds = [];
-                $cursor = \CIBlockElement::GetList(
-                    ['ID' => 'ASC'],
-                    [
-                        'IBLOCK_ID' => $productIblockId,
-                        'ID' => $productIds,
-                        'ACTIVE' => 'Y',
-                        'ACTIVE_DATE' => 'Y',
-                    ],
-                    false,
-                    false,
-                    ['ID']
-                );
-                while ($cursor && ($row = $cursor->Fetch())) {
-                    $existingIds[(int)$row['ID']] = true;
-                }
-                if (count($existingIds) !== count($requestedMap)) {
-                    throw new \InvalidArgumentException('Один или несколько выбранных товаров больше недоступны');
-                }
-            }
-
-            $affectedProductIds = array_values(array_unique(array_merge($currentProductIds, $productIds)));
-            sort($affectedProductIds, SORT_NUMERIC);
-            $multiple = (string)($property['MULTIPLE'] ?? 'N') === 'Y';
-            $mutations = [];
-            foreach ($affectedProductIds as $productId) {
-                $originalPresetIds = $this->loadProductPresetIds($productIblockId, $productId);
-                $nextPresetIds = array_values(array_filter(
-                    $originalPresetIds,
-                    static fn(int $currentPresetId): bool => $currentPresetId !== $presetId
-                ));
-                if (isset($requestedMap[$productId])) {
-                    if (!$multiple && $nextPresetIds !== []) {
-                        throw new \InvalidArgumentException(
-                            'Товар #' . $productId . ' уже подключён к другому пресету #' . $nextPresetIds[0]
-                        );
-                    }
-                    $nextPresetIds[] = $presetId;
-                }
-                $nextPresetIds = array_values(array_unique($nextPresetIds));
-                sort($nextPresetIds, SORT_NUMERIC);
-                if ($nextPresetIds !== $originalPresetIds) {
-                    $mutations[$productId] = [
-                        'original' => $originalPresetIds,
-                        'next' => $nextPresetIds,
-                    ];
-                }
-            }
-
-            $applied = [];
-            try {
-                foreach ($mutations as $productId => $mutation) {
+            foreach ($mutations as $productId => $mutation) {
+                PresetProductAssignmentMutationGuardService::runInternal(static function () use (
+                    $productId,
+                    $productIblockId,
+                    $propertyId,
+                    $multiple,
+                    $mutation
+                ): void {
                     \CIBlockElement::SetPropertyValuesEx(
                         (int)$productId,
                         $productIblockId,
-                        ['CALC_PRESET' => $multiple ? $mutation['next'] : ($mutation['next'][0] ?? false)]
+                        [$propertyId => $multiple ? $mutation['next'] : ($mutation['next'][0] ?? false)]
                     );
-                    $readback = $this->loadProductPresetIds($productIblockId, (int)$productId);
-                    if ($readback !== $mutation['next']) {
-                        throw new \RuntimeException('Не удалось подтвердить привязку товара #' . $productId);
-                    }
-                    $applied[] = (int)$productId;
+                });
+                $readback = $this->loadProductPresetIds(
+                    $productIblockId,
+                    $propertyId,
+                    (int)$productId
+                );
+                if ($readback !== $mutation['next']) {
+                    throw new \RuntimeException('Не удалось подтвердить привязку товара #' . $productId);
                 }
-            } catch (\Throwable $exception) {
-                foreach (array_reverse($applied) as $productId) {
-                    $original = $mutations[$productId]['original'];
+                $applied[] = (int)$productId;
+            }
+            call_user_func($this->storefrontProductDetacher, $presetId, $detachedProductIds);
+
+            $linkedReadback = $this->loadLinkedProductIds($productIblockId, $propertyId, $presetId);
+            if ($linkedReadback !== $productIds) {
+                throw new \RuntimeException('Контрольное чтение привязок товаров не совпало с записью');
+            }
+            $storefrontReadback = call_user_func($this->storefrontProductReadbackLoader, $presetId);
+            $storefrontItems = is_array($storefrontReadback['items'] ?? null)
+                ? $storefrontReadback['items']
+                : null;
+            if ($storefrontItems === null) {
+                throw new \RuntimeException('Контрольное чтение витринных калькуляторов недоступно');
+            }
+            $detachedMap = array_fill_keys($detachedProductIds, true);
+            foreach ($storefrontItems as $storefront) {
+                foreach (is_array($storefront['product_ids'] ?? null) ? $storefront['product_ids'] : [] as $productId) {
+                    if (isset($detachedMap[(int)$productId])) {
+                        throw new \RuntimeException(
+                            'Товар #' . (int)$productId . ' остался привязан к витринному калькулятору'
+                        );
+                    }
+                }
+            }
+        } catch (\Throwable $exception) {
+            foreach (array_reverse($applied) as $productId) {
+                $original = $mutations[$productId]['original'];
+                PresetProductAssignmentMutationGuardService::runInternal(static function () use (
+                    $productId,
+                    $productIblockId,
+                    $propertyId,
+                    $multiple,
+                    $original
+                ): void {
                     \CIBlockElement::SetPropertyValuesEx(
                         $productId,
                         $productIblockId,
-                        ['CALC_PRESET' => $multiple ? $original : ($original[0] ?? false)]
+                        [$propertyId => $multiple ? $original : ($original[0] ?? false)]
                     );
-                }
-                throw $exception;
+                });
             }
+            throw $exception;
+        }
 
-            if (class_exists('\CIBlock') && method_exists('\CIBlock', 'clearIblockTagCache')) {
-                \CIBlock::clearIblockTagCache($productIblockId);
-            }
-        } finally {
-            flock($lock, LOCK_UN);
-            fclose($lock);
+        if (class_exists('\CIBlock') && method_exists('\CIBlock', 'clearIblockTagCache')) {
+            \CIBlock::clearIblockTagCache($productIblockId);
         }
 
         return $this->loadPresetProductCatalogFromBitrix($presetId, '', 1, 50);
     }
 
     /** @return int[] */
-    private function loadLinkedProductIds(int $productIblockId, int $presetId): array
+    private function loadLinkedProductIds(int $productIblockId, int $propertyId, int $presetId): array
     {
         $ids = [];
         $cursor = \CIBlockElement::GetList(
             ['ID' => 'ASC'],
             [
                 'IBLOCK_ID' => $productIblockId,
-                'ACTIVE' => 'Y',
-                'ACTIVE_DATE' => 'Y',
-                'PROPERTY_CALC_PRESET' => $presetId,
+                'PROPERTY_' . $propertyId => $presetId,
             ],
             false,
             false,
@@ -1362,14 +1984,14 @@ final class ControlCenterEditorsService
     }
 
     /** @return int[] */
-    private function loadProductPresetIds(int $productIblockId, int $productId): array
+    private function loadProductPresetIds(int $productIblockId, int $propertyId, int $productId): array
     {
         $ids = [];
         $cursor = \CIBlockElement::GetProperty(
             $productIblockId,
             $productId,
             ['sort' => 'asc', 'id' => 'asc'],
-            ['CODE' => 'CALC_PRESET']
+            ['ID' => $propertyId]
         );
         while ($cursor && ($property = $cursor->Fetch())) {
             $presetId = (int)($property['VALUE'] ?? 0);
@@ -1379,6 +2001,36 @@ final class ControlCenterEditorsService
         }
         ksort($ids, SORT_NUMERIC);
         return array_values($ids);
+    }
+
+    /** @param int[] $productIds @return array<int,int[]> */
+    private function loadExactProductAssignments(int $productIblockId, int $propertyId, array $productIds): array
+    {
+        if ($productIblockId <= 0 || $productIds === []) {
+            return [];
+        }
+        $existing = [];
+        $cursor = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            ['IBLOCK_ID' => $productIblockId, 'ID' => $productIds],
+            false,
+            false,
+            ['ID', 'IBLOCK_ID', 'ACTIVE', 'ACTIVE_FROM', 'ACTIVE_TO']
+        );
+        while ($cursor && ($row = $cursor->Fetch())) {
+            $productId = (int)($row['ID'] ?? 0);
+            if ($productId > 0) {
+                // Publication activity is metadata only. Assignment authority
+                // must survive inactive and expired catalog states.
+                $existing[$productId] = $this->loadProductPresetIds(
+                    $productIblockId,
+                    $propertyId,
+                    $productId
+                );
+            }
+        }
+        ksort($existing, SORT_NUMERIC);
+        return $existing;
     }
 
     /** @param int[] $linkedProductIds */
@@ -1406,65 +2058,46 @@ final class ControlCenterEditorsService
         return $productIblockId;
     }
 
-    /**
-     * Resolve the current active product scope immediately before every
-     * provider call. The allowlist is deliberately not cached between actions:
-     * a product disabled or unlinked after a browser catalog load must fail
-     * closed on the following read, validation or mutation.
-     *
-     * @return array{productName:string,allowedProductIds:int[]}
-     */
-    private function resolveStorefrontAuthority(int $productId): array
+    /** @return array{productIblockId:int,propertyId:int,multiple:bool} */
+    private function resolvePresetProductPropertyAuthority(int $productIblockId, bool $forUpdate): array
     {
-        if ($productId <= 0) {
-            throw new \InvalidArgumentException('Select a product');
+        $raw = call_user_func($this->presetProductPropertyAuthority, $productIblockId, $forUpdate);
+        if (!is_array($raw)) {
+            throw new \RuntimeException('CALC_PRESET property authority is invalid.', 409);
         }
-        if (!(bool)call_user_func($this->frontcalcAvailabilityResolver)) {
-            throw new \RuntimeException('The storefront calculator module is not installed');
-        }
+        return $this->normalizePresetProductPropertyAuthority($raw, $productIblockId);
+    }
 
-        $snapshot = $this->loadStorefrontSnapshot(self::FOCUS_PRESET_ID);
-        $allowedProductIds = [];
-        $productName = '';
-        foreach ($snapshot['products'] as $product) {
-            $allowedProductId = (int)$product['id'];
-            $allowedProductIds[] = $allowedProductId;
-            if ($allowedProductId === $productId) {
-                $productName = (string)$product['name'];
-            }
+    /**
+     * @param array<string,mixed> $raw
+     * @return array{productIblockId:int,propertyId:int,multiple:bool}
+     */
+    private function normalizePresetProductPropertyAuthority(array $raw, int $productIblockId): array
+    {
+        if ((int)($raw['productIblockId'] ?? 0) !== $productIblockId
+            || (int)($raw['propertyId'] ?? 0) <= 0
+            || !is_bool($raw['multiple'] ?? null)) {
+            throw new \RuntimeException('CALC_PRESET property authority is invalid.', 409);
         }
-        if ($productName === '') {
-            throw new \InvalidArgumentException(
-                'Product ' . $productId . ' is not linked to preset ' . self::FOCUS_PRESET_ID
-            );
-        }
-
         return [
-            'productName' => $productName,
-            'allowedProductIds' => $allowedProductIds,
+            'productIblockId' => $productIblockId,
+            'propertyId' => (int)$raw['propertyId'],
+            'multiple' => $raw['multiple'],
         ];
     }
 
-    /** @return array{presetName:string,allowedProductIds:int[]} */
-    private function resolvePresetFormAuthority(int $presetId, int $productId = 0): array
+    private function assertPresetFormAuthority(int $presetId): void
     {
-        if ($presetId <= 0 || $productId < 0) {
-            throw new \InvalidArgumentException('Preset ID must be positive and product ID cannot be negative');
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Preset ID must be positive');
         }
         if (!(bool)call_user_func($this->frontcalcAvailabilityResolver)) {
             throw new \RuntimeException('The storefront calculator module is not installed');
         }
-        $snapshot = $this->loadSnapshot($presetId);
-        $allowedProductIds = array_values(array_map(static function (array $product): int {
-            return (int)$product['id'];
-        }, $snapshot['products']));
-        if ($productId > 0 && !in_array($productId, $allowedProductIds, true)) {
-            throw new \InvalidArgumentException('Product is not linked to the selected preset');
+        $preset = call_user_func($this->presetIdentityLoader, $presetId);
+        if (!is_array($preset) || (int)($preset['id'] ?? 0) !== $presetId) {
+            throw new \RuntimeException('The preset identity authority is invalid');
         }
-        return [
-            'presetName' => $snapshot['presetName'],
-            'allowedProductIds' => $allowedProductIds,
-        ];
     }
 
     private function assertSha256(string $value, string $field): void
@@ -1474,15 +2107,67 @@ final class ControlCenterEditorsService
         }
     }
 
-    /** @param int[] $allowedProductIds @return array<string,mixed> */
-    private function resolveDependencyContract(int $presetId, array $allowedProductIds): array
+    /** @return array{id:int,name:string,active:bool,updatedAt:string,revision:string} */
+    private function loadPresetActiveState(int $presetId, bool $forUpdate = false): array
+    {
+        $raw = call_user_func(
+            $forUpdate ? $this->presetActiveLockedStateLoader : $this->presetActiveStateLoader,
+            $presetId
+        );
+        if (!is_array($raw)
+            || (int)($raw['id'] ?? 0) !== $presetId
+            || !is_bool($raw['active'] ?? null)) {
+            throw new \RuntimeException('Preset registry authority returned an invalid state.');
+        }
+        $state = [
+            'id' => $presetId,
+            'name' => trim((string)($raw['name'] ?? '')) ?: 'Пресет #' . $presetId,
+            'active' => (bool)$raw['active'],
+            'updatedAt' => (string)($raw['updatedAt'] ?? ''),
+        ];
+        $state['revision'] = $this->presetRegistryRevision($state);
+        return $state;
+    }
+
+    /** @param array<string,mixed> $row */
+    private function presetRegistryRevision(array $row): string
+    {
+        $presetId = (int)($row['id'] ?? 0);
+        if ($presetId <= 0 || !is_bool($row['active'] ?? null)) {
+            throw new \RuntimeException('Preset registry row cannot produce an exact revision.');
+        }
+        return hash('sha256', json_encode(
+            [
+                'presetId' => $presetId,
+                'active' => (bool)$row['active'],
+                'updatedAt' => (string)($row['updatedAt'] ?? ''),
+            ],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        ));
+    }
+
+    /** @param mixed[] $productIds @return int[] */
+    private function normalizePresetProductIds(array $productIds): array
+    {
+        if (!array_is_list($productIds) || count($productIds) > 1000) {
+            throw new \InvalidArgumentException('productIds must be a JSON array with at most 1000 items');
+        }
+        $normalized = [];
+        foreach ($productIds as $productId) {
+            if (!is_int($productId) || $productId <= 0 || $productId > 9007199254740991) {
+                throw new \InvalidArgumentException('productIds must contain positive integer IDs');
+            }
+            $normalized[$productId] = $productId;
+        }
+        ksort($normalized, SORT_NUMERIC);
+        return array_values($normalized);
+    }
+
+    /** @return array<string,mixed> */
+    private function resolveDependencyContract(int $presetId): array
     {
         try {
-            $contract = call_user_func(
-                $this->dependencyContractResolver,
-                $presetId,
-                $allowedProductIds
-            );
+            $contract = call_user_func($this->dependencyContractResolver, $presetId);
         } catch (\Throwable $exception) {
             throw new \RuntimeException('The current form-first dependency authority is unavailable');
         }
@@ -1499,13 +2184,12 @@ final class ControlCenterEditorsService
         }
         $requiredCategories = [
             'ui',
-            'passive_context',
+            'catalog_input_mapping',
             'stage_inputs',
             'globals',
             'options_mappings',
-            'routes',
             'basket',
-            'seo_display',
+            'storefront_presentation',
         ];
         foreach ($requiredCategories as $category) {
             $status = $contract['categoryStatus'][$category] ?? null;
@@ -1618,29 +2302,10 @@ final class ControlCenterEditorsService
         }
     }
 
-    private function isStorefrontEditorAvailable(): bool
-    {
-        try {
-            $this->requireProviderMethods(self::STOREFRONT_EDITOR_METHODS);
-            return true;
-        } catch (\Throwable $exception) {
-            return false;
-        }
-    }
-
-    /** @return object */
-    private function requireStorefrontEditor()
-    {
-        return $this->requireProviderMethods(self::STOREFRONT_EDITOR_METHODS);
-    }
-
     /** @return object */
     private function requireFormFirstAuthoring()
     {
-        return $this->requireProviderMethods(array_merge(
-            self::STOREFRONT_EDITOR_METHODS,
-            self::FORM_FIRST_AUTHORING_METHODS
-        ));
+        return $this->requireProviderMethods(self::FORM_FIRST_AUTHORING_METHODS);
     }
 
     private function isFormFirstAuthoringAvailable(): bool
@@ -1657,7 +2322,7 @@ final class ControlCenterEditorsService
     private function requireProviderMethods(array $methods)
     {
         try {
-            $provider = call_user_func($this->frontcalcEditorResolver);
+            $provider = call_user_func($this->formFirstAuthoringResolver);
         } catch (\Throwable $exception) {
             throw new \RuntimeException('The native storefront editor is unavailable');
         }
@@ -1674,19 +2339,8 @@ final class ControlCenterEditorsService
         return $provider;
     }
 
-    private function assertStorefrontEditorResult($result): array
-    {
-        if (!is_array($result)
-            || (string)($result['contract'] ?? '') !== self::STOREFRONT_EDITOR_CONTRACT) {
-            throw new \RuntimeException('The native storefront editor returned an incompatible response');
-        }
-
-        return $result;
-    }
-
     private function assertFormFirstEditorResult(
         $result,
-        int $expectedProductId,
         int $expectedPresetId,
         string $expectedOperation,
         string $expectedDependencyFingerprint
@@ -1697,14 +2351,12 @@ final class ControlCenterEditorsService
             throw new \RuntimeException('The form-first editor returned an incompatible response');
         }
         $product = $result['product'] ?? null;
-        if (($expectedProductId > 0
-                && (!is_array($product)
-                    || !is_int($product['id'] ?? null)
-                    || (int)$product['id'] !== $expectedProductId))
-            || ($expectedProductId === 0 && $product !== null)
-            || ($expectedProductId === 0 && (!is_array($result['preset'] ?? null)
+        if ($product !== null
+            || array_key_exists('productId', $result)
+            || array_key_exists('catalog', $result)
+            || (!is_array($result['preset'] ?? null)
                 || !is_int($result['preset']['id'] ?? null)
-                || (int)$result['preset']['id'] !== $expectedPresetId))
+                || (int)$result['preset']['id'] !== $expectedPresetId)
             || (is_array($result['preset'] ?? null)
                 && (!is_int($result['preset']['id'] ?? null)
                     || (int)$result['preset']['id'] !== $expectedPresetId))

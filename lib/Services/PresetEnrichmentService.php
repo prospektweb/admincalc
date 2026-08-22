@@ -20,7 +20,6 @@ class PresetEnrichmentService
     private int $presetsIblockId;
     private int $operationsVariantsIblockId;
     private int $materialsVariantsIblockId;
-    private bool $neutralAuthorityPinned = false;
 
     /** @param array<string,int>|null $pinnedIblockIds */
     public function __construct(?array $pinnedIblockIds = null)
@@ -30,7 +29,6 @@ class PresetEnrichmentService
         }
 
         if ($pinnedIblockIds !== null) {
-            $this->neutralAuthorityPinned = true;
             $this->detailsIblockId = (int)($pinnedIblockIds['CALC_DETAILS'] ?? 0);
             $this->stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
             $this->settingsIblockId = (int)($pinnedIblockIds['CALC_SETTINGS'] ?? 0);
@@ -57,35 +55,15 @@ class PresetEnrichmentService
     }
 
     /**
-     * Обогатить пресет связями на основе выбранной детали
+     * Rebuild derived preset links from one calculator structure root.
      *
      * @param int $presetId ID пресета
      * @param int $rootDetailId ID корневой детали (может быть деталью или скреплением)
-     * @param array $offerIds ID торговых предложений для построения INIT payload
-     * @return array Обновлённый INIT payload
+     * @return array Product-neutral preset payload
      * @throws \Exception
      */
-    public function enrichPresetFromDetails(int $presetId, int $rootDetailId, array $offerIds = []): array
+    public function rebuildPresetFromRoot(int $presetId, int $rootDetailId): array
     {
-        if ($presetId === NeutralFormulaPolicy::PRESET_ID && !$this->neutralAuthorityPinned) {
-            $policy = new NeutralFormulaPolicy();
-            return $policy->withActiveAuthorityLock(static function (
-                bool $protected,
-                array $pinnedIblockIds
-            ) use ($policy, $presetId, $rootDetailId, $offerIds): array {
-                $policy->assertStructuralMutationAllowed(
-                    $presetId,
-                    [$rootDetailId],
-                    $protected,
-                    'preset enrichment'
-                );
-                return (new self($pinnedIblockIds))->enrichPresetFromDetails(
-                    $presetId,
-                    $rootDetailId,
-                    $offerIds
-                );
-            });
-        }
         if ($presetId <= 0) {
             throw new \Exception('Некорректный ID пресета');
         }
@@ -106,44 +84,21 @@ class PresetEnrichmentService
         // Очищаем и записываем свойства пресета
         $this->updatePresetProperties($presetId, $linkedElements);
 
-        // Возвращаем обновлённый INIT payload
-        // Если offerIds не переданы, пытаемся найти их
-        if (empty($offerIds)) {
-            $offerIds = $this->getOffersForPreset($presetId);
-        }
-        
-        $initPayloadService = new InitPayloadService();
-        return $initPayloadService->prepareInitPayload($offerIds, SITE_ID, false);
+        return (new InitPayloadService())->preparePresetPayload(
+            $presetId,
+            defined('SITE_ID') ? (string)SITE_ID : 's1'
+        );
     }
 
     /**
-     * Rebuild linked preset properties for an ordered set of product roots while
+     * Rebuild linked preset properties for an ordered set of calculator roots while
      * preserving that exact top-level order in CALC_DETAILS.
      */
-    public function enrichPresetFromProductRoots(int $presetId, array $rootDetailIds, array $offerIds = []): array
+    public function rebuildPresetFromRoots(int $presetId, array $rootDetailIds): array
     {
         $rootDetailIds = array_values(array_unique(array_filter(array_map('intval', $rootDetailIds))));
-        if ($presetId === NeutralFormulaPolicy::PRESET_ID && !$this->neutralAuthorityPinned) {
-            $policy = new NeutralFormulaPolicy();
-            return $policy->withActiveAuthorityLock(static function (
-                bool $protected,
-                array $pinnedIblockIds
-            ) use ($policy, $presetId, $rootDetailIds, $offerIds): array {
-                $policy->assertStructuralMutationAllowed(
-                    $presetId,
-                    $rootDetailIds,
-                    $protected,
-                    'preset product-root enrichment'
-                );
-                return (new self($pinnedIblockIds))->enrichPresetFromProductRoots(
-                    $presetId,
-                    $rootDetailIds,
-                    $offerIds
-                );
-            });
-        }
         if ($presetId <= 0 || empty($rootDetailIds)) {
-            throw new \InvalidArgumentException('Некорректная структура продукта');
+            throw new \InvalidArgumentException('Некорректная структура калькулятора');
         }
 
         if (!$this->getPresetById($presetId)) {
@@ -157,11 +112,10 @@ class PresetEnrichmentService
         $linkedElements['details'] = $rootDetailIds;
         $this->updatePresetProperties($presetId, $linkedElements);
 
-        if (empty($offerIds)) {
-            $offerIds = $this->getOffersForPreset($presetId);
-        }
-
-        return (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
+        return (new InitPayloadService())->preparePresetPayload(
+            $presetId,
+            defined('SITE_ID') ? (string)SITE_ID : 's1'
+        );
     }
 
     /** Synchronize preset custom-field links from all currently linked root details. */
@@ -570,32 +524,6 @@ class PresetEnrichmentService
     }
 
     /**
-     * Получить offerIds для пресета
-     *
-     * @param int $presetId ID пресета
-     * @return array Массив ID торговых предложений
-     */
-    private function getOffersForPreset(int $presetId): array
-    {
-        $offerIds = [];
-
-        // Находим все торговые предложения, у которых CALC_PRESET = $presetId
-        $result = \CIBlockElement::GetList(
-            [],
-            ['PROPERTY_CALC_PRESET' => $presetId],
-            false,
-            false,
-            ['ID']
-        );
-
-        while ($offer = $result->Fetch()) {
-            $offerIds[] = (int)$offer['ID'];
-        }
-
-        return $offerIds;
-    }
-
-    /**
      * Очистить свойства пресета
      *
      * @param int $presetId ID пресета
@@ -604,22 +532,6 @@ class PresetEnrichmentService
      */
     public function clearPreset(int $presetId): void
     {
-        if ($presetId === NeutralFormulaPolicy::PRESET_ID && !$this->neutralAuthorityPinned) {
-            $policy = new NeutralFormulaPolicy();
-            $policy->withActiveAuthorityLock(static function (
-                bool $protected,
-                array $pinnedIblockIds
-            ) use ($policy, $presetId): void {
-                $policy->assertStructuralMutationAllowed(
-                    $presetId,
-                    [],
-                    $protected,
-                    'preset clearing'
-                );
-                (new self($pinnedIblockIds))->clearPreset($presetId);
-            });
-            return;
-        }
         if ($presetId <= 0) {
             throw new \Exception('Некорректный ID пресета');
         }
@@ -640,6 +552,7 @@ class PresetEnrichmentService
             'CALC_OPERATIONS_VARIANTS' => false,
             'CALC_EQUIPMENT' => false,
             'CALC_DETAILS' => false,
+            'CALC_CUSTOM_FIELDS' => false,
         ];
 
         // Записываем свойства пресета
@@ -739,36 +652,17 @@ class PresetEnrichmentService
     }
 
     /**
-     * Получить первый ID из CALC_DETAILS пресета
-     *
-     * @param int $presetId ID пресета
-     * @return int|null Первый ID детали или null
-     */
-    public function getFirstDetailFromPreset(int $presetId): ?int
-    {
-        $rootIds = $this->getProductRootsFromPreset($presetId);
-        return $rootIds[0] ?? null;
-    }
-
-    /**
-     * Return every root detail/binding in the exact product-column order.
+     * Return every root detail/binding in exact calculator-column order.
      *
      * @return int[]
      */
-    public function getProductRootsFromPreset(int $presetId): array
+    public function getRootsFromPreset(int $presetId): array
     {
         if ($presetId <= 0) {
             return [];
         }
 
         $presetsIblockId = $this->presetsIblockId;
-        if ($presetId === NeutralFormulaPolicy::PRESET_ID && !$this->neutralAuthorityPinned) {
-            $authority = (new NeutralFormulaPolicy())->readNeutralContractAuthority();
-            $presetsIblockId = (int)($authority['iblockIds']['CALC_PRESETS'] ?? 0);
-            if ($presetsIblockId <= 0) {
-                throw new \RuntimeException('Pinned neutral preset authority is invalid.', 409);
-            }
-        }
         $rootIds = [];
         $rs = \CIBlockElement::GetProperty(
             $presetsIblockId,

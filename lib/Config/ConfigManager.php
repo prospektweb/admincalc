@@ -12,12 +12,10 @@ class ConfigManager
     /** @var string ID модуля */
     protected const MODULE_ID = 'prospektweb.calc';
 
-    /** @var array Кеш ID инфоблоков */
-    protected static array $iblockCache = [];
-
     /**
-     * Карта кодов инфоблоков модуля и типов, в которых они создаются.
-     * Используется как fallback, если ID не сохранён в настройках.
+     * Карта точных кодов и типов инфоблоков модуля.
+     * Runtime не ищет и не перепривязывает инфоблоки по коду: такая
+     * операция допустима только в явном installer/activation boundary.
      */
     private const IBLOCK_TYPES = [
         'CALC_PRESETS' => 'calculator',
@@ -42,36 +40,26 @@ class ConfigManager
      */
     public function getIblockId(string $code): int
     {
-        if (isset(self::$iblockCache[$code])) {
-            return self::$iblockCache[$code];
+        $expectedType = self::IBLOCK_TYPES[$code] ?? null;
+        if ($expectedType === null) {
+            throw new \InvalidArgumentException('Unknown calculator iblock code: ' . $code . '.');
         }
 
         $optionKey = 'IBLOCK_' . $code;
-        $id = (int)Option::get(self::MODULE_ID, $optionKey, 0);
-
-        if ($id <= 0) {
-            $resolvedId = $this->findIblockId($code);
-            if ($resolvedId > 0) {
-                $id = $resolvedId;
-                Option::set(self::MODULE_ID, $optionKey, $resolvedId);
-            }
+        $rawId = Option::get(self::MODULE_ID, $optionKey, '');
+        if (!is_string($rawId)
+            || preg_match('/^[1-9][0-9]*$/D', $rawId) !== 1
+            || (string)(int)$rawId !== $rawId) {
+            throw new \RuntimeException(
+                'Calculator iblock authority is not configured: ' . $code . '.',
+                409
+            );
         }
+        $id = (int)$rawId;
 
-        self::$iblockCache[$code] = $id;
+        $this->assertExactIblockTarget($code, $expectedType, $id);
 
         return $id;
-    }
-
-    /**
-     * Устанавливает ID инфоблока.
-     *
-     * @param string $code Код инфоблока.
-     * @param int    $id   ID инфоблока.
-     */
-    public function setIblockId(string $code, int $id): void
-    {
-        Option::set(self::MODULE_ID, 'IBLOCK_' . $code, $id);
-        self::$iblockCache[$code] = $id;
     }
 
     /**
@@ -133,26 +121,27 @@ class ConfigManager
         return $result;
     }
 
-    /**
-     * Очищает кеш ID инфоблоков.
-     */
-    public function clearCache(): void
+    private function assertExactIblockTarget(string $code, string $expectedType, int $id): void
     {
-        self::$iblockCache = [];
-    }
-
-    /**
-     * Пытается определить ID инфоблока по его коду и типу.
-     */
-    private function findIblockId(string $code): int
-    {
-        $type = self::IBLOCK_TYPES[$code] ?? null;
-        if ($type === null || !\Bitrix\Main\Loader::includeModule('iblock')) {
-            return 0;
+        if (!\Bitrix\Main\Loader::includeModule('iblock')) {
+            throw new \RuntimeException('The iblock module is unavailable.', 409);
         }
-
-        $iblock = \CIBlock::GetList([], ['CODE' => $code, 'TYPE' => $type])->Fetch();
-
-        return $iblock ? (int)$iblock['ID'] : 0;
+        $rows = \CIBlock::GetList(
+            ['ID' => 'ASC'],
+            ['CODE' => $code, 'TYPE' => $expectedType]
+        );
+        $first = $rows ? $rows->Fetch() : false;
+        $duplicate = $rows ? $rows->Fetch() : false;
+        if (!is_array($first)
+            || $duplicate !== false
+            || (int)($first['ID'] ?? 0) !== $id
+            || (string)($first['CODE'] ?? '') !== $code
+            || (string)($first['IBLOCK_TYPE_ID'] ?? '') !== $expectedType) {
+            throw new \RuntimeException(
+                'Calculator iblock authority does not match the exact target: ' . $code . '.',
+                409
+            );
+        }
     }
+
 }

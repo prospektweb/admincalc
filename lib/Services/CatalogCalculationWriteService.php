@@ -10,7 +10,7 @@ use Prospektweb\Calc\Calculator\InitPayloadService;
  *
  * Client calculation results are never written directly. The service resolves
  * the current preset-owned runtime from the requested offer IDs, intersects
- * results with the current adapter output policy, previews the exact catalog
+     * results with the current output mapping, previews the exact catalog
  * state transition and applies it only while the reviewed fingerprint is still
  * current under database row locks.
  */
@@ -22,6 +22,9 @@ final class CatalogCalculationWriteService
     public const FINGERPRINT_CONTRACT = 'prospektweb.calc.catalog-write-fingerprint/v1';
     public const RECEIPT_CONTRACT = 'prospektweb.calc.catalog-write-receipt/v1';
     public const BATCH_RECEIPT_CONTRACT = 'prospektweb.calc.catalog-batch-write-receipt/v1';
+    public const AUDIT_CONTRACT = 'prospektweb.calc.catalog-write-audit/v1';
+
+    private const AUDIT_TYPE_ID = 'PROSPEKTWEB_CATALOG_CALCULATION_WRITE';
 
     private const MAX_OFFERS = 100;
     private const RECEIPT_TTL_SECONDS = 604800;
@@ -82,12 +85,6 @@ final class CatalogCalculationWriteService
      * lock. They are validated and kept locked, but never become part of the
      * ConfigManager snapshot compared with calc-server provenance.
      */
-    private const LOCKED_RUNTIME_AUTHORITY_OPTION_KEYS = [
-        'prospektweb.frontcalc:FORM_FIRST_PRESET_12740' => true,
-        'prospektweb.calc:CATALOG_ADAPTER_12740' => true,
-        'prospektweb.calc:PRESET_12740_NEUTRAL_INPUT_ACTIVE' => true,
-    ];
-
     /** @var array<string,callable> */
     private array $adapters;
 
@@ -98,6 +95,8 @@ final class CatalogCalculationWriteService
     private ?array $lockedRuntimeConfigSnapshot = null;
 
     private ?BatchRecalculateService $batchRecalculateService = null;
+
+    private int $activePresetId = 0;
 
     /** @param array<string,callable> $adapters */
     public function __construct(array $adapters = [])
@@ -191,7 +190,7 @@ final class CatalogCalculationWriteService
         $authorityRows = [];
         foreach ($rows as $row) {
             $key = $this->canonicalGlobalRuntimeOptionRowKey($row);
-            if (isset(self::LOCKED_RUNTIME_AUTHORITY_OPTION_KEYS[$key])) {
+            if ($this->isLockedRuntimeAuthorityKey($key)) {
                 if (isset($authorityRows[$key])) {
                     throw new \RuntimeException('Duplicate global runtime authority option row.', 409);
                 }
@@ -205,6 +204,18 @@ final class CatalogCalculationWriteService
         }
 
         return $this->runtimeConfigSnapshotFromRows($runtimeRows);
+    }
+
+    private function isLockedRuntimeAuthorityKey(string $key): bool
+    {
+        if ($this->activePresetId <= 0) {
+            return false;
+        }
+        return in_array($key, [
+            'prospektweb.frontcalc:FORM_FIRST_PRESET_' . $this->activePresetId,
+            'prospektweb.calc:CALCULATOR_INPUT_MAPPING_' . $this->activePresetId,
+            'prospektweb.calc:CATALOG_OUTPUT_MAPPING_' . $this->activePresetId,
+        ], true);
     }
 
     /** @param array<string,mixed> $row */
@@ -286,7 +297,7 @@ final class CatalogCalculationWriteService
             return $replayed;
         }
 
-        // Remote calculation deliberately happens before any adapter/catalog
+        // Remote calculation deliberately happens before any mapping/catalog
         // lock or DB transaction. The preflight binds the fresh server result
         // to the exact previewed catalog/runtime state.
         $authoritativeCalculation = $this->calculateAuthoritativeResults($normalizedOfferIds, $siteId);
@@ -310,12 +321,12 @@ final class CatalogCalculationWriteService
                 return $replayed;
             }
             throw new \RuntimeException(
-                'Каталог, расчёт calc-server, публикация формы или адаптер изменились после предпросмотра. Выполните предпросмотр заново.',
+                'Каталог, расчёт calc-server, публикация формы или сопоставления изменились после предпросмотра. Выполните предпросмотр заново.',
                 409
             );
         }
 
-        return $this->withAdapterMutationLock(function () use (
+        return $this->withOutputMappingMutationLock(function () use (
             $normalizedOfferIds,
             $authoritativeCalculation,
             $offerResults,
@@ -377,193 +388,6 @@ final class CatalogCalculationWriteService
     }
 
     /**
-     * Validate and save the preset 12740 catalog adapter as one atomic
-     * operation. The candidate is resolved against the current publication
-     * and selected catalog targets, then written and resolved again before
-     * commit. A failed post-write validation therefore rolls the option row
-     * back instead of leaving an incompatible adapter behind.
-     *
-     * @param int[] $offerIds
-     * @param array<string,mixed> $definition
-     * @return array<string,mixed>
-     */
-    public function saveValidatedAdapter(
-        int $presetId,
-        array $offerIds,
-        string $siteId,
-        string $expectedRevision,
-        array $definition
-    ): array {
-        $this->assertPreset($presetId);
-        $offerIds = $this->normalizeOptionalOfferIds($offerIds);
-        $siteId = $this->normalizeSiteId($siteId);
-        $expectedRevision = strtolower(trim($expectedRevision));
-        if (preg_match('/^[a-f0-9]{64}$/D', $expectedRevision) !== 1) {
-            throw new \InvalidArgumentException('Catalog adapter expected revision is invalid.');
-        }
-
-        $adapterService = new CatalogAdapterDefinitionService();
-        $candidate = $adapterService->normalizeCandidate($presetId, $definition);
-        $preflightNeutralInputState = $this->captureAdapterAuthoringNeutralInputState();
-        $preflightProductIds = [];
-        if ($offerIds !== []) {
-            // This read-only pass identifies the finite parent rows that must
-            // be locked. It deliberately resolves with the candidate, so an
-            // incomplete currently stored adapter cannot prevent its repair.
-            $preflight = $this->resolveRuntimeWithAdapter($offerIds, $siteId, $candidate);
-            $preflightResolved = $this->validateResolvedPayload($preflight, $offerIds, false);
-            if ($preflightResolved['neutralInputRequired'] !== ($preflightNeutralInputState === 'Y')) {
-                throw new \RuntimeException(
-                    'Neutral-input activation changed while resolving the adapter candidate.',
-                    409
-                );
-            }
-            $this->assertAdapterPreviewMatchesPayload($preflight, $candidate);
-            $preflightProductIds = $preflightResolved['productIds'];
-        }
-
-        return $this->withAdapterMutationLock(function () use (
-            $presetId,
-            $offerIds,
-            $siteId,
-            $expectedRevision,
-            $candidate,
-            $preflightProductIds,
-            $preflightNeutralInputState,
-            $adapterService
-        ): array {
-            $transactionStarted = false;
-            try {
-                $this->beginTransaction();
-                $transactionStarted = true;
-                $this->lockRuntimeOptionRows();
-                if ($offerIds !== []) {
-                    $this->lockCatalogRows($offerIds, $preflightProductIds);
-                }
-                $lockedNeutralInputState = $this->readLockedNeutralInputState();
-                if ($lockedNeutralInputState !== $preflightNeutralInputState) {
-                    throw new \RuntimeException(
-                        'Neutral-input activation changed before adapter save.',
-                        409
-                    );
-                }
-
-                $currentRaw = $this->readLockedOptionValue(
-                    'prospektweb.calc',
-                    'CATALOG_ADAPTER_12740'
-                );
-                $prepared = $adapterService->prepareSaveFromRaw(
-                    $presetId,
-                    $expectedRevision,
-                    $candidate,
-                    $currentRaw
-                );
-                $candidate = $prepared['definition'];
-
-                if ($offerIds !== []) {
-                    $lockedPayload = $this->resolveRuntimePinned($offerIds, $siteId, $candidate, true);
-                    $lockedResolved = $this->validateResolvedPayload($lockedPayload, $offerIds, false);
-                    if ($lockedResolved['productIds'] !== $preflightProductIds) {
-                        throw new \RuntimeException(
-                            'Catalog offer parent membership changed before adapter save.',
-                            409
-                        );
-                    }
-                    $this->assertAdapterPreviewMatchesPayload($lockedPayload, $candidate);
-                } else {
-                    $lockedAuthoring = $this->readLockedPublishedAuthoring();
-                    $this->assertAdapterPreviewReady([], $lockedAuthoring, $candidate);
-                    $lockedPayload = [];
-                }
-
-                $this->writeLockedAdapterOptionRaw((string)$prepared['raw']);
-                $readBackRaw = $this->readLockedOptionValue(
-                    'prospektweb.calc',
-                    'CATALOG_ADAPTER_12740'
-                );
-                $saved = $adapterService->loadFromRaw($presetId, $readBackRaw);
-                if (!hash_equals((string)$candidate['revision'], (string)$saved['revision'])) {
-                    throw new \RuntimeException('Catalog adapter transactional readback revision mismatch.');
-                }
-
-                // Resolve from the just-written raw row again while every
-                // catalog/publication/config authority row is still locked.
-                if ($offerIds !== []) {
-                    $freshPayload = $this->resolveRuntimePinned($offerIds, $siteId, null, true);
-                    $freshResolved = $this->validateResolvedPayload($freshPayload, $offerIds, false);
-                    if ($freshResolved['productIds'] !== $preflightProductIds
-                        || $freshResolved['adapterPersisted'] !== true
-                        || !hash_equals(
-                            (string)$saved['revision'],
-                            (string)$freshResolved['adapterRevision']
-                        )) {
-                        throw new \RuntimeException(
-                            'Catalog adapter readback no longer matches the locked launch targets.',
-                            409
-                        );
-                    }
-                    $freshPreview = $this->assertAdapterPreviewMatchesPayload($freshPayload, $saved);
-                    $freshRuntime = is_array($freshPayload['editorRuntime'] ?? null)
-                        ? $freshPayload['editorRuntime']
-                        : [];
-                } else {
-                    $freshAuthoring = $this->readLockedPublishedAuthoring();
-                    $freshPreview = $this->assertAdapterPreviewReady([], $freshAuthoring, $saved);
-                    $freshRuntime = $this->buildManualAdapterRuntime(
-                        $freshAuthoring,
-                        $saved,
-                        $freshPreview
-                    );
-                    // The bridge merges this read-only delta into its current
-                    // INIT instead of replacing the standalone preset payload.
-                    $freshPayload = [
-                        'presetId' => $presetId,
-                        'selectedOffers' => [],
-                        'editorRuntime' => $freshRuntime,
-                        '_neutralInputRequired' => ($freshAuthoring['neutralInputRequired'] ?? null) === true,
-                        '_runtimeConfigSnapshot' => $freshAuthoring['runtimeConfigSnapshot'],
-                    ];
-                }
-
-                $freshCatalogMapping = is_array($freshRuntime['catalogMapping'] ?? null)
-                    ? $freshRuntime['catalogMapping']
-                    : [];
-                if (($freshCatalogMapping['adapterPersisted'] ?? null) !== true
-                    || !hash_equals(
-                        (string)$saved['revision'],
-                        (string)($freshCatalogMapping['adapterRevision'] ?? '')
-                    )) {
-                    throw new \RuntimeException(
-                        'Catalog adapter save did not return a persisted matching runtime revision.',
-                        409
-                    );
-                }
-
-                $response = [
-                    'catalogAdapter' => $saved,
-                    'catalogScenarios' => is_array($freshPreview['scenarios'] ?? null)
-                        ? $freshPreview['scenarios']
-                        : [],
-                    'editorRuntime' => $freshRuntime,
-                    'initData' => $freshPayload,
-                ];
-                $this->commitTransaction();
-                $transactionStarted = false;
-                return $response;
-            } catch (\Throwable $error) {
-                if ($transactionStarted) {
-                    try {
-                        $this->rollbackTransaction();
-                    } catch (\Throwable $rollbackError) {
-                        error_log('Catalog adapter validated save rollback failed: ' . $rollbackError->getMessage());
-                    }
-                }
-                throw $error;
-            }
-        });
-    }
-
-    /**
      * Trusted background-job boundary. The network calculation is supplied by
      * BatchRecalculateService and has already completed; this method compares
      * it with the operator-reviewed result and performs only snapshot/lock/CAS
@@ -616,7 +440,7 @@ final class CatalogCalculationWriteService
         $preflight = $this->buildPreview($offerIds, $authoritative, [], $siteId, true, false);
         $this->assertApprovedBatchSnapshot($preflight, $approvedStates, $approvedResults);
 
-        return $this->withAdapterMutationLock(function () use (
+        return $this->withOutputMappingMutationLock(function () use (
             $offerIds,
             $authoritative,
             $siteId,
@@ -676,7 +500,18 @@ final class CatalogCalculationWriteService
                         $approvedStates,
                         $approvedResults,
                         $locked,
-                        $response
+                        $response,
+                        $this->buildCatalogWriteAudit(
+                            'batch_apply_no_change',
+                            $actorUserId,
+                            $requestId,
+                            $offerIds,
+                            $siteId,
+                            ['states' => $approvedStates, 'results' => $approvedResults],
+                            $locked,
+                            $locked,
+                            $response
+                        )
                     );
                     $this->commitTransaction();
                     $transactionStarted = false;
@@ -708,7 +543,18 @@ final class CatalogCalculationWriteService
                     $approvedStates,
                     $approvedResults,
                     $verified,
-                    $writeResult
+                    $writeResult,
+                    $this->buildCatalogWriteAudit(
+                        'batch_apply',
+                        $actorUserId,
+                        $requestId,
+                        $offerIds,
+                        $siteId,
+                        ['states' => $approvedStates, 'results' => $approvedResults],
+                        $locked,
+                        $verified,
+                        $writeResult
+                    )
                 );
                 $this->commitTransaction();
                 $transactionStarted = false;
@@ -815,7 +661,7 @@ final class CatalogCalculationWriteService
             );
             if (!hash_equals($expectedFingerprint, (string)$lockedPreview['fingerprint'])) {
                 throw new \RuntimeException(
-                    'Каталог, публикация формы или адаптер изменились после предпросмотра. Выполните предпросмотр заново.',
+                    'Каталог, публикация формы или сопоставления изменились после предпросмотра. Выполните предпросмотр заново.',
                     409
                 );
             }
@@ -845,11 +691,12 @@ final class CatalogCalculationWriteService
                 false,
                 true
             );
-            if ((string)$verifiedPreview['adapterRevision'] !== (string)$lockedPreview['adapterRevision']
+            if ((int)$verifiedPreview['inputMappingRevision'] !== (int)$lockedPreview['inputMappingRevision']
+                || (int)$verifiedPreview['outputMappingRevision'] !== (int)$lockedPreview['outputMappingRevision']
                 || self::canonicalEncode($verifiedPreview['publication'])
                     !== self::canonicalEncode($lockedPreview['publication'])) {
                 throw new \RuntimeException(
-                    'Публикация формы или адаптер изменились во время записи; транзакция отменена.',
+                    'Публикация формы или сопоставления изменились во время записи; транзакция отменена.',
                     409
                 );
             }
@@ -862,13 +709,14 @@ final class CatalogCalculationWriteService
 
             $response = [
                 'contract' => self::APPLY_CONTRACT,
-                'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
+                'presetId' => $this->activePresetId,
                 'applied' => true,
                 'replayed' => false,
                 'fingerprint' => $expectedFingerprint,
                 'catalogFingerprintAfter' => (string)$verifiedPreview['fingerprint'],
                 'publication' => $lockedPreview['publication'],
-                'adapterRevision' => $lockedPreview['adapterRevision'],
+                'inputMappingRevision' => $lockedPreview['inputMappingRevision'],
+                'outputMappingRevision' => $lockedPreview['outputMappingRevision'],
                 'calculation' => $lockedPreview['calculation'],
                 'summary' => [
                     'total' => count($offerIds),
@@ -876,10 +724,17 @@ final class CatalogCalculationWriteService
                 ],
                 'offers' => is_array($writeResult['offers'] ?? null) ? $writeResult['offers'] : [],
             ];
-            $this->saveReceipt($receiptName, [
+            $requestId = hash('sha256', self::canonicalEncode([
+                'actorUserId' => $actorUserId,
+                'presetId' => $this->activePresetId,
+                'siteId' => $siteId,
+                'offerIds' => $offerIds,
+                'expectedFingerprint' => $expectedFingerprint,
+            ]));
+            $this->saveReceiptWithAudit($receiptName, [
                 'contract' => self::RECEIPT_CONTRACT,
                 'actorUserId' => $actorUserId,
-                'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
+                'presetId' => $this->activePresetId,
                 'siteId' => $siteId,
                 'offerIds' => $offerIds,
                 'productIds' => is_array($verifiedPreview['_productIds'] ?? null)
@@ -895,7 +750,17 @@ final class CatalogCalculationWriteService
                     self::canonicalEncode($lockedPreview['_batchResultFingerprints'] ?? [])
                 ),
                 'response' => $response,
-            ]);
+            ], $this->buildCatalogWriteAudit(
+                'apply',
+                $actorUserId,
+                $requestId,
+                $offerIds,
+                $siteId,
+                $expectedFingerprint,
+                $lockedPreview,
+                $verifiedPreview,
+                $response
+            ));
 
             $this->commitTransaction();
             $transactionStarted = false;
@@ -943,10 +808,11 @@ final class CatalogCalculationWriteService
         $projectedResults = $this->projectResults(
             $authoritative['results'],
             $resolved['priceTypes'],
-            $resolved['adapter'],
+            $resolved['presetId'],
+            $resolved['outputMapping'],
             $resolved['publication']
         );
-        $this->assertResultAllowlist($projectedResults, $offerIds, 'проекции адаптера');
+        $this->assertResultAllowlist($projectedResults, $offerIds, 'проекции записи');
 
         $validation = $this->validateProjectedResults($projectedResults, $offerIds);
         if (($validation['ready'] ?? false) !== true) {
@@ -1007,10 +873,11 @@ final class CatalogCalculationWriteService
 
         $fingerprintPayload = [
             'contract' => self::FINGERPRINT_CONTRACT,
-            'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
+            'presetId' => $resolved['presetId'],
             'offerIds' => $offerIds,
             'publication' => $resolved['publication'],
-            'adapterRevision' => $resolved['adapterRevision'],
+            'inputMappingRevision' => $resolved['inputMappingRevision'],
+            'outputMappingRevision' => $resolved['outputMappingRevision'],
             'catalogScenarios' => $resolved['catalogScenarios'],
             'catalogState' => $catalogState,
             'projectedResults' => $normalizedProjected,
@@ -1029,11 +896,12 @@ final class CatalogCalculationWriteService
 
         return [
             'contract' => self::PREVIEW_CONTRACT,
-            'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
+            'presetId' => $resolved['presetId'],
             'ready' => true,
             'offerIds' => $offerIds,
             'publication' => $resolved['publication'],
-            'adapterRevision' => $resolved['adapterRevision'],
+            'inputMappingRevision' => $resolved['inputMappingRevision'],
+            'outputMappingRevision' => $resolved['outputMappingRevision'],
             'calculation' => $authoritative['provenance'],
             'clientResultComparison' => $clientComparison,
             'fingerprint' => hash('sha256', self::canonicalEncode($fingerprintPayload)),
@@ -1076,18 +944,25 @@ final class CatalogCalculationWriteService
         bool $requireNeutralInputActive = true
     ): array
     {
-        if ((int)($payload['presetId'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID) {
-            throw new \RuntimeException('Сервер разрешил торговые предложения не в пресет 12740.');
-        }
+        $presetId = (int)($payload['presetId'] ?? 0);
+        $this->assertPreset($presetId);
         $runtime = is_array($payload['editorRuntime'] ?? null) ? $payload['editorRuntime'] : [];
         $launch = is_array($runtime['launchContext'] ?? null) ? $runtime['launchContext'] : [];
         $publication = is_array($runtime['publication'] ?? null) ? $runtime['publication'] : [];
-        $adapter = is_array($runtime['catalogAdapter'] ?? null) ? $runtime['catalogAdapter'] : [];
-        $catalogMapping = is_array($runtime['catalogMapping'] ?? null)
-            ? $runtime['catalogMapping']
+        $inputMapping = is_array($runtime['calculatorInputMapping'] ?? null)
+            ? $runtime['calculatorInputMapping']
             : [];
-        $adapterRevision = strtolower(trim((string)($adapter['revision'] ?? '')));
-        $mappingAdapterRevision = strtolower(trim((string)($catalogMapping['adapterRevision'] ?? '')));
+        $catalogInput = is_array($runtime['catalogInputMapping'] ?? null)
+            ? $runtime['catalogInputMapping']
+            : [];
+        $outputMapping = is_array($runtime['catalogOutputMapping'] ?? null)
+            ? $runtime['catalogOutputMapping']
+            : [];
+        $catalogWriteback = is_array($runtime['catalogWriteback'] ?? null)
+            ? $runtime['catalogWriteback']
+            : [];
+        $inputMappingRevision = (int)($inputMapping['revision'] ?? -1);
+        $outputMappingRevision = (int)($outputMapping['revision'] ?? -1);
         $publishedSnapshot = is_array($payload['_publishedSnapshot'] ?? null)
             ? $payload['_publishedSnapshot']
             : [];
@@ -1097,22 +972,28 @@ final class CatalogCalculationWriteService
         $runtimeConfigSnapshot = is_array($payload['_runtimeConfigSnapshot'] ?? null)
             ? $this->normalizeRuntimeConfigSnapshot($payload['_runtimeConfigSnapshot'])
             : [];
-        if ((string)($runtime['contract'] ?? '') !== CatalogAdapterDefinitionService::EDITOR_RUNTIME_CONTRACT
-            || (string)($launch['contract'] ?? '') !== CatalogAdapterDefinitionService::LAUNCH_CONTEXT_CONTRACT
+        if ((string)($runtime['contract'] ?? '') !== 'prospektweb.calc.editor-runtime/v2'
+            || (string)($launch['contract'] ?? '') !== 'prospektweb.calc.launch-context/v2'
             || (string)($launch['mode'] ?? '') !== 'catalog'
-            || (int)($launch['presetId'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID
+            || (int)($launch['presetId'] ?? 0) !== $presetId
             || (int)($publication['revision'] ?? 0) <= 0
             || preg_match('/^[a-f0-9]{64}$/D', (string)($publication['compileHash'] ?? '')) !== 1
-            || preg_match('/^[a-f0-9]{64}$/D', $adapterRevision) !== 1
-            || preg_match('/^[a-f0-9]{64}$/D', $mappingAdapterRevision) !== 1
-            || !hash_equals($adapterRevision, $mappingAdapterRevision)
-            || !array_key_exists('adapterPersisted', $catalogMapping)
-            || !is_bool($catalogMapping['adapterPersisted'])) {
+            || (string)($inputMapping['contract'] ?? '') !== CalculatorInputMappingService::CONTRACT
+            || (int)($inputMapping['preset_id'] ?? 0) !== $presetId
+            || $inputMappingRevision < 0
+            || (int)($catalogInput['revision'] ?? -1) !== $inputMappingRevision
+            || !is_bool($catalogInput['ready'] ?? null)
+            || (string)($outputMapping['contract'] ?? '') !== CatalogOutputMappingService::CONTRACT
+            || (int)($outputMapping['preset_id'] ?? 0) !== $presetId
+            || $outputMappingRevision <= 0
+            || (int)($catalogWriteback['revision'] ?? -1) !== $outputMappingRevision
+            || !is_bool($catalogWriteback['ready'] ?? null)) {
             throw new \RuntimeException('Текущий editorRuntime каталога не прошёл проверку целостности.');
         }
-        if ($requireNeutralInputActive && $catalogMapping['adapterPersisted'] !== true) {
+        if ($requireNeutralInputActive
+            && (($catalogInput['ready'] ?? false) !== true || ($catalogWriteback['ready'] ?? false) !== true)) {
             throw new \RuntimeException(
-                'Catalog calculation requires an explicitly persisted adapter.',
+                'Catalog input mapping or output writeback is not ready.',
                 409
             );
         }
@@ -1161,16 +1042,17 @@ final class CatalogCalculationWriteService
             $target = is_array($scenario['target'] ?? null) ? $scenario['target'] : [];
             $values = is_array($scenario['values'] ?? null) ? $scenario['values'] : null;
             $scenarioOfferId = (int)($target['offerId'] ?? 0);
-            if ((string)($scenario['contract'] ?? '') !== CatalogAdapterDefinitionService::SCENARIO_CONTRACT
+            if ((string)($scenario['contract'] ?? '') !== CatalogCalculationScenarioService::CONTRACT
                 || (string)($scenario['scenarioId'] ?? '') !== 'offer:' . $scenarioOfferId
-                || (int)($scenario['presetId'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID
+                || (string)($scenario['source'] ?? '') !== 'catalog-input-mapping'
+                || (int)($scenario['presetId'] ?? 0) !== $presetId
                 || (int)($scenario['publicationRevision'] ?? 0) !== (int)$publication['revision']
                 || !hash_equals((string)$publication['compileHash'], (string)($scenario['publicationCompileHash'] ?? ''))
-                || !hash_equals($adapterRevision, (string)($scenario['adapterRevision'] ?? ''))
+                || (int)($scenario['inputMappingRevision'] ?? -1) !== $inputMappingRevision
                 || (int)($target['productId'] ?? 0) <= 0
                 || $scenarioOfferId <= 0
                 || $values === null) {
-                throw new \RuntimeException('CatalogScenario не совпадает с текущей публикацией и адаптером.');
+                throw new \RuntimeException('CatalogScenario не совпадает с текущей публикацией и входным сопоставлением.');
             }
             $scenarioIds[] = $scenarioOfferId;
             $productIds[] = (int)$target['productId'];
@@ -1244,15 +1126,17 @@ final class CatalogCalculationWriteService
         }
 
         return [
+            'presetId' => $presetId,
             'selectedOffers' => $selectedOffers,
             'priceTypes' => is_array($payload['priceTypes'] ?? null) ? $payload['priceTypes'] : [],
             'publication' => [
                 'revision' => (int)$publication['revision'],
                 'compileHash' => (string)$publication['compileHash'],
             ],
-            'adapter' => $adapter,
-            'adapterRevision' => $adapterRevision,
-            'adapterPersisted' => $catalogMapping['adapterPersisted'],
+            'inputMapping' => $inputMapping,
+            'inputMappingRevision' => $inputMappingRevision,
+            'outputMapping' => $outputMapping,
+            'outputMappingRevision' => $outputMappingRevision,
             'catalogScenarios' => $normalizedScenarios,
             'productIds' => $productIds,
             'productIblockIds' => $productIblockIds,
@@ -1512,8 +1396,8 @@ final class CatalogCalculationWriteService
     {
         $detail = is_array($projected['details'][0] ?? null) ? $projected['details'][0] : [];
         $outputs = is_array($detail['outputs'] ?? null) ? $detail['outputs'] : [];
-        $provenance = is_array($projected['catalogAdapterProvenance'] ?? null)
-            ? $projected['catalogAdapterProvenance']
+        $provenance = is_array($projected['catalogOutputMappingProvenance'] ?? null)
+            ? $projected['catalogOutputMappingProvenance']
             : [];
         return [
             'offerId' => (int)($projected['offerId'] ?? 0),
@@ -1681,7 +1565,9 @@ final class CatalogCalculationWriteService
             : [];
         $publication = is_array($provenance['publication'] ?? null) ? $provenance['publication'] : [];
         $compileHash = strtolower(trim((string)($publication['compileHash'] ?? '')));
-        $adapterRevision = strtolower(trim((string)($provenance['adapterRevision'] ?? '')));
+        $inputMappingRevision = (int)($provenance['inputMappingRevision'] ?? -1);
+        $outputMappingRevision = (int)($provenance['outputMappingRevision'] ?? -1);
+        $presetId = (int)($provenance['presetId'] ?? 0);
         $requestHashes = is_array($provenance['requestHashes'] ?? null)
             ? array_values($provenance['requestHashes'])
             : [];
@@ -1692,10 +1578,11 @@ final class CatalogCalculationWriteService
         }
         if ((string)($provenance['contract'] ?? '')
                 !== BatchRecalculateService::SERVER_CALCULATION_CONTRACT . '/provenance'
-            || (int)($provenance['presetId'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID
+            || $presetId <= 0
             || (int)($publication['revision'] ?? 0) <= 0
             || preg_match('/^[a-f0-9]{64}$/D', $compileHash) !== 1
-            || preg_match('/^[a-f0-9]{64}$/D', $adapterRevision) !== 1
+            || $inputMappingRevision < 0
+            || $outputMappingRevision <= 0
             || $requestHashes === []) {
             throw new \RuntimeException('Серверный расчёт не содержит полную версию источника и запроса.');
         }
@@ -1725,18 +1612,20 @@ final class CatalogCalculationWriteService
             throw new \RuntimeException('The server calculation does not pin ConfigManager option authority.');
         }
 
+        $this->assertPreset($presetId);
         return [
             'contract' => BatchRecalculateService::SERVER_CALCULATION_CONTRACT,
             'results' => $results,
             'stateFingerprints' => $stateFingerprints,
             'provenance' => [
                 'contract' => BatchRecalculateService::SERVER_CALCULATION_CONTRACT . '/provenance',
-                'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
+                'presetId' => $presetId,
                 'publication' => [
                     'revision' => (int)$publication['revision'],
                     'compileHash' => $compileHash,
                 ],
-                'adapterRevision' => $adapterRevision,
+                'inputMappingRevision' => $inputMappingRevision,
+                'outputMappingRevision' => $outputMappingRevision,
                 'neutralInputRequired' => true,
                 'requestHashes' => array_map('strtolower', $requestHashes),
                 'sourceVersions' => $sourceVersions,
@@ -1832,8 +1721,8 @@ final class CatalogCalculationWriteService
             $elements[$id] = ['id' => $id, 'iblockId' => $iblockId];
         }
         ksort($elements, SORT_NUMERIC);
-        if (!isset($elements[CatalogAdapterDefinitionService::PRESET_ID])) {
-            throw new \RuntimeException('Список runtime-блокировок не содержит пресет 12740.');
+        if ($this->activePresetId <= 0 || !isset($elements[$this->activePresetId])) {
+            throw new \RuntimeException('Список runtime-блокировок не содержит текущий пресет.');
         }
         $sourceIblockIds = [];
         foreach ($elements as $element) {
@@ -2011,10 +1900,10 @@ final class CatalogCalculationWriteService
                 (string)($provenance['publication']['compileHash'] ?? ''),
                 (string)($resolved['publication']['compileHash'] ?? '')
             )
-            || !hash_equals(
-                (string)($provenance['adapterRevision'] ?? ''),
-                (string)($resolved['adapterRevision'] ?? '')
-            )
+            || (int)($provenance['inputMappingRevision'] ?? -1)
+                !== (int)($resolved['inputMappingRevision'] ?? -2)
+            || (int)($provenance['outputMappingRevision'] ?? -1)
+                !== (int)($resolved['outputMappingRevision'] ?? -2)
             || ($provenance['neutralInputRequired'] ?? null)
                 !== ($resolved['neutralInputRequired'] ?? null)
             || !hash_equals(
@@ -2022,7 +1911,7 @@ final class CatalogCalculationWriteService
                 self::canonicalEncode($resolved['runtimeConfigSnapshot'] ?? [])
             )) {
             throw new \RuntimeException(
-                'Результат calc-server относится к другой публикации формы или ревизии адаптера.',
+                'Результат calc-server относится к другой публикации формы или ревизии сопоставления.',
                 409
             );
         }
@@ -2044,7 +1933,8 @@ final class CatalogCalculationWriteService
             $clientProjected = $this->projectResults(
                 $clientResults,
                 $resolved['priceTypes'],
-                $resolved['adapter'],
+                $resolved['presetId'],
+                $resolved['outputMapping'],
                 $resolved['publication']
             );
             $this->assertResultAllowlist($clientProjected, $offerIds, 'клиентской проекции');
@@ -2091,7 +1981,7 @@ final class CatalogCalculationWriteService
             ? $preflightReceipt['productIds']
             : [];
 
-        return $this->withAdapterMutationLock(function () use (
+        return $this->withOutputMappingMutationLock(function () use (
             $receiptName,
             $actorUserId,
             $offerIds,
@@ -2163,7 +2053,7 @@ final class CatalogCalculationWriteService
         sort($productIds, SORT_NUMERIC);
         if ((string)($receipt['contract'] ?? '') !== self::RECEIPT_CONTRACT
             || (int)($receipt['actorUserId'] ?? 0) !== $actorUserId
-            || (int)($receipt['presetId'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID
+            || (int)($receipt['presetId'] ?? 0) !== $this->activePresetId
             || (string)($receipt['siteId'] ?? '') !== $siteId
             || $receiptOfferIds !== $offerIds
             || $productIds === []
@@ -2247,7 +2137,7 @@ final class CatalogCalculationWriteService
             ? $preflightReceipt['productIds']
             : [];
 
-        return $this->withAdapterMutationLock(function () use (
+        return $this->withOutputMappingMutationLock(function () use (
             $receiptName,
             $actorUserId,
             $requestId,
@@ -2327,7 +2217,7 @@ final class CatalogCalculationWriteService
         $approvedResultFingerprint = hash('sha256', self::canonicalEncode($approvedResults));
         if ((string)($receipt['contract'] ?? '') !== self::BATCH_RECEIPT_CONTRACT
             || (int)($receipt['actorUserId'] ?? 0) !== $actorUserId
-            || (int)($receipt['presetId'] ?? 0) !== CatalogAdapterDefinitionService::PRESET_ID
+            || (int)($receipt['presetId'] ?? 0) !== $this->activePresetId
             || (string)($receipt['siteId'] ?? '') !== $siteId
             || $receiptOfferIds !== $offerIds
             || $productIds === []
@@ -2368,13 +2258,14 @@ final class CatalogCalculationWriteService
         array $approvedStates,
         array $approvedResults,
         array $preview,
-        array $response
+        array $response,
+        array $audit
     ): void {
         $productIds = is_array($preview['_productIds'] ?? null) ? $preview['_productIds'] : [];
-        $this->saveReceipt($receiptName, [
+        $this->saveReceiptWithAudit($receiptName, [
             'contract' => self::BATCH_RECEIPT_CONTRACT,
             'actorUserId' => $actorUserId,
-            'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
+            'presetId' => $this->activePresetId,
             'siteId' => $siteId,
             'offerIds' => $offerIds,
             'productIds' => $productIds,
@@ -2386,7 +2277,122 @@ final class CatalogCalculationWriteService
                 self::canonicalEncode($preview['_catalogStateFingerprints'] ?? [])
             ),
             'response' => $response,
-        ]);
+        ], $audit);
+    }
+
+    /** @param array<string,mixed> $receipt @param array<string,mixed> $audit */
+    private function saveReceiptWithAudit(string $receiptName, array $receipt, array $audit): void
+    {
+        // The audit is deliberately first. A failed audit prevents the receipt
+        // write and bubbles to the caller's transaction rollback path.
+        $this->writeCatalogAudit($audit);
+        $this->saveReceipt($receiptName, $receipt);
+    }
+
+    /**
+     * @param int[] $offerIds
+     * @param array<string,mixed>|string $expectedAuthority
+     * @param array<string,mixed> $beforePreview
+     * @param array<string,mixed> $afterPreview
+     * @param array<string,mixed> $result
+     * @return array<string,mixed>
+     */
+    private function buildCatalogWriteAudit(
+        string $action,
+        int $actorUserId,
+        string $requestId,
+        array $offerIds,
+        string $siteId,
+        $expectedAuthority,
+        array $beforePreview,
+        array $afterPreview,
+        array $result
+    ): array {
+        $productIds = is_array($afterPreview['_productIds'] ?? null)
+            ? array_values(array_unique(array_map('intval', $afterPreview['_productIds'])))
+            : [];
+        $productIds = array_values(array_filter($productIds, static function (int $id): bool {
+            return $id > 0;
+        }));
+        sort($productIds, SORT_NUMERIC);
+
+        return [
+            'contract' => self::AUDIT_CONTRACT,
+            'actorUserId' => $actorUserId,
+            'action' => $action,
+            'requestId' => $requestId,
+            'presetId' => $this->activePresetId,
+            'siteId' => $siteId,
+            'offerIds' => $offerIds,
+            'productIds' => $productIds,
+            'expectedFingerprint' => is_string($expectedAuthority)
+                ? $expectedAuthority
+                : hash('sha256', self::canonicalEncode($expectedAuthority)),
+            'beforeFingerprint' => hash(
+                'sha256',
+                self::canonicalEncode($beforePreview['_catalogStateFingerprints'] ?? [])
+            ),
+            'afterFingerprint' => hash(
+                'sha256',
+                self::canonicalEncode($afterPreview['_catalogStateFingerprints'] ?? [])
+            ),
+            'resultFingerprint' => hash('sha256', self::canonicalEncode($result)),
+            'result' => 'success',
+        ];
+    }
+
+    /** @param array<string,mixed> $audit */
+    private function writeCatalogAudit(array $audit): void
+    {
+        $requiredKeys = [
+            'contract', 'actorUserId', 'action', 'requestId', 'presetId', 'siteId',
+            'offerIds', 'productIds', 'expectedFingerprint', 'beforeFingerprint',
+            'afterFingerprint', 'resultFingerprint', 'result',
+        ];
+        if (array_keys($audit) !== $requiredKeys
+            || ($audit['contract'] ?? null) !== self::AUDIT_CONTRACT
+            || !is_int($audit['actorUserId'] ?? null)
+            || (int)$audit['actorUserId'] <= 0
+            || !is_string($audit['action'] ?? null)
+            || preg_match('/^(?:apply|batch_apply|batch_apply_no_change)$/D', $audit['action']) !== 1
+            || !is_string($audit['requestId'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $audit['requestId']) !== 1
+            || !is_int($audit['presetId'] ?? null)
+            || (int)$audit['presetId'] <= 0
+            || !is_string($audit['siteId'] ?? null)
+            || !is_array($audit['offerIds'] ?? null)
+            || !is_array($audit['productIds'] ?? null)
+            || ($audit['result'] ?? null) !== 'success') {
+            throw new \RuntimeException('Catalog calculation audit payload is invalid.');
+        }
+        foreach (['expectedFingerprint', 'beforeFingerprint', 'afterFingerprint', 'resultFingerprint'] as $field) {
+            if (!is_string($audit[$field] ?? null)
+                || preg_match('/^[a-f0-9]{64}$/D', $audit[$field]) !== 1) {
+                throw new \RuntimeException('Catalog calculation audit fingerprint is invalid.');
+            }
+        }
+
+        if (isset($this->adapters['write_audit'])) {
+            $written = call_user_func($this->adapters['write_audit'], $audit);
+        } else {
+            if ($this->transactionConnection === null || !class_exists('CEventLog')) {
+                throw new \RuntimeException('Catalog calculation audit log is unavailable.');
+            }
+            $description = json_encode($audit, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (!is_string($description)) {
+                throw new \RuntimeException('Unable to encode catalog calculation audit metadata.');
+            }
+            $written = \CEventLog::Add([
+                'SEVERITY' => 'SECURITY',
+                'AUDIT_TYPE_ID' => self::AUDIT_TYPE_ID,
+                'MODULE_ID' => self::RECEIPT_MODULE_ID,
+                'ITEM_ID' => (string)$audit['presetId'],
+                'DESCRIPTION' => $description,
+            ]);
+        }
+        if ($written === false) {
+            throw new \RuntimeException('Catalog calculation audit write failed.');
+        }
     }
 
     /** @param array<int,array<string,mixed>> $offers */
@@ -2731,7 +2737,6 @@ final class CatalogCalculationWriteService
             null,
             null,
             null,
-            null,
             $configBefore
         );
         $configAfter = $this->captureRuntimeConfigSnapshot();
@@ -2742,51 +2747,12 @@ final class CatalogCalculationWriteService
         return $payload;
     }
 
-    /** @param array<string,mixed> $adapter @return array<string,mixed> */
-    private function resolveRuntimeWithAdapter(array $offerIds, string $siteId, array $adapter): array
-    {
-        if (isset($this->adapters['resolve_runtime_candidate'])) {
-            $payload = call_user_func(
-                $this->adapters['resolve_runtime_candidate'],
-                $offerIds,
-                $siteId,
-                $adapter
-            );
-            if (!is_array($payload)) {
-                throw new \RuntimeException('Candidate adapter resolver returned an invalid payload.');
-            }
-            return $payload;
-        }
-        $configBefore = $this->captureRuntimeConfigSnapshot();
-        $payload = (new InitPayloadService())->prepareCatalogWritePayload(
-            $offerIds,
-            $siteId,
-            null,
-            $adapter,
-            null,
-            null,
-            null,
-            null,
-            $configBefore,
-            true
-        );
-        $configAfter = $this->captureRuntimeConfigSnapshot();
-        if (!hash_equals(self::canonicalEncode($configBefore), self::canonicalEncode($configAfter))) {
-            throw new \RuntimeException(
-                'ConfigManager options changed while resolving the adapter candidate.',
-                409
-            );
-        }
-        $payload['_runtimeConfigSnapshot'] = $configBefore;
-        return $payload;
-    }
-
     /** @return array<string,mixed> */
     private function resolveRuntimePinned(
         array $offerIds,
         string $siteId,
-        ?array $adapterOverride = null,
-        bool $allowInactiveNeutralInputForAdapterAuthoring = false
+        ?array $inputMappingOverride = null,
+        bool $unusedLegacyFlag = false
     ): array
     {
         if (isset($this->adapters['resolve_runtime_pinned'])) {
@@ -2794,8 +2760,8 @@ final class CatalogCalculationWriteService
                 $this->adapters['resolve_runtime_pinned'],
                 $offerIds,
                 $siteId,
-                $adapterOverride,
-                $allowInactiveNeutralInputForAdapterAuthoring
+                $inputMappingOverride,
+                $unusedLegacyFlag
             );
             if (!is_array($payload)) {
                 throw new \RuntimeException('Pinned resolver вернул некорректный payload.');
@@ -2810,6 +2776,9 @@ final class CatalogCalculationWriteService
         if ($this->transactionConnection === null) {
             throw new \RuntimeException('Pinned runtime можно читать только внутри транзакции записи.');
         }
+        if ($this->activePresetId <= 0) {
+            throw new \RuntimeException('Pinned runtime requires an active preset.');
+        }
         if (!class_exists('\Prospektweb\Frontcalc\Service\FormFirstAuthoringStore')
             || !method_exists(
                 '\Prospektweb\Frontcalc\Service\FormFirstAuthoringStore',
@@ -2822,39 +2791,42 @@ final class CatalogCalculationWriteService
             throw new \RuntimeException('FrontCalc не предоставляет raw resolver публикации формы.');
         }
 
-        $formRaw = $this->readLockedOptionValue('prospektweb.frontcalc', 'FORM_FIRST_PRESET_12740');
-        $adapterState = $this->readLockedOptionState(
-            'prospektweb.calc',
-            'CATALOG_ADAPTER_12740'
+        $presetId = $this->activePresetId;
+        $formRaw = $this->readLockedOptionValue(
+            'prospektweb.frontcalc',
+            'FORM_FIRST_PRESET_' . $presetId
         );
-        $adapterRaw = $adapterState['value'];
-        $adapterPersisted = $adapterState['exists'] === true && $adapterRaw !== '';
-        $neutralInputState = $this->readLockedOptionState(
+        $inputMappingState = $this->readLockedOptionState(
             'prospektweb.calc',
-            'PRESET_12740_NEUTRAL_INPUT_ACTIVE'
+            'CALCULATOR_INPUT_MAPPING_' . $presetId
+        );
+        $outputMappingState = $this->readLockedOptionState(
+            'prospektweb.calc',
+            'CATALOG_OUTPUT_MAPPING_' . $presetId
         );
         $authoring = \Prospektweb\Frontcalc\Service\FormFirstAuthoringStore::publishedAuthoringFromRaw(
-            CatalogAdapterDefinitionService::PRESET_ID,
+            $presetId,
             $formRaw
         );
         if (!is_array($authoring)) {
-            throw new \RuntimeException('Заблокированная публикация формы пресета 12740 отсутствует или повреждена.');
+            throw new \RuntimeException('Заблокированная публикация формы пресета отсутствует или повреждена.');
         }
         $publishedSnapshot = \Prospektweb\Frontcalc\Service\FormFirstAuthoringStore::publishedSnapshotFromRaw(
-            CatalogAdapterDefinitionService::PRESET_ID,
+            $presetId,
             $formRaw
         );
         if (!is_array($publishedSnapshot)) {
             throw new \RuntimeException('The locked published preset snapshot is absent or corrupt.');
         }
-        $storedAdapter = (new CatalogAdapterDefinitionService())->loadFromRaw(
-            CatalogAdapterDefinitionService::PRESET_ID,
-            $adapterRaw
+        $storedInputMapping = (new CalculatorInputMappingService())->loadFromRaw(
+            $presetId,
+            (string)$inputMappingState['value']
         );
-        $adapter = $adapterOverride ?? $storedAdapter;
-        $neutralInputRequired = $allowInactiveNeutralInputForAdapterAuthoring
-            ? $this->parseAdapterAuthoringNeutralInputOption($neutralInputState)
-            : $this->parseNeutralInputOption($neutralInputState);
+        $inputMapping = $inputMappingOverride ?? $storedInputMapping;
+        $outputMapping = (new CatalogOutputMappingService())->loadFromRaw(
+            $presetId,
+            (string)$outputMappingState['value']
+        );
         $runtimeConfigSnapshot = $this->captureRuntimeConfigSnapshot();
         $globalSymbolService = new GlobalSymbolService();
         $globalSymbolIblockId = $this->effectiveRuntimeConfigIblockId(
@@ -2866,250 +2838,23 @@ final class CatalogCalculationWriteService
         }
         $globalSymbols = $globalSymbolService->listReadOnlyFromIblockId(
             $globalSymbolIblockId,
-            CatalogAdapterDefinitionService::PRESET_ID
+            $presetId
         );
 
         $payloadService = new InitPayloadService();
-        $payload = $allowInactiveNeutralInputForAdapterAuthoring
-            ? $payloadService->prepareCatalogWritePayload(
-                $offerIds,
-                $siteId,
-                $authoring,
-                $adapter,
-                $publishedSnapshot,
-                $neutralInputRequired,
-                $globalSymbols,
-                $globalSymbolIblockId,
-                $runtimeConfigSnapshot,
-                true,
-                $adapterPersisted
-            )
-            : $payloadService->prepareCatalogWritePayloadPinned(
-                $offerIds,
-                $siteId,
-                $authoring,
-                $adapter,
-                $publishedSnapshot,
-                $neutralInputRequired,
-                $globalSymbols,
-                $globalSymbolIblockId,
-                $runtimeConfigSnapshot,
-                $adapterPersisted
-            );
+        $payload = $payloadService->prepareCatalogWritePayloadPinned(
+            $offerIds,
+            $siteId,
+            $authoring,
+            $inputMapping,
+            $publishedSnapshot,
+            $globalSymbols,
+            $globalSymbolIblockId,
+            $runtimeConfigSnapshot,
+            $outputMapping
+        );
         $payload['_runtimeConfigSnapshot'] = $runtimeConfigSnapshot;
         return $payload;
-    }
-
-    /**
-     * @param array<string,mixed> $payload
-     * @param array<string,mixed> $adapter
-     * @return array<string,mixed>
-     */
-    private function assertAdapterPreviewMatchesPayload(array $payload, array $adapter): array
-    {
-        $runtime = is_array($payload['editorRuntime'] ?? null) ? $payload['editorRuntime'] : [];
-        $preview = $this->assertAdapterPreviewReady(
-            is_array($payload['selectedOffers'] ?? null) ? $payload['selectedOffers'] : [],
-            [
-                'formDefinition' => is_array($runtime['formDefinition'] ?? null)
-                    ? $runtime['formDefinition']
-                    : [],
-                'bindingDefinition' => is_array($runtime['bindingDefinition'] ?? null)
-                    ? $runtime['bindingDefinition']
-                    : [],
-                'publication' => is_array($runtime['publication'] ?? null)
-                    ? $runtime['publication']
-                    : [],
-            ],
-            $adapter
-        );
-        $runtimeAdapter = is_array($runtime['catalogAdapter'] ?? null)
-            ? $runtime['catalogAdapter']
-            : [];
-        if (!hash_equals(
-            (string)($adapter['revision'] ?? ''),
-            (string)($runtimeAdapter['revision'] ?? '')
-        ) || !hash_equals(
-            self::canonicalEncode($preview['scenarios']),
-            self::canonicalEncode(
-                is_array($runtime['catalogScenarios'] ?? null) ? $runtime['catalogScenarios'] : []
-            )
-        )) {
-            throw new \RuntimeException(
-                'Catalog adapter candidate does not match the resolved editor runtime.',
-                409
-            );
-        }
-        return $preview;
-    }
-
-    /**
-     * @param array<int,array<string,mixed>> $offers
-     * @param array<string,mixed> $authoring
-     * @param array<string,mixed> $adapter
-     * @return array<string,mixed>
-     */
-    private function assertAdapterPreviewReady(
-        array $offers,
-        array $authoring,
-        array $adapter
-    ): array {
-        $preview = (new CatalogAdapterDefinitionService())->previewMappings(
-            $offers,
-            is_array($authoring['formDefinition'] ?? null) ? $authoring['formDefinition'] : [],
-            is_array($authoring['bindingDefinition'] ?? null) ? $authoring['bindingDefinition'] : [],
-            is_array($authoring['publication'] ?? null) ? $authoring['publication'] : [],
-            $adapter
-        );
-        if (($preview['ready'] ?? false) !== true) {
-            $firstError = is_array($preview['errors'][0] ?? null)
-                ? trim((string)($preview['errors'][0]['message'] ?? ''))
-                : '';
-            throw new \InvalidArgumentException(
-                $firstError !== ''
-                    ? $firstError
-                    : 'Catalog adapter does not map every selected offer.'
-            );
-        }
-        return $preview;
-    }
-
-    /** @return array<string,mixed> */
-    private function readLockedPublishedAuthoring(): array
-    {
-        if (isset($this->adapters['read_locked_authoring'])) {
-            $authoring = call_user_func($this->adapters['read_locked_authoring']);
-            if (!is_array($authoring)) {
-                throw new \RuntimeException('Locked form authoring adapter returned invalid data.');
-            }
-            $authoring['neutralInputRequired'] = $this->parseAdapterAuthoringNeutralInputOption(
-                $this->readLockedOptionState(
-                    'prospektweb.calc',
-                    'PRESET_12740_NEUTRAL_INPUT_ACTIVE'
-                )
-            );
-            $authoring['runtimeConfigSnapshot'] = $this->captureRuntimeConfigSnapshot();
-            return $authoring;
-        }
-        if (!class_exists('\Prospektweb\Frontcalc\Service\FormFirstAuthoringStore')
-            || !method_exists(
-                '\Prospektweb\Frontcalc\Service\FormFirstAuthoringStore',
-                'publishedAuthoringFromRaw'
-            )
-            || !method_exists(
-                '\Prospektweb\Frontcalc\Service\FormFirstAuthoringStore',
-                'publishedSnapshotFromRaw'
-            )) {
-            throw new \RuntimeException('FrontCalc does not expose the locked publication resolver.');
-        }
-        $formRaw = $this->readLockedOptionValue(
-            'prospektweb.frontcalc',
-            'FORM_FIRST_PRESET_12740'
-        );
-        $neutralInputRequired = $this->parseAdapterAuthoringNeutralInputOption($this->readLockedOptionState(
-            'prospektweb.calc',
-            'PRESET_12740_NEUTRAL_INPUT_ACTIVE'
-        ));
-        $authoring = \Prospektweb\Frontcalc\Service\FormFirstAuthoringStore::publishedAuthoringFromRaw(
-            CatalogAdapterDefinitionService::PRESET_ID,
-            $formRaw
-        );
-        $snapshot = \Prospektweb\Frontcalc\Service\FormFirstAuthoringStore::publishedSnapshotFromRaw(
-            CatalogAdapterDefinitionService::PRESET_ID,
-            $formRaw
-        );
-        if (!is_array($authoring) || !is_array($snapshot)) {
-            throw new \RuntimeException('The locked published form is absent or corrupt.', 409);
-        }
-        $publication = is_array($authoring['publication'] ?? null)
-            ? $authoring['publication']
-            : [];
-        $snapshotMeta = is_array($snapshot['_form_first'] ?? null)
-            ? $snapshot['_form_first']
-            : [];
-        if ((int)($publication['revision'] ?? 0) <= 0
-            || (int)($snapshotMeta['publishedRevision'] ?? 0) !== (int)$publication['revision']
-            || !hash_equals(
-                (string)($publication['compileHash'] ?? ''),
-                (string)($snapshotMeta['compileHash'] ?? '')
-            )) {
-            throw new \RuntimeException('Locked form publication and runtime snapshot do not match.', 409);
-        }
-        $authoring['neutralInputRequired'] = $neutralInputRequired;
-        $authoring['runtimeConfigSnapshot'] = $this->captureRuntimeConfigSnapshot();
-        return $authoring;
-    }
-
-    /**
-     * @param array<string,mixed> $authoring
-     * @param array<string,mixed> $adapter
-     * @param array<string,mixed> $preview
-     * @return array<string,mixed>
-     */
-    private function buildManualAdapterRuntime(
-        array $authoring,
-        array $adapter,
-        array $preview
-    ): array {
-        return [
-            'contract' => CatalogAdapterDefinitionService::EDITOR_RUNTIME_CONTRACT,
-            'launchContext' => [
-                'contract' => CatalogAdapterDefinitionService::LAUNCH_CONTEXT_CONTRACT,
-                'mode' => 'manual',
-                'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
-                'productIds' => [],
-                'offerIds' => [],
-            ],
-            'formDefinition' => $authoring['formDefinition'],
-            'bindingDefinition' => $authoring['bindingDefinition'],
-            'publication' => $authoring['publication'],
-            'catalogAdapter' => $adapter,
-            'catalogScenarios' => is_array($preview['scenarios'] ?? null)
-                ? $preview['scenarios']
-                : [],
-            'catalogMapping' => [
-                'adapterPersisted' => true,
-                'ready' => ($preview['ready'] ?? false) === true,
-                'hasTargets' => ($preview['hasTargets'] ?? false) === true,
-                'adapterRevision' => (string)($preview['adapterRevision'] ?? ''),
-                'errors' => is_array($preview['errors'] ?? null) ? $preview['errors'] : [],
-            ],
-        ];
-    }
-
-    private function writeLockedAdapterOptionRaw(string $raw): void
-    {
-        if (isset($this->adapters['write_locked_adapter_raw'])) {
-            call_user_func($this->adapters['write_locked_adapter_raw'], $raw);
-            return;
-        }
-        if ($this->transactionConnection === null) {
-            throw new \RuntimeException('Catalog adapter option cannot be written outside a transaction.');
-        }
-        $helper = $this->transactionConnection->getSqlHelper();
-        $escapedRaw = $helper->forSql($raw);
-        $result = $this->transactionConnection->query(
-            "SELECT VALUE FROM b_option WHERE MODULE_ID='prospektweb.calc' "
-            . "AND NAME='CATALOG_ADAPTER_12740' AND (SITE_ID IS NULL OR SITE_ID='') "
-            . 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE'
-        );
-        $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
-        $duplicate = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
-        if (is_array($duplicate)) {
-            throw new \RuntimeException('Duplicate global catalog adapter option row.', 409);
-        }
-        if (is_array($row)) {
-            $this->transactionConnection->queryExecute(
-                "UPDATE b_option SET VALUE='" . $escapedRaw . "' "
-                . "WHERE MODULE_ID='prospektweb.calc' AND NAME='CATALOG_ADAPTER_12740' "
-                . "AND (SITE_ID IS NULL OR SITE_ID='')"
-            );
-            return;
-        }
-        $this->transactionConnection->queryExecute(
-            "INSERT INTO b_option (MODULE_ID, NAME, VALUE, SITE_ID) VALUES "
-            . "('prospektweb.calc','CATALOG_ADAPTER_12740','" . $escapedRaw . "',NULL)"
-        );
     }
 
     private function readLockedOptionValue(string $moduleId, string $name): string
@@ -3121,12 +2866,11 @@ final class CatalogCalculationWriteService
     /** @return array{exists:bool,value:string} */
     private function readLockedOptionState(string $moduleId, string $name): array
     {
-        $allowed = [
-            'prospektweb.frontcalc:FORM_FIRST_PRESET_12740' => true,
-            'prospektweb.calc:CATALOG_ADAPTER_12740' => true,
-            'prospektweb.calc:PRESET_12740_NEUTRAL_INPUT_ACTIVE' => true,
-        ];
-        if (!isset($allowed[$moduleId . ':' . $name])) {
+        if ($this->activePresetId <= 0 || !in_array($moduleId . ':' . $name, [
+            'prospektweb.frontcalc:FORM_FIRST_PRESET_' . $this->activePresetId,
+            'prospektweb.calc:CALCULATOR_INPUT_MAPPING_' . $this->activePresetId,
+            'prospektweb.calc:CATALOG_OUTPUT_MAPPING_' . $this->activePresetId,
+        ], true)) {
             throw new \RuntimeException('Запрошено неподтверждённое option-значение runtime.');
         }
         if (isset($this->adapters['read_locked_option_state'])) {
@@ -3164,113 +2908,33 @@ final class CatalogCalculationWriteService
         ];
     }
 
-    /** @param array{exists:bool,value:string} $state */
-    private function parseNeutralInputOption(array $state): bool
-    {
-        if ($state['exists'] === true && $state['value'] === 'Y') {
-            return true;
-        }
-        throw new \RuntimeException(
-            'Catalog calculation requires PRESET_12740_NEUTRAL_INPUT_ACTIVE=Y.',
-            409
-        );
-    }
-
-    /** @param array{exists:bool,value:string} $state */
-    private function parseAdapterAuthoringNeutralInputOption(array $state): bool
-    {
-        if ($state['exists'] !== true) {
-            return false;
-        }
-        if ($state['value'] === 'Y') {
-            return true;
-        }
-        if ($state['value'] === 'N') {
-            return false;
-        }
-        throw new \RuntimeException(
-            'PRESET_12740_NEUTRAL_INPUT_ACTIVE must be Y, N or absent for adapter authoring.',
-            409
-        );
-    }
-
-    private function captureAdapterAuthoringNeutralInputState(): string
-    {
-        if (isset($this->adapters['capture_neutral_input_state'])) {
-            return $this->normalizeAdapterAuthoringNeutralInputState(
-                call_user_func($this->adapters['capture_neutral_input_state'])
-            );
-        }
-        if (isset($this->adapters['capture_neutral_input_mode'])) {
-            $raw = call_user_func($this->adapters['capture_neutral_input_mode']);
-            return $this->normalizeAdapterAuthoringNeutralInputState(
-                is_bool($raw) ? ($raw ? 'Y' : 'N') : $raw
-            );
-        }
-        $connection = Application::getConnection();
-        $result = $connection->query(
-            "SELECT VALUE FROM b_option WHERE MODULE_ID='prospektweb.calc' "
-            . "AND NAME='PRESET_12740_NEUTRAL_INPUT_ACTIVE' "
-            . "AND (SITE_ID IS NULL OR SITE_ID='') ORDER BY MODULE_ID, NAME, SITE_ID"
-        );
-        $row = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
-        $duplicate = is_object($result) && method_exists($result, 'fetch') ? $result->fetch() : null;
-        if (is_array($duplicate)) {
-            throw new \RuntimeException(
-                'Neutral-input activation option is ambiguous for adapter authoring.',
-                409
-            );
-        }
-        return is_array($row)
-            ? $this->normalizeAdapterAuthoringNeutralInputState(
-                (string)($row['VALUE'] ?? $row['value'] ?? '')
-            )
-            : 'MISSING';
-    }
-
-    private function readLockedNeutralInputState(): string
-    {
-        $state = $this->readLockedOptionState(
-            'prospektweb.calc',
-            'PRESET_12740_NEUTRAL_INPUT_ACTIVE'
-        );
-        return $state['exists']
-            ? $this->normalizeAdapterAuthoringNeutralInputState($state['value'])
-            : 'MISSING';
-    }
-
-    /** @param mixed $raw */
-    private function normalizeAdapterAuthoringNeutralInputState($raw): string
-    {
-        $raw = (string)$raw;
-        if (in_array($raw, ['Y', 'N', 'MISSING'], true)) {
-            return $raw;
-        }
-        throw new \RuntimeException(
-            'PRESET_12740_NEUTRAL_INPUT_ACTIVE has an invalid adapter-authoring state.',
-            409
-        );
-    }
-
     /** @return array<int,array<string,mixed>> */
-    private function projectResults(array $results, array $priceTypes, array $adapter, array $publication): array
+    private function projectResults(
+        array $results,
+        array $priceTypes,
+        int $presetId,
+        array $outputMapping,
+        array $publication
+    ): array
     {
         if (isset($this->adapters['project_results'])) {
             $projected = call_user_func(
                 $this->adapters['project_results'],
                 $results,
                 $priceTypes,
-                $adapter,
-                $publication
+                $outputMapping,
+                $publication,
+                $presetId
             );
             if (!is_array($projected)) {
                 throw new \RuntimeException('Адаптер результатов вернул некорректную проекцию.');
             }
         } else {
-            $projected = (new CatalogAdapterDefinitionService())->projectPinnedResultsForWrite(
+            $projected = (new CatalogOutputMappingService())->projectPinnedResultsForWrite(
+                $presetId,
                 $results,
                 $priceTypes,
-                $adapter,
+                $outputMapping,
                 $publication
             );
         }
@@ -3349,13 +3013,16 @@ final class CatalogCalculationWriteService
     }
 
     /** @return mixed */
-    private function withAdapterMutationLock(callable $callback)
+    private function withOutputMappingMutationLock(callable $callback)
     {
-        if (isset($this->adapters['adapter_mutation_lock'])) {
-            return call_user_func($this->adapters['adapter_mutation_lock'], $callback);
+        if (isset($this->adapters['output_mapping_mutation_lock'])) {
+            return call_user_func($this->adapters['output_mapping_mutation_lock'], $callback);
         }
-        return (new CatalogAdapterDefinitionService())->withMutationLock(
-            CatalogAdapterDefinitionService::PRESET_ID,
+        if ($this->activePresetId <= 0) {
+            throw new \RuntimeException('Preset must be selected before acquiring the output mapping lock.');
+        }
+        return (new CatalogOutputMappingService())->withMutationLock(
+            $this->activePresetId,
             $callback
         );
     }
@@ -3530,10 +3197,13 @@ final class CatalogCalculationWriteService
             if ($this->transactionConnection === null) {
                 throw new \RuntimeException('Runtime options cannot be locked outside a transaction.');
             }
+            if ($this->activePresetId <= 0) {
+                throw new \RuntimeException('Runtime options require an active preset.');
+            }
             $conditions = [
-                "(MODULE_ID='prospektweb.frontcalc' AND NAME='FORM_FIRST_PRESET_12740')",
-                "(MODULE_ID='prospektweb.calc' AND NAME='CATALOG_ADAPTER_12740')",
-                "(MODULE_ID='prospektweb.calc' AND NAME='PRESET_12740_NEUTRAL_INPUT_ACTIVE')",
+                "(MODULE_ID='prospektweb.frontcalc' AND NAME='FORM_FIRST_PRESET_" . $this->activePresetId . "')",
+                "(MODULE_ID='prospektweb.calc' AND NAME='CALCULATOR_INPUT_MAPPING_" . $this->activePresetId . "')",
+                "(MODULE_ID='prospektweb.calc' AND NAME='CATALOG_OUTPUT_MAPPING_" . $this->activePresetId . "')",
             ];
             foreach (self::RUNTIME_CONFIG_OPTION_KEYS as $moduleId => $names) {
                 foreach ($names as $name) {
@@ -3867,9 +3537,13 @@ final class CatalogCalculationWriteService
 
     private function assertPreset(int $presetId): void
     {
-        if ($presetId !== CatalogAdapterDefinitionService::PRESET_ID) {
-            throw new \InvalidArgumentException('Запись результатов доступна только для пресета 12740.');
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Для записи результатов требуется положительный ID пресета.');
         }
+        if ($this->activePresetId > 0 && $this->activePresetId !== $presetId) {
+            throw new \RuntimeException('Одна операция записи не может смешивать разные пресеты.', 409);
+        }
+        $this->activePresetId = $presetId;
     }
 
     /** @param mixed[] $offerIds @return int[] */

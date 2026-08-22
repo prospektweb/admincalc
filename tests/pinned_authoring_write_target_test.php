@@ -60,13 +60,6 @@ $assert = static function (bool $condition, string $message): void {
     }
 };
 
-$cache = (new ReflectionClass(\Prospektweb\Calc\Config\ConfigManager::class))->getProperty('iblockCache');
-$cache->setAccessible(true);
-$cache->setValue(null, [
-    'CALC_PRESETS' => 111,
-    'CALC_STAGES' => 222,
-]);
-
 \Prospektweb\Calc\Services\PresetEnrichmentService::addStageToPresetPinned(12740, 7001, 901);
 \Prospektweb\Calc\Services\PresetEnrichmentService::updateStagePropertyPinned(7001, 'INPUTS', ['safe'], 902);
 
@@ -78,9 +71,10 @@ $assert(
     $targets === [901, 901, 902],
     'all reads and writes target locked pinned iblocks B, never poisoned cached iblocks A'
 );
+$configSource = (string)file_get_contents(dirname(__DIR__) . '/lib/Config/ConfigManager.php');
 $assert(
-    $cache->getValue() === ['CALC_PRESETS' => 111, 'CALC_STAGES' => 222],
-    'pinned write helpers do not consult or rewrite the process-static ConfigManager cache'
+    strpos($configSource, 'iblockCache') === false,
+    'runtime iblock authority has no process-static cache that can override pinned write targets'
 );
 
 fwrite(STDOUT, "OK\n");

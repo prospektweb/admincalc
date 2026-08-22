@@ -130,80 +130,67 @@ final class CalculatorContractService
         if ($stageIblockId <= 0 || $settingsIblockId <= 0) {
             return ['status' => 'error', 'message' => 'Не найдены инфоблоки калькуляторов или этапов'];
         }
-        if (!$this->ensureStringProperty(
-            $stageIblockId,
-            'CONTRACT_ISSUE',
-            'Нарушение контракта калькулятора',
-            false,
-            700
-        )) {
-            return ['status' => 'error', 'message' => 'Не удалось подготовить свойство блокировки контракта этапа'];
+        if ($mode !== 'clone') {
+            return [
+                'status' => 'error',
+                'message' => 'Общий калькулятор можно безопасно разделить только созданием копии',
+            ];
+        }
+        $contractIssueProperty = \CIBlockProperty::GetList([], [
+            'IBLOCK_ID' => $stageIblockId,
+            '=CODE' => 'CONTRACT_ISSUE',
+        ])->Fetch();
+        if (!is_array($contractIssueProperty)) {
+            return ['status' => 'error', 'message' => 'Свойство CONTRACT_ISSUE этапа не установлено'];
         }
 
-        if ($mode === 'clone') {
-            $source = \CIBlockElement::GetList([], [
-                'ID' => $settingsId,
-                'IBLOCK_ID' => $settingsIblockId,
-            ], false, false, ['ID', 'IBLOCK_ID', 'NAME', 'ACTIVE', 'IBLOCK_SECTION_ID'])->GetNextElement();
-            if (!$source) {
-                return ['status' => 'error', 'message' => 'Исходный калькулятор не найден'];
-            }
-            $fields = $source->GetFields();
-            $properties = $source->GetProperties();
-            $propertyValues = [];
-            foreach ($properties as $code => $property) {
-                if (!is_string($code) || $code === '') {
-                    continue;
-                }
+        $source = \CIBlockElement::GetList([], [
+            'ID' => $settingsId,
+            'IBLOCK_ID' => $settingsIblockId,
+        ], false, false, ['ID', 'IBLOCK_ID', 'NAME', 'ACTIVE', 'IBLOCK_SECTION_ID'])->GetNextElement();
+        if (!$source) {
+            return ['status' => 'error', 'message' => 'Исходный калькулятор не найден'];
+        }
+        $fields = $source->GetFields();
+        $properties = $source->GetProperties();
+        $propertyValues = [];
+        foreach ($properties as $code => $property) {
+            if (is_string($code) && $code !== '') {
                 $propertyValues[$code] = $this->copyPropertyValue($property);
             }
+        }
 
-            $element = new \CIBlockElement();
-            $newSettingsId = (int)$element->Add([
-                'IBLOCK_ID' => $settingsIblockId,
-                'IBLOCK_SECTION_ID' => (int)($fields['IBLOCK_SECTION_ID'] ?? 0) ?: false,
-                'ACTIVE' => (string)($fields['ACTIVE'] ?? 'Y'),
-                'NAME' => (string)($fields['NAME'] ?? ('Калькулятор #' . $settingsId)) . ' — новая версия',
-                'PROPERTY_VALUES' => $propertyValues,
-            ]);
-            if ($newSettingsId <= 0) {
-                return ['status' => 'error', 'message' => $element->LAST_ERROR ?: 'Не удалось создать новую версию калькулятора'];
-            }
+        $element = new \CIBlockElement();
+        $newSettingsId = (int)$element->Add([
+            'IBLOCK_ID' => $settingsIblockId,
+            'IBLOCK_SECTION_ID' => (int)($fields['IBLOCK_SECTION_ID'] ?? 0) ?: false,
+            'ACTIVE' => (string)($fields['ACTIVE'] ?? 'Y'),
+            'NAME' => (string)($fields['NAME'] ?? ('Калькулятор #' . $settingsId)) . ' — новая версия',
+            'PROPERTY_VALUES' => $propertyValues,
+        ]);
+        if ($newSettingsId <= 0) {
+            return ['status' => 'error', 'message' => $element->LAST_ERROR ?: 'Не удалось создать новую версию калькулятора'];
+        }
+        try {
             \CIBlockElement::SetPropertyValuesEx($currentStageId, $stageIblockId, [
                 'CALC_SETTINGS' => $newSettingsId,
                 'CONTRACT_ISSUE' => false,
             ]);
-
-            return ['status' => 'ok', 'settingsId' => $newSettingsId, 'mode' => 'clone'];
-        }
-
-        if ($mode !== 'force') {
-            return ['status' => 'error', 'message' => 'Неизвестный способ разрешения конфликта'];
-        }
-
-        $inspection = $this->inspect($settingsId);
-        if (($inspection['status'] ?? null) !== 'ok') {
-            return $inspection;
-        }
-        $issue = trim($message) !== '' ? trim($message) : 'Контракт общего калькулятора был изменён';
-        $affectedStageIds = [];
-        foreach ((array)($inspection['presets'] ?? []) as $preset) {
-            if ((int)($preset['id'] ?? 0) === $currentPresetId) {
-                continue;
+            if ($this->loadPropertyIds($stageIblockId, $currentStageId, 'CALC_SETTINGS') !== [$newSettingsId]) {
+                throw new \RuntimeException('Calculator clone attachment read-back failed.', 409);
             }
-            foreach ((array)($preset['stageIds'] ?? []) as $stageId) {
-                $affectedStageIds[(int)$stageId] = true;
+        } catch (\Throwable $error) {
+            if (!\CIBlockElement::Delete($newSettingsId)) {
+                throw new \RuntimeException(
+                    'Calculator clone attachment failed and compensating deletion also failed.',
+                    409,
+                    $error
+                );
             }
+            throw $error;
         }
-        foreach (array_keys($affectedStageIds) as $stageId) {
-            $stageId = (int)$stageId;
-            \CIBlockElement::SetPropertyValuesEx($stageId, $stageIblockId, [
-                'CONTRACT_ISSUE' => $issue,
-            ]);
-        }
-        \CIBlockElement::SetPropertyValuesEx($currentStageId, $stageIblockId, ['CONTRACT_ISSUE' => false]);
 
-        return ['status' => 'ok', 'settingsId' => $settingsId, 'mode' => 'force'];
+        return ['status' => 'ok', 'settingsId' => $newSettingsId, 'mode' => 'clone'];
     }
 
     private function findIds(int $iblockId, array $filter): array
@@ -292,38 +279,6 @@ final class CalculatorContractService
         }
 
         return array_map('intval', array_keys($visited));
-    }
-
-    private function ensureStringProperty(
-        int $iblockId,
-        string $code,
-        string $name,
-        bool $multiple,
-        int $sort
-    ): bool {
-        $existing = \CIBlockProperty::GetList([], [
-            'IBLOCK_ID' => $iblockId,
-            '=CODE' => $code,
-        ])->Fetch();
-        if ($existing) {
-            return true;
-        }
-
-        if ($this->pinnedAuthority) {
-            return false;
-        }
-
-        $property = new \CIBlockProperty();
-        return (int)$property->Add([
-            'IBLOCK_ID' => $iblockId,
-            'ACTIVE' => 'Y',
-            'CODE' => $code,
-            'NAME' => $name,
-            'PROPERTY_TYPE' => 'S',
-            'MULTIPLE' => $multiple ? 'Y' : 'N',
-            'MULTIPLE_CNT' => $multiple ? 1 : 5,
-            'SORT' => $sort,
-        ]) > 0;
     }
 
     private function iblockId(string $code): int

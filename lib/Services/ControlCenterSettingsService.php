@@ -28,9 +28,14 @@ class ControlCenterSettingsService
     ];
 
     private SettingsManager $settingsManager;
-    public function __construct()
+    /** @var array<string,callable> */
+    private array $adapters;
+
+    /** @param array<string,callable> $adapters */
+    public function __construct(array $adapters = [])
     {
         $this->settingsManager = new SettingsManager();
+        $this->adapters = $adapters;
     }
 
     /**
@@ -56,70 +61,63 @@ class ControlCenterSettingsService
      */
     public function saveSettings(array $settings, string $expectedRevision): array
     {
-        return $this->withWriteLock(function () use ($settings, $expectedRevision): array {
+        $mutation = function () use ($settings, $expectedRevision): array {
             $current = $this->loadEditableSettings();
             $currentRevision = $this->buildRevision($this->revisionPayload($current));
-            if ($expectedRevision === '' || !hash_equals($currentRevision, $expectedRevision)) {
+            if (preg_match('/^[a-f0-9]{64}$/D', $expectedRevision) !== 1
+                || !hash_equals($currentRevision, $expectedRevision)) {
                 throw new \RuntimeException('SETTINGS_REVISION_CONFLICT', 409);
             }
 
             $normalized = $this->normalizeSettings($settings, $current);
             $this->persistSettings($normalized);
-
-            return $this->getSettings();
-        });
-    }
-
-    /**
-     * Legacy Bitrix form adapter. It intentionally uses the same normalization
-     * and persistence path as the JSON API, while the form keeps its PRG flow.
-     *
-     * @param array<string, mixed> $post
-     */
-    public function saveLegacyPost(array $post): void
-    {
-        $this->withWriteLock(function () use ($post): void {
-            $current = $this->loadEditableSettings();
-            $rates = is_array($post['MARKUP_RATE'] ?? null) ? $post['MARKUP_RATE'] : [];
-            $settings = [
-                'calculation' => [
-                    'defaultExtraValue' => $post['DEFAULT_EXTRA_VALUE'] ?? $current['calculation']['defaultExtraValue'],
-                    'defaultExtraCurrency' => $post['DEFAULT_EXTRA_CURRENCY_VALUE'] ?? $current['calculation']['defaultExtraCurrency'],
-                ],
-                'history' => [
-                    'enabled' => (($post['SAVE_CALC_HISTORY'] ?? 'N') === 'Y'),
-                    'limit' => $post['CALC_HISTORY_LIMIT'] ?? $current['history']['limit'],
-                    'loggingEnabled' => (($post['LOGGING_ENABLED'] ?? 'N') === 'Y'),
-                ],
-                'pricing' => [
-                    'basePriceTypeId' => $post['MARKUP_BASE_PRICE_TYPE_ID'] ?? $current['pricing']['basePriceTypeId'],
-                    'rates' => $rates,
-                ],
-                'integration' => [
-                    'calcServerUrl' => $post['CALC_SERVER_URL'] ?? $current['integration']['calcServerUrl'],
-                    'asproAiEnabled' => (($post['ASPRO_AI_TIMEWEB_ENABLED'] ?? 'N') === 'Y'),
-                    'asproAiBaseUrl' => $post['ASPRO_AI_TIMEWEB_BASE_URL'] ?? $current['integration']['asproAiBaseUrl'],
-                ],
+            $after = $this->loadEditableSettings();
+            $afterRevision = $this->buildRevision($this->revisionPayload($after));
+            $expectedAfterRevision = $this->buildRevision($this->revisionPayload($normalized));
+            if (!hash_equals($expectedAfterRevision, $afterRevision)) {
+                throw new \RuntimeException('SETTINGS_READBACK_MISMATCH', 409);
+            }
+            return [
+                'before' => $this->revisionPayload($current),
+                'after' => $this->revisionPayload($after),
+                'result' => ['status' => 'ok'],
             ];
+        };
 
-            $this->persistSettings($this->normalizeSettings($settings, $current));
-        });
-    }
+        if (isset($this->adapters['with_authority'])) {
+            $outcome = call_user_func($this->adapters['with_authority'], $mutation);
+            if (!is_array($outcome) || ($outcome['result']['status'] ?? null) !== 'ok') {
+                throw new \RuntimeException('SETTINGS_MUTATION_AUTHORITY_FAILED', 409);
+            }
+        } else {
+            $globalMutationService = new CalculatorGlobalMutationService();
+            $authority = $globalMutationService->currentAuthority();
+            (new GlobalCalculatorMutationCoordinatorService())->mutate(
+                $authority['revision'],
+                $authority['fingerprint'],
+                static function (array $lockedAuthority) use ($mutation, $globalMutationService): array {
+                    $outcome = $mutation();
+                    $iblockIds = is_array($lockedAuthority['iblockIds'] ?? null)
+                        ? $lockedAuthority['iblockIds']
+                        : [];
+                    if ($iblockIds === []) {
+                        throw new \RuntimeException(
+                            'Global settings mutation did not receive pinned iblock authority.',
+                            409
+                        );
+                    }
+                    $outcome['affected_preset_ids'] = $globalMutationService->affectedPresetIds($iblockIds);
+                    return $outcome;
+                },
+                [
+                    'action' => 'save_module_settings',
+                    'entity_type' => 'calculator_module_settings',
+                    'entity_id' => self::MODULE_ID,
+                ]
+            );
+        }
 
-    public function saveAsproIntegration(bool $enabled, string $baseUrl): void
-    {
-        $this->withWriteLock(function () use ($enabled, $baseUrl): void {
-            $current = $this->loadEditableSettings();
-            $normalized = $this->normalizeSettings([
-                'integration' => [
-                    'asproAiEnabled' => $enabled,
-                    'asproAiBaseUrl' => $baseUrl,
-                ],
-            ], $current);
-
-            Option::set(self::MODULE_ID, 'ASPRO_AI_TIMEWEB_ENABLED', $normalized['integration']['asproAiEnabled'] ? 'Y' : 'N');
-            Option::set(self::MODULE_ID, 'ASPRO_AI_TIMEWEB_BASE_URL', $normalized['integration']['asproAiBaseUrl']);
-        });
+        return $this->getSettings();
     }
 
     /** @return array<string, mixed> */
@@ -515,27 +513,4 @@ class ControlCenterSettingsService
         return rtrim($value, '/');
     }
 
-    /**
-     * @return mixed
-     */
-    private function withWriteLock(callable $callback)
-    {
-        $documentRoot = (string)($_SERVER['DOCUMENT_ROOT'] ?? '');
-        $lockName = 'prospektweb-calc-settings-'
-            . substr(hash('sha256', $documentRoot . '|prospektweb.calc|settings'), 0, 24)
-            . '.lock';
-        $lockPath = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR . $lockName;
-        $handle = @fopen($lockPath, 'c+');
-        if (!is_resource($handle) || !flock($handle, LOCK_EX)) {
-            throw new \RuntimeException('Unable to lock module settings');
-        }
-        @chmod($lockPath, 0600);
-
-        try {
-            return $callback();
-        } finally {
-            flock($handle, LOCK_UN);
-            fclose($handle);
-        }
-    }
 }

@@ -2,9 +2,7 @@
 
 namespace Prospektweb\Calc\Calculator;
 
-use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
-use Prospektweb\Calc\Config\ConfigManager;
 
 /**
  * Обработчик операций со сборками (bundles)
@@ -13,104 +11,15 @@ class BundleHandler
 {
     private const MODULE_ID = 'prospektweb.calc';
     
-    private ConfigManager $configManager;
-    
     public function __construct()
     {
         if (!Loader::includeModule('iblock')) {
             throw new \RuntimeException('Требуется модуль Bitrix iblock');
         }
-        $this->configManager = new ConfigManager();
     }
     
     /**
-     * Создать новый preset (постоянный)
-     * Вместо временного bundle теперь всегда создаём постоянный preset.
-     * 
-     * @param array $offerIds ID торговых предложений
-     * @param string|null $name Название preset'а (опционально)
-     * @return int ID созданного preset'а
-     * @throws \Exception
-     */
-    public function createPreset(
-        array $offerIds,
-        ?string $name = null,
-        ?int $pinnedPresetsIblockId = null
-    ): int
-    {
-        // 1. Получить ID товара из первого ТП (все ТП принадлежат одному товару)
-        $offerIds = array_values(array_unique(array_filter(array_map('intval', $offerIds), static function (int $id): bool {
-            return $id > 0;
-        })));
-        if ($offerIds === []) {
-            throw new \InvalidArgumentException('At least one offer is required.', 400);
-        }
-        $productId = $this->resolveSingleProductIdFromOffers($offerIds);
-        
-        if ($productId <= 0) {
-            throw new \Exception('Не удалось определить товар для ТП');
-        }
-        
-        if ($pinnedPresetsIblockId === null) {
-            throw new \RuntimeException(
-                'Preset creation requires the locked neutral authority.',
-                409
-            );
-        }
-        $iblockId = $pinnedPresetsIblockId;
-        
-        if ($iblockId <= 0) {
-            throw new \Exception('Инфоблок CALC_PRESETS не настроен');
-        }
-        
-        // 2. Создать элемент пресета
-        $productIblockId = $this->resolveElementIblockId($productId);
-        if ($productIblockId <= 0) {
-            throw new \RuntimeException('Product does not exist.', 409);
-        }
-        $existingPresetId = $this->getElementLinkPropertyId(
-            $productIblockId,
-            $productId,
-            'CALC_PRESET'
-        );
-        if ($existingPresetId > 0) {
-            throw new \RuntimeException(
-                'The product already has calculator preset #' . $existingPresetId
-                    . '; automatic replacement is forbidden.',
-                409
-            );
-        }
-
-        $el = new \CIBlockElement();
-        $presetName = $name ?: 'Новый пресет ' . date('Y-m-d H:i:s');
-        $presetId = $el->Add([
-            'IBLOCK_ID' => $iblockId,
-            'NAME' => $presetName,
-            'CODE' => $this->generateUniqueElementCode($iblockId, $presetName),
-            'ACTIVE' => 'Y',
-            'PROPERTY_VALUES' => [
-                'JSON' => ['VALUE' => ['TEXT' => '{}', 'TYPE' => 'HTML']],
-            ],
-        ]);
-        
-        if (!$presetId) {
-            throw new \Exception('Ошибка создания пресета: ' . $el->LAST_ERROR);
-        }
-        
-        // 3. Привязать пресет к ТОВАРУ (не к ТП!)
-        \CIBlockElement::SetPropertyValuesEx($productId, $productIblockId, [
-            'CALC_PRESET' => $presetId,
-        ]);
-
-        if ($this->getElementLinkPropertyId($productIblockId, $productId, 'CALC_PRESET') !== (int)$presetId) {
-            throw new \RuntimeException('Preset binding readback mismatch.', 409);
-        }
-        
-        return (int)$presetId;
-    }
-
-    /**
-     * Create an independent preset without a catalog adapter. Products and
+     * Create an independent preset. Products and
      * offers may be connected later; they are not part of preset identity.
      */
     public function createStandalonePreset(string $name, int $pinnedPresetsIblockId): int
@@ -159,21 +68,22 @@ class BundleHandler
      * Клонировать пресет вместе со всеми деталями/этапами.
      *
      * @param int $presetId ID исходного пресета
-     * @param int[] $offerIds Торговые предложения текущего товара. Если переданы,
-     *                        клон атомарно привязывается к этому товару.
      * @return int ID нового пресета
      * @throws \Exception
      */
-    public function clonePreset(int $presetId, array $offerIds = []): int
+    public function clonePresetLocked(int $presetId, array $pinnedIblockIds): int
     {
         if ($presetId <= 0) {
             throw new \Exception('presetId не указан');
         }
 
-        $presetsIblockId = $this->configManager->getIblockId('CALC_PRESETS');
-        $detailsIblockId = $this->configManager->getIblockId('CALC_DETAILS');
-        if ($presetsIblockId <= 0 || $detailsIblockId <= 0) {
-            throw new \Exception('Инфоблоки CALC_PRESETS/CALC_DETAILS не настроены');
+        $presetsIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+        $detailsIblockId = (int)($pinnedIblockIds['CALC_DETAILS'] ?? 0);
+        $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+        $settingsIblockId = (int)($pinnedIblockIds['CALC_SETTINGS'] ?? 0);
+        if ($presetsIblockId <= 0 || $detailsIblockId <= 0
+            || $stagesIblockId <= 0 || $settingsIblockId <= 0) {
+            throw new \Exception('Pinned calculator iblock authority is incomplete');
         }
 
         $original = \CIBlockElement::GetList(
@@ -188,26 +98,10 @@ class BundleHandler
             throw new \Exception('Пресет не найден');
         }
 
-        $offerIds = array_values(array_unique(array_filter(array_map('intval', $offerIds), static function ($id) {
-            return $id > 0;
-        })));
-        $productId = $offerIds !== [] ? $this->resolveSingleProductIdFromOffers($offerIds) : 0;
-        $productIblockId = $productId > 0 ? $this->configManager->getProductIblockId() : 0;
-        if ($productId > 0 && $productIblockId <= 0) {
-            throw new \Exception('Инфоблок товаров не настроен');
-        }
-        if ($productId > 0
-            && $this->getElementLinkPropertyId($productIblockId, $productId, 'CALC_PRESET') !== $presetId) {
-            throw new \Exception('Текущий товар уже привязан к другому пресету. Обновите данные и повторите клонирование');
-        }
-
-        $connection = \Bitrix\Main\Application::getConnection();
         $newPresetId = 0;
-        $createdStageIds = [];
-        $createdDetailIds = [];
-        $connection->startTransaction();
-
-        try {
+        // Transaction and rollback belong exclusively to
+        // PresetLifecycleMutationService. This method may only run while the
+        // caller holds the source preset and global calculator authority.
             $newPresetName = sprintf('%s (копия %s)', $original['NAME'], date('d.m.Y H:i:s'));
             $newPresetId = (int)(new \CIBlockElement())->Add([
                 'IBLOCK_ID' => $presetsIblockId,
@@ -245,24 +139,18 @@ class BundleHandler
                 }
             }
 
-            $stagesIblockId = $this->configManager->getIblockId('CALC_STAGES');
-            if ($stagesIblockId <= 0) {
-                throw new \Exception('Инфоблок CALC_STAGES не настроен');
-            }
-
             $stageIdsToClone = $this->expandStageIdsForClone($stageIdsToClone, $stagesIblockId);
 
             $stageMap = [];
             foreach ($stageIdsToClone as $stageId) {
-                $newStageId = $this->cloneStageElement($stageId, $presetsIblockId);
+                $newStageId = $this->cloneStageElement($stageId, $stagesIblockId);
                 if (!$newStageId) {
                     throw new \Exception('Не удалось клонировать этап ID=' . $stageId);
                 }
                 $stageMap[$stageId] = (int)$newStageId;
-                $createdStageIds[] = (int)$newStageId;
             }
 
-            $this->remapStageInputDescriptions($stageMap);
+            $this->remapStageInputDescriptions($stageMap, $stagesIblockId);
 
             // Шаг 2: клонируем все детали/скрепления 1:1 без замены связей.
             $detailMap = [];
@@ -272,7 +160,6 @@ class BundleHandler
                     continue;
                 }
                 $detailMap[$detailId] = $this->cloneDetailNodeRaw($node, $detailsIblockId);
-                $createdDetailIds[] = (int)$detailMap[$detailId];
             }
 
             // Шаг 3: remap связей в клонированном пресете (CALC_DETAILS/CALC_STAGES).
@@ -331,23 +218,7 @@ class BundleHandler
             // Шаг 7: копируем товарный каталог (НДС/закупочная/валюта/цены).
             $this->cloneCatalogData($presetId, $newPresetId);
 
-            if ($productId > 0) {
-                \CIBlockElement::SetPropertyValuesEx($productId, $productIblockId, [
-                    'CALC_PRESET' => $newPresetId,
-                ]);
-                $assignedPresetId = $this->getElementLinkPropertyId($productIblockId, $productId, 'CALC_PRESET');
-                if ($assignedPresetId !== $newPresetId) {
-                    throw new \Exception('Клонированный пресет не был привязан к текущему товару');
-                }
-            }
-
-            $connection->commitTransaction();
             return $newPresetId;
-        } catch (\Throwable $e) {
-            $connection->rollbackTransaction();
-            $this->deleteCloneArtifactsAfterRollback($createdStageIds, $createdDetailIds, $newPresetId);
-            throw $e;
-        }
     }
 
     /**
@@ -490,22 +361,6 @@ class BundleHandler
         return array_map('intval', array_keys($result));
     }
 
-    private function resolveSingleProductIdFromOffers(array $offerIds): int
-    {
-        $productIds = [];
-        foreach ($offerIds as $offerId) {
-            $productId = $this->getProductIdFromOffer((int)$offerId);
-            if ($productId <= 0) {
-                throw new \Exception('Не удалось определить товар для торгового предложения ID=' . (int)$offerId);
-            }
-            $productIds[$productId] = true;
-        }
-        if (count($productIds) !== 1) {
-            throw new \Exception('Клонирование доступно только для торговых предложений одного товара');
-        }
-        return (int)array_key_first($productIds);
-    }
-
     private function getElementLinkPropertyId(int $iblockId, int $elementId, string $propertyCode): int
     {
         $row = \CIBlockElement::GetProperty(
@@ -515,23 +370,6 @@ class BundleHandler
             ['CODE' => $propertyCode]
         )->Fetch();
         return (int)($row['VALUE'] ?? 0);
-    }
-
-    private function deleteCloneArtifactsAfterRollback(array $stageIds, array $detailIds, int $presetId): void
-    {
-        foreach (array_reverse($detailIds) as $detailId) {
-            if ($detailId > 0) {
-                \CIBlockElement::Delete((int)$detailId);
-            }
-        }
-        foreach (array_reverse($stageIds) as $stageId) {
-            if ($stageId > 0) {
-                \CIBlockElement::Delete((int)$stageId);
-            }
-        }
-        if ($presetId > 0) {
-            \CIBlockElement::Delete($presetId);
-        }
     }
 
     /**
@@ -935,12 +773,11 @@ class BundleHandler
      * Клонировать элемент этапа (CALC_STAGES) для пресета.
      *
      * @param int $stageId ID оригинального этапа
-     * @param int $presetsIblockId ID инфоблока пресетов (не используется напрямую, но нужен для контекста)
+     * @param int $stagesIblockId pinned ID инфоблока этапов
      * @return int|null ID нового этапа или null при ошибке
      */
-    private function cloneStageElement(int $stageId, int $presetsIblockId): ?int
+    private function cloneStageElement(int $stageId, int $stagesIblockId): ?int
     {
-        $stagesIblockId = $this->configManager->getIblockId('CALC_STAGES');
         if ($stagesIblockId <= 0) {
             return null;
         }
@@ -999,13 +836,12 @@ class BundleHandler
      *
      * @param array<int, int> $stageMap [oldStageId => newStageId]
      */
-    private function remapStageInputDescriptions(array $stageMap): void
+    private function remapStageInputDescriptions(array $stageMap, int $stagesIblockId): void
     {
         if (empty($stageMap)) {
             return;
         }
 
-        $stagesIblockId = $this->configManager->getIblockId('CALC_STAGES');
         if ($stagesIblockId <= 0) {
             return;
         }
@@ -1223,123 +1059,7 @@ class BundleHandler
     }
 
     /**
-     * Сохранить данные preset (SAVE_PRESET_REQUEST)
-     * 
-     * @param array $payload Данные от React
-     * @return array Результат сохранения
-     * @throws \Exception
-     */
-    public function savePreset(array $payload): array
-    {
-        $presetId = (int)($payload['presetId'] ?? 0);
-        
-        if ($presetId <= 0) {
-            throw new \Exception('presetId не указан');
-        }
-        
-        $linkedElements = $payload['linkedElements'] ?? [];
-        $json = $payload['json'] ?? [];
-        $meta = $payload['meta'] ?? [];
-        
-        // Формируем свойства для обновления
-        $properties = $this->buildPropertyValues($linkedElements);
-        
-        // JSON с данными UI
-        $jsonData = json_encode($json, JSON_UNESCAPED_UNICODE);
-        $properties['JSON'] = ['VALUE' => ['TEXT' => $jsonData, 'TYPE' => 'HTML']];
-        
-        // Обновляем элемент
-        $el = new \CIBlockElement();
-        $fields = [
-            'PROPERTY_VALUES' => $properties,
-        ];
-        
-        if (!empty($meta['name'])) {
-            $fields['NAME'] = $meta['name'];
-        }
-        
-        if (!$el->Update($presetId, $fields)) {
-            throw new \Exception('Ошибка сохранения пресета: ' . $el->LAST_ERROR);
-        }
-        
-        return [
-            'status' => 'ok',
-            'presetId' => $presetId,
-        ];
-    }
-    
-    /**
-     * Финализировать preset уже не требуется, т.к. создаются только постоянные пресеты.
-     * Эта функция теперь может использоваться только для переименования preset'а.
-     * 
-     * @param int $presetId ID пресета
-     * @param string|null $name Новое название (опционально)
-     * @return array Результат
-     * @throws \Exception
-     */
-    public function finalizePreset(int $presetId, ?string $name = null): array
-    {
-        if (!$name) {
-            // Если имя не передано, ничего не делаем
-            return [
-                'status' => 'ok',
-                'presetId' => $presetId,
-                'finalized' => true,
-            ];
-        }
-        
-        $el = new \CIBlockElement();
-        
-        $fields = [
-            'NAME' => $name,
-        ];
-        
-        if (!$el->Update($presetId, $fields)) {
-            throw new \Exception('Ошибка переименования пресета: ' . $el->LAST_ERROR);
-        }
-        
-        return [
-            'status' => 'ok',
-            'presetId' => $presetId,
-            'finalized' => true,
-        ];
-    }
-    
-    /**
-     * Удалить preset и очистить привязки в ТОВАРЕ
-     * 
-     * @param int $presetId ID пресета
-     */
-    public function deletePreset(int $presetId): void
-    {
-        // Очищаем привязки в ТОВАРЕ (не в ТП!)
-        $productIblockId = $this->configManager->getProductIblockId();
-        
-        if ($productIblockId > 0) {
-            $rsProducts = \CIBlockElement::GetList(
-                [],
-                ['IBLOCK_ID' => $productIblockId, 'PROPERTY_CALC_PRESET' => $presetId],
-                false,
-                false,
-                ['ID']
-            );
-            
-            while ($arProduct = $rsProducts->Fetch()) {
-                \CIBlockElement::SetPropertyValuesEx((int)$arProduct['ID'], $productIblockId, [
-                    'CALC_PRESET' => false,
-                ]);
-            }
-        }
-        
-        // Удаляем элемент preset
-        \CIBlockElement::Delete($presetId);
-    }
-    
-    /**
-     * Загрузить краткую информацию о пресетах (для попапа предупреждения)
-     * 
-     * @param array $presetIds ID пресетов
-     * @return array
+     * Generate an iblock-local unique element code.
      */
     private function generateUniqueElementCode(int $iblockId, string $name): string
     {
@@ -1385,65 +1105,4 @@ class BundleHandler
         return (int)($exists['ID'] ?? 0) > 0;
     }
 
-    public function loadPresetsSummary(array $presetIds): array
-    {
-        if (empty($presetIds)) {
-            return [];
-        }
-        
-        $iblockId = $this->configManager->getIblockId('CALC_PRESETS');
-        $result = [];
-        
-        $rsElements = \CIBlockElement::GetList(
-            [],
-            ['ID' => $presetIds, 'IBLOCK_ID' => $iblockId],
-            false,
-            false,
-            ['ID', 'NAME']
-        );
-        
-        while ($arElement = $rsElements->Fetch()) {
-            $result[(int)$arElement['ID']] = [
-                'id' => (int)$arElement['ID'],
-                'name' => $arElement['NAME'],
-            ];
-        }
-        
-        return $result;
-    }
-    
-    /**
-     * Собрать массив свойств из linkedElements
-     * 
-     * @param array $linkedElements Массив связанных элементов
-     * @return array
-     */
-    private function buildPropertyValues(array $linkedElements): array
-    {
-        $map = [
-            'calcConfig' => 'CALC_STAGES',
-            'calcSettings' => 'CALC_SETTINGS',
-            'materials' => 'CALC_MATERIALS',
-            'materialsVariants' => 'CALC_MATERIALS_VARIANTS',
-            'operations' => 'CALC_OPERATIONS',
-            'operationsVariants' => 'CALC_OPERATIONS_VARIANTS',
-            'equipment' => 'CALC_EQUIPMENT',
-            'details' => 'CALC_DETAILS',
-        ];
-        
-        $properties = [];
-        
-        foreach ($map as $jsKey => $propCode) {
-            $ids = $linkedElements[$jsKey] ?? [];
-            if (!is_array($ids)) {
-                $ids = [$ids];
-            }
-            $ids = array_filter(array_map('intval', $ids), fn($id) => $id > 0);
-            
-            // Для множественных свойств Bitrix ожидает массив или false для очистки
-            $properties[$propCode] = !empty($ids) ? $ids : false;
-        }
-        
-        return $properties;
-    }
 }

@@ -16,22 +16,18 @@ $assert = static function (bool $condition, string $message): void {
 
 $assert(strpos($service, "'CALC_STAGES'") !== false, 'CALC_STAGES is present in schema registry');
 $assert(strpos($service, "'ACTIVATION_CONDITION'") !== false, 'ACTIVATION_CONDITION is repairable');
+$assert(strpos($service, 'GLOBAL_ASSIGNMENTS') === false, 'retired stage assignment storage is not recreated');
 $assert(strpos($service, "'USED_ENTITYS'") !== false, 'stage-owned USED_ENTITYS is repairable');
 $assert(strpos($service, "'USED_ENTITY_CODES'") !== false, 'stable stage entity codes are repairable');
 $assert(strpos($service, "'CUSTOM_FIELDS'") !== false, 'stage-owned CUSTOM_FIELDS is repairable');
-$assert(strpos($service, 'migrateLegacyStageOwnership') !== false, 'legacy calculator ownership is migrated once');
-$assert(strpos($service, "'STAGE_OWNERSHIP_VERSION'") !== false, 'stage ownership migration is versioned');
-$assert(strpos($service, 'STAGE_OWNERSHIP_VERSION = 5') !== false, 'repair migration can recover incomplete earlier ownership versions');
-$assert(strpos($service, 'ensureListPropertyValues') !== false, 'list property enum values are repaired additively');
-$assert(strpos($service, '\\CIBlockPropertyEnum') !== false, 'missing list values are created through Bitrix enum API');
-$assert(strpos($service, 'listEnumIdsByProperty') !== false, 'new enum IDs are available to migration in the same request');
+$assert(strpos($service, 'migrateLegacyStageOwnership') === false, 'legacy stage ownership is never migrated by a runtime repair');
+$assert(strpos($service, 'repairMissingProperties') === false, 'schema registry has no incremental runtime writer');
+$assert(strpos($service, 'ensureOfferNamingAndMarginSchema') === false, 'schema registry has no hidden runtime currency/property writer');
 $assert(substr_count($service, "'SOURCE_LINKS'") === 3, 'SOURCE_LINKS is registered for three iblocks');
-$assert(strpos($service, '\\CIBlockProperty::GetList') !== false, 'existing property is checked before creation');
-$assert(strpos($service, '$property->Add') !== false, 'missing property is created');
-$assert(strpos($service, '$property->Update') === false, 'existing properties are never updated');
-$assert(strpos($service, 'Delete(') === false, 'schema repair never deletes data');
-$assert(strpos($diagnosticTool, "case 'fix_schema':") !== false, 'diagnostic endpoint exposes fix_schema');
-$assert(strpos($options, "pwCalcDiagFix('fix_schema'") !== false, 'module options expose schema repair button');
+$assert(strpos($service, '\\CIBlockProperty::') === false, 'read-only schema registry never mutates Bitrix properties');
+$assert(strpos($diagnosticTool, "case 'fix_schema':") === false, 'diagnostic endpoint is read-only for schema state');
+$assert(strpos($diagnosticTool, "case 'fix_files':") === false, 'diagnostic endpoint cannot overwrite installed files');
+$assert(strpos($options, "pwCalcDiagFix('fix_schema'") === false, 'module options have no runtime schema repair button');
 $assert(strpos($include, 'SchemaRepairService') !== false, 'schema repair service is registered for autoload');
 $assert(strpos($diagnostic, 'SchemaRepairService::getPropertySchema()') !== false, 'diagnostic uses repair schema');
 

@@ -2,42 +2,26 @@
 
 $calculator = file_get_contents(__DIR__ . '/../install/assets/js/calculator.js');
 $calculatorAjax = file_get_contents(__DIR__ . '/../tools/calculator_ajax.php');
-$options = file_get_contents(__DIR__ . '/../options.php');
-$initPayload = file_get_contents(__DIR__ . '/../lib/Calculator/InitPayloadService.php');
+$integration = file_get_contents(__DIR__ . '/../install/assets/js/integration.js');
 
-if (
-    !is_string($calculator)
-    || !is_string($calculatorAjax)
-    || !is_string($options)
-    || !is_string($initPayload)
-) {
-    throw new RuntimeException('Markup rounding sources are unavailable');
+if (!is_string($calculator) || !is_string($calculatorAjax) || !is_string($integration)) {
+    throw new RuntimeException('Catalog price write sources are unavailable');
 }
 
-$checks = [
-    [$calculator, 'data-role="pw-markup-rounding"', 'Markup dialog must expose its own rounding-step selector'],
-    [$calculator, 'rounding: roundingNode.value', 'Markup request must submit the selected rounding step'],
-    [$calculatorAjax, "\$settings['rounding'] = (float)Option::get(\$moduleId, 'PRICE_ROUNDING', 1)", 'Markup dialog must load its last selected rounding step'],
-    [$calculatorAjax, "\$roundingRaw = str_replace(',', '.', (string)\$request->get('rounding'))", 'Markup endpoint must read the dialog rounding step'],
-    [$calculatorAjax, "'Некорректный шаг округления'", 'Markup endpoint must reject unsupported rounding steps'],
-    [$calculatorAjax, "Option::set('prospektweb.calc', 'PRICE_ROUNDING', \$rounding)", 'Markup dialog must remember its last selected rounding step'],
-];
-
-foreach ($checks as [$source, $needle, $message]) {
-    if (strpos($source, $needle) === false) {
-        throw new RuntimeException($message);
+foreach (['applyMarkups', 'getMarkupSettings', 'btn_prospektweb_markup', 'pw_add_markup'] as $legacyToken) {
+    if (strpos($calculator, $legacyToken) !== false || strpos($calculatorAjax, $legacyToken) !== false) {
+        throw new RuntimeException('Legacy non-transactional price writer remains reachable: ' . $legacyToken);
     }
 }
 
-if (
-    strpos($options, 'name="PRICE_ROUNDING"') !== false
-    || strpos($options, "Option::set(\$module_id, 'PRICE_ROUNDING'") !== false
-) {
-    throw new RuntimeException('Markup rounding must not remain on the module settings page');
+foreach (['PREVIEW_CATALOG_WRITE_REQUEST', 'APPLY_CATALOG_WRITE_REQUEST'] as $canonicalMessage) {
+    if (strpos($calculatorAjax, $canonicalMessage) === false || strpos($integration, $canonicalMessage) === false) {
+        throw new RuntimeException('Canonical preview/apply catalog writer is unavailable: ' . $canonicalMessage);
+    }
 }
 
-if (strpos($initPayload, "'priceRounding'") !== false) {
-    throw new RuntimeException('Markup-only rounding must not leak into the calculator editor payload');
+if (strpos($calculatorAjax, '\\CPrice::Delete') !== false || strpos($calculatorAjax, '\\CPrice::Add') !== false) {
+    throw new RuntimeException('Calculator AJAX must not mutate catalog prices outside the canonical writer');
 }
 
-echo "Markup rounding static tests passed\n";
+echo "Canonical catalog price write static tests passed\n";

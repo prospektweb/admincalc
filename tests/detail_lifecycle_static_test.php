@@ -133,7 +133,7 @@ $cloneBridge = $slice(
 $cloneSelectedBridge = $slice(
     $integration,
     'async handleCloneSelectedDetailsRequest',
-    'async handleClonePresetRequest'
+    'async handleGenerateLogicAuditRequest'
 );
 if (
     $cloneBridge === ''
@@ -151,8 +151,8 @@ if (
     || strpos($removeAction, 'removeTopLevelDetail') === false
     || strpos($removeAction, 'getPresetRootDetailIds') === false
     || strpos($removeAction, 'enrichStructuralResultPinned') === false
-    || strpos($removeAction, 'enrichPresetFromDetails') !== false
-    || strpos($elementDataService, 'enrichPresetFromProductRoots') === false
+    || strpos($removeAction, 'rebuildPresetFromRoot') !== false
+    || strpos($elementDataService, 'rebuildPresetFromRoots') === false
 ) {
     throw new RuntimeException('Deletion must support root columns and preserve remaining roots');
 }

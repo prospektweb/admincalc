@@ -69,7 +69,6 @@ class DetailHandler
     public function addDetail(array $data): array
     {
         try {
-            $offerIds = $data['offerIds'] ?? [];
             $presetId = (int)($data['presetId'] ?? 0);
             $name = ! empty($data['name']) ? $data['name'] : $this->generateDetailName();
             
@@ -230,7 +229,6 @@ class DetailHandler
     public function addGroup(array $data): array
     {
         try {
-            $offerIds = $data['offerIds'] ?? [];
             $detailIds = $data['detailIds'] ?? [];
             $name = $data['name'] ??  ('Новая группа скрепления ' . $this->generateCosmicName());
             
@@ -1369,6 +1367,12 @@ class DetailHandler
         while ($property = $rsProperties->Fetch()) {
             $code = (string)($property['CODE'] ?? '');
             if ($code === '') {
+                continue;
+            }
+            // The physical property can remain on an upgraded installation,
+            // but it is not part of the current stage contract and must not be
+            // copied into newly duplicated stages.
+            if ($iblockId === $this->stagesIblockId && $code === 'GLOBAL_ASSIGNMENTS') {
                 continue;
             }
 

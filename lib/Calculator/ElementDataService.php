@@ -9,11 +9,22 @@ class ElementDataService
     /** @var array<string,int> */
     private array $pinnedRuntimeIblockIds;
 
+    private ?\Prospektweb\Calc\Services\CalculatorMutationAuthorityService $mutationAuthority;
+
     /** @param array<string,int> $pinnedRuntimeIblockIds */
-    public function __construct(array $pinnedRuntimeIblockIds = [])
-    {
+    public function __construct(
+        array $pinnedRuntimeIblockIds = [],
+        ?\Prospektweb\Calc\Services\CalculatorMutationAuthorityService $mutationAuthority = null
+    ) {
         $this->pinnedRuntimeIblockIds = $pinnedRuntimeIblockIds;
+        $this->mutationAuthority = $mutationAuthority;
         $this->ensureBitrixModulesLoaded();
+    }
+
+    private function mutationAuthority(): \Prospektweb\Calc\Services\CalculatorMutationAuthorityService
+    {
+        return $this->mutationAuthority
+            ?? new \Prospektweb\Calc\Services\CalculatorMutationAuthorityService();
     }
 
     /**
@@ -91,21 +102,22 @@ class ElementDataService
 
                     case 'saveStageGroups':
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $result[] = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use ($request, $presetId): array {
-                            if ($presetId === \Prospektweb\Calc\Services\NeutralFormulaPolicy::PRESET_ID
-                                && $protected) {
-                                throw new \RuntimeException(
-                                    'Stage groups for preset 12740 are frozen after neutral migration begins.',
-                                    409
-                                );
-                            }
                             return (new \Prospektweb\Calc\Services\StageGroupService($pinnedIblockIds))
                                 ->save($request, false);
                         });
+                        continue 2;
+
+                    case 'enrichPreset':
+                        $result[] = $this->enrichPreset($request);
+                        continue 2;
+
+                    case 'clearPreset':
+                        $result[] = $this->clearPreset($request);
                         continue 2;
 
                     case 'clonePreset':
@@ -114,26 +126,14 @@ class ElementDataService
                             throw new \RuntimeException('Недостаточно прав для клонирования пресета');
                         }
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $offerIds = array_values(array_filter(array_map(
-                            'intval',
-                            is_array($request['offerIds'] ?? null) ? $request['offerIds'] : []
-                        )));
-                        if ($presetId <= 0 || $offerIds === []) {
-                            throw new \InvalidArgumentException('Для клонирования нужны пресет и торговые предложения текущего товара');
+                        if ($presetId <= 0) {
+                            throw new \InvalidArgumentException('Для клонирования нужен пресет');
                         }
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $newPresetId = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
-                            bool $protected
-                        ) use ($presetId, $offerIds): int {
-                            \Prospektweb\Calc\Services\NeutralFormulaPolicy::assertCloneAllowed(
-                                $presetId,
-                                $protected,
-                                'preset graph'
-                            );
-                            return (new BundleHandler())->clonePreset($presetId, $offerIds);
-                        });
+                        $lifecycleReceipt = (new \Prospektweb\Calc\Services\PresetLifecycleMutationService())
+                            ->duplicatePreset($presetId);
+                        $newPresetId = (int)($lifecycleReceipt['newPresetId'] ?? 0);
                         $siteId = (string)($request['siteId'] ?? (defined('SITE_ID') ? SITE_ID : 's1'));
-                        $initPayload = (new InitPayloadService())->prepareInitPayload($offerIds, $siteId, false);
+                        $initPayload = (new InitPayloadService())->preparePresetPayload($newPresetId, $siteId);
                         if ((int)($initPayload['preset']['id'] ?? 0) !== $newPresetId) {
                             throw new \RuntimeException('После клонирования редактор не получил новый пресет');
                         }
@@ -141,6 +141,8 @@ class ElementDataService
                             'status' => 'ok',
                             'sourcePresetId' => $presetId,
                             'newPresetId' => $newPresetId,
+                            'sourceRevision' => (string)($lifecycleReceipt['sourceRevision'] ?? ''),
+                            'cloneRevision' => (string)($lifecycleReceipt['cloneRevision'] ?? ''),
                             'initPayload' => $initPayload,
                         ];
                         continue 2;
@@ -160,19 +162,27 @@ class ElementDataService
                         continue 2;
 
                     case 'getCatalogEntityMeta':
-                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->get($request);
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService(
+                            $this->pinnedRuntimeIblockIds
+                        ))->get($request);
                         continue 2;
 
                     case 'saveCatalogEntityMeta':
-                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->save($request);
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService(
+                            $this->pinnedRuntimeIblockIds
+                        ))->save($request);
                         continue 2;
 
                     case 'moveCatalogEntitySection':
-                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->moveToSection($request);
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService(
+                            $this->pinnedRuntimeIblockIds
+                        ))->moveToSection($request);
                         continue 2;
 
                     case 'createCatalogSection':
-                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService())->createSection($request);
+                        $result[] = (new \Prospektweb\Calc\Services\CatalogMetaService(
+                            $this->pinnedRuntimeIblockIds
+                        ))->createSection($request);
                         continue 2;
 
                     case 'getCatalogTree':
@@ -195,21 +205,15 @@ class ElementDataService
                         $result[] = (new \Prospektweb\Calc\Services\CatalogTreeService())->deleteNode($request);
                         continue 2;
 
-                    case 'syncVariants':
-                        throw new \RuntimeException(
-                            'Legacy syncVariants mutation is disabled; use explicit editor operations.',
-                            409
-                        );
-                        
                     case 'addNewDetail':
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $addResult = $neutralFormulaPolicy
-                            ->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $addResult = $mutationAuthority
+                            ->withAuthorityLock($presetId, static function (
                                 bool $protected,
                                 array $pinnedIblockIds
-                            ) use ($request, $presetId, $neutralFormulaPolicy): array {
-                                $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                            ) use ($request, $presetId, $mutationAuthority): array {
+                                $mutationAuthority->assertStructuralMutationAllowed(
                                     $presetId,
                                     [],
                                     $protected,
@@ -220,7 +224,6 @@ class ElementDataService
                                 return self::enrichStructuralResultPinned(
                                     $created,
                                     $presetId,
-                                    $request['offerIds'] ?? [],
                                     $pinnedIblockIds
                                 );
                             });
@@ -229,12 +232,12 @@ class ElementDataService
                         
                     case 'cloneDetail':
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $cloneResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $cloneResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
-                        ) use ($request, $presetId, $neutralFormulaPolicy): array {
-                            $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                        ) use ($request, $presetId, $mutationAuthority): array {
+                            $mutationAuthority->assertStructuralMutationAllowed(
                                 $presetId,
                                 [(int)($request['detailId'] ?? 0)],
                                 $protected,
@@ -245,7 +248,6 @@ class ElementDataService
                             return self::enrichStructuralResultPinned(
                                 $clone,
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $pinnedIblockIds
                             );
                         });
@@ -254,12 +256,12 @@ class ElementDataService
 
                     case 'cloneDetails':
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $cloneResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $cloneResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
-                        ) use ($request, $presetId, $neutralFormulaPolicy): array {
-                            $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                        ) use ($request, $presetId, $mutationAuthority): array {
+                            $mutationAuthority->assertStructuralMutationAllowed(
                                 $presetId,
                                 is_array($request['detailIds'] ?? null) ? $request['detailIds'] : [],
                                 $protected,
@@ -270,7 +272,6 @@ class ElementDataService
                             return self::enrichStructuralResultPinned(
                                 $clone,
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $pinnedIblockIds
                             );
                         });
@@ -279,18 +280,18 @@ class ElementDataService
 
                     case 'changeProductType':
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $changeResult = $neutralFormulaPolicy
-                            ->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $changeResult = $mutationAuthority
+                            ->withAuthorityLock($presetId, static function (
                                 bool $protected,
                                 array $pinnedIblockIds
-                            ) use ($request, $presetId, $neutralFormulaPolicy): array {
-                                $affectedDetailIds = $neutralFormulaPolicy->presetRootDetailIds($presetId);
+                            ) use ($request, $presetId, $mutationAuthority): array {
+                                $affectedDetailIds = $mutationAuthority->presetRootDetailIds($presetId);
                                 $basisDetailId = (int)($request['basisDetailId'] ?? 0);
                                 if ($basisDetailId > 0) {
                                     $affectedDetailIds[] = $basisDetailId;
                                 }
-                                $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                                $mutationAuthority->assertStructuralMutationAllowed(
                                     $presetId,
                                     $affectedDetailIds,
                                     $protected,
@@ -299,7 +300,8 @@ class ElementDataService
                                 if (!empty($request['deleteOthers'])) {
                                     foreach ($affectedDetailIds as $affectedDetailId) {
                                         if ((int)$affectedDetailId !== $basisDetailId) {
-                                            $neutralFormulaPolicy->assertDetailDeletionCascadeAllowed(
+                                            $mutationAuthority->assertDetailDeletionCascadeAllowed(
+                                                $presetId,
                                                 (int)$affectedDetailId,
                                                 $protected,
                                                 'detail type cleanup'
@@ -312,7 +314,6 @@ class ElementDataService
                                 return self::enrichStructuralResultPinned(
                                     $changed,
                                     $presetId,
-                                    $request['offerIds'] ?? [],
                                     $pinnedIblockIds
                                 );
                             });
@@ -321,13 +322,14 @@ class ElementDataService
                         continue 2;
                         
                     case 'addNewGroup':
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $result[] = $neutralFormulaPolicy
-                            ->withActiveAuthorityLock(static function (
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority
+                            ->withAuthorityLock($presetId, static function (
                                 bool $protected,
                                 array $pinnedIblockIds
-                            ) use ($request, $neutralFormulaPolicy): array {
-                                $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                            ) use ($request, $mutationAuthority, $presetId): array {
+                                $mutationAuthority->assertStructuralMutationAllowed(
                                     (int)($request['presetId'] ?? 0),
                                     is_array($request['detailIds'] ?? null) ? $request['detailIds'] : [],
                                     $protected,
@@ -339,13 +341,14 @@ class ElementDataService
                         continue 2;
                         
                     case 'addNewStage':
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $result[] = $neutralFormulaPolicy
-                            ->withActiveAuthorityLock(static function (
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority
+                            ->withAuthorityLock($presetId, static function (
                                 bool $protected,
                                 array $pinnedIblockIds
-                            ) use ($request, $neutralFormulaPolicy): array {
-                                $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                            ) use ($request, $mutationAuthority): array {
+                                $mutationAuthority->assertStructuralMutationAllowed(
                                     (int)($request['presetId'] ?? 0),
                                     [(int)($request['detailId'] ?? 0)],
                                     $protected,
@@ -358,12 +361,12 @@ class ElementDataService
                         
                     case 'addStage':
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $addResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $addResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
-                        ) use ($request, $presetId, $neutralFormulaPolicy): array {
-                            $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                        ) use ($request, $presetId, $mutationAuthority): array {
+                            $mutationAuthority->assertStructuralMutationAllowed(
                                 $presetId,
                                 [(int)($request['detailId'] ?? 0)],
                                 $protected,
@@ -377,7 +380,8 @@ class ElementDataService
                                 \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
                                     'STAGE_OWNERSHIP_VERSION' => 4,
                                 ]);
-                                $neutralFormulaPolicy->assertStageLinkToPreset($presetId, $stageId, $protected);
+                                $mutationAuthority->refreshLockedState($presetId);
+                                $mutationAuthority->assertStageLinkToPreset($presetId, $stageId, $protected);
                                 \Prospektweb\Calc\Services\PresetEnrichmentService::addStageToPresetPinned(
                                     $presetId,
                                     $stageId,
@@ -387,28 +391,27 @@ class ElementDataService
                             return self::enrichStructuralResultPinned(
                                 $created,
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $pinnedIblockIds
                             );
                         });
-                        
+
                         $result[] = $addResult;
                         continue 2;
 
                     case 'duplicateStage':
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $duplicateResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $duplicateResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
-                        ) use ($request, $presetId, $neutralFormulaPolicy): array {
-                            $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                        ) use ($request, $presetId, $mutationAuthority): array {
+                            $mutationAuthority->assertStructuralMutationAllowed(
                                 $presetId,
                                 [(int)($request['detailId'] ?? 0)],
                                 $protected,
                                 'stages'
                             );
-                            $neutralFormulaPolicy->assertStageStructuralMutationAllowed(
+                            $mutationAuthority->assertStageStructuralMutationAllowed(
                                 $presetId,
                                 (int)($request['stageId'] ?? 0),
                                 $protected,
@@ -418,7 +421,8 @@ class ElementDataService
                                 ->duplicateStage($request);
                             $stageId = (int)($duplicate['config']['id'] ?? 0);
                             if (($duplicate['status'] ?? 'error') === 'ok' && $presetId > 0 && $stageId > 0) {
-                                $neutralFormulaPolicy->assertStageLinkToPreset(
+                                $mutationAuthority->refreshLockedState($presetId);
+                                $mutationAuthority->assertStageLinkToPreset(
                                     $presetId,
                                     $stageId,
                                     $protected
@@ -432,13 +436,12 @@ class ElementDataService
                             return self::enrichStructuralResultPinned(
                                 $duplicate,
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $pinnedIblockIds
                             );
                         });
                         $result[] = $duplicateResult;
                         continue 2;
-                        
+
                     case 'deleteStage':
                         // Updated handler for DELETE_STAGE_REQUEST
                         $stageId = (int)($request['stageId'] ?? 0);
@@ -446,13 +449,13 @@ class ElementDataService
                         if ($stageId <= 0) {
                             throw new \RuntimeException('Stage ID is required.', 409);
                         }
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $deleteResult = $neutralFormulaPolicy
-                            ->withActiveAuthorityLock(function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $deleteResult = $mutationAuthority
+                            ->withAuthorityLock($presetId, function (
                                 bool $protected,
                                 array $pinnedIblockIds
-                            ) use ($stageId, $presetId, $request, $neutralFormulaPolicy): array {
-                                $neutralFormulaPolicy->assertStageStructuralMutationAllowed(
+                            ) use ($stageId, $presetId, $request, $mutationAuthority): array {
+                                $mutationAuthority->assertStageStructuralMutationAllowed(
                                     $presetId,
                                     $stageId,
                                     $protected,
@@ -479,7 +482,6 @@ class ElementDataService
                                 return self::enrichStructuralResultPinned(
                                     ['status' => 'ok', 'stageId' => $stageId],
                                     $presetId,
-                                    $request['offerIds'] ?? [],
                                     $pinnedIblockIds
                                 );
                             });
@@ -490,13 +492,13 @@ class ElementDataService
                         $parentId = (int)($request['parentId'] ?? 0);
                         $detailId = (int)($request['detailId'] ?? 0);
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $removeResult = $neutralFormulaPolicy
-                            ->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $removeResult = $mutationAuthority
+                            ->withAuthorityLock($presetId, static function (
                                 bool $protected,
                                 array $pinnedIblockIds
-                            ) use ($parentId, $detailId, $presetId, $request, $neutralFormulaPolicy): array {
-                                $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                            ) use ($parentId, $detailId, $presetId, $request, $mutationAuthority): array {
+                                $mutationAuthority->assertStructuralMutationAllowed(
                                     $presetId,
                                     [$parentId, $detailId],
                                     $protected,
@@ -504,7 +506,8 @@ class ElementDataService
                                 );
                                 foreach ([$parentId, $detailId] as $deletedDetailId) {
                                     if ($deletedDetailId > 0) {
-                                        $neutralFormulaPolicy->assertDetailDeletionCascadeAllowed(
+                                        $mutationAuthority->assertDetailDeletionCascadeAllowed(
+                                            $presetId,
                                             $deletedDetailId,
                                             $protected,
                                             'detail removal'
@@ -521,7 +524,6 @@ class ElementDataService
                                 return self::enrichStructuralResultPinned(
                                     $removed,
                                     $presetId,
-                                    $request['offerIds'] ?? [],
                                     $pinnedIblockIds
                                 );
                             });
@@ -529,12 +531,23 @@ class ElementDataService
                         continue 2;
                     
                     case 'renameDetail':
-                        // New handler for RENAME_DETAIL_REQUEST (silent mode)
-                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
                         $detailId = (int)($request['detailId'] ?? 0);
-                        $name = $request['name'] ?? '';
-                        
-                        $result[] = $handler->renameDetail($detailId, $name);
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $name = (string)($request['name'] ?? '');
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                            bool $protected,
+                            array $pinnedIblockIds
+                        ) use ($mutationAuthority, $presetId, $detailId, $name): array {
+                            $mutationAuthority->assertStructuralMutationAllowed(
+                                $presetId,
+                                [$detailId],
+                                $protected,
+                                'detail rename'
+                            );
+                            return (new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds))
+                                ->renameDetail($detailId, $name);
+                        });
                         continue 2;
                     
                     case 'changeSettings':
@@ -547,18 +560,18 @@ class ElementDataService
                             // A dormant calculator or assignment becomes executable at
                             // this exact link. Validate and write under the same ACTIVE
                             // authority lock so cut-over cannot race the attachment.
-                            $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                            $settingsResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                            $mutationAuthority = $this->mutationAuthority();
+                            $settingsResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                                 bool $active,
                                 array $pinnedIblockIds
                                 ) use (
-                                    $neutralFormulaPolicy,
+                                    $mutationAuthority,
                                     $presetId,
                                 $stageId,
                                 $settingsId,
                                 $request
                             ): array {
-                                $neutralFormulaPolicy->assertSettingsLinkToStage(
+                                $mutationAuthority->assertSettingsLinkToStage(
                                     $presetId,
                                     $stageId,
                                     $settingsId,
@@ -573,7 +586,6 @@ class ElementDataService
                                 return self::enrichStructuralResultPinned(
                                     ['status' => 'ok'],
                                     $presetId,
-                                    $request['offerIds'] ?? [],
                                     $pinnedIblockIds
                                 );
                             });
@@ -595,17 +607,17 @@ class ElementDataService
                         if ($stageId <= 0) {
                             throw new \RuntimeException('Stage ID is required.', 409);
                         }
-                        $neutralPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $result[] = $neutralPolicy->withActiveAuthorityLock(static function (
-                                bool $protected,
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                                bool $_unusedProtection,
                                 array $pinnedIblockIds
-                            ) use ($neutralPolicy, $stageId, $operationVariantId, $presetId, $request): array {
-                                if ($protected && $neutralPolicy->neutralPresetContainsStage($stageId)) {
-                                    throw new \RuntimeException(
-                                        'Operation variant swaps are frozen for protected preset 12740.',
-                                        409
-                                    );
-                                }
+                            ) use ($mutationAuthority, $stageId, $operationVariantId, $presetId, $request): array {
+                                $mutationAuthority->assertStageStructuralMutationAllowed(
+                                    $presetId,
+                                    $stageId,
+                                    false,
+                                    'operation variant'
+                                );
                                 self::assertPinnedElementExists(
                                     $stageId,
                                     (int)($pinnedIblockIds['CALC_STAGES'] ?? 0),
@@ -627,7 +639,6 @@ class ElementDataService
                                 return self::enrichStructuralResultPinned(
                                     ['status' => 'ok'],
                                     $presetId,
-                                    $request['offerIds'] ?? [],
                                     $pinnedIblockIds
                                 );
                             });
@@ -641,17 +652,17 @@ class ElementDataService
                         if ($stageId <= 0) {
                             throw new \RuntimeException('Stage ID is required.', 409);
                         }
-                        $neutralPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $result[] = $neutralPolicy->withActiveAuthorityLock(static function (
-                                bool $protected,
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                                bool $_unusedProtection,
                                 array $pinnedIblockIds
-                            ) use ($neutralPolicy, $stageId, $equipmentId, $presetId, $request): array {
-                                if ($protected && $neutralPolicy->neutralPresetContainsStage($stageId)) {
-                                    throw new \RuntimeException(
-                                        'Equipment swaps are frozen for protected preset 12740.',
-                                        409
-                                    );
-                                }
+                            ) use ($mutationAuthority, $stageId, $equipmentId, $presetId, $request): array {
+                                $mutationAuthority->assertStageStructuralMutationAllowed(
+                                    $presetId,
+                                    $stageId,
+                                    false,
+                                    'equipment selection'
+                                );
                                 self::assertPinnedElementExists(
                                     $stageId,
                                     (int)($pinnedIblockIds['CALC_STAGES'] ?? 0),
@@ -673,7 +684,6 @@ class ElementDataService
                                 return self::enrichStructuralResultPinned(
                                     ['status' => 'ok'],
                                     $presetId,
-                                    $request['offerIds'] ?? [],
                                     $pinnedIblockIds
                                 );
                             });
@@ -687,17 +697,17 @@ class ElementDataService
                         if ($stageId <= 0) {
                             throw new \RuntimeException('Stage ID is required.', 409);
                         }
-                        $neutralPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $result[] = $neutralPolicy->withActiveAuthorityLock(static function (
-                                bool $protected,
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                                bool $_unusedProtection,
                                 array $pinnedIblockIds
-                            ) use ($neutralPolicy, $stageId, $materialVariantId, $presetId, $request): array {
-                                if ($protected && $neutralPolicy->neutralPresetContainsStage($stageId)) {
-                                    throw new \RuntimeException(
-                                        'Material variant swaps are frozen for protected preset 12740.',
-                                        409
-                                    );
-                                }
+                            ) use ($mutationAuthority, $stageId, $materialVariantId, $presetId, $request): array {
+                                $mutationAuthority->assertStageStructuralMutationAllowed(
+                                    $presetId,
+                                    $stageId,
+                                    false,
+                                    'material variant'
+                                );
                                 self::assertPinnedElementExists(
                                     $stageId,
                                     (int)($pinnedIblockIds['CALC_STAGES'] ?? 0),
@@ -719,7 +729,6 @@ class ElementDataService
                                 return self::enrichStructuralResultPinned(
                                     ['status' => 'ok'],
                                     $presetId,
-                                    $request['offerIds'] ?? [],
                                     $pinnedIblockIds
                                 );
                             });
@@ -768,12 +777,12 @@ class ElementDataService
                                 throw new \InvalidArgumentException('Коды переменных и констант не должны повторяться');
                             }
 
-                            $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                            $globalsResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                            $mutationAuthority = $this->mutationAuthority();
+                            $globalsResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                                 bool $active,
                                 array $pinnedIblockIds
                             ) use (
-                                $neutralFormulaPolicy,
+                                $mutationAuthority,
                                 $presetId,
                                 $preparedVariables,
                                 $preparedConstants,
@@ -792,7 +801,7 @@ class ElementDataService
                                         );
                                     }
                                 }
-                                $neutralFormulaPolicy->assertPresetGlobalsWrite(
+                                $mutationAuthority->assertPresetGlobalsWrite(
                                     $presetId,
                                     $preparedVariables,
                                     $preparedConstants,
@@ -805,7 +814,6 @@ class ElementDataService
                                 return self::enrichStructuralResultPinned(
                                     ['status' => 'ok'],
                                     $presetId,
-                                    $request['offerIds'] ?? [],
                                     $pinnedIblockIds
                                 );
                             });
@@ -816,54 +824,71 @@ class ElementDataService
                         continue 2;
 
                     case 'changeCustomFieldsValue':
-                        // New handler for CHANGE_CUSTOM_FIELDS_VALUE_REQUEST (silent mode)
                         $stageId = (int)($request['stageId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
                         $customFieldsValue = $request['customFieldsValue'] ?? [];
-                        
-                        if ($stageId > 0 && is_array($customFieldsValue)) {
-                            $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
-                            
-                            $values = [];
-                            foreach ($customFieldsValue as $field) {
-                                $code = trim((string)($field['CODE'] ?? ''));
-                                $value = (string)($field['VALUE'] ?? '');
-                                if ($code === '') {
-                                    continue;
-                                }
-                                if (strpos($value, '|') !== false) {
-                                    $result[] = ['status' => 'error', 'message' => 'Значение дополнительного параметра не может содержать символ |'];
-                                    continue 3;
-                                }
-                                $visible = !array_key_exists('VISIBLE', $field) || filter_var($field['VISIBLE'], FILTER_VALIDATE_BOOLEAN);
-                                $values[] = [
-                                    'VALUE' => $code,
-                                    'DESCRIPTION' => $value . '|' . ($visible ? 'Y' : 'N'),
-                                ];
-                            }
-                            
-                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                'CUSTOM_FIELDS_VALUE' => $values ?: false,
-                            ]);
-                            
-                            $changeResponse = [
-                                'status' => 'ok',
-                                'stageId' => $stageId,
-                            ];
-                            $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
-                            if (!empty($offerIds)) {
-                                $changeResponse['initPayload'] = (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
-                            }
-                            $result[] = $changeResponse;
-                        } else {
+                        if ($stageId <= 0 || !is_array($customFieldsValue)) {
                             $result[] = [
                                 'status' => 'error',
                                 'message' => 'Stage ID и массив customFieldsValue обязательны',
                             ];
+                            continue 2;
                         }
+                        $values = [];
+                        foreach ($customFieldsValue as $field) {
+                            $code = trim((string)($field['CODE'] ?? ''));
+                            $value = (string)($field['VALUE'] ?? '');
+                            if ($code === '') {
+                                continue;
+                            }
+                            if (strpos($value, '|') !== false) {
+                                $result[] = ['status' => 'error', 'message' => 'Значение дополнительного параметра не может содержать символ |'];
+                                continue 3;
+                            }
+                            $visible = !array_key_exists('VISIBLE', $field)
+                                || filter_var($field['VISIBLE'], FILTER_VALIDATE_BOOLEAN);
+                            $values[] = [
+                                'VALUE' => $code,
+                                'DESCRIPTION' => $value . '|' . ($visible ? 'Y' : 'N'),
+                            ];
+                        }
+                        $mutationAuthority = $this->mutationAuthority();
+                        $changeResponse = $mutationAuthority->withAuthorityLock($presetId, static function (
+                            bool $protected,
+                            array $pinnedIblockIds
+                        ) use ($mutationAuthority, $presetId, $stageId, $values): array {
+                            $mutationAuthority->assertStageStructuralMutationAllowed(
+                                $presetId,
+                                $stageId,
+                                $protected,
+                                'stage custom-field values'
+                            );
+                            $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+                            $property = \CIBlockProperty::GetList([], [
+                                'IBLOCK_ID' => $stagesIblockId,
+                                '=CODE' => 'CUSTOM_FIELDS_VALUE',
+                            ])->Fetch();
+                            if (!is_array($property)) {
+                                throw new \RuntimeException(
+                                    'Stage CUSTOM_FIELDS_VALUE property is not provisioned.',
+                                    409
+                                );
+                            }
+                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                'CUSTOM_FIELDS_VALUE' => $values ?: false,
+                            ]);
+                            return ['status' => 'ok', 'stageId' => $stageId];
+                        });
+                        $changeResponse['initPayload'] = (new InitPayloadService())->preparePresetPayload(
+                            $presetId,
+                            defined('SITE_ID') ? (string)SITE_ID : 's1'
+                        );
+                        $result[] = $changeResponse;
                         continue 2;
                         
                     case 'selectFields':
                         $stageId = (int)($request['stageId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
                         $customFieldIds = $this->normalizeIds($request['customFieldIds'] ?? []);
                         $submittedValues = is_array($request['customFieldsValue'] ?? null)
                             ? $request['customFieldsValue']
@@ -878,121 +903,47 @@ class ElementDataService
                         }
 
                         if ($stageId > 0 && ($replaceCustomFields || !empty($customFieldIds))) {
-                            $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
-
-                            $existingCustomFields = [];
-                            $stageCustomFieldProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS']);
-                            while ($prop = $stageCustomFieldProps->Fetch()) {
-                                if (!empty($prop['VALUE'])) {
-                                    $existingCustomFields[] = (int)$prop['VALUE'];
-                                }
-                            }
-
-                            $mergedCustomFields = $replaceCustomFields
-                                ? $customFieldIds
-                                : array_values(array_unique(array_merge($existingCustomFields, $customFieldIds)));
-                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                'CUSTOM_FIELDS' => $mergedCustomFields,
-                                'STAGE_OWNERSHIP_VERSION' => 4,
-                            ]);
-
-                            $customFieldsService = new \Prospektweb\Calc\Services\CustomFieldsService();
-                            $fieldsConfig = $customFieldsService->getFieldsConfig($mergedCustomFields);
-
-                            $existingValuesMap = [];
-                            $stageProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS_VALUE']);
-                            while ($prop = $stageProps->Fetch()) {
-                                $fieldCode = (string)($prop['VALUE'] ?? '');
-                                if ($fieldCode === '') {
-                                    continue;
-                                }
-
-                                $existingDescription = (string)($prop['DESCRIPTION'] ?? '');
-                                $visibilityMarker = 'Y';
-                                if (preg_match('/^(.*)\|[YN]$/s', $existingDescription, $matches)) {
-                                    $visibilityMarker = substr($existingDescription, -1);
-                                    $existingDescription = $matches[1];
-                                }
-                                $existingValuesMap[$fieldCode] = [
-                                    'VALUE' => $fieldCode,
-                                    'DESCRIPTION' => $existingDescription . '|' . $visibilityMarker,
-                                ];
-                            }
-                            if ($replaceCustomFields) {
-                                $selectedCodes = array_fill_keys(array_map(
-                                    static fn(array $fieldConfig): string => (string)($fieldConfig['code'] ?? ''),
-                                    $fieldsConfig
-                                ), true);
-                                $existingValuesMap = array_filter(
-                                    $existingValuesMap,
-                                    static fn(array $value): bool => isset($selectedCodes[(string)($value['VALUE'] ?? '')])
+                            $mutationAuthority = $this->mutationAuthority();
+                            $mutationAuthority->withAuthorityLock($presetId, static function (
+                                bool $protected,
+                                array $pinnedIblockIds
+                            ) use (
+                                $mutationAuthority,
+                                $presetId,
+                                $stageId,
+                                $customFieldIds,
+                                $submittedValues,
+                                $replaceCustomFields
+                            ): void {
+                                $mutationAuthority->assertStageStructuralMutationAllowed(
+                                    $presetId,
+                                    $stageId,
+                                    $protected,
+                                    'stage custom-field selection'
                                 );
-                            }
-
-                            foreach ($fieldsConfig as $fieldConfig) {
-                                $fieldCode = (string)($fieldConfig['code'] ?? '');
-                                if ($fieldCode === '') {
-                                    continue;
-                                }
-
-                                $description = '';
-                                if (array_key_exists('default', $fieldConfig)) {
-                                    $defaultValue = $fieldConfig['default'];
-                                    if (is_bool($defaultValue)) {
-                                        $defaultValue = $defaultValue ? 'Y' : 'N';
-                                    }
-                                    $description = (string)$defaultValue;
-                                }
-
-                                if (isset($existingValuesMap[$fieldCode])) {
-                                    $existingValuesMap[$fieldCode]['DESCRIPTION'] = preg_replace('/\|N$/', '|Y', $existingValuesMap[$fieldCode]['DESCRIPTION']);
-                                    continue;
-                                }
-
-                                $existingValuesMap[$fieldCode] = [
-                                    'VALUE' => $fieldCode,
-                                    'DESCRIPTION' => $description . '|Y',
-                                ];
-                            }
-
-                            $selectedCodes = array_fill_keys(array_filter(array_map(
-                                static fn(array $fieldConfig): string => (string)($fieldConfig['code'] ?? ''),
-                                $fieldsConfig
-                            )), true);
-                            foreach ($submittedValues as $field) {
-                                $fieldCode = trim((string)($field['CODE'] ?? ''));
-                                if ($fieldCode === '' || !isset($selectedCodes[$fieldCode])) {
-                                    continue;
-                                }
-                                $fieldValue = (string)($field['VALUE'] ?? '');
-                                $fieldVisible = !array_key_exists('VISIBLE', $field)
-                                    || filter_var($field['VISIBLE'], FILTER_VALIDATE_BOOLEAN);
-                                $existingValuesMap[$fieldCode] = [
-                                    'VALUE' => $fieldCode,
-                                    'DESCRIPTION' => $fieldValue . '|' . ($fieldVisible ? 'Y' : 'N'),
-                                ];
-                            }
-
-                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                'CUSTOM_FIELDS_VALUE' => array_values($existingValuesMap),
-                            ]);
+                                self::writeStageCustomFieldSelectionPinned(
+                                    $stageId,
+                                    $customFieldIds,
+                                    $submittedValues,
+                                    $replaceCustomFields,
+                                    $pinnedIblockIds
+                                );
+                                (new \Prospektweb\Calc\Services\PresetEnrichmentService($pinnedIblockIds))
+                                    ->synchronizePresetCustomFields($presetId);
+                            });
                         }
 
                         $selectResponse = ['status' => 'ok'];
-                        $presetId = (int)($request['presetId'] ?? 0);
-                        $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
-                        if ($presetId > 0) {
-                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
-                            $enrichmentService->synchronizePresetCustomFields($presetId);
-                            if (!empty($offerIds)) {
-                                $selectResponse['initPayload'] = (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
-                            }
-                        }
+                        $selectResponse['initPayload'] = (new InitPayloadService())->preparePresetPayload(
+                            $presetId,
+                            defined('SITE_ID') ? (string)SITE_ID : 's1'
+                        );
                         $result[] = $selectResponse;
                         continue 2;
 
                     case 'createCustomField':
                         $stageId = (int)($request['stageId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
                         $field = is_array($request['field'] ?? null) ? $request['field'] : [];
                         $name = trim((string)($field['name'] ?? ''));
                         $type = trim((string)($field['type'] ?? 'text'));
@@ -1001,109 +952,30 @@ class ElementDataService
                             $result[] = ['status' => 'error', 'message' => 'Укажите название и корректный тип дополнительного параметра'];
                             continue 2;
                         }
-
-                        $customFieldsIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_CUSTOM_FIELDS', 0);
-                        $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
-                        if ($customFieldsIblockId <= 0 || $stagesIblockId <= 0) {
-                            $result[] = ['status' => 'error', 'message' => 'Инфоблок дополнительных параметров не настроен'];
-                            continue 2;
-                        }
-
-                        $code = strtoupper(trim((string)($field['code'] ?? '')));
-                        if ($code === '') {
-                            $code = strtoupper((string)\CUtil::translit($name, 'ru', [
-                                'replace_space' => '_',
-                                'replace_other' => '_',
-                                'change_case' => 'U',
-                                'delete_repeat_replace' => true,
-                            ]));
-                        }
-                        $code = trim((string)preg_replace('/[^A-Z0-9_]+/', '_', $code), '_');
-                        if ($code === '' || !preg_match('/^[A-Z]/', $code)) {
-                            $code = 'FIELD_' . ($code !== '' ? $code : date('Ymd_His'));
-                        }
-                        $baseCode = $code;
-                        $suffix = 2;
-                        while (\CIBlockElement::GetList([], ['IBLOCK_ID' => $customFieldsIblockId, '=CODE' => $code], false, ['nTopCount' => 1], ['ID'])->Fetch()) {
-                            $code = $baseCode . '_' . $suffix++;
-                        }
-
-                        $enumId = static function (int $iblockId, string $propertyCode, string $xmlId): int {
-                            $property = \CIBlockProperty::GetList([], ['IBLOCK_ID' => $iblockId, '=CODE' => $propertyCode])->Fetch();
-                            if (!$property) {
-                                return 0;
-                            }
-                            $enumCursor = \CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'ID' => 'ASC'], ['PROPERTY_ID' => (int)$property['ID']]);
-                            while ($enum = $enumCursor->Fetch()) {
-                                if ((string)($enum['XML_ID'] ?? '') === $xmlId) {
-                                    return (int)$enum['ID'];
-                                }
-                            }
-                            return 0;
-                        };
-                        $fieldTypeEnumId = $enumId($customFieldsIblockId, 'FIELD_TYPE', $type);
-                        $requiredEnumId = $enumId($customFieldsIblockId, 'IS_REQUIRED', !empty($field['required']) ? 'Y' : 'N');
-                        if ($fieldTypeEnumId <= 0) {
-                            $result[] = ['status' => 'error', 'message' => 'Не найден тип дополнительного параметра в инфоблоке'];
-                            continue 2;
-                        }
-
-                        $element = new \CIBlockElement();
-                        $fieldId = (int)$element->Add([
-                            'IBLOCK_ID' => $customFieldsIblockId,
-                            'ACTIVE' => 'Y',
-                            'NAME' => $name,
-                            'CODE' => $code,
-                            'PREVIEW_TEXT' => trim((string)($field['description'] ?? '')),
-                            'PREVIEW_TEXT_TYPE' => 'text',
-                            'PROPERTY_VALUES' => [
-                                'FIELD_TYPE' => $fieldTypeEnumId,
-                                'DEFAULT_VALUE' => (string)($field['defaultValue'] ?? ''),
-                                'IS_REQUIRED' => $requiredEnumId ?: false,
-                                'UNIT' => $type === 'number' ? trim((string)($field['unit'] ?? '')) : '',
-                                'SORT_ORDER' => 500,
-                            ],
-                        ]);
-                        if ($fieldId <= 0) {
-                            $result[] = ['status' => 'error', 'message' => $element->LAST_ERROR ?: 'Битрикс не создал дополнительный параметр'];
-                            continue 2;
-                        }
-
-                        $existingCustomFields = [];
-                        $stageCustomFieldProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS']);
-                        while ($prop = $stageCustomFieldProps->Fetch()) {
-                            if (!empty($prop['VALUE'])) {
-                                $existingCustomFields[] = (int)$prop['VALUE'];
-                            }
-                        }
-                        $existingCustomFields[] = $fieldId;
-                        \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                            'CUSTOM_FIELDS' => array_values(array_unique($existingCustomFields)),
-                            'STAGE_OWNERSHIP_VERSION' => 4,
-                        ]);
-
-                        $existingValues = [];
-                        $stageProps = \CIBlockElement::GetProperty($stagesIblockId, $stageId, ['sort' => 'asc'], ['CODE' => 'CUSTOM_FIELDS_VALUE']);
-                        while ($prop = $stageProps->Fetch()) {
-                            if ((string)($prop['VALUE'] ?? '') !== '') {
-                                $existingValues[] = ['VALUE' => (string)$prop['VALUE'], 'DESCRIPTION' => (string)($prop['DESCRIPTION'] ?? '')];
-                            }
-                        }
-                        $existingValues[] = ['VALUE' => $code, 'DESCRIPTION' => (string)($field['defaultValue'] ?? '') . '|Y'];
-                        \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                            'CUSTOM_FIELDS_VALUE' => $existingValues,
-                        ]);
-
-                        $response = ['status' => 'ok', 'fieldId' => $fieldId, 'code' => $code];
-                        $presetId = (int)($request['presetId'] ?? 0);
-                        $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
-                        if ($presetId > 0) {
-                            $enrichmentService = new \Prospektweb\Calc\Services\PresetEnrichmentService();
-                            $enrichmentService->synchronizePresetCustomFields($presetId);
-                            if (!empty($offerIds)) {
-                                $response['initPayload'] = (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
-                            }
-                        }
+                        $mutationAuthority = $this->mutationAuthority();
+                        $response = $mutationAuthority->withAuthorityLock($presetId, static function (
+                            bool $protected,
+                            array $pinnedIblockIds
+                        ) use ($mutationAuthority, $presetId, $stageId, $field): array {
+                            $mutationAuthority->assertStageStructuralMutationAllowed(
+                                $presetId,
+                                $stageId,
+                                $protected,
+                                'stage custom-field creation'
+                            );
+                            $created = self::createStageCustomFieldPinned(
+                                $stageId,
+                                $field,
+                                $pinnedIblockIds
+                            );
+                            (new \Prospektweb\Calc\Services\PresetEnrichmentService($pinnedIblockIds))
+                                ->synchronizePresetCustomFields($presetId);
+                            return ['status' => 'ok'] + $created;
+                        });
+                        $response['initPayload'] = (new InitPayloadService())->preparePresetPayload(
+                            $presetId,
+                            defined('SITE_ID') ? (string)SITE_ID : 's1'
+                        );
                         $result[] = $response;
                         continue 2;
 
@@ -1117,7 +989,7 @@ class ElementDataService
                         $image = is_array($request['image'] ?? null) ? $request['image'] : null;
                         $catalog = is_array($request['catalog'] ?? null) ? $request['catalog'] : [];
                         $properties = is_array($request['properties'] ?? null) ? $request['properties'] : [];
-                        $equipmentIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_EQUIPMENT', 0);
+                        $equipmentIblockId = (int)($this->pinnedRuntimeIblockIds['CALC_EQUIPMENT'] ?? 0);
 
                         if ((!$createEquipment && $equipmentId <= 0) || $equipmentIblockId <= 0 || $equipmentName === '') {
                             $result[] = ['status' => 'error', 'message' => 'Оборудование или его инфоблок не найдены'];
@@ -1300,49 +1172,102 @@ class ElementDataService
 
                     case 'changeStageName':
                         $stageId = (int)($request['stageId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
                         $name = trim((string)($request['name'] ?? ''));
                         $previewText = trim((string)($request['previewText'] ?? ''));
-
-                        if ($stageId > 0 && $name !== '') {
+                        if ($stageId <= 0 || $name === '') {
+                            throw new \InvalidArgumentException('Stage ID and name are required.', 422);
+                        }
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                            bool $protected,
+                            array $pinnedIblockIds
+                        ) use ($mutationAuthority, $presetId, $stageId, $name, $previewText): array {
+                            $mutationAuthority->assertStageStructuralMutationAllowed(
+                                $presetId,
+                                $stageId,
+                                $protected,
+                                'stage metadata'
+                            );
+                            self::assertPinnedElementExists(
+                                $stageId,
+                                (int)($pinnedIblockIds['CALC_STAGES'] ?? 0),
+                                'calculator stage'
+                            );
                             $el = new \CIBlockElement();
                             if (!$el->Update($stageId, [
                                 'NAME' => $name,
                                 'PREVIEW_TEXT' => $previewText,
                                 'PREVIEW_TEXT_TYPE' => 'text',
                             ])) {
-                                $result[] = ['status' => 'error', 'message' => $el->LAST_ERROR ?: 'Не удалось сохранить этап'];
-                                continue 2;
+                                throw new \RuntimeException(
+                                    $el->LAST_ERROR ?: 'Не удалось сохранить этап',
+                                    409
+                                );
                             }
-                        }
-
-                        $result[] = ['status' => 'ok', 'id' => $stageId, 'name' => $name, 'previewText' => $previewText];
+                            return [
+                                'status' => 'ok',
+                                'id' => $stageId,
+                                'name' => $name,
+                                'previewText' => $previewText,
+                            ];
+                        });
                         continue 2;
 
                     case 'changeEntityMeta':
                         $entityId = (int)($request['entityId'] ?? 0);
                         $entityType = (string)($request['entityType'] ?? '');
+                        $presetId = (int)($request['presetId'] ?? 0);
                         $name = trim((string)($request['name'] ?? ''));
                         $previewText = trim((string)($request['previewText'] ?? ''));
                         if ($entityId <= 0 || !in_array($entityType, ['detail', 'preset'], true) || $name === '') {
                             $result[] = ['status' => 'error', 'message' => 'Некорректные данные сущности'];
                             continue 2;
                         }
-                        $el = new \CIBlockElement();
-                        if (!$el->Update($entityId, [
-                            'NAME' => $name,
-                            'PREVIEW_TEXT' => $previewText,
-                            'PREVIEW_TEXT_TYPE' => 'text',
-                        ])) {
-                            $result[] = ['status' => 'error', 'message' => $el->LAST_ERROR ?: 'Не удалось сохранить данные'];
-                            continue 2;
-                        }
-                        $result[] = [
-                            'status' => 'ok',
-                            'entityType' => $entityType,
-                            'id' => $entityId,
-                            'name' => $name,
-                            'previewText' => $previewText,
-                        ];
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                            bool $protected,
+                            array $pinnedIblockIds
+                        ) use (
+                            $mutationAuthority,
+                            $presetId,
+                            $entityId,
+                            $entityType,
+                            $name,
+                            $previewText
+                        ): array {
+                            if ($entityType === 'detail') {
+                                $mutationAuthority->assertStructuralMutationAllowed(
+                                    $presetId,
+                                    [$entityId],
+                                    $protected,
+                                    'detail metadata'
+                                );
+                                $iblockId = (int)($pinnedIblockIds['CALC_DETAILS'] ?? 0);
+                            } else {
+                                $mutationAuthority->assertPresetMutationAllowed($presetId, $entityId);
+                                $iblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+                            }
+                            self::assertPinnedElementExists($entityId, $iblockId, $entityType);
+                            $el = new \CIBlockElement();
+                            if (!$el->Update($entityId, [
+                                'NAME' => $name,
+                                'PREVIEW_TEXT' => $previewText,
+                                'PREVIEW_TEXT_TYPE' => 'text',
+                            ])) {
+                                throw new \RuntimeException(
+                                    $el->LAST_ERROR ?: 'Не удалось сохранить данные',
+                                    409
+                                );
+                            }
+                            return [
+                                'status' => 'ok',
+                                'entityType' => $entityType,
+                                'id' => $entityId,
+                                'name' => $name,
+                                'previewText' => $previewText,
+                            ];
+                        });
                         continue 2;
 
                     case 'savePriceSettingsPreset':
@@ -1369,19 +1294,21 @@ class ElementDataService
 
 
                     case 'deleteDetail':
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $result[] = $neutralFormulaPolicy
-                            ->withActiveAuthorityLock(static function (
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority
+                            ->withAuthorityLock($presetId, static function (
                                 bool $protected,
                                 array $pinnedIblockIds
-                            ) use ($request, $neutralFormulaPolicy): array {
-                                $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                            ) use ($request, $mutationAuthority, $presetId): array {
+                                $mutationAuthority->assertStructuralMutationAllowed(
                                     (int)($request['presetId'] ?? 0),
                                     [(int)($request['detailId'] ?? 0)],
                                     $protected,
                                     'detail deletion'
                                 );
-                                $neutralFormulaPolicy->assertDetailDeletionCascadeAllowed(
+                                $mutationAuthority->assertDetailDeletionCascadeAllowed(
+                                    $presetId,
                                     (int)($request['detailId'] ?? 0),
                                     $protected,
                                     'detail deletion'
@@ -1399,10 +1326,24 @@ class ElementDataService
                         continue 2;
                         
                     case 'changeNameDetail':
-                        $handler = new \Prospektweb\Calc\Services\DetailHandler();
-                        $result[] = $handler->changeName($request);
+                        $detailId = (int)($request['detailId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                            bool $protected,
+                            array $pinnedIblockIds
+                        ) use ($mutationAuthority, $presetId, $detailId, $request): array {
+                            $mutationAuthority->assertStructuralMutationAllowed(
+                                $presetId,
+                                [$detailId],
+                                $protected,
+                                'detail name'
+                            );
+                            return (new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds))
+                                ->changeName($request);
+                        });
                         continue 2;
-                        
+
                     case 'getDetailWithChildren':
                         $handler = new \Prospektweb\Calc\Services\DetailHandler();
                         $detailId = (int)($request['detailId'] ?? 0);
@@ -1425,13 +1366,13 @@ class ElementDataService
                         $parentId = (int)($request['parentId'] ?? 0);
                         $presetId = (int)($request['presetId'] ?? 0);
                         $name = trim((string)($request['name'] ?? ''));
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $addResult = $neutralFormulaPolicy
-                            ->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $addResult = $mutationAuthority
+                            ->withAuthorityLock($presetId, static function (
                                 bool $protected,
                                 array $pinnedIblockIds
-                            ) use ($parentId, $presetId, $name, $request, $neutralFormulaPolicy): array {
-                                $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                            ) use ($parentId, $presetId, $name, $request, $mutationAuthority): array {
+                                $mutationAuthority->assertStructuralMutationAllowed(
                                     $presetId,
                                     [$parentId],
                                     $protected,
@@ -1442,7 +1383,6 @@ class ElementDataService
                                 return self::enrichStructuralResultPinned(
                                     $created,
                                     $presetId,
-                                    $request['offerIds'] ?? [],
                                     $pinnedIblockIds
                                 );
                             });
@@ -1455,18 +1395,18 @@ class ElementDataService
                         $parentId = (int)($request['parentId'] ?? 0);
                         $sorting = $request['sorting'] ?? [];
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $sortResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $sortResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
-                            $neutralFormulaPolicy,
+                            $mutationAuthority,
                             $presetId,
                             $parentId,
                             $sorting,
                             $request
                         ): array {
-                            $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                            $mutationAuthority->assertStructuralMutationAllowed(
                                 $presetId,
                                 array_merge(
                                     [$parentId],
@@ -1483,7 +1423,6 @@ class ElementDataService
                             return self::enrichStructuralResultPinned(
                                 $changed,
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $pinnedIblockIds
                             );
                         });
@@ -1499,12 +1438,12 @@ class ElementDataService
                         $sorting = $request['sorting'] ?? [];
                         $presetId = (int)($request['presetId'] ?? 0);
                         
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $levelResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $levelResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
-                            $neutralFormulaPolicy,
+                            $mutationAuthority,
                             $presetId,
                             $fromParentId,
                             $detailId,
@@ -1512,7 +1451,7 @@ class ElementDataService
                             $sorting,
                             $request
                         ): array {
-                            $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                            $mutationAuthority->assertStructuralMutationAllowed(
                                 $presetId,
                                 [$fromParentId, $detailId, $toParentId],
                                 $protected,
@@ -1528,7 +1467,6 @@ class ElementDataService
                             return self::enrichStructuralResultPinned(
                                 $changed,
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $pinnedIblockIds
                             );
                         });
@@ -1540,18 +1478,18 @@ class ElementDataService
                         $detailId = (int)($request['detailId'] ?? 0);
                         $sorting = is_array($request['sorting'] ?? null) ? $request['sorting'] : [];
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $stageResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $stageResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
-                            $neutralFormulaPolicy,
+                            $mutationAuthority,
                             $detailId,
                             $sorting,
                             $presetId,
                             $request
                         ): array {
-                            $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                            $mutationAuthority->assertStructuralMutationAllowed(
                                 $presetId,
                                 [$detailId],
                                 $protected,
@@ -1562,7 +1500,6 @@ class ElementDataService
                             return self::enrichStructuralResultPinned(
                                 $changed,
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $pinnedIblockIds
                             );
                         });
@@ -1581,12 +1518,12 @@ class ElementDataService
                             continue 2;
                         }
 
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $sortResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $sortResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
-                            $neutralFormulaPolicy,
+                            $mutationAuthority,
                             $presetId,
                             $sorting,
                             $request
@@ -1624,7 +1561,7 @@ class ElementDataService
                                 );
                             }
                             $current = $readRootIds();
-                            $neutralFormulaPolicy->assertStructuralMutationAllowed(
+                            $mutationAuthority->assertStructuralMutationAllowed(
                                 $presetId,
                                 array_merge($current, $sorting),
                                 $protected,
@@ -1654,7 +1591,6 @@ class ElementDataService
                                     'rootDetailIds' => $sorting,
                                 ],
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $pinnedIblockIds
                             );
                         });
@@ -1672,12 +1608,12 @@ class ElementDataService
                         $targetSorting = is_array($request['targetSorting'] ?? null)
                             ? $request['targetSorting']
                             : [];
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $stageResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $stageResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $lockedIblockIds
                         ) use (
-                            $neutralFormulaPolicy,
+                            $mutationAuthority,
                             $presetId,
                             $stageId,
                             $sourceDetailId,
@@ -1686,7 +1622,7 @@ class ElementDataService
                             $targetSorting,
                             $request
                         ): array {
-                            $neutralFormulaPolicy->assertStageMoveAllowed(
+                            $mutationAuthority->assertStageMoveAllowed(
                                 $presetId,
                                 $stageId,
                                 $sourceDetailId,
@@ -1704,7 +1640,6 @@ class ElementDataService
                             return self::enrichStructuralResultPinned(
                                 $moved,
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $lockedIblockIds
                             );
                         });
@@ -1712,39 +1647,55 @@ class ElementDataService
                         continue 2;
                     
                     case 'addDetailsToBinding':
-                        // New handler for adding selected details to binding
                         $parentId = (int)($request['parentId'] ?? 0);
-                        $detailIds = $request['detailIds'] ?? [];
+                        $detailIds = $this->normalizeIds($request['detailIds'] ?? []);
                         $presetId = (int)($request['presetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $addDetailsResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        if ($parentId <= 0 || $detailIds === []) {
+                            throw new \InvalidArgumentException(
+                                'Binding target and moved detail IDs are required.',
+                                422
+                            );
+                        }
+                        $mutationAuthority = $this->mutationAuthority();
+                        $addDetailsResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
-                            $neutralFormulaPolicy,
-                            $presetId,
-                            $parentId,
-                            $detailIds,
-                            $request
-                        ): array {
-                            $neutralFormulaPolicy->assertStructuralMutationAllowed(
-                                $presetId,
-                                array_merge(
-                                    [$parentId],
-                                    is_array($detailIds) ? $detailIds : []
-                                ),
-                                $protected,
-                                'binding details'
-                            );
-                            $attached = (new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds))
-                                ->addDetailsToBinding(
+                             $mutationAuthority,
+                             $presetId,
+                             $parentId,
+                             $detailIds
+                         ): array {
+                            foreach ($detailIds as $detailId) {
+                                $source = $mutationAuthority->assertDetailMoveIntoBindingAllowed(
+                                    $presetId,
+                                    (int)$detailId,
                                     $parentId,
-                                    is_array($detailIds) ? $detailIds : []
+                                    $protected
                                 );
+                                self::moveDetailIntoBindingPinned(
+                                    $presetId,
+                                    (int)$detailId,
+                                    $parentId,
+                                    $source,
+                                    $pinnedIblockIds
+                                );
+                                $mutationAuthority->assertDetailMoveIntoBindingApplied(
+                                    $presetId,
+                                    (int)$detailId,
+                                    $parentId,
+                                    $source
+                                );
+                            }
+                            $attached = [
+                                'status' => 'ok',
+                                'parentId' => $parentId,
+                                'detailIds' => $detailIds,
+                                'rootDetailIds' => $mutationAuthority->presetRootDetailIds($presetId),
+                            ];
                             return self::enrichStructuralResultPinned(
                                 $attached,
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $pinnedIblockIds
                             );
                         });
@@ -1759,37 +1710,18 @@ class ElementDataService
                         $priceProfilePolicy = is_array($request['priceProfilePolicy'] ?? null)
                             ? $request['priceProfilePolicy']
                             : null;
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $pricesResult = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $pricesResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds,
                             array $authority
                         ) use (
-                            $neutralFormulaPolicy,
+                            $mutationAuthority,
                             $presetId,
                             $prices,
                             $priceProfilePolicy,
                             $request
                         ): array {
-                            if ($protected
-                                && $presetId === \Prospektweb\Calc\Services\NeutralFormulaPolicy::PRESET_ID
-                                && $priceProfilePolicy !== null) {
-                                $operands = [];
-                                foreach ((array)($priceProfilePolicy['rules'] ?? []) as $rule) {
-                                    $condition = is_array($rule) && is_array($rule['condition'] ?? null)
-                                        ? $rule['condition']
-                                        : [];
-                                    $operands[] = [
-                                        'kind' => $condition['kind'] ?? null,
-                                        'code' => $condition['code'] ?? null,
-                                    ];
-                                }
-                                $neutralFormulaPolicy->assertNeutralGlobalOperands(
-                                    $operands,
-                                    (int)($authority['globalIblockId'] ?? 0),
-                                    'conditional price policy'
-                                );
-                            }
                             $changed = (new \Prospektweb\Calc\Services\PresetPriceService($pinnedIblockIds))
                                 ->changePricePreset(
                                     $presetId,
@@ -1799,7 +1731,6 @@ class ElementDataService
                             return self::enrichStructuralResultPinned(
                                 $changed,
                                 $presetId,
-                                $request['offerIds'] ?? [],
                                 $pinnedIblockIds
                             );
                         });
@@ -1808,9 +1739,174 @@ class ElementDataService
 
                     case 'updateOffersFromCalculation':
                         throw new \RuntimeException('USE_CATALOG_WRITE_PREVIEW_APPLY', 409);
+
+                    case 'saveCalcLogic':
+                        self::assertExactRequestKeys($request, [
+                            'action',
+                            'presetId',
+                            'settingsId',
+                            'stageId',
+                            'calcSettings',
+                            'stageWiring',
+                            'stageParametrValuesScheme',
+                        ], 'saveCalcLogic');
+                        $presetId = (int)($request['presetId'] ?? 0);
+                        $settingsId = (int)($request['settingsId'] ?? 0);
+                        $stageId = (int)($request['stageId'] ?? 0);
+                        if ($presetId <= 0 || $settingsId <= 0 || $stageId <= 0) {
+                            throw new \InvalidArgumentException(
+                                'saveCalcLogic requires exact preset, settings and stage IDs.',
+                                422
+                            );
+                        }
+                        $calcSettings = is_array($request['calcSettings'] ?? null)
+                            ? $request['calcSettings']
+                            : null;
+                        $stageWiring = is_array($request['stageWiring'] ?? null)
+                            ? $request['stageWiring']
+                            : null;
+                        $stageScheme = is_array($request['stageParametrValuesScheme'] ?? null)
+                            ? $request['stageParametrValuesScheme']
+                            : null;
+                        if ($calcSettings === null || $stageWiring === null || $stageScheme === null) {
+                            throw new \InvalidArgumentException('saveCalcLogic documents must be objects.', 422);
+                        }
+                        self::assertExactRequestKeys(
+                            $calcSettings,
+                            ['logicJson', 'params', 'globalDependencies'],
+                            'saveCalcLogic.calcSettings'
+                        );
+                        self::assertExactRequestKeys(
+                            $stageWiring,
+                            ['inputs', 'outputs'],
+                            'saveCalcLogic.stageWiring'
+                        );
+                        self::assertExactRequestKeys(
+                            $stageScheme,
+                            ['offer'],
+                            'saveCalcLogic.stageParametrValuesScheme'
+                        );
+                        $logicJson = $calcSettings['logicJson'] ?? null;
+                        if (!is_string($logicJson)) {
+                            throw new \InvalidArgumentException('saveCalcLogic.logicJson must be a string.', 422);
+                        }
+                        $params = self::normalizeValueDescriptionRows(
+                            $calcSettings['params'] ?? null,
+                            'name',
+                            'type',
+                            'saveCalcLogic.calcSettings.params'
+                        );
+                        $globalDependencies = self::normalizeStringList(
+                            $calcSettings['globalDependencies'] ?? null,
+                            'saveCalcLogic.calcSettings.globalDependencies'
+                        );
+                        $inputs = self::normalizeValueDescriptionRows(
+                            $stageWiring['inputs'] ?? null,
+                            'name',
+                            'path',
+                            'saveCalcLogic.stageWiring.inputs'
+                        );
+                        $outputs = self::normalizeValueDescriptionRows(
+                            $stageWiring['outputs'] ?? null,
+                            'key',
+                            'var',
+                            'saveCalcLogic.stageWiring.outputs'
+                        );
+                        $schemeOffer = self::normalizeValueDescriptionRows(
+                            $stageScheme['offer'] ?? null,
+                            'name',
+                            'template',
+                            'saveCalcLogic.stageParametrValuesScheme.offer'
+                        );
+                        $mutationAuthority = $this->mutationAuthority();
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                            bool $protected,
+                            array $pinnedIblockIds
+                        ) use (
+                            $mutationAuthority,
+                            $presetId,
+                            $settingsId,
+                            $stageId,
+                            $logicJson,
+                            $params,
+                            $globalDependencies,
+                            $inputs,
+                            $outputs,
+                            $schemeOffer
+                        ): array {
+                            $mutationAuthority->assertSettingsMutationAllowed(
+                                $presetId,
+                                $settingsId,
+                                $protected
+                            );
+                            $mutationAuthority->assertStageStructuralMutationAllowed(
+                                $presetId,
+                                $stageId,
+                                $protected,
+                                'atomic calculator logic write'
+                            );
+                            $mutationAuthority->assertSettingsLinkToStage(
+                                $presetId,
+                                $stageId,
+                                $settingsId,
+                                $protected
+                            );
+                            $mutationAuthority->assertSettingsLogicWrite(
+                                $presetId,
+                                $settingsId,
+                                $logicJson,
+                                $protected
+                            );
+                            $inputExpressions = array_map(
+                                static fn(array $row): array => [
+                                    'expression' => (string)$row['DESCRIPTION'],
+                                ],
+                                $inputs
+                            );
+                            $encodedInputs = json_encode(
+                                $inputExpressions,
+                                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                            );
+                            $mutationAuthority->assertStageInputsWrite(
+                                $presetId,
+                                $stageId,
+                                $encodedInputs,
+                                $protected
+                            );
+                            $settingsIblockId = (int)($pinnedIblockIds['CALC_SETTINGS'] ?? 0);
+                            $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+                            self::assertPinnedPropertyCodesExist(
+                                $settingsIblockId,
+                                ['LOGIC_JSON', 'PARAMS', 'GLOBAL_DEPENDENCIES'],
+                                'calculator settings'
+                            );
+                            self::assertPinnedPropertyCodesExist(
+                                $stagesIblockId,
+                                ['INPUTS', 'OUTPUTS', 'SCHEME_PARAMETR_VALUES'],
+                                'calculator stage'
+                            );
+                            \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
+                                'LOGIC_JSON' => $logicJson,
+                                'PARAMS' => $params ?: false,
+                                'GLOBAL_DEPENDENCIES' => $globalDependencies ?: false,
+                            ]);
+                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                'INPUTS' => $inputs ?: false,
+                                'OUTPUTS' => $outputs ?: false,
+                                'SCHEME_PARAMETR_VALUES' => $schemeOffer ?: false,
+                            ]);
+                            return [
+                                'status' => 'ok',
+                                'presetId' => $presetId,
+                                'settingsId' => $settingsId,
+                                'stageId' => $stageId,
+                            ];
+                        });
+                        continue 2;
                         
                     case 'updateStageProperty':
                         // Handler for CHANGE_OPTIONS_OPERATION and CHANGE_OPTIONS_MATERIAL
+                        $presetId = (int)($request['presetId'] ?? 0);
                         $stageId = (int)($request['stageId'] ?? 0);
                         $propertyCode = is_string($request['propertyCode'] ?? null)
                             ? $request['propertyCode']
@@ -1825,7 +1921,6 @@ class ElementDataService
                             'INPUTS',
                             'OUTPUTS',
                             'SCHEME_PARAMETR_VALUES',
-                            'GLOBAL_ASSIGNMENTS',
                         ];
                         if ($stageId <= 0 || !in_array($propertyCode, $allowedStageProperties, true)) {
                             throw new \RuntimeException(
@@ -1833,17 +1928,42 @@ class ElementDataService
                                 409
                             );
                         }
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        if (in_array($propertyCode, [
+                            'OPTIONS_OPERATION',
+                            'OPTIONS_MATERIAL',
+                            'OPTIONS_EQUIPMENT',
+                        ], true)) {
+                            if (!is_string($value)) {
+                                throw new \InvalidArgumentException(
+                                    'Stage variant mapping must be a JSON string.',
+                                    422
+                                );
+                            }
+                            try {
+                                $value = (new \Prospektweb\Calc\Services\StageVariantMappingService())
+                                    ->normalizeJson($value);
+                            } catch (\InvalidArgumentException $error) {
+                                throw new \InvalidArgumentException($error->getMessage(), 422, $error);
+                            }
+                        }
+                        $mutationAuthority = $this->mutationAuthority();
+                        $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds,
                             array $authority
                         ) use (
-                            $neutralFormulaPolicy,
+                            $mutationAuthority,
+                            $presetId,
                             $stageId,
                             $propertyCode,
                             $value
                         ): void {
+                            $mutationAuthority->assertStageStructuralMutationAllowed(
+                                $presetId,
+                                $stageId,
+                                $protected,
+                                'stage property ' . $propertyCode
+                            );
                             $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
                             $existingProperty = \CIBlockProperty::GetList([], [
                                 'IBLOCK_ID' => $stagesIblockId,
@@ -1855,12 +1975,16 @@ class ElementDataService
                                     409
                                 );
                             }
-                            if ($propertyCode === 'GLOBAL_ASSIGNMENTS') {
-                                $neutralFormulaPolicy->assertStageAssignmentsWrite($stageId, $value, $protected);
-                            } elseif ($propertyCode === 'INPUTS') {
-                                $neutralFormulaPolicy->assertStageInputsWrite($stageId, $value, $protected);
+                            if ($propertyCode === 'INPUTS') {
+                                $mutationAuthority->assertStageInputsWrite(
+                                    $presetId,
+                                    $stageId,
+                                    $value,
+                                    $protected
+                                );
                             } elseif ($propertyCode === 'ACTIVATION_CONDITION') {
-                                $neutralFormulaPolicy->assertStageActivationConditionWrite(
+                                $mutationAuthority->assertStageActivationConditionWrite(
+                                    $presetId,
                                     $stageId,
                                     $value,
                                     $protected,
@@ -1871,7 +1995,11 @@ class ElementDataService
                                 $propertyCode => $value,
                             ]);
                         });
-                        $result[] = ['status' => 'ok'];
+                        $result[] = [
+                            'status' => 'ok',
+                            'propertyCode' => $propertyCode,
+                            'value' => $value,
+                        ];
                         continue 2;
 
                     case 'inspectCalculatorContract':
@@ -1883,74 +2011,99 @@ class ElementDataService
                         $settingsId = (int)($request['settingsId'] ?? 0);
                         $stageId = (int)($request['stageId'] ?? 0);
                         $currentPresetId = (int)($request['currentPresetId'] ?? 0);
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $response = $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mode = (string)($request['mode'] ?? '');
+                        if ($mode !== 'clone') {
+                            throw new \RuntimeException(
+                                'Shared calculator contracts may only be resolved by cloning.',
+                                409
+                            );
+                        }
+                        $mutationAuthority = $this->mutationAuthority();
+                        $response = $mutationAuthority->withAuthorityLock($currentPresetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
-                            $neutralFormulaPolicy,
+                            $mutationAuthority,
                             $settingsId,
                             $stageId,
                             $currentPresetId,
+                            $mode,
                             $request
                         ): array {
-                            if ($protected
-                                && ($currentPresetId === \Prospektweb\Calc\Services\NeutralFormulaPolicy::PRESET_ID
-                                    || $neutralFormulaPolicy->neutralPresetContainsStage($stageId))) {
-                                throw new \RuntimeException(
-                                    'Calculator contract resolution is frozen for protected preset 12740.',
-                                    409
-                                );
-                            }
+                            $mutationAuthority->assertContractCloneAllowed(
+                                $currentPresetId,
+                                $stageId,
+                                $settingsId
+                            );
                             return (new \Prospektweb\Calc\Services\CalculatorContractService($pinnedIblockIds))
                                 ->resolve(
                                     $settingsId,
                                     $stageId,
                                     $currentPresetId,
-                                    (string)($request['mode'] ?? ''),
+                                    $mode,
                                     (string)($request['message'] ?? '')
                                 );
                         });
-                        $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
-                        if (($response['status'] ?? null) === 'ok' && !empty($offerIds)) {
-                            $response['initPayload'] = (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
+                        if (($response['status'] ?? null) === 'ok') {
+                            $response['initPayload'] = (new InitPayloadService())->preparePresetPayload(
+                                $currentPresetId,
+                                defined('SITE_ID') ? (string)SITE_ID : 's1'
+                            );
                         }
                         $result[] = $response;
                         continue 2;
 
                     case 'saveStageUsedEntities':
                         $stageId = (int)($request['stageId'] ?? 0);
+                        $presetId = (int)($request['presetId'] ?? 0);
                         $requestedXmlIds = array_values(array_intersect(
                             array_map('strval', is_array($request['usedEntities'] ?? null) ? $request['usedEntities'] : []),
                             ['VARIANT_OPERATION', 'EQUIPMENT', 'VARIANT_MATERIAL']
                         ));
-                        $stagesIblockId = (int)\Bitrix\Main\Config\Option::get('prospektweb.calc', 'IBLOCK_CALC_STAGES', 0);
-                        if ($stageId <= 0 || $stagesIblockId <= 0) {
+                        if ($stageId <= 0) {
                             $result[] = ['status' => 'error', 'message' => 'Этап или инфоблок этапов не найден'];
                             continue 2;
                         }
-                        $property = \CIBlockProperty::GetList([], [
-                            'IBLOCK_ID' => $stagesIblockId,
-                            '=CODE' => 'USED_ENTITY_CODES',
-                        ])->Fetch();
-                        if (!$property) {
-                            $result[] = ['status' => 'error', 'message' => 'Свойство USED_ENTITY_CODES этапа не установлено'];
-                            continue 2;
-                        }
-                        \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                            'USED_ENTITY_CODES' => $requestedXmlIds ?: false,
-                            'STAGE_OWNERSHIP_VERSION' => 5,
-                        ]);
-                        $response = ['status' => 'ok', 'stageId' => $stageId];
-                        $offerIds = $this->normalizeIds($request['offerIds'] ?? []);
-                        if (!empty($offerIds)) {
-                            $response['initPayload'] = (new InitPayloadService())->prepareInitPayload($offerIds, SITE_ID, false);
-                        }
+                        $mutationAuthority = $this->mutationAuthority();
+                        $response = $mutationAuthority->withAuthorityLock($presetId, static function (
+                            bool $protected,
+                            array $pinnedIblockIds
+                        ) use ($mutationAuthority, $presetId, $stageId, $requestedXmlIds): array {
+                            $mutationAuthority->assertStageStructuralMutationAllowed(
+                                $presetId,
+                                $stageId,
+                                $protected,
+                                'stage used entities'
+                            );
+                            $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+                            foreach (['USED_ENTITY_CODES', 'STAGE_OWNERSHIP_VERSION'] as $code) {
+                                $property = \CIBlockProperty::GetList([], [
+                                    'IBLOCK_ID' => $stagesIblockId,
+                                    '=CODE' => $code,
+                                ])->Fetch();
+                                if (!is_array($property)) {
+                                    throw new \RuntimeException(
+                                        'Stage property ' . $code . ' is not provisioned.',
+                                        409
+                                    );
+                                }
+                            }
+                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                'USED_ENTITY_CODES' => $requestedXmlIds ?: false,
+                                'STAGE_OWNERSHIP_VERSION' => 5,
+                            ]);
+                            return ['status' => 'ok', 'stageId' => $stageId];
+                        });
+                        $response['initPayload'] = (new InitPayloadService())->preparePresetPayload(
+                            $presetId,
+                            defined('SITE_ID') ? (string)SITE_ID : 's1'
+                        );
                         $result[] = $response;
                         continue 2;
                         
                     case 'updateSettingsProperty':
                         // Handler for CHANGE_LOGIC
+                        $presetId = (int)($request['presetId'] ?? 0);
                         $settingsId = (int)($request['settingsId'] ?? 0);
                         $propertyCode = is_string($request['propertyCode'] ?? null)
                             ? $request['propertyCode']
@@ -1964,16 +2117,22 @@ class ElementDataService
                                 409
                             );
                         }
-                        $neutralFormulaPolicy = new \Prospektweb\Calc\Services\NeutralFormulaPolicy();
-                        $neutralFormulaPolicy->withActiveAuthorityLock(static function (
+                        $mutationAuthority = $this->mutationAuthority();
+                        $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
-                            $neutralFormulaPolicy,
+                            $mutationAuthority,
+                            $presetId,
                             $settingsId,
                             $propertyCode,
                             $value
                         ): void {
+                            $mutationAuthority->assertSettingsMutationAllowed(
+                                $presetId,
+                                $settingsId,
+                                $protected
+                            );
                             $settingsIblockId = (int)($pinnedIblockIds['CALC_SETTINGS'] ?? 0);
                             $existingProperty = \CIBlockProperty::GetList([], [
                                 'IBLOCK_ID' => $settingsIblockId,
@@ -1986,7 +2145,12 @@ class ElementDataService
                                 );
                             }
                             if ($propertyCode === 'LOGIC_JSON') {
-                                $neutralFormulaPolicy->assertSettingsLogicWrite($settingsId, $value, $protected);
+                                $mutationAuthority->assertSettingsLogicWrite(
+                                    $presetId,
+                                    $settingsId,
+                                    $value,
+                                    $protected
+                                );
                             }
                             \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
                                 $propertyCode => $value,
@@ -2017,19 +2181,137 @@ class ElementDataService
         return $result;
     }
 
+    /** @param array<string,mixed> $request @return array<string,mixed> */
+    private function enrichPreset(array $request): array
+    {
+        $presetId = (int)($request['presetId'] ?? 0);
+        $detailIdsRaw = $request['detailIds'] ?? null;
+        $binding = $request['binding'] ?? null;
+        $existingDetailId = (int)($request['existingDetailId'] ?? 0);
+        if ($presetId <= 0 || !is_array($detailIdsRaw) || !array_is_list($detailIdsRaw)) {
+            throw new \InvalidArgumentException('Preset enrichment requires exact preset and detail IDs.', 422);
+        }
+        if (!is_bool($binding)) {
+            throw new \InvalidArgumentException('Preset enrichment binding must be boolean.', 422);
+        }
+        $detailIds = [];
+        foreach ($detailIdsRaw as $detailId) {
+            if (!is_int($detailId) || $detailId <= 0) {
+                throw new \InvalidArgumentException('Preset enrichment detail ID is invalid.', 422);
+            }
+            $detailIds[$detailId] = $detailId;
+        }
+        $detailIds = array_values($detailIds);
+        if ($detailIds === []) {
+            throw new \InvalidArgumentException('Preset enrichment requires at least one detail.', 422);
+        }
+
+        $mutationAuthority = $this->mutationAuthority();
+        return $mutationAuthority->withAuthorityLock($presetId, static function (
+            bool $protected,
+            array $pinnedIblockIds
+        ) use (
+            $mutationAuthority,
+            $presetId,
+            $detailIds,
+            $binding,
+            $existingDetailId
+        ): array {
+            $subjectDetailIds = $detailIds;
+            if ($existingDetailId > 0) {
+                $subjectDetailIds[] = $existingDetailId;
+            }
+            $mutationAuthority->assertStructuralMutationAllowed(
+                $presetId,
+                $subjectDetailIds,
+                $protected,
+                'preset enrichment'
+            );
+
+            $detailHandler = new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds);
+            $rootDetailId = 0;
+            if (count($detailIds) === 1 && !$binding) {
+                $rootDetailId = $detailIds[0];
+            } elseif ($binding) {
+                $allDetailIds = $existingDetailId > 0
+                    ? array_merge([$existingDetailId], $detailIds)
+                    : $detailIds;
+                $allDetailIds = array_values(array_unique($allDetailIds));
+                if (count($allDetailIds) === 1) {
+                    $rootDetailId = $allDetailIds[0];
+                } else {
+                    $groupResult = $detailHandler->addGroup(['detailIds' => $allDetailIds]);
+                    if (($groupResult['status'] ?? '') !== 'ok') {
+                        throw new \RuntimeException(
+                            (string)($groupResult['message'] ?? 'Unable to create preset binding.')
+                        );
+                    }
+                    $rootDetailId = (int)($groupResult['group']['id'] ?? 0);
+                }
+            } else {
+                $groupResult = $detailHandler->addGroup(['detailIds' => $detailIds]);
+                if (($groupResult['status'] ?? '') !== 'ok') {
+                    throw new \RuntimeException(
+                        (string)($groupResult['message'] ?? 'Unable to create preset group.')
+                    );
+                }
+                $rootDetailId = (int)($groupResult['group']['id'] ?? 0);
+            }
+            if ($rootDetailId <= 0) {
+                throw new \RuntimeException('Preset enrichment did not create an exact root.', 409);
+            }
+
+            return [
+                'status' => 'ok',
+                'rootDetailId' => $rootDetailId,
+                'initPayload' => (new \Prospektweb\Calc\Services\PresetEnrichmentService($pinnedIblockIds))
+                    ->rebuildPresetFromRoot($presetId, $rootDetailId),
+            ];
+        });
+    }
+
+    /** @param array<string,mixed> $request @return array<string,mixed> */
+    private function clearPreset(array $request): array
+    {
+        $presetId = (int)($request['presetId'] ?? 0);
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Preset clearing requires an exact preset ID.', 422);
+        }
+        $siteId = trim((string)($request['siteId'] ?? (defined('SITE_ID') ? SITE_ID : 's1')));
+        if ($siteId === '') {
+            $siteId = 's1';
+        }
+        $mutationAuthority = $this->mutationAuthority();
+        return $mutationAuthority->withAuthorityLock($presetId, static function (
+            bool $protected,
+            array $pinnedIblockIds
+        ) use ($mutationAuthority, $presetId, $siteId): array {
+            $mutationAuthority->assertStructuralMutationAllowed(
+                $presetId,
+                [],
+                $protected,
+                'preset clearing'
+            );
+            (new \Prospektweb\Calc\Services\PresetEnrichmentService($pinnedIblockIds))
+                ->clearPreset($presetId);
+            return [
+                'status' => 'ok',
+                'initPayload' => (new InitPayloadService())->preparePresetPayload($presetId, $siteId),
+            ];
+        });
+    }
+
     /**
      * Complete a structural mutation and its derived preset rebuild while the
-     * same neutral option authority transaction is still held.
+     * same calculator authority transaction is still held.
      *
      * @param array<string,mixed> $operationResult
-     * @param mixed $offerIds
      * @param array<string,int> $pinnedIblockIds
      * @return array<string,mixed>
      */
     private static function enrichStructuralResultPinned(
         array $operationResult,
         int $presetId,
-        $offerIds,
         array $pinnedIblockIds
     ): array {
         if (($operationResult['status'] ?? 'error') !== 'ok') {
@@ -2046,16 +2328,20 @@ class ElementDataService
             'intval',
             is_array($operationResult['rootDetailIds'] ?? null)
                 ? $operationResult['rootDetailIds']
-                : $enrichment->getProductRootsFromPreset($presetId)
+                : $enrichment->getRootsFromPreset($presetId)
         ))));
-        if ($rootDetailIds === []) {
-            return $operationResult;
+        if ($rootDetailIds !== []) {
+            $operationResult['initPayload'] = $enrichment->rebuildPresetFromRoots(
+                $presetId,
+                $rootDetailIds
+            );
+        } else {
+            $enrichment->clearPreset($presetId);
+            $operationResult['initPayload'] = (new InitPayloadService())->preparePresetPayload(
+                $presetId,
+                defined('SITE_ID') ? (string)SITE_ID : 's1'
+            );
         }
-        $operationResult['initPayload'] = $enrichment->enrichPresetFromProductRoots(
-            $presetId,
-            $rootDetailIds,
-            is_array($offerIds) ? $offerIds : []
-        );
         return $operationResult;
     }
 
@@ -2077,6 +2363,420 @@ class ElementDataService
                 409
             );
         }
+    }
+
+    /**
+     * @param array{sourceKind:string,sourceId:int} $source
+     * @param array<string,int> $pinnedIblockIds
+     */
+    private static function moveDetailIntoBindingPinned(
+        int $presetId,
+        int $detailId,
+        int $targetBindingId,
+        array $source,
+        array $pinnedIblockIds
+    ): void {
+        $presetsIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+        $detailsIblockId = (int)($pinnedIblockIds['CALC_DETAILS'] ?? 0);
+        self::assertPinnedElementExists($presetId, $presetsIblockId, 'calculator preset');
+        self::assertPinnedElementExists($detailId, $detailsIblockId, 'moved calculator detail');
+        self::assertPinnedElementExists($targetBindingId, $detailsIblockId, 'target binding detail');
+
+        $sourceKind = (string)($source['sourceKind'] ?? '');
+        $sourceId = (int)($source['sourceId'] ?? 0);
+        if ($sourceKind === 'preset' && $sourceId === $presetId) {
+            $sourceIblockId = $presetsIblockId;
+            $sourcePropertyCode = 'CALC_DETAILS';
+        } elseif ($sourceKind === 'detail' && $sourceId > 0) {
+            self::assertPinnedElementExists($sourceId, $detailsIblockId, 'source calculator detail');
+            $sourceIblockId = $detailsIblockId;
+            $sourcePropertyCode = 'DETAILS';
+        } else {
+            throw new \RuntimeException('Detail move source authority is invalid.', 409);
+        }
+
+        $sourceIds = self::readPinnedLinkIds($sourceIblockId, $sourceId, $sourcePropertyCode);
+        $sourcePositions = array_keys($sourceIds, $detailId, true);
+        if (count($sourcePositions) !== 1) {
+            throw new \RuntimeException('Detail move source changed before detach.', 409);
+        }
+        $targetIds = self::readPinnedLinkIds($detailsIblockId, $targetBindingId, 'DETAILS');
+        if (in_array($detailId, $targetIds, true)) {
+            throw new \RuntimeException('Target binding already contains the moved detail.', 409);
+        }
+
+        $sourceIds = array_values(array_filter(
+            $sourceIds,
+            static fn(int $id): bool => $id !== $detailId
+        ));
+        self::replacePinnedLinkIds(
+            $sourceIblockId,
+            $sourceId,
+            $sourcePropertyCode,
+            $sourceIds
+        );
+        $targetIds[] = $detailId;
+        self::replacePinnedLinkIds(
+            $detailsIblockId,
+            $targetBindingId,
+            'DETAILS',
+            array_values($targetIds)
+        );
+    }
+
+    /** @return int[] */
+    private static function readPinnedLinkIds(
+        int $iblockId,
+        int $elementId,
+        string $propertyCode
+    ): array {
+        self::assertPinnedElementExists($elementId, $iblockId, 'relationship source');
+        $property = \CIBlockProperty::GetList([], [
+            'IBLOCK_ID' => $iblockId,
+            '=CODE' => $propertyCode,
+        ])->Fetch();
+        if (!is_array($property)) {
+            throw new \RuntimeException('Relationship property ' . $propertyCode . ' is not provisioned.', 409);
+        }
+        $ids = [];
+        $rows = \CIBlockElement::GetProperty(
+            $iblockId,
+            $elementId,
+            ['sort' => 'asc', 'id' => 'asc'],
+            ['CODE' => $propertyCode]
+        );
+        while ($row = $rows->Fetch()) {
+            $id = (int)($row['VALUE'] ?? 0);
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+        return $ids;
+    }
+
+    /** @param int[] $ids */
+    private static function replacePinnedLinkIds(
+        int $iblockId,
+        int $elementId,
+        string $propertyCode,
+        array $ids
+    ): void {
+        $ids = array_values(array_map('intval', $ids));
+        if (array_filter($ids, static fn(int $id): bool => $id <= 0) !== []) {
+            throw new \InvalidArgumentException('Relationship IDs must be positive.', 422);
+        }
+        \CIBlockElement::SetPropertyValuesEx($elementId, $iblockId, [
+            $propertyCode => false,
+        ]);
+        if ($ids !== []) {
+            \CIBlockElement::SetPropertyValuesEx($elementId, $iblockId, [
+                $propertyCode => $ids,
+            ]);
+        }
+        if (self::readPinnedLinkIds($iblockId, $elementId, $propertyCode) !== $ids) {
+            throw new \RuntimeException(
+                'Relationship ' . $propertyCode . ' read-back failed.',
+                409
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $field @param array<string,int> $pinnedIblockIds */
+    private static function createStageCustomFieldPinned(
+        int $stageId,
+        array $field,
+        array $pinnedIblockIds
+    ): array {
+        $customFieldsIblockId = (int)($pinnedIblockIds['CALC_CUSTOM_FIELDS'] ?? 0);
+        $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+        self::assertPinnedElementExists($stageId, $stagesIblockId, 'calculator stage');
+        if ($customFieldsIblockId <= 0) {
+            throw new \RuntimeException('Pinned custom-field authority is invalid.', 409);
+        }
+        $name = trim((string)($field['name'] ?? ''));
+        $type = trim((string)($field['type'] ?? 'text'));
+        if ($name === '' || !in_array($type, ['number', 'text', 'checkbox', 'select'], true)) {
+            throw new \InvalidArgumentException('Custom-field name or type is invalid.', 422);
+        }
+
+        $code = strtoupper(trim((string)($field['code'] ?? '')));
+        if ($code === '') {
+            $code = strtoupper((string)\CUtil::translit($name, 'ru', [
+                'replace_space' => '_',
+                'replace_other' => '_',
+                'change_case' => 'U',
+                'delete_repeat_replace' => true,
+            ]));
+        }
+        $code = trim((string)preg_replace('/[^A-Z0-9_]+/', '_', $code), '_');
+        if ($code === '' || preg_match('/^[A-Z]/D', $code) !== 1) {
+            $code = 'FIELD_' . ($code !== '' ? $code : 'VALUE');
+        }
+        if (\Prospektweb\Calc\Services\CalculatorMutationAuthorityService::isReservedIdentifier($code)) {
+            $code = 'FIELD_' . $code;
+        }
+        $baseCode = substr($code, 0, 220);
+        $code = $baseCode;
+        $suffix = 2;
+        while (\CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => $customFieldsIblockId, '=CODE' => $code],
+            false,
+            ['nTopCount' => 1],
+            ['ID']
+        )->Fetch()) {
+            $code = substr($baseCode, 0, 210) . '_' . $suffix++;
+        }
+
+        $enumId = static function (int $iblockId, string $propertyCode, string $xmlId): int {
+            $property = \CIBlockProperty::GetList([], [
+                'IBLOCK_ID' => $iblockId,
+                '=CODE' => $propertyCode,
+            ])->Fetch();
+            if (!is_array($property)) {
+                return 0;
+            }
+            $enumCursor = \CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'ID' => 'ASC'], [
+                'PROPERTY_ID' => (int)$property['ID'],
+            ]);
+            while ($enum = $enumCursor->Fetch()) {
+                if ((string)($enum['XML_ID'] ?? '') === $xmlId) {
+                    return (int)$enum['ID'];
+                }
+            }
+            return 0;
+        };
+        $fieldTypeEnumId = $enumId($customFieldsIblockId, 'FIELD_TYPE', $type);
+        $requiredEnumId = $enumId(
+            $customFieldsIblockId,
+            'IS_REQUIRED',
+            !empty($field['required']) ? 'Y' : 'N'
+        );
+        if ($fieldTypeEnumId <= 0 || $requiredEnumId <= 0) {
+            throw new \RuntimeException('Custom-field enum schema is not provisioned.', 409);
+        }
+
+        $element = new \CIBlockElement();
+        $fieldId = (int)$element->Add([
+            'IBLOCK_ID' => $customFieldsIblockId,
+            'ACTIVE' => 'Y',
+            'NAME' => $name,
+            'CODE' => $code,
+            'PREVIEW_TEXT' => trim((string)($field['description'] ?? '')),
+            'PREVIEW_TEXT_TYPE' => 'text',
+            'PROPERTY_VALUES' => [
+                'FIELD_TYPE' => $fieldTypeEnumId,
+                'DEFAULT_VALUE' => (string)($field['defaultValue'] ?? ''),
+                'IS_REQUIRED' => $requiredEnumId,
+                'UNIT' => $type === 'number' ? trim((string)($field['unit'] ?? '')) : '',
+                'SORT_ORDER' => 500,
+            ],
+        ]);
+        if ($fieldId <= 0) {
+            throw new \RuntimeException(
+                $element->LAST_ERROR ?: 'Bitrix did not create the custom field.',
+                409
+            );
+        }
+        try {
+            self::assertPinnedElementExists(
+                $fieldId,
+                $customFieldsIblockId,
+                'new calculator custom field'
+            );
+            self::writeStageCustomFieldSelectionPinned(
+                $stageId,
+                [$fieldId],
+                [[
+                    'CODE' => $code,
+                    'VALUE' => (string)($field['defaultValue'] ?? ''),
+                    'VISIBLE' => true,
+                ]],
+                false,
+                $pinnedIblockIds
+            );
+        } catch (\Throwable $error) {
+            if (!\CIBlockElement::Delete($fieldId)) {
+                throw new \RuntimeException(
+                    'Custom-field attachment failed and compensating deletion also failed.',
+                    409,
+                    $error
+                );
+            }
+            throw $error;
+        }
+
+        return ['fieldId' => $fieldId, 'code' => $code];
+    }
+
+    /**
+     * @param int[] $requestedCustomFieldIds
+     * @param array<int,mixed> $submittedValues
+     * @param array<string,int> $pinnedIblockIds
+     */
+    private static function writeStageCustomFieldSelectionPinned(
+        int $stageId,
+        array $requestedCustomFieldIds,
+        array $submittedValues,
+        bool $replaceCustomFields,
+        array $pinnedIblockIds
+    ): void {
+        $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+        $customFieldsIblockId = (int)($pinnedIblockIds['CALC_CUSTOM_FIELDS'] ?? 0);
+        self::assertPinnedElementExists($stageId, $stagesIblockId, 'calculator stage');
+        if ($customFieldsIblockId <= 0) {
+            throw new \RuntimeException('Pinned custom-field authority is invalid.', 409);
+        }
+        foreach (['CUSTOM_FIELDS', 'CUSTOM_FIELDS_VALUE', 'STAGE_OWNERSHIP_VERSION'] as $code) {
+            $property = \CIBlockProperty::GetList([], [
+                'IBLOCK_ID' => $stagesIblockId,
+                '=CODE' => $code,
+            ])->Fetch();
+            if (!is_array($property)) {
+                throw new \RuntimeException('Stage property ' . $code . ' is not provisioned.', 409);
+            }
+        }
+
+        $existingCustomFields = [];
+        $stageCustomFieldProps = \CIBlockElement::GetProperty(
+            $stagesIblockId,
+            $stageId,
+            ['sort' => 'asc'],
+            ['CODE' => 'CUSTOM_FIELDS']
+        );
+        while ($property = $stageCustomFieldProps->Fetch()) {
+            $fieldId = (int)($property['VALUE'] ?? 0);
+            if ($fieldId > 0) {
+                $existingCustomFields[] = $fieldId;
+            }
+        }
+        $customFieldIds = array_values(array_unique(array_map('intval', $requestedCustomFieldIds)));
+        $mergedCustomFields = $replaceCustomFields
+            ? $customFieldIds
+            : array_values(array_unique(array_merge($existingCustomFields, $customFieldIds)));
+        foreach ($mergedCustomFields as $fieldId) {
+            self::assertPinnedElementExists(
+                (int)$fieldId,
+                $customFieldsIblockId,
+                'calculator custom field'
+            );
+        }
+
+        $fieldsConfig = (new \Prospektweb\Calc\Services\CustomFieldsService())
+            ->getFieldsConfig($mergedCustomFields);
+        if (count($fieldsConfig) !== count($mergedCustomFields)) {
+            throw new \RuntimeException('One or more selected custom fields are inactive or unavailable.', 409);
+        }
+        $selectedCodes = [];
+        foreach ($fieldsConfig as $fieldConfig) {
+            $fieldCode = trim((string)($fieldConfig['code'] ?? ''));
+            if ($fieldCode === '' || isset($selectedCodes[$fieldCode])) {
+                throw new \RuntimeException('Selected custom-field codes are empty or duplicated.', 409);
+            }
+            $selectedCodes[$fieldCode] = true;
+        }
+
+        \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+            'CUSTOM_FIELDS' => $mergedCustomFields ?: false,
+            'STAGE_OWNERSHIP_VERSION' => 4,
+        ]);
+        $storedCustomFields = [];
+        $storedFieldRows = \CIBlockElement::GetProperty(
+            $stagesIblockId,
+            $stageId,
+            ['sort' => 'asc'],
+            ['CODE' => 'CUSTOM_FIELDS']
+        );
+        while ($property = $storedFieldRows->Fetch()) {
+            $fieldId = (int)($property['VALUE'] ?? 0);
+            if ($fieldId > 0) {
+                $storedCustomFields[] = $fieldId;
+            }
+        }
+        $expectedFieldIds = $mergedCustomFields;
+        sort($expectedFieldIds, SORT_NUMERIC);
+        $storedCustomFields = array_values(array_unique($storedCustomFields));
+        sort($storedCustomFields, SORT_NUMERIC);
+        if ($storedCustomFields !== $expectedFieldIds) {
+            throw new \RuntimeException('Custom-field selection read-back failed.', 409);
+        }
+
+        $existingValuesMap = [];
+        $stageValueRows = \CIBlockElement::GetProperty(
+            $stagesIblockId,
+            $stageId,
+            ['sort' => 'asc'],
+            ['CODE' => 'CUSTOM_FIELDS_VALUE']
+        );
+        while ($property = $stageValueRows->Fetch()) {
+            $fieldCode = (string)($property['VALUE'] ?? '');
+            if ($fieldCode === '') {
+                continue;
+            }
+            $description = (string)($property['DESCRIPTION'] ?? '');
+            $visibilityMarker = 'Y';
+            if (preg_match('/^(.*)\|[YN]$/s', $description, $matches)) {
+                $visibilityMarker = substr($description, -1);
+                $description = $matches[1];
+            }
+            $existingValuesMap[$fieldCode] = [
+                'VALUE' => $fieldCode,
+                'DESCRIPTION' => $description . '|' . $visibilityMarker,
+            ];
+        }
+        if ($replaceCustomFields) {
+            $existingValuesMap = array_filter(
+                $existingValuesMap,
+                static fn(array $value): bool => isset($selectedCodes[(string)($value['VALUE'] ?? '')])
+            );
+        }
+        foreach ($fieldsConfig as $fieldConfig) {
+            $fieldCode = (string)$fieldConfig['code'];
+            $description = '';
+            if (array_key_exists('default', $fieldConfig)) {
+                $defaultValue = $fieldConfig['default'];
+                if (is_bool($defaultValue)) {
+                    $defaultValue = $defaultValue ? 'Y' : 'N';
+                }
+                $description = (string)$defaultValue;
+            }
+            if (isset($existingValuesMap[$fieldCode])) {
+                $existingValuesMap[$fieldCode]['DESCRIPTION'] = (string)preg_replace(
+                    '/\|N$/',
+                    '|Y',
+                    (string)$existingValuesMap[$fieldCode]['DESCRIPTION']
+                );
+                continue;
+            }
+            $existingValuesMap[$fieldCode] = [
+                'VALUE' => $fieldCode,
+                'DESCRIPTION' => $description . '|Y',
+            ];
+        }
+        foreach ($submittedValues as $field) {
+            if (!is_array($field)) {
+                throw new \InvalidArgumentException('Custom-field value must be an object.', 422);
+            }
+            $fieldCode = trim((string)($field['CODE'] ?? ''));
+            if ($fieldCode === '' || !isset($selectedCodes[$fieldCode])) {
+                continue;
+            }
+            $fieldValue = (string)($field['VALUE'] ?? '');
+            if (strpos($fieldValue, '|') !== false) {
+                throw new \InvalidArgumentException('Custom-field value cannot contain |.', 422);
+            }
+            $fieldVisible = !array_key_exists('VISIBLE', $field)
+                || filter_var($field['VISIBLE'], FILTER_VALIDATE_BOOLEAN);
+            $existingValuesMap[$fieldCode] = [
+                'VALUE' => $fieldCode,
+                'DESCRIPTION' => $fieldValue . '|' . ($fieldVisible ? 'Y' : 'N'),
+            ];
+        }
+        \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+            'CUSTOM_FIELDS_VALUE' => $existingValuesMap !== []
+                ? array_values($existingValuesMap)
+                : false,
+        ]);
     }
 
     public function loadSingleElement(int $iblockId, int $id, ? string $iblockType = null, bool $includeParent = false): ?array
@@ -2477,6 +3177,85 @@ class ElementDataService
         ];
     }
 
+    /** @param array<string,mixed> $value @param string[] $expected */
+    private static function assertExactRequestKeys(array $value, array $expected, string $surface): void
+    {
+        $actual = array_keys($value);
+        sort($actual, SORT_STRING);
+        sort($expected, SORT_STRING);
+        if ($actual !== $expected) {
+            throw new \InvalidArgumentException($surface . ' contains unsupported or missing fields.', 422);
+        }
+    }
+
+    /** @return array<int,array{VALUE:string,DESCRIPTION:string}> */
+    private static function normalizeValueDescriptionRows(
+        $raw,
+        string $valueKey,
+        string $descriptionKey,
+        string $surface
+    ): array {
+        if (!is_array($raw) || !array_is_list($raw) || count($raw) > 500) {
+            throw new \InvalidArgumentException($surface . ' must be a bounded JSON array.', 422);
+        }
+        $result = [];
+        foreach ($raw as $index => $row) {
+            if (!is_array($row)) {
+                throw new \InvalidArgumentException($surface . '[' . $index . '] must be an object.', 422);
+            }
+            self::assertExactRequestKeys($row, [$valueKey, $descriptionKey], $surface . '[' . $index . ']');
+            if (!is_string($row[$valueKey] ?? null) || !is_string($row[$descriptionKey] ?? null)) {
+                throw new \InvalidArgumentException($surface . '[' . $index . '] values must be strings.', 422);
+            }
+            $result[] = [
+                'VALUE' => $row[$valueKey],
+                'DESCRIPTION' => $row[$descriptionKey],
+            ];
+        }
+        return $result;
+    }
+
+    /** @return string[] */
+    private static function normalizeStringList($raw, string $surface): array
+    {
+        if (!is_array($raw) || !array_is_list($raw) || count($raw) > 500) {
+            throw new \InvalidArgumentException($surface . ' must be a bounded JSON array.', 422);
+        }
+        $result = [];
+        foreach ($raw as $index => $value) {
+            if (!is_string($value) || trim($value) === '') {
+                throw new \InvalidArgumentException($surface . '[' . $index . '] must be a non-empty string.', 422);
+            }
+            $normalized = trim($value);
+            if (isset($result[$normalized])) {
+                throw new \InvalidArgumentException($surface . ' must not contain duplicates.', 422);
+            }
+            $result[$normalized] = $normalized;
+        }
+        ksort($result, SORT_STRING);
+        return array_values($result);
+    }
+
+    /** @param string[] $codes */
+    private static function assertPinnedPropertyCodesExist(int $iblockId, array $codes, string $surface): void
+    {
+        if ($iblockId <= 0) {
+            throw new \RuntimeException('Pinned ' . $surface . ' iblock authority is invalid.', 409);
+        }
+        foreach ($codes as $code) {
+            $property = \CIBlockProperty::GetList([], [
+                'IBLOCK_ID' => $iblockId,
+                '=CODE' => $code,
+            ])->Fetch();
+            if (!is_array($property)) {
+                throw new \RuntimeException(
+                    ucfirst($surface) . ' property ' . $code . ' must be provisioned before authoring.',
+                    409
+                );
+            }
+        }
+    }
+
     private function normalizeIds($ids): array
     {
         if (!is_array($ids)) {
@@ -2594,6 +3373,211 @@ class ElementDataService
                 ]);
             }
         }
+    }
+
+    /**
+     * Persist preset globals under an authority owned by the semantic
+     * aggregate coordinator. No transaction is opened here.
+     *
+     * @param array<string,mixed> $request
+     * @param array<string,int> $pinnedIblockIds
+     * @return array<string,mixed>
+     */
+    public function savePresetGlobalsLocked(
+        array $request,
+        \Prospektweb\Calc\Services\CalculatorMutationAuthorityService $authority,
+        array $pinnedIblockIds
+    ): array {
+        $presetId = (int)($request['presetId'] ?? 0);
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('savePresetGlobals requires an exact preset ID.', 422);
+        }
+        $variables = is_array($request['variables'] ?? null) ? $request['variables'] : [];
+        $constants = is_array($request['constants'] ?? null) ? $request['constants'] : [];
+        $prepare = static function (array $rows): array {
+            $prepared = [];
+            $seen = [];
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    throw new \InvalidArgumentException('Preset global value must be an object.', 422);
+                }
+                $code = trim((string)($row['VALUE'] ?? ''));
+                if ($code === '') {
+                    continue;
+                }
+                if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $code) !== 1) {
+                    throw new \InvalidArgumentException('Invalid preset global code: ' . $code, 422);
+                }
+                if (isset($seen[$code])) {
+                    throw new \InvalidArgumentException('Duplicate preset global code: ' . $code, 422);
+                }
+                $seen[$code] = true;
+                $prepared[] = [
+                    'VALUE' => $code,
+                    'DESCRIPTION' => (string)($row['DESCRIPTION'] ?? ''),
+                ];
+            }
+            return $prepared;
+        };
+        $preparedVariables = $prepare($variables);
+        $preparedConstants = $prepare($constants);
+        $allCodes = array_merge(
+            array_column($preparedVariables, 'VALUE'),
+            array_column($preparedConstants, 'VALUE')
+        );
+        if (count($allCodes) !== count(array_unique($allCodes))) {
+            throw new \InvalidArgumentException('Variable and constant codes must be unique.', 422);
+        }
+
+        $presetsIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+        self::assertPinnedPropertyCodesExist(
+            $presetsIblockId,
+            ['GLOBAL_VARIABLES', 'GLOBAL_CONSTANTS'],
+            'calculator preset'
+        );
+        $authority->assertPresetGlobalsWrite(
+            $presetId,
+            $preparedVariables,
+            $preparedConstants,
+            false
+        );
+        \CIBlockElement::SetPropertyValuesEx($presetId, $presetsIblockId, [
+            'GLOBAL_VARIABLES' => $preparedVariables ?: false,
+            'GLOBAL_CONSTANTS' => $preparedConstants ?: false,
+        ]);
+
+        return self::enrichStructuralResultPinned(
+            ['status' => 'ok'],
+            $presetId,
+            $pinnedIblockIds
+        );
+    }
+
+    /**
+     * Persist the complete calculator-logic semantic document under an
+     * already-held authority. All six properties succeed or roll back as one.
+     *
+     * @param array<string,mixed> $request
+     * @param array<string,int> $pinnedIblockIds
+     * @return array<string,mixed>
+     */
+    public function saveCalcLogicLocked(
+        array $request,
+        \Prospektweb\Calc\Services\CalculatorMutationAuthorityService $authority,
+        array $pinnedIblockIds
+    ): array {
+        self::assertExactRequestKeys($request, [
+            'action',
+            'presetId',
+            'settingsId',
+            'stageId',
+            'calcSettings',
+            'stageWiring',
+            'stageParametrValuesScheme',
+        ], 'saveCalcLogic');
+        $presetId = (int)($request['presetId'] ?? 0);
+        $settingsId = (int)($request['settingsId'] ?? 0);
+        $stageId = (int)($request['stageId'] ?? 0);
+        if ($presetId <= 0 || $settingsId <= 0 || $stageId <= 0) {
+            throw new \InvalidArgumentException(
+                'saveCalcLogic requires exact preset, settings and stage IDs.',
+                422
+            );
+        }
+        $calcSettings = is_array($request['calcSettings'] ?? null) ? $request['calcSettings'] : null;
+        $stageWiring = is_array($request['stageWiring'] ?? null) ? $request['stageWiring'] : null;
+        $stageScheme = is_array($request['stageParametrValuesScheme'] ?? null)
+            ? $request['stageParametrValuesScheme']
+            : null;
+        if ($calcSettings === null || $stageWiring === null || $stageScheme === null) {
+            throw new \InvalidArgumentException('saveCalcLogic documents must be objects.', 422);
+        }
+        self::assertExactRequestKeys(
+            $calcSettings,
+            ['logicJson', 'params', 'globalDependencies'],
+            'saveCalcLogic.calcSettings'
+        );
+        self::assertExactRequestKeys($stageWiring, ['inputs', 'outputs'], 'saveCalcLogic.stageWiring');
+        self::assertExactRequestKeys($stageScheme, ['offer'], 'saveCalcLogic.stageParametrValuesScheme');
+        $logicJson = $calcSettings['logicJson'] ?? null;
+        if (!is_string($logicJson)) {
+            throw new \InvalidArgumentException('saveCalcLogic.logicJson must be a string.', 422);
+        }
+        $params = self::normalizeValueDescriptionRows(
+            $calcSettings['params'] ?? null,
+            'name',
+            'type',
+            'saveCalcLogic.calcSettings.params'
+        );
+        $globalDependencies = self::normalizeStringList(
+            $calcSettings['globalDependencies'] ?? null,
+            'saveCalcLogic.calcSettings.globalDependencies'
+        );
+        $inputs = self::normalizeValueDescriptionRows(
+            $stageWiring['inputs'] ?? null,
+            'name',
+            'path',
+            'saveCalcLogic.stageWiring.inputs'
+        );
+        $outputs = self::normalizeValueDescriptionRows(
+            $stageWiring['outputs'] ?? null,
+            'key',
+            'var',
+            'saveCalcLogic.stageWiring.outputs'
+        );
+        $schemeOffer = self::normalizeValueDescriptionRows(
+            $stageScheme['offer'] ?? null,
+            'name',
+            'template',
+            'saveCalcLogic.stageParametrValuesScheme.offer'
+        );
+
+        $authority->assertSettingsMutationAllowed($presetId, $settingsId, false);
+        $authority->assertStageStructuralMutationAllowed(
+            $presetId,
+            $stageId,
+            false,
+            'atomic calculator logic write'
+        );
+        $authority->assertSettingsLinkToStage($presetId, $stageId, $settingsId, false);
+        $authority->assertSettingsLogicWrite($presetId, $settingsId, $logicJson, false);
+        $encodedInputs = json_encode(
+            array_map(
+                static fn(array $row): array => ['expression' => (string)$row['DESCRIPTION']],
+                $inputs
+            ),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        );
+        $authority->assertStageInputsWrite($presetId, $stageId, $encodedInputs, false);
+        $settingsIblockId = (int)($pinnedIblockIds['CALC_SETTINGS'] ?? 0);
+        $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+        self::assertPinnedPropertyCodesExist(
+            $settingsIblockId,
+            ['LOGIC_JSON', 'PARAMS', 'GLOBAL_DEPENDENCIES'],
+            'calculator settings'
+        );
+        self::assertPinnedPropertyCodesExist(
+            $stagesIblockId,
+            ['INPUTS', 'OUTPUTS', 'SCHEME_PARAMETR_VALUES'],
+            'calculator stage'
+        );
+        \CIBlockElement::SetPropertyValuesEx($settingsId, $settingsIblockId, [
+            'LOGIC_JSON' => $logicJson,
+            'PARAMS' => $params ?: false,
+            'GLOBAL_DEPENDENCIES' => $globalDependencies ?: false,
+        ]);
+        \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+            'INPUTS' => $inputs ?: false,
+            'OUTPUTS' => $outputs ?: false,
+            'SCHEME_PARAMETR_VALUES' => $schemeOffer ?: false,
+        ]);
+
+        return [
+            'status' => 'ok',
+            'presetId' => $presetId,
+            'settingsId' => $settingsId,
+            'stageId' => $stageId,
+        ];
     }
 
     private function getPrices(int $productId): array

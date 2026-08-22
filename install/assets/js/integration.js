@@ -38,7 +38,6 @@
                 sessid: config.sessid || '',
                 onClose: config.onClose || null,
                 onError: config.onError || null,
-                presetCheckResult: config.presetCheckResult || null,
                 initPayload: config.initPayload || null,
             };
 
@@ -254,7 +253,6 @@
                     await this.handleDeleteStageRequest(message, origin);
                     break;
                 case 'SAVE_STAGE_ACTIVATION_REQUEST':
-                case 'SAVE_OPTIONAL_STAGE_REQUEST': // backward compatibility with an older bundle
                     await this.handleSaveStageActivationRequest(message, origin);
                     break;
                 case 'SAVE_STAGE_USED_ENTITIES_REQUEST':
@@ -289,9 +287,6 @@
                     break;
                 case 'CLONE_SELECTED_DETAILS_REQUEST':
                     await this.handleCloneSelectedDetailsRequest(message, origin);
-                    break;
-                case 'CLONE_PRESET_REQUEST':
-                    await this.handleClonePresetRequest(message, origin);
                     break;
                 case 'SAVE_SETTINGS_EQUIPMENT_REQUEST':
                     await this.handleSaveSettingsEquipmentRequest(message, origin);
@@ -431,15 +426,6 @@
                 case 'RESOLVE_CALC_CONTRACT_REQUEST':
                     await this.handleResolveCalcContractRequest(message, origin);
                     break;
-                case 'SAVE_CALCULATION_REQUEST':
-                    await this.handleSaveCalculationRequest(message, origin);
-                    break;
-                case 'PREVIEW_CATALOG_ADAPTER_REQUEST':
-                    await this.handlePreviewCatalogAdapterRequest(message, origin);
-                    break;
-                case 'SAVE_CATALOG_ADAPTER_REQUEST':
-                    await this.handleSaveCatalogAdapterRequest(message, origin);
-                    break;
                 case 'PREVIEW_CATALOG_WRITE_REQUEST':
                     await this.handleCatalogWriteLifecycleRequest(
                         message,
@@ -485,7 +471,7 @@
                         'ADD_STAGE_REQUEST', 'DUPLICATE_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'SAVE_STAGE_ACTIVATION_REQUEST', 'REMOVE_DETAIL_REQUEST',
                         'RENAME_DETAIL_REQUEST', 'CHANGE_PRODUCT_TYPE_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST',
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
-                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST', 'CLONE_SELECTED_DETAILS_REQUEST', 'CLONE_PRESET_REQUEST',
+                        'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST', 'CLONE_SELECTED_DETAILS_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
                         'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_LOGIC_AUDIT_REQUEST', 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST', 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
@@ -494,8 +480,6 @@
                         'SAVE_CALC_LOGIC_REQUEST',
                         'CHECK_CALC_CONTRACT_REQUEST',
                         'RESOLVE_CALC_CONTRACT_REQUEST',
-                        'SAVE_CALCULATION_REQUEST',
-                        'PREVIEW_CATALOG_ADAPTER_REQUEST', 'SAVE_CATALOG_ADAPTER_REQUEST',
                         'PREVIEW_CATALOG_WRITE_REQUEST', 'APPLY_CATALOG_WRITE_REQUEST',
                         'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL', 'CLEAR_OPTIONS_EQUIPMENT',
                         'CLEAR_PRESET_REQUEST', 'SAVE_PRESET_GLOBALS_REQUEST', 'SAVE_GLOBAL_SYMBOLS_REQUEST', 'SAVE_GLOBAL_VALUES_REQUEST', 'SAVE_STAGE_GROUPS_REQUEST', 'CLOSE_REQUEST'
@@ -855,7 +839,6 @@
                     customFieldIds: selectedIds,
                     customFieldsValue: Array.isArray(payload.customFieldsValue) ? payload.customFieldsValue : [],
                     replace: payload.replace === true,
-                    offerIds: this.config.offerIds || [],
                 }]);
                 const selectPayload = Array.isArray(selectResult) ? selectResult[0] : null;
                 if (selectPayload?.initPayload) {
@@ -912,8 +895,6 @@
                     detailIds: selectedIds,
                     binding: binding,
                     existingDetailId: existingDetailId,
-                    offerIds: this.config.offerIds,
-                    siteId: this.config.siteId,
                 });
 
                 if (enrichResult.success && enrichResult.data) {
@@ -986,7 +967,6 @@
 
             const payload = message.payload || {};
             const name = payload.name || '';
-            const offerIds = payload.offerIds || [];
 
             try {
                 // Получаем presetId и существующую деталь из initData
@@ -1001,7 +981,6 @@
                     {
                         action: 'addNewDetail',
                         presetId: presetId,
-                        offerIds: offerIds,
                         name: name,
                     }
                 ]);
@@ -1070,7 +1049,6 @@
                     action: 'cloneDetail',
                     detailId,
                     presetId,
-                    offerIds: this.config.offerIds || [],
                 }]);
                 const responsePayload = (Array.isArray(result) && result[0]) ? result[0] : null;
                 if (!responsePayload || responsePayload.status !== 'ok') {
@@ -1188,7 +1166,6 @@
                     mode: mode,
                     basisDetailId: parseInt(payload.basisDetailId, 10) || 0,
                     deleteOthers: payload.deleteOthers === true,
-                    offerIds: this.config.offerIds || [],
                     siteId: this.config.siteId || SITE_ID,
                 }]);
                 const responsePayload = Array.isArray(result) ? result[0] : null;
@@ -1223,7 +1200,6 @@
                     stageId: parseInt(payload.stageId, 10) || 0,
                     presetId: parseInt(payload.presetId, 10) || 0,
                     field: payload.field || {},
-                    offerIds: this.config.offerIds || [],
                 }]);
                 const response = Array.isArray(result) ? result[0] : null;
                 if (!response || response.status !== 'ok') {
@@ -1251,7 +1227,6 @@
                     presetId: Number(payload.presetId || 0),
                     variables: Array.isArray(payload.variables) ? payload.variables : [],
                     constants: Array.isArray(payload.constants) ? payload.constants : [],
-                    offerIds: this.config.offerIds || [],
                 }]);
                 const responsePayload = Array.isArray(result) && result[0] ? result[0] : { status: 'error', message: 'Пустой ответ сервера' };
                 if (responsePayload.status !== 'ok') {
@@ -1505,7 +1480,6 @@
                     action: 'cloneDetails',
                     detailIds,
                     presetId,
-                    offerIds: this.config.offerIds || [],
                 }]);
                 const responsePayload = (Array.isArray(result) && result[0]) ? result[0] : null;
                 if (!responsePayload || responsePayload.status !== 'ok') {
@@ -1522,44 +1496,6 @@
                     message: 'Ошибка клонирования выбранных деталей',
                     details: error && error.message ? error.message : 'Unknown error',
                 }, message.requestId, origin);
-            }
-        }
-
-        async handleClonePresetRequest(message, origin) {
-            const payload = message.payload || {};
-            const presetId = parseInt(payload.presetId, 10) || 0;
-            if (!presetId) {
-                this.sendPwrtMessage(
-                    'ERROR',
-                    { message: 'Не указан пресет для клонирования' },
-                    message.requestId,
-                    origin
-                );
-                return;
-            }
-
-            try {
-                const result = await this.fetchRefreshData([{
-                    action: 'clonePreset',
-                    presetId,
-                    offerIds: this.config.offerIds || [],
-                    siteId: this.config.siteId || '',
-                }]);
-                const responsePayload = Array.isArray(result) && result[0] ? result[0] : null;
-                if (!responsePayload || responsePayload.status !== 'ok' || !responsePayload.initPayload) {
-                    throw new Error(responsePayload?.message || 'Не удалось клонировать пресет');
-                }
-
-                this.initData = responsePayload.initPayload;
-                this.sendPwrtMessage('INIT', responsePayload.initPayload, message.requestId, origin);
-            } catch (error) {
-                console.error('[BitrixBridge] CLONE_PRESET_REQUEST error:', error);
-                this.sendPwrtMessage(
-                    'ERROR',
-                    { message: 'Ошибка клонирования пресета', details: error.message },
-                    message.requestId,
-                    origin
-                );
             }
         }
 
@@ -1612,6 +1548,7 @@
                     action: 'applyGlobalCodeRefactor',
                     renames: Array.isArray(payload.renames) ? payload.renames : [],
                     fingerprint: String(payload.fingerprint || ''),
+                    expectedGlobalRevision: Number(payload.expectedGlobalRevision),
                 }]);
                 const response = Array.isArray(result) ? result[0] : null;
                 if (!response || response.status !== 'ok') {
@@ -1837,7 +1774,6 @@
             try {
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -1857,7 +1793,6 @@
                         previewText: String(payload.previewText || ''),
                         afterStageId: Number(payload.afterStageId || 0),
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -1918,7 +1853,6 @@
                     detailId,
                     stageId,
                     presetId,
-                    offerIds: this.config.offerIds || [],
                     siteId: this.config.siteId || SITE_ID,
                 }]);
                 const responsePayload = Array.isArray(result) && result[0]
@@ -1961,7 +1895,6 @@
             try {
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -1978,7 +1911,6 @@
                         action: 'deleteStage',
                         stageId: stageId,
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -2059,7 +1991,6 @@
             try {
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -2077,7 +2008,6 @@
                         parentId: parentId,
                         detailId: detailId,
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -2202,7 +2132,6 @@
 
             try {
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -2220,7 +2149,6 @@
                         settingsId: settingsId,
                         stageId: stageId,
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -2283,7 +2211,6 @@
 
             try {
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -2301,7 +2228,6 @@
                         operationVariantId: operationVariantId,
                         stageId: stageId,
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -2372,7 +2298,6 @@
 
             try {
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -2390,7 +2315,6 @@
                         equipmentId: equipmentId,
                         stageId: stageId,
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -2453,7 +2377,6 @@
 
             try {
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -2471,7 +2394,6 @@
                         materialVariantId: materialVariantId,
                         stageId: stageId,
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -2538,7 +2460,6 @@
             const payload = message.payload || {};
             const stageId = payload.stageId || 0;
             const customFieldsValue = payload.customFieldsValue || [];
-            const offerIds = this.config.offerIds || [];
 
             try {
                 if (stageId <= 0 || !Array.isArray(customFieldsValue)) {
@@ -2551,7 +2472,7 @@
                         action: 'changeCustomFieldsValue',
                         stageId: stageId,
                         customFieldsValue: customFieldsValue,
-                        offerIds: offerIds,
+                        presetId: Number(this.initData?.preset?.id || 0),
                     }
                 ]);
 
@@ -2608,7 +2529,6 @@
             try {
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -2626,7 +2546,6 @@
                         parentId: parentId,
                         presetId: presetId,
                         name: name,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -2715,7 +2634,6 @@
 
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -2729,7 +2647,6 @@
                         parentId: parentId,
                         detailIds: selectedIds,
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -2800,7 +2717,6 @@
 
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -2814,7 +2730,6 @@
                         parentId: parentId,
                         sorting: sorting,
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -2888,7 +2803,6 @@
 
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -2904,7 +2818,6 @@
                         toParentId: toParentId,
                         sorting: sorting,
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -2975,7 +2888,6 @@
 
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -2989,7 +2901,6 @@
                         detailId: detailId,
                         sorting: sorting,
                         presetId: presetId,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -3039,44 +2950,24 @@
             try {
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
-                const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
                     throw new Error('PresetId not found in initData');
                 }
 
-                // Вызываем очистку пресета через AJAX
-                const url = this.config.ajaxEndpoint +
-                    '?action=clearPreset' +
-                    '&presetId=' + encodeURIComponent(presetId) +
-                    '&offerIds=' + encodeURIComponent(offerIds.join(',')) +
-                    '&siteId=' + encodeURIComponent(siteId) +
-                    '&sessid=' + encodeURIComponent(this.config.sessid);
-
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                });
-
-                if (!response.ok) {
-                    throw new Error('HTTP error ' + response.status);
-                }
-
-                const data = await response.json();
-
-                if (!data.success) {
-                    throw new Error(data.message || data.error || 'Ошибка очистки пресета');
+                const result = await this.fetchRefreshData([{
+                    action: 'clearPreset',
+                    presetId,
+                    siteId: String(this.config?.siteId || 's1'),
+                }]);
+                const cleared = Array.isArray(result) ? result[0] : null;
+                if (!cleared?.initPayload) {
+                    throw new Error('Сервер не вернул подтверждённое состояние очищенного пресета.');
                 }
 
                 console.log('[BitrixBridge] clearPreset success for presetId:', presetId);
 
-                // Обновляем локальный initData если есть
-                if (data.data) {
-                    this.initData = data.data;
-                }
+                this.initData = cleared.initPayload;
 
                 // Отправляем INIT message
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
@@ -3124,7 +3015,6 @@
             try {
                 // Получаем presetId из initData
                 const presetId = this.initData?.preset?.id;
-                const offerIds = this.config.offerIds || [];
                 const siteId = this.config.siteId || SITE_ID;
 
                 if (!presetId) {
@@ -3142,7 +3032,6 @@
                         presetId: presetId,
                         prices: prices,
                         priceProfilePolicy: priceProfilePolicy,
-                        offerIds: offerIds,
                         siteId: siteId,
                     }
                 ]);
@@ -3202,26 +3091,37 @@
             
             if (!stageId) {
                 console.warn('[BitrixBridge] CHANGE_OPTIONS_OPERATION: stageId не указан');
+                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для сопоставления варианта операции' }, message.requestId, origin);
                 return;
             }
             
             try {
                 // 1. Сохраняем на сервере
-                await this.fetchRefreshData([{
+                const result = await this.fetchRefreshData([{
                     action: 'updateStageProperty',
                     stageId: stageId,
                     propertyCode: 'OPTIONS_OPERATION',
                     value: json
                 }]);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Пустой ответ сервера' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось сохранить сопоставление варианта операции');
+                }
                 
                 // 2. Лёгкое обогащение - обновляем локально this.initData
-                this.updateStagePropertyInInitData(stageId, 'OPTIONS_OPERATION', json);
+                this.updateStagePropertyInInitData(stageId, 'OPTIONS_OPERATION', responsePayload.value ?? json);
                 
                 // 3. Отправляем модифицированный INIT
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
                 
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_OPERATION error:', error);
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка сохранения сопоставления варианта операции',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
@@ -3238,26 +3138,37 @@
             
             if (!stageId) {
                 console.warn('[BitrixBridge] CHANGE_OPTIONS_MATERIAL: stageId не указан');
+                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для сопоставления варианта материала' }, message.requestId, origin);
                 return;
             }
             
             try {
                 // 1. Сохраняем на сервере
-                await this.fetchRefreshData([{
+                const result = await this.fetchRefreshData([{
                     action: 'updateStageProperty',
                     stageId: stageId,
                     propertyCode: 'OPTIONS_MATERIAL',
                     value: json
                 }]);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Пустой ответ сервера' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось сохранить сопоставление варианта материала');
+                }
                 
                 // 2. Лёгкое обогащение
-                this.updateStagePropertyInInitData(stageId, 'OPTIONS_MATERIAL', json);
+                this.updateStagePropertyInInitData(stageId, 'OPTIONS_MATERIAL', responsePayload.value ?? json);
                 
                 // 3. Отправляем модифицированный INIT
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
                 
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_MATERIAL error:', error);
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка сохранения сопоставления варианта материала',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
@@ -3273,26 +3184,30 @@
             const json = payload.json || '';
             if (!stageId) {
                 console.warn('[BitrixBridge] CHANGE_OPTIONS_EQUIPMENT: stageId не указан');
+                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для сопоставления оборудования' }, message.requestId, origin);
                 return;
             }
             try {
-                await this.fetchRefreshData([{
+                const result = await this.fetchRefreshData([{
                     action: 'updateStageProperty',
                     stageId: stageId,
                     propertyCode: 'OPTIONS_EQUIPMENT',
                     value: json
                 }]);
-                this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', json);
-                if (responsePayload.initPayload) {
-                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
-                } else {
-                    this.sendPwrtMessage('PROCESS_MESSAGE', {
-                        status: 'success',
-                        message: 'Перенос этапа сохранён; данные будут обновлены при следующей синхронизации',
-                    }, message.requestId, origin);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Пустой ответ сервера' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось сохранить сопоставление оборудования');
                 }
+                this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', responsePayload.value ?? json);
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_EQUIPMENT error:', error);
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка сохранения сопоставления оборудования',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
@@ -3303,7 +3218,6 @@
                     action: 'changeRootDetailSort',
                     presetId: Number(payload.presetId || 0),
                     sorting: Array.isArray(payload.sorting) ? payload.sorting : [],
-                    offerIds: this.config.offerIds || [],
                     siteId: this.config.siteId || SITE_ID,
                 }]);
                 const responsePayload = Array.isArray(result) && result[0]
@@ -3349,7 +3263,6 @@
                     sourceSorting: Array.isArray(payload.sourceSorting) ? payload.sourceSorting : [],
                     targetSorting: Array.isArray(payload.targetSorting) ? payload.targetSorting : [],
                     presetId: presetId,
-                    offerIds: this.config.offerIds || [],
                     siteId: this.config.siteId || SITE_ID,
                 }]);
 
@@ -3429,7 +3342,7 @@
                     action: 'saveStageUsedEntities',
                     stageId,
                     usedEntities,
-                    offerIds: this.config.offerIds || [],
+                    presetId: Number(this.initData?.preset?.id || 0),
                 }]);
                 const response = Array.isArray(result) ? result[0] : null;
                 if (!response || response.status !== 'ok') {
@@ -3473,37 +3386,27 @@
             const payload = message.payload || {};
             try {
                 const presetId = Number(payload.presetId || this.initData?.preset?.id || 0);
-                const requests = [{
-                    action: 'saveGlobalSymbols',
+                const result = await this.fetchRefreshData([{
+                    action: 'saveCalculatorGlobals',
                     presetId: presetId,
                     symbols: Array.isArray(payload.symbols) ? payload.symbols : [],
-                }];
-                if (presetId > 0) {
-                    requests.push({
-                        action: 'savePresetGlobals',
-                        presetId: presetId,
-                        variables: Array.isArray(payload.variables) ? payload.variables : [],
-                        constants: Array.isArray(payload.constants) ? payload.constants : [],
-                        offerIds: this.config.offerIds || [],
-                    });
+                    variables: Array.isArray(payload.variables) ? payload.variables : [],
+                    constants: Array.isArray(payload.constants) ? payload.constants : [],
+                }]);
+                const aggregateResponse = Array.isArray(result) ? result[0] : null;
+                if (!aggregateResponse || aggregateResponse.status !== 'ok') {
+                    throw new Error(aggregateResponse?.message || 'Не удалось сохранить глобальные значения');
                 }
-                const result = await this.fetchRefreshData(requests);
-                const registryResponse = Array.isArray(result) ? result[0] : null;
-                const presetResponse = Array.isArray(result) && result.length > 1 ? result[1] : null;
-                if (!registryResponse || registryResponse.status !== 'ok') {
-                    throw new Error(registryResponse?.message || 'Не удалось сохранить глобальный реестр');
-                }
-                if (presetResponse && presetResponse.status !== 'ok') {
-                    throw new Error(presetResponse.message || 'Не удалось сохранить глобальные значения пресета');
-                }
-                if (presetResponse?.initPayload) {
-                    this.initData = presetResponse.initPayload;
+                if (aggregateResponse.initPayload) {
+                    this.initData = aggregateResponse.initPayload;
                 }
                 if (this.initData) {
-                    this.initData.globalSymbols = Array.isArray(registryResponse.symbols) ? registryResponse.symbols : [];
+                    this.initData.globalSymbols = Array.isArray(aggregateResponse.symbols)
+                        ? aggregateResponse.symbols
+                        : [];
                     this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
                 } else {
-                    this.sendPwrtMessage('RESPONSE', registryResponse, message.requestId, origin);
+                    this.sendPwrtMessage('RESPONSE', aggregateResponse, message.requestId, origin);
                 }
             } catch (error) {
                 this.sendPwrtMessage('ERROR', {
@@ -3601,7 +3504,6 @@
                     currentPresetId: parseInt(payload.currentPresetId, 10) || 0,
                     mode: String(payload.mode || ''),
                     message: String(payload.message || ''),
-                    offerIds: this.config.offerIds || [],
                 }]);
                 const response = Array.isArray(result) ? result[0] : null;
                 if (!response || response.status !== 'ok') {
@@ -3643,76 +3545,23 @@
                 : [];
             const inputs = Array.isArray(stageWiring.inputs) ? stageWiring.inputs : [];
             const outputs = Array.isArray(stageWiring.outputs) ? stageWiring.outputs : [];
-            const globalAssignments = typeof stageWiring.globalAssignments === 'string'
-                ? stageWiring.globalAssignments
-                : '{"version":1,"assignments":[]}';
             const schemeOffer = Array.isArray(stageParametrValuesScheme.offer)
                 ? stageParametrValuesScheme.offer
                 : [];
 
-            const toValueDescriptionList = (items, valueKey, descriptionKey) => {
-                if (!Array.isArray(items) || items.length === 0) {
-                    return false;
-                }
-
-                return items.map((item) => ({
-                    VALUE: item?.[valueKey] ?? '',
-                    DESCRIPTION: item?.[descriptionKey] ?? '',
-                }));
-            };
-
-            const refreshPayload = [];
-
-            if (settingsId) {
-                refreshPayload.push({
-                    action: 'updateSettingsProperty',
-                    settingsId: settingsId,
-                    propertyCode: 'LOGIC_JSON',
-                    value: rawLogicJson,
-                });
-                refreshPayload.push({
-                    action: 'updateSettingsProperty',
-                    settingsId: settingsId,
-                    propertyCode: 'PARAMS',
-                    value: toValueDescriptionList(params, 'name', 'type'),
-                });
-                refreshPayload.push({
-                    action: 'updateSettingsProperty',
-                    settingsId: settingsId,
-                    propertyCode: 'GLOBAL_DEPENDENCIES',
-                    value: globalDependencies.length ? globalDependencies : false,
-                });
-            }
-
-            if (stageId) {
-                refreshPayload.push({
-                    action: 'updateStageProperty',
-                    stageId: stageId,
-                    propertyCode: 'INPUTS',
-                    value: toValueDescriptionList(inputs, 'name', 'path'),
-                });
-                refreshPayload.push({
-                    action: 'updateStageProperty',
-                    stageId: stageId,
-                    propertyCode: 'OUTPUTS',
-                    value: toValueDescriptionList(outputs, 'key', 'var'),
-                });
-                refreshPayload.push({
-                    action: 'updateStageProperty',
-                    stageId: stageId,
-                    propertyCode: 'SCHEME_PARAMETR_VALUES',
-                    value: toValueDescriptionList(schemeOffer, 'name', 'template'),
-                });
-                refreshPayload.push({
-                    action: 'updateStageProperty',
-                    stageId: stageId,
-                    propertyCode: 'GLOBAL_ASSIGNMENTS',
-                    value: globalAssignments,
-                });
-            }
-
             try {
-                await this.fetchRefreshData(refreshPayload);
+                await this.fetchRefreshData([{
+                    action: 'saveCalcLogic',
+                    settingsId,
+                    stageId,
+                    calcSettings: {
+                        logicJson: rawLogicJson,
+                        params,
+                        globalDependencies,
+                    },
+                    stageWiring: { inputs, outputs },
+                    stageParametrValuesScheme: { offer: schemeOffer },
+                }]);
 
                 if (settingsId) {
                     const safeJson = this.escapeHtmlValue(rawLogicJson);
@@ -3746,17 +3595,14 @@
                         'SCHEME_PARAMETR_VALUES',
                         schemeOffer.map((item) => ({ value: item?.name ?? '', description: item?.template ?? '' }))
                     );
-                    this.updateStagePropertyInInitDataWithRaw(
-                        stageId,
-                        'GLOBAL_ASSIGNMENTS',
-                        this.escapeHtmlValue(globalAssignments),
-                        globalAssignments
-                    );
                 }
 
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 console.error('[BitrixBridge] SAVE_CALC_LOGIC_REQUEST error:', error);
+                this.sendPwrtMessage('ERROR', {
+                    message: error && error.message ? error.message : 'Не удалось сохранить логику калькулятора',
+                }, message.requestId, origin);
             }
         }
 
@@ -3901,196 +3747,6 @@
                 lang: lang,
                 items: items,
             }, requestId, origin);
-        }
-
-        async handleSaveCalculationRequest(message, origin) {
-            const payload = message.payload || {};
-            const offers = this.normalizeSaveCalculationOffers(payload);
-            const total = offers.length;
-
-            this.sendProcessMessage(
-                'info',
-                'Сохранение расчётов запущено',
-                { step: 'start', total: total },
-                message.requestId,
-                origin
-            );
-
-            this.sendPwrtMessage('SAVE_CALCULATION_PROGRESS', {
-                step: 'start',
-                total: total,
-                processed: 0,
-                success: 0,
-                failed: 0,
-                percent: 0,
-            }, message.requestId, origin);
-
-            if (total === 0) {
-                this.sendProcessMessage(
-                    'warning',
-                    'Нет данных для сохранения расчётов',
-                    { step: 'skipped', total: 0 },
-                    message.requestId,
-                    origin
-                );
-
-                this.sendPwrtMessage('SAVE_CALCULATION_RESPONSE', {
-                    status: 'error',
-                    message: 'Некорректный payload: offers должен быть непустым массивом',
-                    results: [],
-                    total: 0,
-                    saved: 0,
-                }, message.requestId, origin);
-                return;
-            }
-
-            let aggregateResults = [];
-            let savedCount = 0;
-
-            try {
-                // Keep manual saving aligned with mass recalculation: one request updates all
-                // offers. The iframe sends a compact update contract instead of full reports.
-                const response = await this.sendPwrtRequest('SAVE_CALCULATION_REQUEST', {
-                    offers: offers,
-                }, message.requestId);
-                const responsePayload = response && response.payload ? response.payload : {};
-                aggregateResults = this.normalizeBatchSaveResults(offers, responsePayload);
-            } catch (error) {
-                aggregateResults = offers.map((offer) => ({
-                    offerId: Number(offer.offerId || 0),
-                    historyId: null,
-                    status: 'error',
-                    message: error && error.message ? error.message : 'Unknown error',
-                }));
-            }
-
-            aggregateResults.forEach((itemResult, index) => {
-                if (itemResult.status === 'ok') {
-                    savedCount++;
-                }
-
-                const processed = index + 1;
-                const failed = processed - savedCount;
-                const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
-
-                this.sendPwrtMessage('SAVE_CALCULATION_PROGRESS', {
-                    step: 'item',
-                    total: total,
-                    processed: processed,
-                    success: savedCount,
-                    failed: failed,
-                    percent: percent,
-                    item: itemResult,
-                }, message.requestId, origin);
-            });
-
-            const failedCount = total - savedCount;
-            const finalStatus = failedCount === 0 ? 'ok' : (savedCount > 0 ? 'partial' : 'error');
-            const finalPayload = {
-                status: finalStatus,
-                results: aggregateResults,
-                total: total,
-                saved: savedCount,
-                failed: failedCount,
-            };
-
-            this.sendProcessMessage(
-                finalStatus === 'error' ? 'error' : 'success',
-                'Сохранение расчётов завершено',
-                {
-                    step: 'complete',
-                    total: total,
-                    saved: savedCount,
-                    failed: failedCount,
-                },
-                message.requestId,
-                origin
-            );
-
-            this.sendPwrtMessage('SAVE_CALCULATION_PROGRESS', {
-                step: 'complete',
-                total: total,
-                processed: total,
-                success: savedCount,
-                failed: failedCount,
-                percent: 100,
-            }, message.requestId, origin);
-
-            this.sendPwrtMessage('SAVE_CALCULATION_RESPONSE', finalPayload, message.requestId, origin);
-        }
-
-        normalizeSaveCalculationOffers(payload) {
-            if (Array.isArray(payload.offers)) {
-                return payload.offers;
-            }
-
-            if (!Array.isArray(payload.results)) {
-                return [];
-            }
-
-            return payload.results
-                .map((item) => {
-                    if (!item || typeof item !== 'object') {
-                        return null;
-                    }
-
-                    const offerId = Number(item.offerId || item.offerID || item.id || 0);
-                    const historyJson = Object.prototype.hasOwnProperty.call(item, 'historyJson')
-                        ? item.historyJson
-                        : undefined;
-                    let json = Object.prototype.hasOwnProperty.call(item, 'json') ? item.json : item;
-                    if (json === item && historyJson !== undefined) {
-                        json = Object.assign({}, item);
-                        delete json.historyJson;
-                    }
-
-                    return {
-                        offerId: offerId,
-                        json: json,
-                        historyJson: historyJson,
-                    };
-                })
-                .filter((item) => item && item.offerId > 0);
-        }
-
-        normalizeBatchSaveResults(offers, responsePayload) {
-            const historyByOffer = new Map(
-                (Array.isArray(responsePayload.results) ? responsePayload.results : [])
-                    .map((item) => [Number(item && item.offerId || 0), item])
-            );
-            const updateItems = responsePayload.offersUpdate && Array.isArray(responsePayload.offersUpdate.offers)
-                ? responsePayload.offersUpdate.offers
-                : [];
-            const updateByOffer = new Map(
-                updateItems.map((item) => [Number(item && item.offerId || 0), item])
-            );
-            const historyStatus = responsePayload.history && responsePayload.history.status
-                ? responsePayload.history.status
-                : 'skipped';
-
-            return offers.map((offer) => {
-                const offerId = Number(offer.offerId || 0);
-                const history = historyByOffer.get(offerId);
-                const update = updateByOffer.get(offerId);
-                const historyFailed = historyStatus !== 'skipped' && (!history || history.status !== 'ok');
-                const updateFailed = !update || update.status !== 'ok';
-
-                if (historyFailed || updateFailed) {
-                    return {
-                        offerId: offerId,
-                        historyId: history && history.historyId ? history.historyId : null,
-                        status: 'error',
-                        message: (history && history.message) || (update && update.message) || 'Не удалось сохранить расчёт',
-                    };
-                }
-
-                return {
-                    offerId: offerId,
-                    historyId: history && history.historyId ? history.historyId : null,
-                    historyXmlId: history && history.historyXmlId ? history.historyXmlId : null,
-                    status: 'ok',
-                };
-            });
         }
 
         async sendSelectDetailsResponse({ ids, iblockId, iblockType, lang, requestId, origin }) {
@@ -4484,6 +4140,38 @@
         }
 
         async fetchRefreshData(items) {
+            items = this.withAuthoritativePreset(items);
+            const mutationActions = this.presetMutationActions();
+            const mutationItems = Array.isArray(items)
+                ? items.filter((item) => item && typeof item === 'object' && mutationActions.has(item.action))
+                : [];
+            const globalMutationActions = this.globalMutationActions();
+            const globalMutationItems = Array.isArray(items)
+                ? items.filter((item) => item && typeof item === 'object' && globalMutationActions.has(item.action))
+                : [];
+            let expectedSemanticRevision = '';
+            let expectedGlobalRevision = null;
+            let expectedGlobalFingerprint = '';
+            if (mutationItems.length > 0) {
+                if (!Array.isArray(items) || items.length !== 1 || mutationItems.length !== 1) {
+                    throw new Error('Изменение калькулятора должно отправляться одним агрегатным запросом.');
+                }
+                expectedSemanticRevision = String(this.initData?.semanticRevision || '').toLowerCase();
+                if (!/^[a-f0-9]{64}$/.test(expectedSemanticRevision)) {
+                    throw new Error('INIT не содержит точную ревизию семантики калькулятора. Обновите редактор.');
+                }
+            }
+            if (globalMutationItems.length > 0) {
+                if (!Array.isArray(items) || items.length !== 1 || globalMutationItems.length !== 1) {
+                    throw new Error('Изменение общих данных должно отправляться одним агрегатным запросом.');
+                }
+                expectedGlobalRevision = this.initData?.globalMutationRevision;
+                expectedGlobalFingerprint = String(this.initData?.globalMutationFingerprint || '').toLowerCase();
+                if (!Number.isSafeInteger(expectedGlobalRevision) || expectedGlobalRevision < 0
+                    || !/^sha256:[a-f0-9]{64}$/.test(expectedGlobalFingerprint)) {
+                    throw new Error('INIT не содержит точную ревизию общих данных. Обновите редактор.');
+                }
+            }
             const debugItems = Array.isArray(items) ? items.map(item => {
                 if (!item || typeof item !== 'object') return item;
                 if (item.action === 'generateLogicProposal' || item.action === 'generateStageLogicProposal' || item.action === 'generateLogicAudit') {
@@ -4517,6 +4205,13 @@
             formData.append('action', 'refreshData');
             formData.append('payload', payloadJson);
             formData.append('sessid', this.config.sessid);
+            if (expectedSemanticRevision) {
+                formData.append('expectedSemanticRevision', expectedSemanticRevision);
+            }
+            if (expectedGlobalRevision !== null) {
+                formData.append('expectedGlobalRevision', String(expectedGlobalRevision));
+                formData.append('expectedGlobalFingerprint', expectedGlobalFingerprint);
+            }
 
             console.log('[BitrixBridge][DEBUG] fetchRefreshData request', {
                 action: 'refreshData',
@@ -4567,11 +4262,127 @@
                     throw new Error(data.message || data.error || 'Ошибка обновления данных');
                 }
 
+                const resultingSemanticRevision = String(data?.data?.[0]?.semanticRevision || '').toLowerCase();
+                if (mutationItems.length === 1) {
+                    if (!/^[a-f0-9]{64}$/.test(resultingSemanticRevision)) {
+                        throw new Error('Сервер не вернул подтверждённую ревизию семантики калькулятора.');
+                    }
+                    if (this.initData) {
+                        this.initData.semanticRevision = resultingSemanticRevision;
+                    }
+                }
+                if (globalMutationItems.length === 1) {
+                    const resultingGlobalRevision = data?.data?.[0]?.globalRevision;
+                    const resultingGlobalFingerprint = String(data?.data?.[0]?.globalFingerprint || '').toLowerCase();
+                    if (!Number.isSafeInteger(resultingGlobalRevision) || resultingGlobalRevision < 0
+                        || !/^sha256:[a-f0-9]{64}$/.test(resultingGlobalFingerprint)) {
+                        throw new Error('Сервер не вернул подтверждённую ревизию общих данных.');
+                    }
+                    if (this.initData) {
+                        this.initData.globalMutationRevision = resultingGlobalRevision;
+                        this.initData.globalMutationFingerprint = resultingGlobalFingerprint;
+                    }
+                }
+
                 return data.data || [];
             } catch (error) {
                 console.error('[BitrixBridge][DEBUG] fetchRefreshData ERROR: ' + error.message);
                 throw error;
             }
+        }
+
+        authoritativePresetId() {
+            const initializedPresetId = Number(this.initData?.preset?.id || 0);
+            const configuredPresetId = Number(this.config?.presetId || 0);
+            if (!Number.isSafeInteger(initializedPresetId) || initializedPresetId <= 0) {
+                throw new Error('Authoritative preset ID is absent from INIT.');
+            }
+            if (configuredPresetId !== 0
+                && (!Number.isSafeInteger(configuredPresetId)
+                    || configuredPresetId <= 0
+                    || configuredPresetId !== initializedPresetId)) {
+                throw new Error('Configured preset ID does not match authoritative INIT.');
+            }
+            return initializedPresetId;
+        }
+
+        withAuthoritativePreset(items) {
+            if (!Array.isArray(items)) return items;
+            const guardedActions = new Set([
+                ...this.presetMutationActions(),
+                ...this.globalMutationActions(),
+            ]);
+            let presetId = 0;
+            return items.map((item) => {
+                if (!item || typeof item !== 'object' || !guardedActions.has(item.action)) {
+                    return item;
+                }
+                if (!presetId) presetId = this.authoritativePresetId();
+                return Object.assign({}, item, { presetId });
+            });
+        }
+
+        presetMutationActions() {
+            return new Set([
+                'addDetailsToBinding',
+                'addDetailToBinding',
+                'addNewDetail',
+                'addNewGroup',
+                'addNewStage',
+                'addStage',
+                'changeCustomFieldsValue',
+                'changeDetailLevel',
+                'changeDetailSort',
+                'changeEntityMeta',
+                'changeEquipment',
+                'changeMaterialVariant',
+                'changeNameDetail',
+                'changeOperationVariant',
+                'changePricePreset',
+                'changeProductType',
+                'changeRootDetailSort',
+                'changeSettings',
+                'changeSortStage',
+                'changeStageName',
+                'cloneDetail',
+                'cloneDetails',
+                'clearPreset',
+                'createCustomField',
+                'deleteDetail',
+                'deleteStage',
+                'duplicateStage',
+                'enrichPreset',
+                'moveStage',
+                'removeDetail',
+                'renameDetail',
+                'resolveCalculatorContract',
+                'saveCalcLogic',
+                'saveCalculatorGlobals',
+                'saveGlobalSymbols',
+                'saveAiCalculatorContext',
+                'savePresetGlobals',
+                'saveStageGroups',
+                'saveStageUsedEntities',
+                'selectFields',
+                'updateSettingsProperty',
+                'updateStageProperty',
+            ]);
+        }
+
+        globalMutationActions() {
+            return new Set([
+                'createCatalogSection',
+                'deleteCatalogTreeNode',
+                'deletePriceSettingsPreset',
+                'moveCatalogEntitySection',
+                'renamePriceSettingsPreset',
+                'saveAiSettings',
+                'saveCatalogEntityMeta',
+                'saveCatalogTreeElement',
+                'saveCatalogTreeSection',
+                'savePriceSettingsPreset',
+                'saveSettingsEquipment',
+            ]);
         }
 
         async sendPwrtRequest(type, payload, requestId) {
@@ -4747,10 +4558,10 @@
             }
 
             try {
-                // Всегда запрашиваем init payload после отображения диалога,
-                // чтобы избежать зависимости от предварительных проверок пресетов
-                this.logDebug('[CalcIntegration] Fetching init data via AJAX');
-                const initData = await this.fetchInitData();
+                // Product-card launch may preload the exact authoritative INIT
+                // before opening the dialog. Standalone/manual launch loads it here.
+                const initData = this.config.initPayload || await this.fetchInitData();
+                this.config.initPayload = null;
                 // Published form-first presets are a read-only INIT boundary.
                 // Their graph is validated by the publication contract; loading
                 // an editor must never create a Bitrix detail implicitly.
@@ -4768,51 +4579,6 @@
                     message: 'Ошибка загрузки данных инициализации',
                     details: error.message,
                 }, message.requestId);
-            }
-        }
-
-        async handlePreviewCatalogAdapterRequest(message, origin) {
-            const payload = message.payload || {};
-            try {
-                const data = await this.fetchCatalogAdapterAction('previewCatalogAdapter', payload);
-                this.sendPwrtMessage('PREVIEW_CATALOG_ADAPTER_RESULT', Object.assign({
-                    success: true,
-                }, data || {}), message.requestId, origin);
-            } catch (error) {
-                this.sendPwrtMessage('PREVIEW_CATALOG_ADAPTER_RESULT', {
-                    success: false,
-                    error: error && error.message ? error.message : 'Не удалось проверить адаптер каталога',
-                }, message.requestId, origin);
-            }
-        }
-
-        async handleSaveCatalogAdapterRequest(message, origin) {
-            const payload = message.payload || {};
-            try {
-                const data = await this.fetchCatalogAdapterAction('saveCatalogAdapter', payload);
-                if (!data || !data.initData || !data.editorRuntime) {
-                    throw new Error('Сервер не вернул обновлённый editorRuntime адаптера каталога');
-                }
-                // Manual adapter saves return a transactionally verified INIT
-                // delta. Preserve the already loaded standalone preset graph
-                // while replacing its authoritative editorRuntime.
-                this.initData = Object.assign({}, this.initData || {}, data.initData, {
-                    editorRuntime: data.editorRuntime,
-                });
-                this.sendPwrtMessage('SAVE_CATALOG_ADAPTER_RESULT', {
-                    success: true,
-                    catalogAdapter: data.catalogAdapter,
-                    catalogScenarios: Array.isArray(data.catalogScenarios) ? data.catalogScenarios : [],
-                    editorRuntime: data.editorRuntime,
-                }, message.requestId, origin);
-                // INIT is authoritative after CAS: every calculator consumer
-                // receives scenarios and publication from the saved revision.
-                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
-            } catch (error) {
-                this.sendPwrtMessage('SAVE_CATALOG_ADAPTER_RESULT', {
-                    success: false,
-                    error: error && error.message ? error.message : 'Не удалось сохранить адаптер каталога',
-                }, message.requestId, origin);
             }
         }
 
@@ -4855,7 +4621,6 @@
             const created = await this.fetchRefreshData([{
                 action: 'addNewDetail',
                 presetId,
-                offerIds: this.config.offerIds || [],
                 name: 'Новая деталь',
             }]);
             const response = Array.isArray(created) ? created[0] : null;
@@ -4937,80 +4702,29 @@
          * Получение данных инициализации через AJAX
          * @returns {Promise<Object>}
          */
-        async fetchCatalogAdapterAction(action, payload) {
-            const runtime = this.initData && this.initData.editorRuntime
-                ? this.initData.editorRuntime
-                : {};
-            const currentAdapter = runtime.catalogAdapter || {};
-            const definition = payload.definition || payload.catalogAdapter || currentAdapter;
-            const presetId = Number(
-                payload.presetId
-                || (runtime.launchContext && runtime.launchContext.presetId)
-                || (this.initData && this.initData.preset && this.initData.preset.id)
-                || this.config.presetId
-                || 0
-            );
-            const expectedRevision = String(
-                payload.expectedRevision
-                || currentAdapter.revision
-                || definition.revision
-                || ''
-            );
-            const formData = new FormData();
-            formData.append('action', action);
-            formData.append('presetId', String(presetId));
-            formData.append('offerIds', this.config.offerIds.join(','));
-            formData.append('siteId', this.config.siteId || 's1');
-            formData.append('sessid', this.config.sessid);
-            formData.append('definition', JSON.stringify(definition));
-            if (action === 'saveCatalogAdapter') {
-                formData.append('expectedRevision', expectedRevision);
-            }
-
-            const response = await fetch(this.config.ajaxEndpoint, {
-                method: 'POST',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                body: formData,
-            });
-            const text = await response.text();
-            let decoded = null;
-            try {
-                decoded = text ? JSON.parse(text) : null;
-            } catch (error) {
-                throw new Error('Сервер вернул некорректный ответ адаптера каталога');
-            }
-            if (!response.ok || !decoded || decoded.success !== true) {
-                throw new Error(
-                    decoded && (decoded.message || decoded.error)
-                        ? (decoded.message || decoded.error)
-                        : ('HTTP error ' + response.status)
-                );
-            }
-            return decoded.data || {};
-        }
-
         async fetchInitData() {
-            const url = this.config.ajaxEndpoint +
-                '?action=getInitData' +
-                '&offerIds=' + encodeURIComponent(this.config.offerIds.join(',')) +
-                '&presetId=' + encodeURIComponent(this.config.presetId || '') +
-                '&siteId=' + encodeURIComponent(this.config.siteId) +
-                '&sessid=' + encodeURIComponent(this.config.sessid);
+            const body = new URLSearchParams();
+            body.set('action', 'getInitData');
+            body.set('offerIds', this.config.offerIds.join(','));
+            body.set('presetId', String(this.config.presetId || ''));
+            body.set('siteId', this.config.siteId);
+            body.set('sessid', this.config.sessid);
 
             const startedAt = (window.performance && window.performance.now) ? window.performance.now() : Date.now();
             this.logBridge('[BitrixBridge] AJAX getInitData start', {
-                url: url,
                 offerIdsCount: this.config.offerIds.length,
                 presetId: this.config.presetId,
                 siteId: this.config.siteId,
             });
 
             try {
-                const response = await fetch(url, {
-                    method: 'GET',
+                const response = await fetch(this.config.ajaxEndpoint, {
+                    method: 'POST',
                     headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                         'X-Requested-With': 'XMLHttpRequest',
                     },
+                    body: body.toString(),
                 });
 
                 const duration = ((window.performance && window.performance.now) ? window.performance.now() : Date.now()) - startedAt;
@@ -5057,17 +4771,7 @@
          * @returns {Promise<Object>}
          */
         async enrichPreset(params) {
-            const url = this.config.ajaxEndpoint +
-                '?action=enrichPreset' +
-                '&presetId=' + encodeURIComponent(params.presetId) +
-                '&detailIds=' + encodeURIComponent(params.detailIds.join(',')) +
-                '&binding=' + encodeURIComponent(params.binding ? 'true' : 'false') +
-                '&existingDetailId=' + encodeURIComponent(params.existingDetailId || 0) +
-                '&offerIds=' + encodeURIComponent(params.offerIds.join(',')) +
-                '&siteId=' + encodeURIComponent(params.siteId) +
-                '&sessid=' + encodeURIComponent(this.config.sessid);
-
-            console.log('[BitrixBridge] AJAX enrichPreset start', {
+            console.log('[BitrixBridge] enrichPreset start', {
                 presetId: params.presetId,
                 detailIds: params.detailIds,
                 binding: params.binding,
@@ -5075,34 +4779,27 @@
             });
 
             try {
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                });
-
-                if (!response.ok) {
-                    console.error('[BitrixBridge] AJAX enrichPreset error response', {
-                        status: response.status,
-                    });
-                    throw new Error('HTTP error ' + response.status);
+                const result = await this.fetchRefreshData([{
+                    action: 'enrichPreset',
+                    presetId: Number(params.presetId),
+                    detailIds: Array.isArray(params.detailIds) ? params.detailIds.map(Number) : [],
+                    binding: params.binding === true,
+                    existingDetailId: Number(params.existingDetailId || 0),
+                }]);
+                const enriched = Array.isArray(result) ? result[0] : null;
+                if (!enriched?.initPayload) {
+                    throw new Error('Сервер не вернул подтверждённое состояние обогащённого пресета.');
                 }
 
-                const data = await response.json();
+                console.log('[BitrixBridge] enrichPreset success');
 
-                if (!data.success) {
-                    console.error('[BitrixBridge] AJAX enrichPreset business error', {
-                        message: data.message || data.error,
-                    });
-                    throw new Error(data.message || data.error || 'Ошибка обогащения пресета');
-                }
-
-                console.log('[BitrixBridge] AJAX enrichPreset success');
-
-                return data;
+                return {
+                    success: true,
+                    data: enriched.initPayload,
+                    rootDetailId: Number(enriched.rootDetailId || 0),
+                };
             } catch (error) {
-                console.error('[BitrixBridge] AJAX enrichPreset failed', {
+                console.error('[BitrixBridge] enrichPreset failed', {
                     message: error.message,
                 });
                 throw error;

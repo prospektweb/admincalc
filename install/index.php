@@ -173,6 +173,68 @@ class prospektweb_calc extends CModule
                 }
             }
         }
+
+        // Marketplace and scoped SFTP updates overwrite files but do not remove
+        // paths deleted from a newer package. Remove only module-owned endpoints
+        // and classes retired by the form-first clean cutover, otherwise the old
+        // calculation and migration APIs remain callable after an upgrade.
+        $obsoleteFiles = [
+            $targetTools . '/calculate.php',
+            $targetTools . '/catalog_calc_property_migration.php',
+            $this->modulePath . '/tools/calculate.php',
+            $this->modulePath . '/tools/catalog_calc_property_migration.php',
+            $targetTools . '/config.php',
+            $this->modulePath . '/tools/config.php',
+            $targetTools . '/product_generator.php',
+            $this->modulePath . '/tools/product_generator.php',
+            $targetJs . '/product_generator.js',
+            $this->modulePath . '/install/assets/js/product_generator.js',
+            $targetAdmin . '/prospektweb_calc_custom_field.php',
+            $this->modulePath . '/admin/prospektweb_calc_custom_field.php',
+            $this->modulePath . '/lib/Services/ResultWriter.php',
+            $this->modulePath . '/lib/Install/CatalogCalcPropertyMigrationService.php',
+            $this->modulePath . '/lib/Install/CatalogDisplayConfigPatcher.php',
+            $this->modulePath . '/lib/Install/Preset12740NeutralGlobalSymbolCorrectionMigrationService.php',
+            $this->modulePath . '/lib/Install/Preset12740NeutralGlobalSymbolMigrationService.php',
+            $this->modulePath . '/lib/Install/Preset12740NeutralInputMigrationService.php',
+            $this->modulePath . '/lib/Services/CatalogAdapterDefinitionService.php',
+            $this->modulePath . '/lib/Services/NeutralFormulaPolicy.php',
+            $this->modulePath . '/lib/Services/Phase5aParityContractService.php',
+            $this->modulePath . '/lib/Services/StandaloneCatalogSelectionMapper.php',
+            $this->modulePath . '/lib/Calculator/SaveHandler.php',
+            $this->modulePath . '/lib/Calculator/CalculationHistoryHandler.php',
+            $this->modulePath . '/lib/Services/SaveAllService.php',
+            $this->modulePath . '/lib/Install/Installer.php',
+            $this->modulePath . '/resources/phase5a_golden_capture_v1.json',
+        ];
+        foreach ($obsoleteFiles as $obsoleteFile) {
+            if (is_file($obsoleteFile) && !unlink($obsoleteFile)) {
+                $errors[] = "Не удалось удалить устаревший файл модуля: {$obsoleteFile}";
+                $success = false;
+            }
+        }
+
+        $obsoleteDirectories = [
+            $docRoot . '/local/components/prospektweb/calc.custom_field.edit',
+            $this->modulePath . '/install/components/prospektweb/calc.custom_field.edit',
+        ];
+        foreach ($obsoleteDirectories as $obsoleteDirectory) {
+            if (!is_dir($obsoleteDirectory)) {
+                continue;
+            }
+            $normalizedDocRoot = rtrim(str_replace('\\', '/', $docRoot), '/');
+            $normalizedDirectory = str_replace('\\', '/', $obsoleteDirectory);
+            if (!str_starts_with($normalizedDirectory, $normalizedDocRoot . '/')) {
+                $errors[] = "Устаревший каталог находится вне document root: {$obsoleteDirectory}";
+                $success = false;
+                continue;
+            }
+            DeleteDirFilesEx(substr($normalizedDirectory, strlen($normalizedDocRoot)));
+            if (is_dir($obsoleteDirectory)) {
+                $errors[] = "Не удалось удалить устаревший каталог модуля: {$obsoleteDirectory}";
+                $success = false;
+            }
+        }
         
         // Копируем JS
         if (is_dir($sourceJs)) {
@@ -236,15 +298,6 @@ class prospektweb_calc extends CModule
                 $success = false;
             }
             
-            // Копируем админский файл для кастомных полей
-            $adminCustomFieldFile = $sourceAdmin . '/prospektweb_calc_custom_field.php';
-            if (file_exists($adminCustomFieldFile)) {
-                if (!copy($adminCustomFieldFile, $targetAdmin . '/prospektweb_calc_custom_field.php')) {
-                    $errors[] = "Не удалось скопировать админский файл кастомных полей";
-                    $success = false;
-                }
-            }
-            
             // Копируем админский файл пересчёта
             $adminRecalculateFile = $sourceAdmin . '/prospektweb_calc_recalculate.php';
             if (file_exists($adminRecalculateFile)) {
@@ -252,32 +305,6 @@ class prospektweb_calc extends CModule
                     $errors[] = "Не удалось скопировать админский файл пересчёта";
                     $success = false;
                 }
-            }
-        }
-        
-        // НОВОЕ: Копируем компоненты
-        $sourceComponents = __DIR__ . '/components';
-        $targetComponents = $docRoot . '/local/components';
-        
-        if (is_dir($sourceComponents)) {
-            if (!is_dir($targetComponents)) {
-                mkdir($targetComponents, 0755, true);
-            }
-            
-            // Создаём директорию для компонентов prospektweb
-            $targetProspektweb = $targetComponents . '/prospektweb';
-            if (!is_dir($targetProspektweb)) {
-                mkdir($targetProspektweb, 0755, true);
-            }
-            
-            // Копируем компонент calc.custom_field.edit
-            $sourceComponent = $sourceComponents . '/prospektweb/calc.custom_field.edit';
-            $targetComponent = $targetProspektweb . '/calc.custom_field.edit';
-            
-            if (is_dir($sourceComponent)) {
-                CopyDirFiles($sourceComponent, $targetComponent, true, true);
-            } else {
-                $errors[] = "Исходный компонент не найден: {$sourceComponent}";
             }
         }
         
@@ -312,6 +339,8 @@ class prospektweb_calc extends CModule
         $adminControlCenterFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_control_center.php';
         $adminCustomFieldFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_custom_field.php';
         $adminRecalculateFile = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_recalculate.php';
+        $customFieldComponentDir = Application::getDocumentRoot()
+            . '/local/components/prospektweb/calc.custom_field.edit';
 
         if (is_dir($jsDir)) {
             DeleteDirFilesEx('/local/js/prospektweb.calc');
@@ -336,6 +365,9 @@ class prospektweb_calc extends CModule
         }
         if (file_exists($adminCustomFieldFile)) {
             unlink($adminCustomFieldFile);
+        }
+        if (is_dir($customFieldComponentDir)) {
+            DeleteDirFilesEx('/local/components/prospektweb/calc.custom_field.edit');
         }
         if (file_exists($adminRecalculateFile)) {
             unlink($adminRecalculateFile);
@@ -372,6 +404,34 @@ class prospektweb_calc extends CModule
             $this->MODULE_ID,
             '\\Prospektweb\\Calc\\Handlers\\DependencyHandler',
             'onElementUpdate'
+        );
+        $em->registerEventHandler(
+            'iblock',
+            'OnBeforeIBlockElementAdd',
+            $this->MODULE_ID,
+            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
+            'onBeforeElementAdd'
+        );
+        $em->registerEventHandler(
+            'iblock',
+            'OnBeforeIBlockElementUpdate',
+            $this->MODULE_ID,
+            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
+            'onBeforeElementUpdate'
+        );
+        $em->registerEventHandler(
+            'iblock',
+            'OnBeforeIBlockElementSetPropertyValues',
+            $this->MODULE_ID,
+            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
+            'onBeforeSetPropertyValues'
+        );
+        $em->registerEventHandler(
+            'iblock',
+            'OnBeforeIBlockElementSetPropertyValuesEx',
+            $this->MODULE_ID,
+            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
+            'onBeforeSetPropertyValuesEx'
         );
         $em->registerEventHandler(
             'main',
@@ -423,6 +483,34 @@ class prospektweb_calc extends CModule
             $this->MODULE_ID,
             '\\Prospektweb\\Calc\\Handlers\\DependencyHandler',
             'onElementUpdate'
+        );
+        $eventManager->unRegisterEventHandler(
+            'iblock',
+            'OnBeforeIBlockElementAdd',
+            $this->MODULE_ID,
+            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
+            'onBeforeElementAdd'
+        );
+        $eventManager->unRegisterEventHandler(
+            'iblock',
+            'OnBeforeIBlockElementUpdate',
+            $this->MODULE_ID,
+            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
+            'onBeforeElementUpdate'
+        );
+        $eventManager->unRegisterEventHandler(
+            'iblock',
+            'OnBeforeIBlockElementSetPropertyValues',
+            $this->MODULE_ID,
+            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
+            'onBeforeSetPropertyValues'
+        );
+        $eventManager->unRegisterEventHandler(
+            'iblock',
+            'OnBeforeIBlockElementSetPropertyValuesEx',
+            $this->MODULE_ID,
+            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
+            'onBeforeSetPropertyValuesEx'
         );
         
         $eventManager->unRegisterEventHandler(

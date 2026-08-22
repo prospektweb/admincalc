@@ -61,14 +61,21 @@ foreach ([
 }
 
 $assert(strpos($service, "hash('sha256'") !== false && strpos($service, 'hash_equals(') !== false, 'Settings writes must use an optimistic revision');
-$assert(strpos($service, 'flock($handle, LOCK_EX)') !== false, 'Settings revision check and writes must be serialized');
+$assert(strpos($service, 'GlobalCalculatorMutationCoordinatorService())->mutate(') !== false, 'Settings writes must use the global mutation coordinator');
+$assert(strpos($service, 'CalculatorGlobalMutationService())->currentAuthority()') === false, 'Settings authority must be reused for the complete mutation boundary');
+$assert(strpos($service, '$globalMutationService->currentAuthority()') !== false, 'Settings writes must obtain global revision and fingerprint authority');
+$assert(strpos($service, '$globalMutationService->affectedPresetIds($iblockIds)') !== false, 'Settings audit must identify every affected preset');
+$assert(strpos($service, "'action' => 'save_module_settings'") !== false, 'Settings writes must declare the durable audit action');
+$assert(strpos($service, 'flock(') === false, 'Settings writes must not keep a parallel file-lock authority');
 $assert(strpos($service, 'normalizeSettings(') !== false, 'Settings must be normalized before persistence');
-$assert(strpos($service, 'persistSettings($this->normalizeSettings($settings, $current))') !== false, 'Legacy writes must reuse modern normalization and persistence');
+$assert(strpos($service, '$this->persistSettings($normalized)') !== false, 'Settings must persist only the validated normalized aggregate');
 $assert(strpos($service, "Loader::includeModule('prospektweb.layoutfiles')") !== false, 'Contacts gallery settings must delegate to the owning module');
 $assert(strpos($service, 'uploadContactGallery(') !== false && strpos($service, 'removeContactGalleryFile(') !== false, 'Contacts gallery media actions must be brokered by the settings API');
-$assert(strpos($options, '$controlCenterSettingsService->saveLegacyPost($_POST)') !== false, 'Legacy Bitrix settings must delegate to the shared service');
+$assert(strpos($service, 'saveLegacyPost(') === false && strpos($service, 'saveAsproIntegration(') === false, 'Retired settings writers must not survive in the service');
 $assert(strpos($options, '$controlCenterSettingsService->getSettings()') !== false, 'Legacy Bitrix settings must read from the shared service');
-$assert(strpos($options, '$controlCenterSettingsService->saveAsproIntegration(') !== false, 'Legacy patch actions must reuse integration validation');
+$assert(strpos($options, 'ASPRO_AI_PATCH_ACTION') === false, 'Bitrix options must not expose a direct Aspro patch writer');
+$assert(strpos($options, 'saveLegacyPost(') === false && strpos($options, 'saveAsproIntegration(') === false, 'Bitrix options must remain read-only for calculator settings');
+$assert(strpos($options, "'disabled' => true") !== false, 'Bitrix options save controls must be disabled');
 
 $assert(strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\ControlCenterSettingsService'") !== false, 'Settings service must be registered in module autoload');
 $assert(strpos($installer, 'CopyDirFiles($sourceTools, $targetTools, true, true)') !== false, 'Installer must publish the settings endpoint with owned tools');

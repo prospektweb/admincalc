@@ -81,6 +81,9 @@ $lock = static function (array $rows): array {
     $property = $reflection->getProperty('transactionConnection');
     $property->setAccessible(true);
     $property->setValue($service, $connection);
+    $presetProperty = $reflection->getProperty('activePresetId');
+    $presetProperty->setAccessible(true);
+    $presetProperty->setValue($service, 41);
     $method = $reflection->getMethod('lockRuntimeOptionRows');
     $method->setAccessible(true);
     $snapshot = $method->invoke($service);
@@ -157,20 +160,20 @@ $expectFailure(
 [$lockedSnapshot, $lockedSql] = $lock([
     [
         'MODULE_ID' => 'prospektweb.frontcalc',
-        'NAME' => 'FORM_FIRST_PRESET_12740',
+        'NAME' => 'FORM_FIRST_PRESET_41',
         'VALUE' => '{"contract":"prospektweb.frontcalc.form-first/v1"}',
         'SITE_ID' => null,
     ],
     [
         'MODULE_ID' => 'prospektweb.calc',
-        'NAME' => 'CATALOG_ADAPTER_12740',
-        'VALUE' => '{"contract":"prospektweb.calc.catalog-adapter/v1"}',
+        'NAME' => 'CALCULATOR_INPUT_MAPPING_41',
+        'VALUE' => '{"contract":"prospektweb.calc.calculator-input-mapping/v1"}',
         'SITE_ID' => '',
     ],
     [
         'MODULE_ID' => 'prospektweb.calc',
-        'NAME' => 'PRESET_12740_NEUTRAL_INPUT_ACTIVE',
-        'VALUE' => 'Y',
+        'NAME' => 'CATALOG_OUTPUT_MAPPING_41',
+        'VALUE' => '{"contract":"prospektweb.calc.catalog-output-mapping/v1"}',
         'SITE_ID' => null,
     ],
     [
@@ -185,9 +188,9 @@ $assert(
     'the production lock partitions legitimate authority rows out of the ConfigManager snapshot'
 );
 $assert(
-    strpos($lockedSql, "NAME='FORM_FIRST_PRESET_12740'") !== false
-        && strpos($lockedSql, "NAME='CATALOG_ADAPTER_12740'") !== false
-        && strpos($lockedSql, "NAME='PRESET_12740_NEUTRAL_INPUT_ACTIVE'") !== false
+    strpos($lockedSql, "NAME='FORM_FIRST_PRESET_41'") !== false
+        && strpos($lockedSql, "NAME='CALCULATOR_INPUT_MAPPING_41'") !== false
+        && strpos($lockedSql, "NAME='CATALOG_OUTPUT_MAPPING_41'") !== false
         && strpos($lockedSql, 'ORDER BY MODULE_ID, NAME, SITE_ID FOR UPDATE') !== false,
     'one deterministic first lock still covers all runtime and authority option rows'
 );
@@ -195,8 +198,8 @@ $assert(
 $expectFailure(
     static function () use ($lock): void {
         $lock([
-            ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'CATALOG_ADAPTER_12740', 'VALUE' => '{}'],
-            ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'catalog_adapter_12740', 'VALUE' => '{}'],
+            ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'CALCULATOR_INPUT_MAPPING_41', 'VALUE' => '{}'],
+            ['MODULE_ID' => 'prospektweb.calc', 'NAME' => 'calculator_input_mapping_41', 'VALUE' => '{}'],
         ]);
     },
     'canonical duplicate locked authority rows fail closed',
@@ -206,7 +209,7 @@ $expectFailure(
     static function () use ($lock): void {
         $lock([[
             'MODULE_ID' => 'prospektweb.calc',
-            'NAME' => 'CATALOG_ADAPTER_12740',
+            'NAME' => 'CALCULATOR_INPUT_MAPPING_41',
             'VALUE' => '{}',
             'SITE_ID' => 's1',
         ]]);
@@ -217,7 +220,7 @@ $expectFailure(
     static function () use ($lock): void {
         $lock([[
             'MODULE_ID' => 'prospektweb.calc',
-            'NAME' => 'CATALOG_ADAPTER_12740 ',
+            'NAME' => 'CALCULATOR_INPUT_MAPPING_41 ',
             'VALUE' => '{}',
         ]]);
     },
@@ -227,7 +230,7 @@ $expectFailure(
     static function () use ($lock): void {
         $lock([[
             'MODULE_ID' => 'PROSPEKTWEB.CALC',
-            'NAME' => 'CATALOG_ADAPTER_12740',
+            'NAME' => 'CALCULATOR_INPUT_MAPPING_41',
             'VALUE' => '{}',
         ]]);
     },

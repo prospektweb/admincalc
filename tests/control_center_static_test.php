@@ -7,7 +7,6 @@ $installer = file_get_contents($root . '/install/index.php');
 $diagnosticTool = file_get_contents($root . '/tools/diagnostic.php');
 $moduleDiagnostic = file_get_contents($root . '/lib/Diagnostic/ModuleDiagnostic.php');
 $contextualCalculator = file_get_contents($root . '/install/assets/js/calculator.js');
-$contextualGenerator = file_get_contents($root . '/install/assets/js/product_generator.js');
 $appIndex = file_get_contents($root . '/install/assets/apps_dist/index.html');
 $appBundle = file_get_contents($root . '/install/assets/apps_dist/assets/index.js');
 
@@ -105,15 +104,22 @@ $assert(strpos($installer, "'/prospektweb_calc_control_center.php'") !== false, 
 $assert(strpos($installer, "copy(\$adminControlCenterFile, \$targetAdmin . '/prospektweb_calc_control_center.php')") !== false, 'Installer copies the control-center admin page');
 $assert(strpos($installer, 'unlink($adminControlCenterFile)') !== false, 'Uninstall removes the control-center admin page');
 $assert(strpos($installer, "'Центр управления не найден'") !== false, 'Installation integrity checks the control-center page');
-$assert(strpos($diagnosticTool, "case 'fix_files':") !== false && strpos($diagnosticTool, '$installer->installFiles()') !== false, 'File repair and updates reuse installer ownership');
+$assert(strpos($diagnosticTool, "case 'fix_files':") === false && strpos($diagnosticTool, '$installer->installFiles()') === false, 'HTTP diagnostics cannot overwrite module files');
 $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center.php') !== false, 'Module diagnostics verify the installed control-center page');
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
-$assert(strpos($contextualGenerator, 'window.ProspektwebProductGenerator = ProductGenerator') !== false, 'The contextual offer generator remains available');
-$assert(strpos($appIndex, '8a6c452f5d2e') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($handler, 'product_generator.js') === false, 'The uncoordinated contextual product generator is retired');
+$assert(strpos($appIndex, '09d410dbd2f5') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
-$assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') !== false, 'The published bundle contains the storefront editor launch contract');
+$assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') === false, 'The published bundle no longer contains the legacy storefront editor launch contract');
+$assert(strpos($appBundle, 'storefront_list') !== false, 'The published bundle uses the vNext storefront list action');
+$assert(strpos($appBundle, 'storefront_get') !== false, 'The published bundle uses the vNext storefront get action');
+$assert(strpos($appBundle, 'storefront_save') !== false, 'The published bundle uses the vNext storefront save action');
+$assert(strpos($appBundle, 'storefront_delete') !== false, 'The published bundle uses the vNext storefront delete action');
+$assert(strpos($appBundle, 'calculator_input_mapping_load') !== false, 'The published bundle loads preset-owned calculator input mappings');
+$assert(strpos($appBundle, 'calculator_input_mapping_validate') !== false, 'The published bundle validates preset-owned calculator input mappings');
+$assert(strpos($appBundle, 'calculator_input_mapping_save') !== false, 'The published bundle saves preset-owned calculator input mappings');
 $assert(strpos($appBundle, 'prospektweb.control-center.editors/v1') !== false, 'The published bundle validates the Phase 4A editors catalog');
 $assert(strpos($appBundle, 'Реестр калькуляторов') !== false, 'The published bundle contains the server-driven calculator registry');
 $assert(strpos($appBundle, 'Где используется калькулятор') !== false, 'The published bundle exposes catalog usage inside the selected calculator');

@@ -1,11 +1,28 @@
 <?php
 
-require_once dirname(__DIR__) . '/lib/Services/NeutralFormulaPolicy.php';
-require_once dirname(__DIR__) . '/lib/Install/Preset12740NeutralGlobalSymbolMigrationService.php';
+require_once dirname(__DIR__) . '/lib/Services/CalculatorMutationAuthorityService.php';
+require_once dirname(__DIR__) . '/lib/Services/GlobalCalculatorMutationCoordinatorService.php';
 require_once dirname(__DIR__) . '/lib/Services/GlobalCodeRefactorService.php';
 require_once dirname(__DIR__) . '/lib/Services/GlobalSymbolService.php';
 
 $service = new \Prospektweb\Calc\Services\GlobalCodeRefactorService();
+$serviceSource = file_get_contents(dirname(__DIR__) . '/lib/Services/GlobalCodeRefactorService.php');
+if (!is_string($serviceSource) || strpos($serviceSource, 'GLOBAL_ASSIGNMENTS') !== false) {
+    fwrite(STDERR, "FAILED: global-code refactor must not plan retired stage assignment mutations\n");
+    exit(1);
+}
+if (strpos($serviceSource, 'GlobalCalculatorMutationCoordinatorService())->mutate(') === false
+    || strpos($serviceSource, "mutationState(\$lockedPlan['mutations'], 'current')") === false
+    || strpos($serviceSource, 'startTransaction()') !== false
+    || strpos($serviceSource, 'commitTransaction()') !== false) {
+    fwrite(STDERR, "FAILED: global-code refactor must delegate transaction, revision, audit and readback to its coordinator\n");
+    exit(1);
+}
+$bridgeSource = (string)file_get_contents(dirname(__DIR__) . '/install/assets/js/integration.js');
+if (strpos($bridgeSource, 'expectedGlobalRevision: Number(payload.expectedGlobalRevision)') === false) {
+    fwrite(STDERR, "FAILED: global-code refactor apply must carry the exact preview revision\n");
+    exit(1);
+}
 $replace = new ReflectionMethod($service, 'replaceIdentifiers');
 $replace->setAccessible(true);
 

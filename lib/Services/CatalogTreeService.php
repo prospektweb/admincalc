@@ -18,19 +18,19 @@ final class CatalogTreeService
 
     public function presetLoadOptions(array $request): array
     {
-        return $this->loadPresetOptions($request, true);
+        return $this->loadPresetOptions($request);
     }
 
     /**
      * Storefront placement scope is intentionally broader than the optional
-     * catalog-write adapter allowlist.
+     * catalog-write mapping scope.
      */
     public function presetStorefrontOptions(array $request): array
     {
-        return $this->loadPresetOptions($request, false);
+        return $this->loadPresetOptions($request);
     }
 
-    private function loadPresetOptions(array $request, bool $applyAdapterScope): array
+    private function loadPresetOptions(array $request): array
     {
         $this->assertAdmin();
         $presetId = (int)($request['presetId'] ?? 0);
@@ -51,7 +51,7 @@ final class CatalogTreeService
             throw new \InvalidArgumentException('Пресет не найден');
         }
 
-        $products = $this->loadProductsForPreset($config, $presetId, $applyAdapterScope);
+        $products = $this->loadProductsForPreset($config, $presetId);
         $skuIblockId = (int)$config->getSkuIblockId();
         foreach ($products as &$product) {
             $offers = [];
@@ -93,27 +93,23 @@ final class CatalogTreeService
     private function loadProductsForPreset(
         \Prospektweb\Calc\Config\ConfigManager $config,
         int $presetId,
-        bool $applyAdapterScope = true
     ): array
     {
         $productIblockId = (int)$config->getProductIblockId();
         if ($productIblockId <= 0) {
             return [];
         }
+        $propertyAuthority = (new PresetProductAssignmentPropertyAuthorityService())->resolve(
+            $productIblockId
+        );
+        $propertyId = (int)$propertyAuthority['propertyId'];
 
         $filter = [
             'IBLOCK_ID' => $productIblockId,
             'ACTIVE' => 'Y',
             'ACTIVE_DATE' => 'Y',
-            'PROPERTY_CALC_PRESET' => $presetId,
+            'PROPERTY_' . $propertyId => $presetId,
         ];
-        if ($applyAdapterScope && $presetId === CatalogAdapterDefinitionService::PRESET_ID) {
-            $supportedProductIds = StandaloneCatalogSelectionMapper::supportedProductIds();
-            if ($supportedProductIds === []) {
-                return [];
-            }
-            $filter['ID'] = $supportedProductIds;
-        }
 
         $cursor = \CIBlockElement::GetList(
             ['ID' => 'ASC'],

@@ -4,32 +4,43 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $bundleSource = file_get_contents($root . '/lib/Calculator/BundleHandler.php');
+$lifecycleSource = file_get_contents($root . '/lib/Services/PresetLifecycleMutationService.php');
 $elementDataSource = file_get_contents($root . '/lib/Calculator/ElementDataService.php');
 $integrationSource = file_get_contents($root . '/install/assets/js/integration.js');
 
-if ($bundleSource === false || $elementDataSource === false || $integrationSource === false) {
+if ($bundleSource === false || $lifecycleSource === false || $elementDataSource === false || $integrationSource === false) {
     throw new RuntimeException('Unable to read preset clone sources');
 }
 
 $checks = [
-    [$bundleSource, 'startTransaction()', 'Preset clone must start a transaction'],
-    [$bundleSource, 'commitTransaction()', 'Preset clone must commit only a complete graph'],
-    [$bundleSource, 'rollbackTransaction()', 'Preset clone must roll back an incomplete graph'],
+    [$lifecycleSource, 'withAuthorityLock(', 'Preset lifecycle must own the source authority transaction'],
+    [$lifecycleSource, 'readLockedPresetGraph($sourcePresetId)', 'Preset lifecycle must read source under lock'],
+    [$lifecycleSource, 'readLockedPresetGraph($newPresetId)', 'Preset lifecycle must read clone under lock'],
+    [$lifecycleSource, 'writeAudit($audit)', 'Preset lifecycle must audit before commit'],
     [$bundleSource, 'remapPresetStageReferences', 'Preset properties must be remapped to cloned stage IDs'],
     [$bundleSource, 'extractHtmlPropertyValueForClone', 'Bitrix HTML property wrappers must be normalized before cloning'],
-    [$bundleSource, "'CALC_PRESET' => \$newPresetId", 'The clone must be assigned to the current product'],
-    [$bundleSource, 'resolveSingleProductIdFromOffers', 'All selected offers must resolve to one product'],
-    [$bundleSource, 'getElementLinkPropertyId', 'The persisted product assignment must be verified'],
+    [$bundleSource, 'public function clonePresetLocked(int $presetId, array $pinnedIblockIds): int', 'Preset cloning must require pinned source authority'],
     [$elementDataSource, "case 'clonePreset':", 'Refresh endpoint must expose preset cloning'],
+    [$elementDataSource, 'PresetLifecycleMutationService())', 'Server cloning must use lifecycle authority'],
+    [$elementDataSource, 'preparePresetPayload($newPresetId, $siteId)', 'Clone response must use the product-neutral preset payload'],
     [$elementDataSource, "'initPayload' => \$initPayload", 'Clone response must return confirmed editor state'],
-    [$integrationSource, "case 'CLONE_PRESET_REQUEST':", 'Iframe bridge must route preset clone requests'],
-    [$integrationSource, "action: 'clonePreset'", 'Iframe bridge must invoke the atomic server action'],
-    [$integrationSource, "this.sendPwrtMessage('INIT'", 'Successful cloning must replace the current editor state'],
 ];
 
 foreach ($checks as [$source, $needle, $message]) {
     if (strpos($source, $needle) === false) {
         throw new RuntimeException($message);
+    }
+}
+
+foreach (['resolveSingleProductIdFromOffers', "'CALC_PRESET' => \$newPresetId", 'CLONE_PRESET_REQUEST'] as $retiredToken) {
+    if (strpos($bundleSource . $integrationSource, $retiredToken) !== false) {
+        throw new RuntimeException('Preset clone must not retain product assignment or iframe-authoring compatibility: ' . $retiredToken);
+    }
+}
+$checksNoInnerTransaction = ['startTransaction()', 'commitTransaction()', 'rollbackTransaction()'];
+foreach ($checksNoInnerTransaction as $retiredToken) {
+    if (strpos($bundleSource, $retiredToken) !== false) {
+        throw new RuntimeException('BundleHandler must not own clone transaction: ' . $retiredToken);
     }
 }
 

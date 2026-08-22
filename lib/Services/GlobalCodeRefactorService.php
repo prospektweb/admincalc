@@ -2,8 +2,6 @@
 
 namespace Prospektweb\Calc\Services;
 
-use Bitrix\Main\Application;
-
 /**
  * Plans and atomically applies reviewed global-code renames.
  *
@@ -17,9 +15,10 @@ final class GlobalCodeRefactorService
     public function preview(array $request): array
     {
         $this->assertAdmin();
+        $coordinator = new GlobalCalculatorMutationCoordinatorService();
         $plan = $this->buildPlan(
             $request,
-            (new NeutralFormulaPolicy())->readNeutralContractAuthority()
+            (new CalculatorMutationAuthorityService())->readAuthority()
         );
         return [
             'status' => 'ok',
@@ -27,6 +26,7 @@ final class GlobalCodeRefactorService
             'renames' => $plan['renames'],
             'summary' => $plan['summary'],
             'impacts' => $plan['impacts'],
+            'globalRevision' => $coordinator->revision(),
         ];
     }
 
@@ -37,132 +37,147 @@ final class GlobalCodeRefactorService
         if (!preg_match('/^sha256:[a-f0-9]{64}$/', $expected)) {
             throw new \InvalidArgumentException('Не передан корректный fingerprint предварительной проверки');
         }
+        $expectedGlobalRevision = $request['expectedGlobalRevision'] ?? null;
+        if (!is_int($expectedGlobalRevision) || $expectedGlobalRevision < 0) {
+            throw new \InvalidArgumentException('Не передана точная глобальная ревизия', 422);
+        }
         $plan = $this->buildPlan(
             $request,
-            (new NeutralFormulaPolicy())->readNeutralContractAuthority()
+            (new CalculatorMutationAuthorityService())->readAuthority()
         );
         if (!hash_equals($plan['fingerprint'], $expected)) {
             throw new \RuntimeException('Данные изменились после предварительной проверки. Повторите проверку влияния переименования.');
         }
 
-        $connection = Application::getConnection();
-        $connection->startTransaction();
-        try {
-            $authority = (new NeutralFormulaPolicy())->lockNeutralContractAuthority($connection);
-            if (($authority['recoveryProtected'] ?? false) === true) {
-                throw new \RuntimeException(
-                    'Preset 12740 global registry is frozen while retained rollback evidence is pending reapply.',
-                    409
-                );
-            }
-            $lockedGlobalIblockId = (int)($authority['globalIblockId'] ?? 0);
-            if ($lockedGlobalIblockId <= 0) {
-                throw new \RuntimeException('Pinned neutral refactor registry is invalid.', 409);
-            }
-            $this->lockRegistryRows($connection, $lockedGlobalIblockId);
-            if ($authority['active'] || $authority['markerExists']) {
-                (new \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService())
-                    ->assertActivationReadyLocked(true);
-            }
-            $lockedPlan = $this->buildPlan($request, $authority);
-            if (!hash_equals($plan['fingerprint'], $lockedPlan['fingerprint'])) {
-                throw new \RuntimeException(
-                    'Global values changed while locking the neutral formula contract. Repeat the preview.',
-                    409
-                );
-            }
-            $this->assertRequiredNeutralRenamesAllowed($lockedPlan['renames'], $authority);
-            $lockedRegistry = $this->loadRegistry($lockedGlobalIblockId);
-            $prospectiveNeutralRows = $this->buildProspectiveNeutralRows(
-                $this->neutralRegistryRows($lockedRegistry['rows']),
-                $lockedPlan['mutations']
-            );
-            if ($authority['active'] || $authority['markerExists']) {
-                \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(
-                    $prospectiveNeutralRows
-                );
-            }
-            foreach ($lockedPlan['mutations'] as $mutation) {
-                if ($mutation['kind'] === 'element_code') {
-                    $element = new \CIBlockElement();
-                    if (!$element->Update((int)$mutation['elementId'], ['CODE' => $mutation['after']])) {
-                        throw new \RuntimeException('Не удалось изменить код глобального значения: ' . trim((string)$element->LAST_ERROR));
-                    }
-                    $stored = \CIBlockElement::GetList([], [
-                        'ID' => (int)$mutation['elementId'],
-                        'IBLOCK_ID' => (int)$mutation['iblockId'],
-                    ], false, ['nTopCount' => 1], ['CODE'])->Fetch();
-                    if ((string)($stored['CODE'] ?? '') !== (string)$mutation['after']) {
-                        throw new \RuntimeException('Проверка записи нового глобального кода не пройдена');
-                    }
-                    continue;
+        return (new GlobalCalculatorMutationCoordinatorService())->mutate(
+            $expectedGlobalRevision,
+            $expected,
+            function ($authority, $connection) use ($request, $plan): array {
+                if (!is_array($authority) || !is_object($connection)) {
+                    throw new \RuntimeException('Global refactor authority is unavailable.', 409);
                 }
-                $this->writePropertyMutation($mutation);
-            }
-            $readBackNeutralRows = $this->neutralRegistryRows(
-                $this->loadRegistry($lockedGlobalIblockId)['rows']
-            );
-            if ($authority['active'] || $authority['markerExists']) {
-                \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::assertNeutralRuntimeRows(
-                    $readBackNeutralRows
+                $lockedGlobalIblockId = (int)($authority['globalIblockId'] ?? 0);
+                if ($lockedGlobalIblockId <= 0) {
+                    throw new \RuntimeException('Pinned refactor registry is invalid.', 409);
+                }
+                $this->lockRegistryRows($connection, $lockedGlobalIblockId);
+                $lockedPlan = $this->buildPlan($request, $authority);
+                if (!hash_equals($plan['fingerprint'], $lockedPlan['fingerprint'])) {
+                    throw new \RuntimeException(
+                        'Global values changed while locking the formula contract. Repeat the preview.',
+                        409
+                    );
+                }
+                if ($lockedPlan['mutations'] === []) {
+                    throw new \RuntimeException('Global refactor has no mutations to apply.', 409);
+                }
+                $before = $this->mutationState($lockedPlan['mutations'], 'before');
+                $lockedRegistry = $this->loadRegistry($lockedGlobalIblockId);
+                $prospectiveRegistryRows = $this->buildProspectiveRegistryRows(
+                    $lockedRegistry['rows'],
+                    $lockedPlan['mutations']
                 );
+                foreach ($lockedPlan['mutations'] as $mutation) {
+                    if ($mutation['kind'] === 'element_code') {
+                        $element = new \CIBlockElement();
+                        if (!$element->Update((int)$mutation['elementId'], ['CODE' => $mutation['after']])) {
+                            throw new \RuntimeException('Не удалось изменить код глобального значения: ' . trim((string)$element->LAST_ERROR));
+                        }
+                        $stored = \CIBlockElement::GetList([], [
+                            'ID' => (int)$mutation['elementId'],
+                            'IBLOCK_ID' => (int)$mutation['iblockId'],
+                        ], false, ['nTopCount' => 1], ['CODE'])->Fetch();
+                        if ((string)($stored['CODE'] ?? '') !== (string)$mutation['after']) {
+                            throw new \RuntimeException('Проверка записи нового глобального кода не пройдена');
+                        }
+                        continue;
+                    }
+                    $this->writePropertyMutation($mutation);
+                }
+                $expectedAfter = $this->mutationState($lockedPlan['mutations'], 'after');
+                $after = $this->mutationState($lockedPlan['mutations'], 'current');
+                if (!hash_equals(
+                    GlobalCalculatorMutationCoordinatorService::hashCanonical($expectedAfter),
+                    GlobalCalculatorMutationCoordinatorService::hashCanonical($after)
+                )) {
+                    throw new \RuntimeException('Global refactor authoritative readback failed.', 409);
+                }
+                $readBackRegistryRows = $this->loadRegistry($lockedGlobalIblockId)['rows'];
+                if (!hash_equals(
+                    $this->registryFingerprint($prospectiveRegistryRows),
+                    $this->registryFingerprint($readBackRegistryRows)
+                )) {
+                    throw new \RuntimeException('Global-symbol refactor read-back verification failed.', 409);
+                }
+                $presetIblockId = (int)(($authority['iblockIds'] ?? [])['CALC_PRESETS'] ?? 0);
+                return [
+                    'before' => $before,
+                    'after' => $after,
+                    'affected_preset_ids' => $this->elementIds($presetIblockId),
+                    'result' => [
+                        'status' => 'ok',
+                        'renames' => $lockedPlan['renames'],
+                        'summary' => $lockedPlan['summary'],
+                        'symbols' => (new GlobalSymbolService())->listReadOnlyFromIblockId(
+                            $lockedGlobalIblockId
+                        ),
+                    ],
+                ];
             }
-            if (!hash_equals(
-                $this->neutralRegistryFingerprint($prospectiveNeutralRows),
-                $this->neutralRegistryFingerprint($readBackNeutralRows)
-            )) {
-                throw new \RuntimeException('Neutral global-symbol refactor read-back verification failed.', 409);
-            }
-            $connection->commitTransaction();
-        } catch (\Throwable $error) {
-            $connection->rollbackTransaction();
-            throw $error;
-        }
-
-        return [
-            'status' => 'ok',
-            'renames' => $plan['renames'],
-            'summary' => $plan['summary'],
-            'symbols' => (new GlobalSymbolService())->listReadOnlyFromIblockId(
-                $lockedGlobalIblockId,
-                NeutralFormulaPolicy::PRESET_ID
-            ),
-        ];
+        );
     }
 
     /**
-     * @param array<int,array<string,mixed>> $renames
-     * @param array{active:bool,markerExists:bool,recoveryProtected?:bool} $authority
+     * @param array<int,array<string,mixed>> $mutations
+     * @return array<int,array<string,mixed>>
      */
-    private function assertRequiredNeutralRenamesAllowed(array $renames, array $authority): void
+    private function mutationState(array $mutations, string $source): array
     {
-        if (!$authority['active'] && !$authority['markerExists'] && !($authority['recoveryProtected'] ?? false)) {
-            return;
+        if (!in_array($source, ['before', 'after', 'current'], true)) {
+            throw new \InvalidArgumentException('Global mutation readback source is invalid.', 422);
         }
-        $required = \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::requiredSymbolIdentities();
-        $required = array_merge(
-            $required,
-            \Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolCorrectionMigrationService::declarationIdentities()
-        );
-        $requiredIds = [];
-        foreach ($required as $code => $identity) {
-            $requiredIds[(int)$identity['id']] = (string)$code;
-        }
-        foreach ($renames as $rename) {
-            if (($rename['source'] ?? '') !== 'registry'
-                || (string)($rename['oldCode'] ?? '') === (string)($rename['newCode'] ?? '')) {
-                continue;
+        $state = [];
+        foreach ($mutations as $mutation) {
+            $kind = (string)($mutation['kind'] ?? '');
+            $iblockId = (int)($mutation['iblockId'] ?? 0);
+            $elementId = (int)($mutation['elementId'] ?? 0);
+            $propertyCode = (string)($mutation['propertyCode'] ?? '');
+            if ($iblockId <= 0 || $elementId <= 0 || $propertyCode === '') {
+                throw new \RuntimeException('Global mutation target is invalid.', 409);
             }
-            $oldCode = (string)($rename['oldCode'] ?? '');
-            $registryId = (int)($rename['registryId'] ?? 0);
-            if (isset($required[$oldCode]) || isset($requiredIds[$registryId])) {
-                throw new \RuntimeException(
-                    'Required preset-12740 global symbol ' . $oldCode
-                        . ' cannot be renamed while the neutral contract is migrated or active.',
-                    409
-                );
+            if ($source === 'current') {
+                if ($kind === 'element_code') {
+                    $row = \CIBlockElement::GetList(
+                        [],
+                        ['IBLOCK_ID' => $iblockId, 'ID' => $elementId],
+                        false,
+                        ['nTopCount' => 1],
+                        ['ID', 'IBLOCK_ID', 'CODE']
+                    )->Fetch();
+                    if (!is_array($row)
+                        || (int)($row['ID'] ?? 0) !== $elementId
+                        || (int)($row['IBLOCK_ID'] ?? 0) !== $iblockId) {
+                        throw new \RuntimeException('Global refactor element readback failed.', 409);
+                    }
+                    $value = (string)($row['CODE'] ?? '');
+                } elseif ($kind === 'property') {
+                    $value = $this->readPropertyRows($iblockId, $elementId, $propertyCode);
+                } else {
+                    throw new \RuntimeException('Global mutation kind is invalid.', 409);
+                }
+            } else {
+                $value = $mutation[$source] ?? null;
             }
+            $state[] = [
+                'kind' => $kind,
+                'storage' => (string)($mutation['storage'] ?? ''),
+                'iblockId' => $iblockId,
+                'elementId' => $elementId,
+                'propertyCode' => $propertyCode,
+                'value' => $value,
+            ];
         }
+        return $state;
     }
 
     private function buildPlan(array $request, ?array $pinnedAuthority = null): array
@@ -172,7 +187,7 @@ final class GlobalCodeRefactorService
         foreach ($renames as $rename) $map[$rename['oldCode']] = $rename['newCode'];
 
         if ($pinnedAuthority === null) {
-            throw new \RuntimeException('Direct pinned neutral refactor authority is required.', 409);
+            throw new \RuntimeException('Direct pinned refactor authority is required.', 409);
         }
         $iblockIds = (array)($pinnedAuthority['iblockIds'] ?? []);
         $registryId = (int)($pinnedAuthority['globalIblockId'] ?? 0);
@@ -180,7 +195,7 @@ final class GlobalCodeRefactorService
         $settingsId = (int)($iblockIds['CALC_SETTINGS'] ?? 0);
         $stagesId = (int)($iblockIds['CALC_STAGES'] ?? 0);
         if ($registryId <= 0 || $presetId <= 0 || $settingsId <= 0 || $stagesId <= 0) {
-            throw new \RuntimeException('Pinned neutral refactor storages are invalid.', 409);
+            throw new \RuntimeException('Pinned refactor storages are invalid.', 409);
         }
         $mutations = [];
 
@@ -223,7 +238,7 @@ final class GlobalCodeRefactorService
             }
             if ($old !== $new && $oldKey === $newKey) {
                 throw new \InvalidArgumentException(
-                    'Case-only global-code renames are not supported by the neutral contract.'
+                    'Case-only global-code renames are not supported.'
                 );
             }
             if (isset($allGlobalCodes[$newKey]) && $newKey !== $oldKey) {
@@ -264,7 +279,6 @@ final class GlobalCodeRefactorService
             $this->planExactListProperty($mutations, 'calculators', $settingsId, $elementId, 'GLOBAL_DEPENDENCIES', $map);
         }
         foreach ($this->elementIds($stagesId) as $elementId) {
-            $this->planJsonProperty($mutations, 'stages', $stagesId, $elementId, 'GLOBAL_ASSIGNMENTS', $map, 'logic');
             $this->planJsonProperty($mutations, 'stages', $stagesId, $elementId, 'ACTIVATION_CONDITION', $map, 'condition', 'scalar');
             $this->planDescribedSources($mutations, $stagesId, $elementId, 'OUTPUTS', $map);
             $this->planDescribedSources($mutations, $stagesId, $elementId, 'REFERENCE', $map);
@@ -311,7 +325,7 @@ final class GlobalCodeRefactorService
                 throw new \InvalidArgumentException('Некорректные параметры переименования #' . ($index + 1));
             }
             if ($source === 'registry' && $registryId <= 0) throw new \InvalidArgumentException('Не указан ID записи реестра');
-            if (\Prospektweb\Calc\Install\Preset12740NeutralGlobalSymbolMigrationService::isReservedGlobalCode($new)) {
+            if (CalculatorMutationAuthorityService::isReservedIdentifier($new)) {
                 throw new \InvalidArgumentException('Код ' . $new . ' зарезервирован языком формул');
             }
             $oldKey = strtolower($old);
@@ -599,7 +613,7 @@ final class GlobalCodeRefactorService
     private function lockRegistryRows($connection, int $iblockId): void
     {
         if ($iblockId <= 0) {
-            throw new \RuntimeException('Pinned neutral refactor registry is invalid.', 409);
+            throw new \RuntimeException('Pinned refactor registry is invalid.', 409);
         }
         $elementIds = [];
         $elements = $connection->query(
@@ -609,7 +623,7 @@ final class GlobalCodeRefactorService
             $elementIds[] = (int)$row['ID'];
         }
         if ($elementIds === []) {
-            throw new \RuntimeException('Pinned neutral refactor registry is empty.', 409);
+            throw new \RuntimeException('Pinned refactor registry is empty.', 409);
         }
         $idList = implode(',', $elementIds);
         $connection->queryExecute(
@@ -631,13 +645,9 @@ final class GlobalCodeRefactorService
      * @param array<int,array<string,mixed>> $rows
      * @return array<int,array<string,mixed>>
      */
-    private function neutralRegistryRows(array $rows): array
+    private function registryRows(array $rows): array
     {
-        $owned = array_values(array_filter(
-            $rows,
-            static fn($row): bool => is_array($row)
-                && (int)($row['presetId'] ?? 0) === NeutralFormulaPolicy::PRESET_ID
-        ));
+        $owned = array_values(array_filter($rows, 'is_array'));
         usort($owned, static fn(array $left, array $right): int =>
             (int)($left['id'] ?? 0) <=> (int)($right['id'] ?? 0)
         );
@@ -645,7 +655,7 @@ final class GlobalCodeRefactorService
     }
 
     /**
-     * Materialize the exact protected registry state before any write. This is
+     * Materialize the exact registry state before any write. This is
      * deliberately independent of the formula-reference mutations in other
      * iblocks: only registry identity and INITIAL_VALUE mutations belong here.
      *
@@ -653,13 +663,13 @@ final class GlobalCodeRefactorService
      * @param array<int,array<string,mixed>> $mutations
      * @return array<int,array<string,mixed>>
      */
-    private function buildProspectiveNeutralRows(array $rows, array $mutations): array
+    private function buildProspectiveRegistryRows(array $rows, array $mutations): array
     {
         $byId = [];
-        foreach ($rows as $row) {
+        foreach ($this->registryRows($rows) as $row) {
             $id = (int)($row['id'] ?? 0);
             if ($id <= 0 || isset($byId[$id])) {
-                throw new \RuntimeException('Neutral global-symbol registry identity is invalid.', 409);
+                throw new \RuntimeException('Global-symbol registry identity is invalid.', 409);
             }
             $byId[$id] = $row;
         }
@@ -669,9 +679,6 @@ final class GlobalCodeRefactorService
             }
             $elementId = (int)($mutation['elementId'] ?? 0);
             if (!isset($byId[$elementId])) {
-                // The registry can contain other preset namespaces. Their
-                // formula references may be rewritten by the global refactor,
-                // but they are outside preset 12740's runtime identity set.
                 continue;
             }
             if (($mutation['kind'] ?? '') === 'element_code') {
@@ -688,7 +695,7 @@ final class GlobalCodeRefactorService
     }
 
     /** @param array<int,array<string,mixed>> $rows */
-    private function neutralRegistryFingerprint(array $rows): string
+    private function registryFingerprint(array $rows): string
     {
         $canonical = [];
         foreach ($rows as $row) {
@@ -705,7 +712,7 @@ final class GlobalCodeRefactorService
         usort($canonical, static fn(array $left, array $right): int => $left['id'] <=> $right['id']);
         $encoded = json_encode($canonical, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if (!is_string($encoded)) {
-            throw new \RuntimeException('Neutral registry fingerprint encoding failed.', 409);
+            throw new \RuntimeException('Registry fingerprint encoding failed.', 409);
         }
         return hash('sha256', $encoded);
     }

@@ -16,7 +16,12 @@ $assert = static function (bool $condition, string $message): void {
 $assert(strpos($service, 'collectDetailTreeIds') !== false, 'contract impact maps presets through their exact detail tree');
 $assert(strpos($service, "'stageIds' => array_map('intval', array_keys(\$presetStageIds))") !== false, 'each preset receives only its own affected stages');
 $assert(strpos($service, 'if ($focusStageId > 0)') !== false, 'preset editor links never emit a zero stage focus');
-$assert(strpos($service, "ensureStringProperty") !== false, 'contract blocking property is prepared without destructive schema repair');
+$assert(
+    strpos($service, "'=CODE' => 'CONTRACT_ISSUE'") !== false
+        && strpos($service, 'Свойство CONTRACT_ISSUE этапа не установлено') !== false
+        && strpos($service, 'ensureStringProperty') === false,
+    'contract clone requires the provisioned blocking property and never repairs schema during a graph mutation'
+);
 $assert(
     strpos($elementData, "\$allowedSettingsProperties = ['LOGIC_JSON', 'PARAMS', 'GLOBAL_DEPENDENCIES']") !== false
         && strpos($elementData, "'=CODE' => \$propertyCode") !== false

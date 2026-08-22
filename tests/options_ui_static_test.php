@@ -4,8 +4,10 @@ $options = file_get_contents(__DIR__ . '/../options.php');
 $defaults = file_get_contents(__DIR__ . '/../default_option.php');
 $messages = file_get_contents(__DIR__ . '/../lang/ru/options.php');
 $initPayload = file_get_contents(__DIR__ . '/../lib/Calculator/InitPayloadService.php');
+$settingsService = file_get_contents(__DIR__ . '/../lib/Services/ControlCenterSettingsService.php');
 
-if (!is_string($options) || !is_string($defaults) || !is_string($messages) || !is_string($initPayload)) {
+if (!is_string($options) || !is_string($defaults) || !is_string($messages)
+    || !is_string($initPayload) || !is_string($settingsService)) {
     throw new RuntimeException('Module settings sources are unavailable');
 }
 
@@ -60,8 +62,16 @@ $activeFields = [
 ];
 
 foreach ($activeFields as $field) {
-    if (strpos($options, 'name="' . $field . '"') === false) {
-        throw new RuntimeException("Active admin setting {$field} must remain available");
+    if (strpos($options, 'name="' . $field . '"') !== false
+        || strpos($options, "Option::set(\$module_id, '{$field}'") !== false) {
+        throw new RuntimeException("Control-center setting {$field} must not keep a parallel options writer");
+    }
+}
+foreach (['defaultExtraValue', 'defaultExtraCurrency', 'SAVE_CALC_HISTORY', 'CALC_HISTORY_LIMIT',
+    'loggingEnabled', 'MARKUP_SETTINGS', 'CALC_SERVER_URL', 'ASPRO_AI_TIMEWEB_ENABLED',
+    'ASPRO_AI_TIMEWEB_BASE_URL'] as $authorityField) {
+    if (strpos($settingsService, $authorityField) === false) {
+        throw new RuntimeException("Transactional settings authority is missing {$authorityField}");
     }
 }
 
@@ -87,10 +97,10 @@ foreach ($tabOrder as $messageKey) {
 
 if (
     strpos($options, "SetTitle(Loc::getMessage('PROSPEKTWEB_CALC_OPTIONS_TITLE'))") === false
-    || strpos($options, "pwcalc-history-limit-row") === false
-    || strpos($options, 'syncHistoryLimitVisibility') === false
+    || strpos($options, "'disabled' => true") === false
+    || strpos($options, 'Центр управления') === false
 ) {
-    throw new RuntimeException('Settings page must have a specific title and contextual history-limit visibility');
+    throw new RuntimeException('Settings page must be an explicitly read-only system overview');
 }
 
 if (

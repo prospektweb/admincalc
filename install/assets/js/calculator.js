@@ -8,8 +8,7 @@ console.log('[BitrixBridge] calculator.js loaded, init integration...');
 
 var ProspekwebCalc = {
     // Пути
-        appUrl: '/local/apps/prospektweb.calc/index.html?v=8a6c452f5d2e',
-    apiBase: '/bitrix/tools/prospektweb.calc/',
+    appUrl: '/local/apps/prospektweb.calc/index.html?v=09d410dbd2f5',
     cssPath: '/local/css/prospektweb.calc/calculator.css',
 
     loadCss: function(href) {
@@ -23,27 +22,14 @@ var ProspekwebCalc = {
         document.head.appendChild(link);
     },
     
-    // Белый список разрешённых endpoints для безопасности
-    allowedEndpoints: [
-        'calculators.php',
-        'config.php',
-        'equipment.php',
-        'elements.php',
-        'calculator_config.php',
-        'calculate.php',
-        'save_result.php'
-    ],
-    
     // Константы
     DOM_STABILIZATION_DELAY: 150, // Задержка в мс для стабилизации DOM после AJAX-обновлений
     INIT_RETRY_DELAY: 200,        // Задержка в мс между повторными попытками initAdminButton
     MAX_INIT_RETRIES: 10,         // Максимальное количество повторных попыток initAdminButton
-    PRESET_CONFIRM_MESSAGE: 'Необходимо создать новый пресет калькуляции',
     
     // Состояние
     dialog: null,
     iframe: null,
-    messageHandler: null,
     observer: null,
     windowCloseHandler: null,
     isClosing: false,
@@ -143,7 +129,6 @@ var ProspekwebCalc = {
         this.loadCss(this.cssPath);
         if (!containerId) {
             this.initAdminButton();
-            this.initMarkupAction();
             this.startObserver();
         }
     },
@@ -169,11 +154,10 @@ var ProspekwebCalc = {
         var toolbar = context.toolbar;
         var anchorNode = context.anchor;
 
-        // Если обе кнопки уже есть — ничего не делаем
+        // Если кнопка уже есть — ничего не делаем
         var existingCalc = document.getElementById('btn_prospektweb_calc');
-        var existingMarkup = document.getElementById('btn_prospektweb_markup');
 
-        if (existingCalc && existingMarkup) {
+        if (existingCalc) {
             return;
         }
 
@@ -202,26 +186,6 @@ var ProspekwebCalc = {
                 }
             }
 
-            // Создаём кнопку "Добавить наценку" если её нет — СРАЗУ после калькуляции
-            if (!existingMarkup) {
-                var markupBtn = document.createElement('a');
-                markupBtn.id = 'btn_prospektweb_markup';
-                markupBtn.className = 'adm-btn';
-                markupBtn.href = 'javascript:void(0)';
-                markupBtn.title = 'Добавить наценку';
-                markupBtn.textContent = 'Добавить наценку';
-
-                markupBtn.addEventListener('click', function() {
-                    self.openMarkupDialog();
-                });
-
-                // Вставляем сразу после кнопки калькуляции
-                if (calcBtn && calcBtn.parentNode) {
-                    calcBtn.parentNode.insertBefore(markupBtn, calcBtn.nextSibling);
-                } else {
-                    toolbar.appendChild(markupBtn);
-                }
-            }
         } finally {
             // Снимаем блокировку через микрозадержку, чтобы Observer успел пропустить наши изменения
             setTimeout(function() {
@@ -265,34 +229,6 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Инициализация кнопки массовой наценки рядом с Калькуляцией
-     */
-    initMarkupButton: function(toolbar, afterNode) {
-        var self = this;
-
-        if (!toolbar || document.getElementById('btn_prospektweb_markup')) {
-            return;
-        }
-
-        var markupBtn = document.createElement('a');
-        markupBtn.id = 'btn_prospektweb_markup';
-        markupBtn.className = 'adm-btn';
-        markupBtn.href = 'javascript:void(0)';
-        markupBtn.title = 'Добавить наценку';
-        markupBtn.textContent = 'Добавить наценку';
-
-        markupBtn.addEventListener('click', function() {
-            self.openMarkupDialog();
-        });
-
-        if (afterNode && afterNode.parentNode) {
-            afterNode.parentNode.insertBefore(markupBtn, afterNode.nextSibling);
-        } else {
-            toolbar.appendChild(markupBtn);
-        }
-    },
-
-    /**
      * Запуск наблюдателя за изменениями DOM
      */
     startObserver: function() {
@@ -329,29 +265,12 @@ var ProspekwebCalc = {
                 return;
             }
             
-            // Проверяем, что обе кнопки присутствуют после AJAX-перерисовки
+            // Проверяем, что кнопка калькуляции присутствует после AJAX-перерисовки
             var calcBtn = document.getElementById('btn_prospektweb_calc');
-            var markupBtn = document.getElementById('btn_prospektweb_markup');
-            var markupExists = !!document.querySelector('select[name="action"] option[value="pw_add_markup"]');
-            
-            if (calcBtn && !markupBtn) {
-                // Кнопка калькуляции есть, а наценки нет — добавляем наценку напрямую
-                setTimeout(function() {
-                    var toolbar = calcBtn.parentNode;
-                    if (toolbar) {
-                        self.initMarkupButton(toolbar, calcBtn);
-                    }
-                }, self.DOM_STABILIZATION_DELAY);
-            } else if (!calcBtn) {
-                // Обеих кнопок нет — пробуем добавить обе
+
+            if (!calcBtn) {
                 setTimeout(function() {
                     self.initAdminButton();
-                }, self.DOM_STABILIZATION_DELAY);
-            }
-
-            if (!markupExists) {
-                setTimeout(function() {
-                    self.initMarkupAction();
                 }, self.DOM_STABILIZATION_DELAY);
             }
         });
@@ -440,9 +359,10 @@ var ProspekwebCalc = {
             return;
         }
 
-        // Проверяем CALC_PRESET перед созданием диалога
-        var presetCheck = await this.ensurePresetAvailability(offers);
-        if (!presetCheck || presetCheck.cancelled || presetCheck.error) {
+        // Загружаем тот же строгий INIT, который получит редактор. Это единая
+        // проверка всех выбранных ТП, их товаров и одного явного CALC_PRESET.
+        var catalogInit = await this.loadCatalogInitPayload(offers);
+        if (!catalogInit || catalogInit.error) {
             return;
         }
 
@@ -495,7 +415,7 @@ var ProspekwebCalc = {
             offerIds: offers.map(function(o) { return o.id; }),
             siteId: BX.message('PROSPEKTWEB_CALC_SITE_ID') || BX.message('SITE_ID') || (typeof SITE_ID !== 'undefined' ? SITE_ID : 's1'),
             sessid: BX.bitrix_sessid(),
-            presetCheckResult: presetCheck,
+            initPayload: catalogInit.initPayload,
             onClose: function() {
                 self.closeDialog();
             },
@@ -639,154 +559,51 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Предварительная проверка/создание CALC_PRESET для выбранных ТП
-     * Упрощенная логика: один пресет на товар, конфликтов больше нет
+     * Загрузить строгий catalog INIT до открытия диалога.
      * @param {Array} offers
-     * @returns {Promise<{success: boolean, presetId?: number, skipPresetCheck: boolean, cancelled?: boolean, error?: boolean}>}
-     * When preset exists: {success: true, presetId: number, skipPresetCheck: true}
-     * When cancelled: {success: false, cancelled: true, skipPresetCheck: true}
-     * When error: {success: false, error: true, skipPresetCheck: true}
+     * @returns {Promise<{success: boolean, presetId?: number, initPayload?: Object, error?: boolean}>}
      */
-    ensurePresetAvailability: async function(offers) {
+    loadCatalogInitPayload: async function(offers) {
         var offerIds = offers.map(function(o) { return o.id; });
         var ajaxEndpoint = '/bitrix/tools/prospektweb.calc/calculator_ajax.php';
         var sessid = BX.bitrix_sessid();
         var siteId = BX.message('PROSPEKTWEB_CALC_SITE_ID') || BX.message('SITE_ID') || (typeof SITE_ID !== 'undefined' ? SITE_ID : 's1');
 
         try {
-            // Проверяем наличие пресета у товара
-            var checkUrl = ajaxEndpoint +
-                '?action=checkPresets' +
-                '&offerIds=' + encodeURIComponent(offerIds.join(',')) +
-                '&siteId=' + encodeURIComponent(siteId) +
-                '&sessid=' + encodeURIComponent(sessid);
+            var initBody = new URLSearchParams();
+            initBody.set('action', 'getInitData');
+            initBody.set('offerIds', offerIds.join(','));
+            initBody.set('siteId', siteId);
+            initBody.set('sessid', sessid);
 
-            var checkResponse = await fetch(checkUrl, {
-                method: 'GET',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            var initResponse = await fetch(ajaxEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: initBody.toString()
             });
 
-            var checkData = await this.parseJsonResponse(checkResponse);
-
-            if (!checkResponse.ok || !checkData.success) {
-                throw new Error((checkData && (checkData.message || checkData.error)) || 'Ошибка проверки пресетов');
+            var initData = await this.parseJsonResponse(initResponse);
+            if (!initResponse.ok || !initData.success || !initData.data) {
+                throw new Error((initData && (initData.message || initData.error)) || 'Не удалось загрузить калькулятор');
             }
 
-            if (!checkData.data) {
-                throw new Error('Некорректный ответ проверки пресетов');
+            var presetId = parseInt(initData.data.preset && initData.data.preset.id, 10) || 0;
+            if (!presetId || !initData.data.editorRuntime) {
+                throw new Error('Сервер вернул неполный контракт запуска калькулятора');
             }
 
-            var hasPreset = Boolean(checkData.data.hasPreset);
-            var presetId = checkData.data.presetId ? parseInt(checkData.data.presetId, 10) : null;
-
-            if (hasPreset && presetId) {
-                // Пресет уже есть у товара — используем его
-                return { success: true, presetId: presetId, skipPresetCheck: true };
-            }
-
-            // Пресета нет — запрашиваем подтверждение на создание
-            var confirmed = await this.showConfirmation(this.PRESET_CONFIRM_MESSAGE, 'Создание пресета', 'Создать');
-            if (!confirmed) {
-                return { success: false, cancelled: true, skipPresetCheck: true };
-            }
-
-            // Создаём новый пресет (автоматически привяжется к товару)
-            var createUrl = ajaxEndpoint +
-                '?action=createAndAssignPreset' +
-                '&offerIds=' + encodeURIComponent(offerIds.join(',')) +
-                '&siteId=' + encodeURIComponent(siteId) +
-                '&sessid=' + encodeURIComponent(sessid);
-
-            var createResponse = await fetch(createUrl, {
-                method: 'GET',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' },
-            });
-
-            var createData = await this.parseJsonResponse(createResponse);
-
-            if (!createResponse.ok || !createData.success) {
-                throw new Error((createData && (createData.message || createData.error)) || 'Ошибка создания пресета');
-            }
-
-            return {
-                success: true,
-                presetId: createData.data ? createData.data.presetId : null,
-                skipPresetCheck: true,
-            };
+            return { success: true, presetId: presetId, initPayload: initData.data };
         } catch (error) {
-            console.error('[ProspektwebCalc] Preset check error:', error);
-            this.showMessage('Ошибка проверки/создания пресета: ' + error.message, 'Ошибка пресета');
-            return { success: false, error: true, skipPresetCheck: true };
-        }
-    },
-
-    /**
-     * Отправка сообщения в iframe
-     * @deprecated Используется ProspektwebCalcIntegration
-     */
-    sendToIframe: function(message) {
-        if (this.iframe && this.iframe.contentWindow) {
-            // Отправляем в том же домене - безопасно использовать window.location.origin
-            var targetOrigin = window.location.origin;
-            this.iframe.contentWindow.postMessage(message, targetOrigin);
-        }
-    },
-
-    /**
-     * Обработка сообщений от iframe
-     * @deprecated Используется ProspektwebCalcIntegration
-     */
-    handleMessage: function(event) {
-        // Проверяем origin - принимаем только сообщения с того же домена
-        if (event.origin !== window.location.origin) {
-            return;
-        }
-        
-        var data = event.data;
-        
-        if (!data || !data.type) {
-            return;
-        }
-
-        switch (data.type) {
-            case 'CALC_READY':
-                console.log('Calculator ready');
-                break;
-                
-            case 'CALC_CLOSE':
-                this.closeDialog();
-                break;
-                
-            case 'CALC_OPEN_OFFER':
-                // Открываем ТП в новой вкладке браузера
-                if (data.payload && data.payload.editUrl) {
-                    window.open(data.payload.editUrl, '_blank');
-                    console.log('Opening offer in new tab:', data.payload.id);
-                }
-                break;
-                
-            case 'CALC_REMOVE_OFFER':
-                // Логирование удаления ТП из списка
-                if (data.payload && data.payload.id) {
-                    console.log('Offer removed from list:', data.payload.id);
-                }
-                break;
-                
-            case 'CALC_RESULT':
-                this.handleCalculationResult(data.payload);
-                break;
-                
-            case 'CALC_SAVE_CONFIG':
-                this.saveConfiguration(data.payload);
-                break;
-                
-            case 'CALC_API_REQUEST':
-                this.proxyApiRequest(data.payload);
-                break;
-                
-            case 'CALC_ERROR':
-                console.error('Calculator error:', data.payload);
-                break;
+            console.error('[ProspektwebCalc] Catalog INIT error:', error);
+            var message = error && error.message ? error.message : 'Не удалось загрузить калькулятор';
+            if (message.indexOf('не имеет пресета') !== -1 || message.indexOf('CALC_PRESET') !== -1) {
+                message = 'Товару не назначен калькулятор. Назначьте пресет в Центре управления и повторите запуск.';
+            }
+            this.showMessage(message, 'Калькулятор не открыт');
+            return { success: false, error: true };
         }
     },
 
@@ -812,12 +629,6 @@ var ProspekwebCalc = {
             this.integration = null;
         }
         
-        // Удаляем старый обработчик сообщений (для обратной совместимости)
-        if (this.messageHandler) {
-            window.removeEventListener('message', this.messageHandler);
-            this.messageHandler = null;
-        }
-
         if (this.dialog) {
             if (this.windowCloseHandler) {
                 BX.removeCustomEvent(this.dialog, 'onWindowClose', this.windowCloseHandler);
@@ -835,364 +646,6 @@ var ProspekwebCalc = {
         document.body.classList.remove('prospektweb-calc-dialog-open');
 
         this.isClosing = false;
-    },
-
-    /**
-     * Обработка результата калькуляции
-     * @deprecated Используется ProspektwebCalcIntegration
-     */
-    handleCalculationResult: function(result) {
-        var self = this;
-        
-        // Отправляем результат на сервер
-        BX.ajax.post(
-            this.apiBase + 'save_result.php',
-            {
-                sessid: BX.bitrix_sessid(),
-                result: JSON.stringify(result)
-            },
-            function(response) {
-                try {
-                    var data = JSON.parse(response);
-                    if (data.success) {
-                        self.sendToIframe({
-                            type: 'BITRIX_SAVE_SUCCESS',
-                            payload: data
-                        });
-                    } else {
-                        self.sendToIframe({
-                            type: 'BITRIX_SAVE_ERROR',
-                            payload: data.error || 'Unknown error'
-                        });
-                    }
-                } catch (e) {
-                    self.sendToIframe({
-                        type: 'BITRIX_SAVE_ERROR',
-                        payload: 'Parse error'
-                    });
-                }
-            },
-            function(error) {
-                // Обработка сетевых ошибок
-                self.sendToIframe({
-                    type: 'BITRIX_SAVE_ERROR',
-                    payload: 'Network error: ' + (error || 'Unknown error')
-                });
-            }
-        );
-    },
-
-    /**
-     * Сохранение конфигурации
-     * @deprecated Используется ProspektwebCalcIntegration
-     */
-    saveConfiguration: function(config) {
-        var self = this;
-        
-        BX.ajax.post(
-            this.apiBase + 'config.php',
-            {
-                sessid: BX.bitrix_sessid(),
-                action: 'save',
-                config: JSON.stringify(config)
-            },
-            function(response) {
-                try {
-                    var data = JSON.parse(response);
-                    self.sendToIframe({
-                        type: 'BITRIX_CONFIG_SAVED',
-                        payload: data
-                    });
-                } catch (e) {
-                    self.sendToIframe({
-                        type: 'BITRIX_CONFIG_ERROR',
-                        payload: 'Parse error'
-                    });
-                }
-            },
-            function(error) {
-                // Обработка сетевых ошибок
-                self.sendToIframe({
-                    type: 'BITRIX_CONFIG_ERROR',
-                    payload: 'Network error: ' + (error || 'Unknown error')
-                });
-            }
-        );
-    },
-
-    /**
-     * Проксирование API запросов
-     * @deprecated Используется ProspektwebCalcIntegration
-     */
-    proxyApiRequest: function(request) {
-        var self = this;
-        
-        // Валидация входных данных
-        if (!request || typeof request.endpoint !== 'string') {
-            self.sendToIframe({
-                type: 'BITRIX_API_RESPONSE',
-                payload: {
-                    requestId: request ? request.requestId : null,
-                    success: false,
-                    error: 'Invalid request'
-                }
-            });
-            return;
-        }
-        
-        // Валидация HTTP метода
-        var allowedMethods = ['GET', 'POST'];
-        var method = request.method || 'GET';
-        if (allowedMethods.indexOf(method.toUpperCase()) === -1) {
-            self.sendToIframe({
-                type: 'BITRIX_API_RESPONSE',
-                payload: {
-                    requestId: request.requestId,
-                    success: false,
-                    error: 'Invalid method'
-                }
-            });
-            return;
-        }
-        
-        // Проверяем, что endpoint в белом списке
-        if (this.allowedEndpoints.indexOf(request.endpoint) === -1) {
-            self.sendToIframe({
-                type: 'BITRIX_API_RESPONSE',
-                payload: {
-                    requestId: request.requestId,
-                    success: false,
-                    error: 'Access denied'
-                }
-            });
-            return;
-        }
-        
-        // Создаём объект данных вручную для поддержки старых браузеров
-        // ВАЖНО: sessid добавляется последним, чтобы предотвратить переопределение
-        var data = {};
-        if (request.data) {
-            for (var key in request.data) {
-                if (request.data.hasOwnProperty(key) && key !== 'sessid') {
-                    data[key] = request.data[key];
-                }
-            }
-        }
-        // Добавляем sessid в конце, чтобы он не мог быть переопределён
-        data.sessid = BX.bitrix_sessid();
-        
-        BX.ajax({
-            method: method,
-            url: this.apiBase + request.endpoint,
-            data: data,
-            dataType: 'json',
-            onsuccess: function(data) {
-                self.sendToIframe({
-                    type: 'BITRIX_API_RESPONSE',
-                    payload: {
-                        requestId: request.requestId,
-                        success: true,
-                        data: data
-                    }
-                });
-            },
-            onfailure: function(error) {
-                self.sendToIframe({
-                    type: 'BITRIX_API_RESPONSE',
-                    payload: {
-                        requestId: request.requestId,
-                        success: false,
-                        error: error
-                    }
-                });
-            }
-        });
-    },
-
-
-
-    initMarkupAction: function() {
-        var self = this;
-        var offersTab = document.getElementById('tab_sub_list');
-        if (!offersTab) {
-            return;
-        }
-        var selects = offersTab.querySelectorAll('select[name="action"], select.adm-select[id*="_action"]');
-
-        for (var i = 0; i < selects.length; i++) {
-            var select = selects[i];
-            if (!select || select.dataset.pwMarkupBound === 'Y') {
-                continue;
-            }
-
-            if (!select.querySelector('option[value="pw_add_markup"]')) {
-                var option = document.createElement('option');
-                option.value = 'pw_add_markup';
-                option.textContent = 'Добавить наценку';
-                select.appendChild(option);
-            }
-
-            select.addEventListener('change', function(e) {
-                var target = e.target;
-                if (!target || target.value !== 'pw_add_markup') {
-                    return;
-                }
-
-                target.value = '';
-                self.openMarkupDialog();
-            });
-
-            select.dataset.pwMarkupBound = 'Y';
-        }
-    },
-
-    openMarkupDialog: function() {
-        var self = this;
-        var offers = this.getSelectedOffers();
-
-        if (!offers.length) {
-            this.showMessage('Не выбраны торговые предложения');
-            return;
-        }
-
-        BX.ajax({
-            method: 'POST',
-            dataType: 'json',
-            url: '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
-            data: {
-                sessid: BX.bitrix_sessid(),
-                action: 'getMarkupSettings'
-            },
-            onsuccess: function(response) {
-                if (!response || !response.success || !response.data) {
-                    self.showMessage('Не удалось загрузить настройки наценок', 'Ошибка наценки');
-                    return;
-                }
-
-                self.showMarkupPopup(response.data, offers);
-            },
-            onfailure: function() {
-                self.showMessage('Ошибка запроса настроек наценок', 'Ошибка наценки');
-            }
-        });
-    },
-
-    showMarkupPopup: function(data, offers) {
-        var self = this;
-        var priceTypes = Array.isArray(data.priceTypes) ? data.priceTypes : [];
-        var settings = data.settings || {};
-        var rates = settings.rates || {};
-        var basePriceTypeId = parseInt(settings.basePriceTypeId || 0, 10);
-        var rounding = parseFloat(settings.rounding || 1);
-        var roundingOptions = [0.1, 0.5, 1, 5, 10, 50, 100];
-
-        if (!priceTypes.length) {
-            this.showMessage('Типы цен не найдены', 'Настройка наценки');
-            return;
-        }
-
-        var roundingOptionsHtml = '';
-        for (var roundingIndex = 0; roundingIndex < roundingOptions.length; roundingIndex++) {
-            var roundingValue = roundingOptions[roundingIndex];
-            var roundingSelected = Math.abs(rounding - roundingValue) < 0.001 ? 'selected' : '';
-            roundingOptionsHtml += '<option value="' + roundingValue + '" ' + roundingSelected + '>' + roundingValue + '</option>';
-        }
-
-        var html = '<div style="padding:12px;max-height:520px;overflow:auto;">' +
-            '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px;">' +
-                '<div style="color:#666;">Выбрано ТП: ' + offers.length + '</div>' +
-                '<label style="display:flex;align-items:center;gap:8px;">' +
-                    '<span>Шаг округления вверх</span>' +
-                    '<select data-role="pw-markup-rounding" style="min-width:90px;">' + roundingOptionsHtml + '</select>' +
-                '</label>' +
-            '</div>' +
-            '<table class="adm-list-table" style="width:100%;">' +
-                '<thead><tr class="adm-list-table-header">' +
-                    '<td>Тип цены</td><td style="width:210px;">Стартовая цена</td><td style="width:210px;">Наценка, %</td>' +
-                '</tr></thead><tbody>';
-
-        for (var i = 0; i < priceTypes.length; i++) {
-            var pt = priceTypes[i];
-            var id = parseInt(pt.id, 10);
-            var checked = basePriceTypeId === id ? 'checked' : '';
-            var rate = rates[id] !== undefined ? rates[id] : 0;
-
-            html += '<tr>' +
-                '<td>' + BX.util.htmlspecialchars(pt.name || ('ID ' + id)) + ' [' + id + ']</td>' +
-                '<td><label><input type="radio" name="pw-markup-base" value="' + id + '" ' + checked + '> Базовый тип</label></td>' +
-                '<td><input type="number" data-role="pw-markup-rate" data-price-type-id="' + id + '" value="' + rate + '" step="0.01" style="width:120px;"> %</td>' +
-            '</tr>';
-        }
-
-        html += '</tbody></table></div>';
-
-        var container = document.createElement('div');
-        container.innerHTML = html;
-
-        var popup = new BX.CAdminDialog({
-            title: 'Добавить наценку',
-            content: container,
-            width: 920,
-            height: 620,
-            resizable: true,
-            buttons: [
-                '<input type="button" class="adm-btn-save" value="Запустить" id="pw-markup-run">',
-                BX.CAdminDialog.btnCancel
-            ]
-        });
-
-        popup.Show();
-
-        setTimeout(function() {
-            var runBtn = document.getElementById('pw-markup-run');
-            if (!runBtn) {
-                return;
-            }
-
-            runBtn.onclick = function() {
-                var baseNode = container.querySelector('input[name="pw-markup-base"]:checked');
-                if (!baseNode) {
-                    self.showMessage('Выберите стартовый тип цены', 'Настройка наценки');
-                    return;
-                }
-
-                var requestRates = {};
-                container.querySelectorAll('[data-role="pw-markup-rate"]').forEach(function(input) {
-                    requestRates[input.dataset.priceTypeId] = input.value || '0';
-                });
-                var roundingNode = container.querySelector('[data-role="pw-markup-rounding"]');
-                if (!roundingNode) {
-                    self.showMessage('Не удалось определить шаг округления', 'Настройка наценки');
-                    return;
-                }
-
-                BX.ajax({
-                    method: 'POST',
-                    dataType: 'json',
-                    url: '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
-                    data: {
-                        sessid: BX.bitrix_sessid(),
-                        action: 'applyMarkups',
-                        offerIds: offers.map(function(o) { return o.id; }).join(','),
-                        basePriceTypeId: parseInt(baseNode.value, 10),
-                        rates: JSON.stringify(requestRates),
-                        rounding: roundingNode.value
-                    },
-                    onsuccess: function(response) {
-                        if (!response || !response.success) {
-                            self.showMessage('Ошибка запуска наценки: ' + ((response && response.message) || 'неизвестная ошибка'), 'Ошибка наценки');
-                            return;
-                        }
-
-                        popup.Close();
-                        self.showMessage('Готово. Обновлено ТП: ' + (response.data && response.data.updated ? response.data.updated : 0), 'Наценка применена');
-                    },
-                    onfailure: function() {
-                        self.showMessage('Ошибка запроса запуска наценки', 'Ошибка наценки');
-                    }
-                });
-            };
-        }, 0);
     },
 
     /**

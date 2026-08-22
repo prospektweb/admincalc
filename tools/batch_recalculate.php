@@ -378,15 +378,6 @@ function deletePreviewState(int $userId): void
     }
 }
 
-function getLegacyJobFilePaths(int $userId): array
-{
-    $base = $_SERVER['DOCUMENT_ROOT'] . '/upload/prospektweb.calc';
-    return [
-        $base . '/batch_recalc_job_user_' . $userId . '.json',
-        $base . '/private/batch_recalc_job_user_' . $userId . '.json',
-    ];
-}
-
 /** @return resource */
 function acquireJobLock(int $userId)
 {
@@ -406,19 +397,6 @@ function acquireJobLock(int $userId)
 function loadJobState(int $userId): ?array
 {
     $path = getJobFilePath($userId);
-    foreach (getLegacyJobFilePaths($userId) as $legacyPath) {
-        if (!is_file($path) && is_file($legacyPath)) {
-            $legacyContent = file_get_contents($legacyPath);
-            $legacyState = is_string($legacyContent) ? json_decode($legacyContent, true) : null;
-            if (is_array($legacyState)) {
-                $legacyState['jobId'] = (string)($legacyState['jobId'] ?? bin2hex(random_bytes(16)));
-                saveJobState($userId, $legacyState);
-            }
-        }
-        if (is_file($legacyPath)) {
-            @unlink($legacyPath);
-        }
-    }
     if (!is_file($path)) {
         return null;
     }
@@ -461,11 +439,6 @@ function deleteJobState(int $userId): void
     $path = getJobFilePath($userId);
     if (is_file($path)) {
         @unlink($path);
-    }
-    foreach (getLegacyJobFilePaths($userId) as $legacyPath) {
-        if (is_file($legacyPath)) {
-            @unlink($legacyPath);
-        }
     }
 }
 

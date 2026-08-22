@@ -13,31 +13,36 @@ $offerUpdateService = file_get_contents(__DIR__ . '/../lib/Services/OfferUpdateS
 $aiGatewayService = file_get_contents(__DIR__ . '/../lib/Services/AiGatewayService.php');
 $calculatorAjax = file_get_contents(__DIR__ . '/../tools/calculator_ajax.php');
 $installer = file_get_contents(__DIR__ . '/../install/step3.php');
+$stageVariantMappingService = file_get_contents(__DIR__ . '/../lib/Services/StageVariantMappingService.php');
 $appIndex = file_get_contents(__DIR__ . '/../install/assets/apps_dist/index.html');
 $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/index.js');
 $engineBundlePath = __DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js';
 $engineBundle = is_file($engineBundlePath) ? file_get_contents($engineBundlePath) : $appBundle;
 
-if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($offerUpdateService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($appIndex) || !is_string($appBundle) || !is_string($engineBundle)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($offerUpdateService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($stageVariantMappingService) || !is_string($appIndex) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
 $integration = str_replace("\r\n", "\n", $integration);
 
+if (strpos($integration, 'SAVE_OPTIONAL_STAGE_REQUEST') !== false) {
+    throw new RuntimeException('The bridge must reject the removed optional-stage compatibility message');
+}
+
 $checks = [
-    [$integration, "offers: offers", 'Save request must submit every compact offer as one batch'],
-    [$integration, "normalizeBatchSaveResults", 'Batch save response must be mapped back to individual offers'],
-    [$integration, "delete json.historyJson", 'Full history snapshots must not be duplicated in the offer-update payload'],
+    [$calculator, 'Товару не назначен калькулятор. Назначьте пресет в Центре управления и повторите запуск.', 'A product without CALC_PRESET must fail closed with an actionable assignment message'],
+    [$calculator, 'initPayload: catalogInit.initPayload', 'Product-card launch must pass the one strict authoritative INIT into the editor bridge'],
+    [$integration, 'this.config.initPayload || await this.fetchInitData()', 'The bridge must reuse a preloaded catalog INIT and load only manual launches itself'],
     [$initPayloadService, "'saveCalculationHistory' => Option::get(self::MODULE_ID, 'SAVE_CALC_HISTORY', 'N') === 'Y'", 'Init payload must tell the editor whether a full history snapshot is needed'],
     [$offerUpdateService, "if (!empty(\$writeErrors))", 'Offer update failures must not be reported as successful saves'],
     [$offerUpdateService, "'status' => 'error'", 'Offer update response must expose failed writes'],
     [$offerUpdateService, '($entry[\'writeToOffer\'] ?? true) !== false', 'Disabled calculated parameters must not be written to PARAMETR_VALUES'],
     [$calculator, "this.expandCalculatorDialog(dialog);", 'Calculator dialog must request expanded mode after Show'],
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
-    [$calculator, "index.html?v=8a6c452f5d2e", 'Embedded calculator must load the current frontend release without stale HTML cache'],
+    [$calculator, "index.html?v=09d410dbd2f5", 'Embedded calculator must load the current frontend release without stale HTML cache'],
     [$calculatorPage, "\$appVersion = is_file(\$appIndexPath) ? (string)filemtime(\$appIndexPath) : '1';", 'Standalone calculator page must derive its cache key from the deployed app'],
-    [$appIndex, "assets/index.js?v=8a6c452f5d2e", 'App HTML must load the current JavaScript bundle without stale asset cache'],
-    [$appIndex, "assets/style.css?v=8a6c452f5d2e", 'App HTML must load the current stylesheet without stale asset cache'],
+    [$appIndex, "assets/index.js?v=09d410dbd2f5", 'App HTML must load the current JavaScript bundle without stale asset cache'],
+    [$appIndex, "assets/style.css?v=09d410dbd2f5", 'App HTML must load the current stylesheet without stale asset cache'],
     [$calculatorPage, "overflow: hidden !important;", 'Standalone calculator page must not expose the taller Bitrix admin document scrollbar'],
     [$calculatorPage, 'z-index: 2147483647;', 'Standalone calculator must cover every Bitrix admin chrome layer'],
     [$calculatorPage, "document.body.appendChild(container);", 'Standalone calculator must escape the Bitrix workarea stacking context'],
@@ -72,46 +77,49 @@ $checks = [
     [$elementDataService, "'PREVIEW_TEXT', 'DETAIL_TEXT'", 'Calculator context must expose its announcement and full description'],
     [$elementDataService, "strpos(\$value, '|')", 'Custom field values must reject the reserved visibility separator'],
     [$elementDataService, "\$value . '|' . (\$visible ? 'Y' : 'N')", 'Stage custom fields must persist their visibility marker'],
-    [$initPayloadService, 'synchronizePresetCustomFields', 'INIT load must repair stale preset custom-field links'],
+    [$initPayloadService, 'prepareNeutralInitPayloadReadOnly', 'INIT load must remain on the read-only neutral path'],
     [$initPayloadService, 'public function preparePresetPayload(int $presetId, string $siteId): array', 'Preset authoring must have a product-neutral INIT path'],
-    [$initPayloadService, "'selectedOffers' => []", 'Standalone preset INIT must not fabricate SKUs'],
+    [$initPayloadService, "'selectedOffers' => \$selectedOffers", 'Standalone preset INIT must expose only explicitly loaded SKUs'],
     [$initPayloadService, "'product' => null", 'Standalone preset INIT must not fabricate a product'],
     [$calculatorAjax, 'prepareNeutralInitPayloadReadOnly(', 'INIT endpoint must dispatch preset and catalog launches through the read-only neutral resolver'],
-    [$integration, "'&presetId=' + encodeURIComponent(this.config.presetId || '')", 'Bridge INIT must carry the standalone preset identity'],
+    [$calculatorAjax, 'requestLogMetadata($data)', 'Public endpoint logging must emit only allowlisted metadata'],
+    [$calculatorAjax, 'dirname($documentRoot) . DIRECTORY_SEPARATOR . LOG_DIRECTORY', 'Diagnostics must be stored outside the web document root'],
+    [$calculatorAjax, '@chmod($logFile, 0600)', 'Private diagnostics must use owner-only file permissions'],
+    [$integration, "body.set('presetId', String(this.config.presetId || ''))", 'Bridge INIT must carry the standalone preset identity in the POST body'],
     [$presetEnrichmentService, "['CALC_DETAILS' => &\$rootIds, 'CALC_CUSTOM_FIELDS' => &\$actual]", 'Preset repair must inspect every linked root detail'],
-    [$presetEnrichmentService, 'public function getProductRootsFromPreset', 'Preset enrichment must expose the complete ordered product topology'],
-    [$elementDataService, 'enrichPresetFromProductRoots(', 'Final-stage creation must preserve every root of a complex product'],
-    [$installer, "'GLOBAL_ASSIGNMENTS' => [", 'Installer must create stage-local global assignment storage'],
+    [$presetEnrichmentService, 'public function getRootsFromPreset', 'Preset enrichment must expose the complete ordered calculator topology'],
+    [$elementDataService, 'rebuildPresetFromRoots(', 'Final-stage creation must preserve every calculator root'],
     [$installer, "'ACTIVATION_CONDITION' => [", 'Installer must create stage activation storage'],
     [$installer, "'OPTIONS_EQUIPMENT' => [", 'Installer must create equipment mapping storage'],
+    [$installer, "prospektweb.calc.stage-variant-mapping/v1", 'Installer must describe the canonical semantic stage mapping contract'],
+    [$stageVariantMappingService, "public const CONTRACT = 'prospektweb.calc.stage-variant-mapping/v1'", 'Stage mappings must use the exact semantic contract'],
+    [$stageVariantMappingService, "'input_field_ids'", 'Stage mappings must be keyed by form input field IDs'],
+    [$elementDataService, 'StageVariantMappingService()', 'OPTIONS writes must be validated and canonicalized server-side'],
     [$installer, "'SOURCE_LINKS' => ['NAME' => 'Ссылки на источники данных'", 'Installer must create source-link properties for technical catalogs'],
-    [$integration, 'stageWiring.globalAssignments', 'Logic save must send stage-local global assignments'],
-    [$integration, "propertyCode: 'GLOBAL_ASSIGNMENTS'", 'Logic save must persist stage-local global assignments'],
-    [$integration, "updateStagePropertyInInitDataWithRaw(\n                        stageId,\n                        'GLOBAL_ASSIGNMENTS'", 'INIT cache must receive saved global assignments without reload'],
-    [$elementDataService, "\$propertyCode === 'GLOBAL_ASSIGNMENTS'", 'Existing installations must lazily create the global assignment property'],
     [$elementDataService, "'{StageDeleted}'", 'Deleting a stage must mark dependent global values explicitly'],
     [$integration, "case 'SAVE_STAGE_ACTIVATION_REQUEST'", 'Every stage must support an optional activation condition'],
     [$integration, "propertyCode: 'ACTIVATION_CONDITION'", 'Stage activation condition must be persisted in Bitrix'],
     [$integration, "case 'CREATE_CUSTOM_FIELD_REQUEST'", 'Stage settings must route inline custom-field creation through Bitrix'],
     [$integration, 'payload.customFieldIds', 'Custom fields must be selected by the internal UI instead of a Bitrix picker'],
     [$integration, 'customFieldsValue: Array.isArray(payload.customFieldsValue)', 'Custom-field selection must submit values and visibility in the same request'],
-    [$integration, 'offerIds: offerIds', 'Custom-field value saves must request a refreshed INIT payload'],
+    [$elementDataService, 'preparePresetPayload(', 'Custom-field value saves must return product-neutral preset state'],
     [$integration, "message: 'Ошибка сохранения дополнительных параметров этапа'", 'Custom-field save failures must be reported to the editor'],
-    [$elementDataService, "\$customFieldsService->getFieldsConfig(\$mergedCustomFields)", 'Custom-field values must be built from the complete persisted stage selection'],
+    [$elementDataService, '->getFieldsConfig($mergedCustomFields)', 'Custom-field values must be built from the complete persisted stage selection'],
     [$elementDataService, "\$submittedValues = is_array(\$request['customFieldsValue']", 'Custom-field selection must accept submitted values atomically'],
     [$elementDataService, "\$changeResponse['initPayload']", 'Standalone custom-field value saves must return confirmed state'],
     [$integration, "case 'CHANGE_ROOT_DETAIL_SORT_REQUEST'", 'Detail columns must support persisted root-level reordering'],
     [$elementDataService, "case 'createCustomField':", 'Bitrix handler must support inline custom-field creation'],
     [$elementDataService, "'PREVIEW_TEXT' => trim((string)(\$field['description'] ?? ''))", 'A created custom field must persist its description'],
     [$customFieldsService, "'description' => trim(strip_tags((string)(\$element['PREVIEW_TEXT'] ?? '')))", 'Custom-field metadata must expose descriptions to the internal selector'],
-    [$elementDataService, "'DESCRIPTION' => (string)(\$field['defaultValue'] ?? '') . '|Y'", 'A newly created custom field must be activated for its stage immediately'],
+    [$elementDataService, "'VALUE' => (string)(\$field['defaultValue'] ?? '')", 'A newly created custom field must be activated for its stage immediately'],
     [$integration, "propertyCode: 'OPTIONS_EQUIPMENT'", 'Equipment matching must persist through the iframe bridge'],
+    [$integration, 'const responsePayload = Array.isArray(result) && result[0]', 'Equipment mapping save must use a declared correlated response'],
+    [$integration, "this.sendPwrtMessage('ERROR', {\n                    message: error && error.message ? error.message : 'Не удалось сохранить логику калькулятора'", 'Logic save validation errors must return through the correlated bridge'],
     [$appBundle, 'DESCRIPTION.CODE.', 'Published UI bundle must use stable described-property selectors'],
     [$appBundle, 'FIELDS.VIRTUAL.', 'Published UI bundle must expose virtual printing margin paths'],
     [$appBundle, 'prospektweb.calc.logic-import/v1', 'Published UI bundle must include the versioned logic import contract'],
     [$appBundle, 'Импорт логики', 'Published UI bundle must expose the logic import action'],
     [$appBundle, 'Все этапы пресета', 'Global formula context must expose every preset stage'],
-    [$appBundle, 'prospektweb:context-visibility-changed', 'Context visibility settings must synchronize between editors'],
     [$appBundle, 'prospektweb:open-calculation-logic', 'Report rows must open the corresponding calculation logic item'],
     [$appBundle, 'data-logic-target', 'Calculation logic items must expose stable report navigation targets'],
     [$appBundle, 'Схема', 'Published UI bundle must include the visual formula mode'],
@@ -132,7 +140,6 @@ $checks = [
     [$aiGatewayService, "private const DEFAULT_MODEL = 'openai/gpt-5.4-mini'", 'AI prompt templates must default to GPT-5.4 mini'],
     [$appBundle, 'btn-open-selected-entity-settings', 'Selected entity labels must open their internal catalog card'],
     [$appBundle, 'btn-open-entity-selector', 'Entity rows must expose a separate selector action'],
-    [$appBundle, 'btn-open-product-page', 'The leading product icon must open the public product page'],
     [$catalogMetaService, "'DETAIL_TEXT_TYPE' => 'html'", 'Operation and material cards must persist full HTML descriptions'],
     [$catalogMetaService, "'SOURCE_LINKS' => \$sourceLinks", 'Operation and material cards must persist ordered source links'],
     [$catalogMetaService, "'createdVariantId' => \$createdVariantId", 'Catalog creation must return the new selectable variant'],
@@ -178,6 +185,7 @@ $checks = [
     [$detailHandler, 'count($sourceSorting) !== count(array_unique($sourceSorting))', 'Cross-detail move must reject duplicate stage IDs'],
     [$detailHandler, '$connection->startTransaction()', 'Stage mutations must run inside a database transaction'],
     [$detailHandler, '$connection->rollbackTransaction()', 'Failed stage mutations must roll back'],
+    [$detailHandler, "\$code === 'GLOBAL_ASSIGNMENTS'", 'Stage duplication must ignore the retired physical property'],
     [$integration, "this.sendPwrtMessage('PROCESS_MESSAGE', {", 'Stage mutations must have a correlated completion acknowledgement'],
     [$elementDataService, 'enrichStructuralResultPinned', 'Sort mutations and derived enrichment must complete atomically'],
     [$elementDataService, "case 'changeRootDetailSort':", 'Root detail-column order must be handled by the server'],
@@ -190,6 +198,38 @@ foreach (['DEFAULT_OPERATION_VARIANT', 'DEFAULT_MATERIAL_VARIANT'] as $removedCa
     }
 }
 
+foreach ([
+    [$installer, 'GLOBAL_ASSIGNMENTS', 'Fresh install must not create retired stage assignment storage'],
+    [$integration, 'GLOBAL_ASSIGNMENTS', 'The iframe bridge must not write or cache retired stage assignments'],
+    [$elementDataService, 'GLOBAL_ASSIGNMENTS', 'The server write endpoint must not accept retired stage assignments'],
+] as [$source, $retiredToken, $message]) {
+    if (strpos($source, $retiredToken) !== false) {
+        throw new RuntimeException($message);
+    }
+}
+
+foreach ([
+    [$integration, 'SAVE_CALCULATION_REQUEST', 'The retired direct calculation-save message must not remain in the bridge'],
+    [$integration, 'handleSaveCalculationRequest', 'The retired direct calculation-save handler must not remain in the bridge'],
+    [$calculator, 'createAndAssignPreset', 'Opening a calculator must never create or assign a preset implicitly'],
+    [$calculator, 'PRESET_CONFIRM_MESSAGE', 'The old implicit-preset confirmation flow must not remain'],
+    [$calculator, 'sendToIframe', 'The superseded calculator.js message proxy must be removed'],
+    [$calculator, 'proxyApiRequest', 'The superseded arbitrary endpoint proxy must be removed'],
+    [$calculatorAjax, "case 'checkPresets':", 'The first-offer preset probe must not remain as a second launch authority'],
+    [$calculatorAjax, 'function handleCheckPresets', 'The first-offer preset resolver must be deleted'],
+    [$calculator, 'action=checkPresets', 'The product launcher must use the strict INIT contract directly'],
+    [$integration, 'presetCheckResult', 'The bridge must not carry the retired preset probe result'],
+    [$integration, "'?action=getInitData'", 'INIT must not place the session token in a GET URL'],
+    [$calculatorAjax, "'details' => \$error['message']", 'Fatal responses must not expose server error details'],
+    [$calculatorAjax, 'data=" . json_encode($data', 'Request logging must not serialize raw request payloads'],
+    [$appBundle, 'prospektweb:context-visibility-changed', 'Retired product/offer context visibility storage must not remain in the neutral editor bundle'],
+    [$appBundle, 'btn-open-product-page', 'Retired calculator-topology product navigation must not return to the neutral editor bundle'],
+] as [$source, $retiredToken, $message]) {
+    if (strpos($source, $retiredToken) !== false) {
+        throw new RuntimeException($message);
+    }
+}
+
 if (!preg_match('~assets/index\.js\?v=[a-f0-9]{12}~', $appIndex)
     || !preg_match('~assets/style\.css\?v=[a-f0-9]{12}~', $appIndex)) {
     throw new RuntimeException('Built application assets must use a 12-character commit cache key');
@@ -199,6 +239,32 @@ foreach ($checks as [$source, $needle, $message]) {
     if (strpos($source, $needle) === false) {
         throw new RuntimeException($message);
     }
+}
+
+$authoringBridgeStart = strpos($integration, 'async handleSelectFieldsRequest');
+$catalogWriteBridgeStart = strpos($integration, 'async handleCatalogWriteLifecycleRequest');
+$authoringBridge = $authoringBridgeStart !== false && $catalogWriteBridgeStart !== false
+    ? substr($integration, $authoringBridgeStart, $catalogWriteBridgeStart - $authoringBridgeStart)
+    : '';
+if ($authoringBridge === '' || strpos($authoringBridge, 'offerIds') !== false) {
+    throw new RuntimeException('Preset authoring must not depend on catalog offers');
+}
+if (strpos($elementDataService, 'offerIds') !== false
+    || strpos($elementDataService, 'prepareInitPayload(') !== false) {
+    throw new RuntimeException('Element mutations must return product-neutral preset state');
+}
+if (strpos($presetEnrichmentService, 'offerIds') !== false
+    || strpos($presetEnrichmentService, 'getOffersForPreset') !== false
+    || strpos($presetEnrichmentService, 'prepareInitPayload(') !== false) {
+    throw new RuntimeException('Preset topology rebuilding must not resolve products or offers');
+}
+if (strpos($integration, "action: 'enrichPreset'") === false
+    || strpos($integration, "action: 'clearPreset'") === false
+    || strpos($integration, "formData.append('sessid', this.config.sessid)") === false
+    || strpos($integration, "formData.append('expectedSemanticRevision', expectedSemanticRevision)") === false
+    || strpos($integration, "body.set('action', 'enrichPreset')") !== false
+    || strpos($integration, "body.set('action', 'clearPreset')") !== false) {
+    throw new RuntimeException('Preset topology writes must use the CSRF-protected aggregate CAS endpoint');
 }
 
 $catalogSaveStart = strpos($integration, 'async handleSaveCatalogEntityMetaRequest');
@@ -226,9 +292,9 @@ if (
     $changeSettingsHandler === ''
     || strpos($changeSettingsHandler, 'enrichStructuralResultPinned') === false
     || strpos($changeSettingsHandler, 'getFirstDetailFromPreset') !== false
-    || strpos($changeSettingsHandler, 'enrichPresetFromDetails') !== false
-    || strpos($elementDataService, 'getProductRootsFromPreset') === false
-    || strpos($elementDataService, 'enrichPresetFromProductRoots') === false
+    || strpos($changeSettingsHandler, 'rebuildPresetFromRoot') !== false
+    || strpos($elementDataService, 'getRootsFromPreset') === false
+    || strpos($elementDataService, 'rebuildPresetFromRoots') === false
 ) {
     throw new RuntimeException('Changing a stage calculator must preserve every ordered root of a complex product');
 }
@@ -241,9 +307,9 @@ $addDetailHandler = $addDetailStart !== false && $addDetailEnd !== false
 if (
     $addDetailHandler === ''
     || strpos($addDetailHandler, 'enrichStructuralResultPinned') === false
-    || strpos($addDetailHandler, 'enrichPresetFromDetails') !== false
+    || strpos($addDetailHandler, 'rebuildPresetFromRoot') !== false
 ) {
-    throw new RuntimeException('Creating a detail must append it without replacing the complex product topology');
+    throw new RuntimeException('Creating a detail must append it without replacing the calculator root topology');
 }
 
 $addDetailBridgeStart = strpos($integration, 'async handleAddNewDetailRequest');

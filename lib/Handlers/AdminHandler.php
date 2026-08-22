@@ -74,6 +74,7 @@ class AdminHandler
 
         if ($isEditPage || $isSidepanelEdit) {
             self::addCalculatorButton();
+            self::makeCalcPresetAssignmentReadOnly($iblockId);
         }
 
         // Также добавляем на странице списка элементов (для кнопки в тулбаре)
@@ -209,11 +210,6 @@ class AdminHandler
             $asset->addJs($jsPath . '?v=' . (int)filemtime($jsFile));
         }
 
-        $productGeneratorPath = '/local/js/prospektweb.calc/product_generator.js';
-        if (file_exists(Application::getDocumentRoot() . $productGeneratorPath)) {
-            $asset->addJs($productGeneratorPath);
-        }
-
         $presetClonePath = '/local/js/prospektweb.calc/preset_clone.js';
         if (file_exists(Application::getDocumentRoot() . $presetClonePath)) {
             $asset->addJs($presetClonePath);
@@ -227,6 +223,43 @@ class AdminHandler
                 }
             });
         </script>', false, AssetLocation::AFTER_JS);
+    }
+
+    /**
+     * CALC_PRESET is a managed assignment document, not an ordinary catalog
+     * property. Keep the current value visible but non-interactive in the
+     * standard product card; the server event guard remains authoritative.
+     */
+    private static function makeCalcPresetAssignmentReadOnly(int $iblockId): void
+    {
+        if (!Loader::includeModule('prospektweb.calc') || !Loader::includeModule('iblock')) {
+            return;
+        }
+        $config = new \Prospektweb\Calc\Config\ConfigManager();
+        if ($iblockId <= 0 || $iblockId !== (int)$config->getProductIblockId()) {
+            return;
+        }
+        try {
+            $propertyAuthority = (new \Prospektweb\Calc\Services\PresetProductAssignmentPropertyAuthorityService())
+                ->resolve($iblockId);
+            $propertyId = (int)$propertyAuthority['propertyId'];
+        } catch (\Throwable $error) {
+            // The persistent server guard fails closed. Never guess a property
+            // ID for the convenience-only read-only UI decoration.
+            return;
+        }
+        $selector = json_encode(
+            '[name^="PROPERTY_' . $propertyId . '"], [name^="PROP[' . $propertyId . ']"], #tr_PROPERTY_' . $propertyId . ' input, #tr_PROPERTY_' . $propertyId . ' select, #tr_PROPERTY_' . $propertyId . ' button',
+            self::JSON_ENCODE_FLAGS
+        );
+        Asset::getInstance()->addString(
+            '<script>BX.ready(function(){document.querySelectorAll(' . $selector . ').forEach(function(node){'
+            . 'node.setAttribute("aria-disabled","true");node.setAttribute("tabindex","-1");'
+            . 'node.style.pointerEvents="none";node.title="Привязка управляется в Центре управления калькуляторами";'
+            . '});});</script>',
+            false,
+            AssetLocation::AFTER_JS
+        );
     }
 
     

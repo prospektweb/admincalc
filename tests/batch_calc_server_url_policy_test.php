@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/../lib/Config/ConfigManager.php';
 require_once __DIR__ . '/../lib/Calculator/InitPayloadService.php';
-require_once __DIR__ . '/../lib/Services/CatalogAdapterDefinitionService.php';
+require_once __DIR__ . '/../lib/Services/CatalogOutputMappingService.php';
 require_once __DIR__ . '/../lib/Services/BatchRecalculateService.php';
 
 use Prospektweb\Calc\Services\BatchRecalculateService;

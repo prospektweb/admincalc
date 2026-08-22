@@ -140,7 +140,20 @@ namespace {
         }
     };
 
-    $service = new ControlCenterSettingsService();
+    $authorityAudits = 0;
+    $service = new ControlCenterSettingsService([
+        'with_authority' => static function (callable $mutation) use (&$authorityAudits): array {
+            $before = Option::$values;
+            try {
+                $outcome = $mutation();
+                $authorityAudits++;
+                return $outcome;
+            } catch (\Throwable $error) {
+                Option::$values = $before;
+                throw $error;
+            }
+        },
+    ]);
     $initial = $service->getSettings();
     $assert(strlen((string)$initial['revision']) === 64, 'Settings revision must be SHA-256');
     $assert(count($initial['pricing']['priceTypes']) === 2, 'Catalog price types must be exposed');
@@ -161,12 +174,14 @@ namespace {
     $assert($saved['pricing']['rates']['2'] === 12.5, 'Validated price rates must persist');
     $assert($saved['integration']['calcServerUrl'] === 'https://pwrt.ru/calc-api', 'Service URLs must be normalized');
     $assert($saved['revision'] !== $initial['revision'], 'Successful writes must advance the settings revision');
+    $assert($authorityAudits === 1, 'Successful settings mutation must cross one transaction/audit authority');
 
     try {
         $service->saveSettings([], $initial['revision']);
         throw new RuntimeException('Stale settings revision was accepted');
     } catch (RuntimeException $exception) {
         $assert($exception->getCode() === 409, 'Stale settings revision must return conflict semantics');
+        $assert($authorityAudits === 1, 'Stale settings mutation must not write a success audit');
     }
 
     $beforeInvalid = Option::$values;

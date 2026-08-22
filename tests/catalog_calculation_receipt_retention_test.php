@@ -1,11 +1,9 @@
 <?php
 
-require_once dirname(__DIR__) . '/lib/Services/CatalogAdapterDefinitionService.php';
 require_once dirname(__DIR__) . '/lib/Services/BatchRecalculateService.php';
 require_once dirname(__DIR__) . '/lib/Services/BatchPreviewFingerprintService.php';
 require_once dirname(__DIR__) . '/lib/Services/CatalogCalculationWriteService.php';
 
-use Prospektweb\Calc\Services\CatalogAdapterDefinitionService;
 use Prospektweb\Calc\Services\CatalogCalculationWriteService;
 
 $assert = static function (bool $condition, string $message): void {
@@ -40,7 +38,7 @@ $prune = $method('pruneReceiptRows');
 $save = $method('saveReceipt');
 $validateReplay = $method('validateReplayReceiptUnderLocks');
 $validateBatchReplay = $method('validateBatchReplayReceiptUnderLocks');
-$withLock = $method('withAdapterMutationLock');
+$withLock = $method('withOutputMappingMutationLock');
 $begin = $method('beginTransaction');
 $commit = $method('commitTransaction');
 
@@ -104,7 +102,7 @@ $storageService = static function (
                 'value' => $receipt,
             ];
         },
-        'adapter_mutation_lock' => static function (callable $callback) use (&$events) {
+        'output_mapping_mutation_lock' => static function (callable $callback) use (&$events) {
             if (is_array($events)) {
                 $events[] = 'lock-enter';
             }
@@ -257,7 +255,7 @@ $fingerprint = str_repeat('a', 64);
 $expiredReceipt = [
     'contract' => CatalogCalculationWriteService::RECEIPT_CONTRACT,
     'actorUserId' => 1,
-    'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
+    'presetId' => 41,
     'siteId' => 's1',
     'offerIds' => [15320],
     'productIds' => [12727],
@@ -274,7 +272,7 @@ $requestId = str_repeat('e', 64);
 $expiredBatchReceipt = [
     'contract' => CatalogCalculationWriteService::BATCH_RECEIPT_CONTRACT,
     'actorUserId' => 1,
-    'presetId' => CatalogAdapterDefinitionService::PRESET_ID,
+    'presetId' => 41,
     'siteId' => 's1',
     'offerIds' => [15320],
     'productIds' => [12727],
