@@ -179,8 +179,14 @@ class AdminHandler
         $siteId = json_encode(SITE_ID, self::JSON_ENCODE_FLAGS);
         $presetIblockId = 0;
         if (Loader::includeModule('prospektweb.calc')) {
-            $configManager = new \Prospektweb\Calc\Config\ConfigManager();
-            $presetIblockId = (int)$configManager->getIblockId('CALC_PRESETS');
+            try {
+                $configManager = new \Prospektweb\Calc\Config\ConfigManager();
+                $presetIblockId = (int)$configManager->getIblockId('CALC_PRESETS');
+            } catch (\Throwable $error) {
+                // Calculator controls are optional host-admin decoration. A
+                // broken calculator authority must not take down Bitrix admin.
+                $presetIblockId = 0;
+            }
         }
 
         $asset->addString(

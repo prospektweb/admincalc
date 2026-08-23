@@ -39,8 +39,8 @@ class ConfigManager
     /** @var array<string,string>|null */
     private ?array $catalogRuntimeSnapshot = null;
 
-    /** @var array<string,int>|null */
-    private ?array $calculatorIblockIds = null;
+    /** @var array<string,int> */
+    private array $calculatorIblockIds = [];
 
     /** @param array<string,callable> $adapters */
     public function __construct(array $adapters = [])
@@ -65,10 +65,9 @@ class ConfigManager
             throw new \InvalidArgumentException('Unknown calculator iblock code: ' . $code . '.');
         }
 
-        if ($this->calculatorIblockIds === null) {
-            $this->calculatorIblockIds = $this->runtimeConfigAuthority->resolveCalculatorIblockIds(
-                self::IBLOCK_TYPES
-            );
+        if (!array_key_exists($code, $this->calculatorIblockIds)) {
+            $this->calculatorIblockIds[$code] = $this->runtimeConfigAuthority
+                ->resolveCalculatorIblockId($code, $expectedType);
         }
         return $this->calculatorIblockIds[$code];
     }

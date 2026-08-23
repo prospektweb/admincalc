@@ -118,8 +118,18 @@ namespace {
     ]);
     $manager = new ConfigManager(['runtime_config_authority' => $authority]);
     $assert($manager->getIblockId('CALC_PRESETS') === $ids['CALC_PRESETS'], 'exact calculator target is returned');
-    $assert($resolvedCalls === $types, 'one ConfigManager read validates the complete calculator aggregate');
-    $assert($manager->getIblockId('CALC_DETAILS') === $ids['CALC_DETAILS'], 'validated calculator targets are cached together');
+    $assert(
+        $resolvedCalls === ['CALC_PRESETS' => $types['CALC_PRESETS']],
+        'one ConfigManager read validates only the requested calculator target'
+    );
+    $assert($manager->getIblockId('CALC_DETAILS') === $ids['CALC_DETAILS'], 'a second target is resolved independently');
+    $assert(
+        $resolvedCalls === [
+            'CALC_PRESETS' => $types['CALC_PRESETS'],
+            'CALC_DETAILS' => $types['CALC_DETAILS'],
+        ],
+        'independently resolved calculator targets are cached by code'
+    );
     $assert($manager->getProductIblockId() === 14, 'products source comes only from the Front aggregate');
     $assert($manager->getSkuIblockId() === 15, 'offers source comes only from the Front aggregate');
     $assert($catalogCaptures === 1, 'product and offer IDs share one Front settings snapshot');
@@ -141,6 +151,26 @@ namespace {
         static fn() => (new ConfigManager(['runtime_config_authority' => $brokenAuthority]))
             ->getIblockId('CALC_PRESETS'),
         'target authority conflict propagates without discovery or repair'
+    );
+
+    $unrelatedConflictAuthority = new CatalogRuntimeConfigAuthorityService([
+        'resolve_calculator_iblock' => static function (string $code, string $type) use ($ids): int {
+            if ($code === 'CALC_STAGES') {
+                throw new RuntimeException('unrelated stage authority drift', 409);
+            }
+            return $ids[$code];
+        },
+    ]);
+    $unrelatedConflictManager = new ConfigManager([
+        'runtime_config_authority' => $unrelatedConflictAuthority,
+    ]);
+    $assert(
+        $unrelatedConflictManager->getIblockId('CALC_PRESETS') === $ids['CALC_PRESETS'],
+        'unrelated stage authority drift cannot block a preset-only admin request'
+    );
+    $expectConflict(
+        static fn() => $unrelatedConflictManager->getIblockId('CALC_STAGES'),
+        'stage authority drift still fails closed when stages are requested'
     );
 
     $badCatalog = $catalogSnapshot;
