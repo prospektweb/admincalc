@@ -109,7 +109,7 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($handler, 'product_generator.js') === false, 'The uncoordinated contextual product generator is retired');
-$assert(strpos($appIndex, '09d410dbd2f5') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, '6e36bdd7d1e8') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
 $assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') === false, 'The published bundle no longer contains the legacy storefront editor launch contract');
@@ -122,7 +122,10 @@ $assert(strpos($appBundle, 'calculator_input_mapping_validate') !== false, 'The 
 $assert(strpos($appBundle, 'calculator_input_mapping_save') !== false, 'The published bundle saves preset-owned calculator input mappings');
 $assert(strpos($appBundle, 'prospektweb.control-center.editors/v1') !== false, 'The published bundle validates the Phase 4A editors catalog');
 $assert(strpos($appBundle, 'Реестр калькуляторов') !== false, 'The published bundle contains the server-driven calculator registry');
-$assert(strpos($appBundle, 'Где используется калькулятор') !== false, 'The published bundle exposes catalog usage inside the selected calculator');
+$assert(strpos($appBundle, 'Подключённые товары и торговые предложения') !== false, 'The published bundle exposes exact preset usage inside the selected calculator');
+$assert(strpos($appBundle, 'Связь товара с пресетом разрешает запуск базовой формы') !== false, 'The published bundle explains that preset product links launch the base calculator independently');
+$assert(strpos($appBundle, 'Она не требует витрины') !== false, 'The published bundle keeps preset product links independent from optional storefronts');
+$assert(strpos($appBundle, 'Управлять связями') === false, 'The storefront workspace no longer owns preset product assignment management');
 $assert(strpos($appBundle, 'Разделы калькулятора') !== false, 'The published bundle exposes the unified calculator workspace tabs');
 $assert(strpos($appBundle, 'Это поле должно передавать в калькулятор одно значение.') !== false, 'The published form editor contains independent calculation-input guidance');
 $assert(strpos($appBundle, 'Выберите свойство каталога') === false, 'The preset form editor no longer asks the operator to select a Bitrix property');
