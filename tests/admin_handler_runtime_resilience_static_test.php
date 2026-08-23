@@ -36,4 +36,24 @@ $assert(
     'authority failure disables only optional calculator controls'
 );
 
+foreach (['makeCalcPresetAssignmentReadOnly', 'onTabControlBegin', 'onBeforeEndBufferContent'] as $methodName) {
+    $start = strpos($source, 'function ' . $methodName);
+    $end = strpos($source, "\n    }", $start ?: 0);
+    $methodBody = substr($source, $start ?: 0, ($end ?: strlen($source)) - ($start ?: 0));
+    $assert($start !== false, $methodName . ' exists');
+    $assert(
+        str_contains($methodBody, 'catch (\\Throwable $error)'),
+        $methodName . ' isolates optional calculator authority failures from Bitrix admin'
+    );
+}
+
+$typesStart = strpos($source, 'private static function getModuleIblockTypes');
+$typesEnd = strpos($source, 'public static function onBuildGlobalMenu', $typesStart ?: 0);
+$typesBody = substr($source, $typesStart ?: 0, ($typesEnd ?: strlen($source)) - ($typesStart ?: 0));
+$assert(
+    str_contains($typesBody, "(string)\$row['IBLOCK_TYPE_ID']")
+        && !str_contains($typesBody, "'CALC_STAGES' => 'calculator_catalog'"),
+    'admin links use the actual Bitrix grouping without making it runtime authority'
+);
+
 fwrite(STDOUT, "Admin handler runtime resilience static tests passed\n");

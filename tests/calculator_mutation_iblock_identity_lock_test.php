@@ -80,26 +80,26 @@ $expectConflict = static function (callable $callback, string $message) use ($as
     }
 };
 
-$types = [
-    'CALC_DETAILS' => 'calculator_catalog',
-    'CALC_PRESETS' => 'calculator',
-    'CALC_SETTINGS' => 'calculator',
-    'CALC_STAGES' => 'calculator_catalog',
-    'CALC_GLOBAL_VALUES' => 'calculator',
-    'CALC_CUSTOM_FIELDS' => 'calculator',
-    'CALC_OPERATIONS' => 'calculator_catalog',
-    'CALC_OPERATIONS_VARIANTS' => 'calculator_catalog',
-    'CALC_MATERIALS' => 'calculator_catalog',
-    'CALC_MATERIALS_VARIANTS' => 'calculator_catalog',
-    'CALC_EQUIPMENT' => 'calculator_catalog',
+$codes = [
+    'CALC_DETAILS',
+    'CALC_PRESETS',
+    'CALC_SETTINGS',
+    'CALC_STAGES',
+    'CALC_GLOBAL_VALUES',
+    'CALC_CUSTOM_FIELDS',
+    'CALC_OPERATIONS',
+    'CALC_OPERATIONS_VARIANTS',
+    'CALC_MATERIALS',
+    'CALC_MATERIALS_VARIANTS',
+    'CALC_EQUIPMENT',
 ];
 $optionRows = [];
 $iblockRows = [];
 $expectedIds = [];
 $id = 101;
-foreach ($types as $code => $type) {
+foreach ($codes as $code) {
     $optionRows[] = ['NAME' => 'IBLOCK_' . $code, 'VALUE' => (string)$id];
-    $iblockRows[] = ['ID' => $id, 'CODE' => $code, 'IBLOCK_TYPE_ID' => $type];
+    $iblockRows[] = ['ID' => $id, 'CODE' => $code, 'IBLOCK_TYPE_ID' => 'arbitrary_group'];
     $expectedIds[$code] = $id;
     $id++;
 }
@@ -110,15 +110,15 @@ $authority = new CalculatorMutationAuthorityService();
 $connection = new CalculatorIblockIdentityConnection($optionRows, $iblockRows);
 $actualIds = $method->invoke($authority, $connection);
 ksort($expectedIds, SORT_STRING);
-$assert($actualIds === $expectedIds, 'complete exact code/type authority is accepted');
+$assert($actualIds === $expectedIds, 'complete exact configured ID/code authority is accepted');
 $assert(count($connection->queries) === 2, 'authority uses one option lock and one iblock identity-set lock');
 $iblockQuery = $connection->queries[1] ?? '';
 $assert(
-    strpos($iblockQuery, 'SELECT ID, CODE, IBLOCK_TYPE_ID FROM b_iblock WHERE ') !== false
-    && strpos($iblockQuery, 'IBLOCK_TYPE_ID=') !== false
+    strpos($iblockQuery, 'SELECT ID, CODE FROM b_iblock WHERE ') !== false
+    && strpos($iblockQuery, 'IBLOCK_TYPE_ID') === false
     && strpos($iblockQuery, 'CODE IN (') !== false
     && str_ends_with($iblockQuery, 'FOR UPDATE'),
-    'the complete canonical code/type row set is locked for update'
+    'the complete canonical code row set is locked for update without admin grouping'
 );
 $assert(strpos($iblockQuery, 'WHERE ID IN (') === false, 'identity locking is not limited to configured IDs');
 
@@ -133,7 +133,7 @@ $expectConflict(
         $authority,
         new CalculatorIblockIdentityConnection($optionRows, $duplicateRows)
     ),
-    'a second row for one canonical code/type identity fails closed'
+    'a second row for one canonical code identity fails closed across admin groups'
 );
 
 $caseCollisionRows = $iblockRows;

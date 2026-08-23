@@ -241,11 +241,11 @@ class AdminHandler
         if (!Loader::includeModule('prospektweb.calc') || !Loader::includeModule('iblock')) {
             return;
         }
-        $config = new \Prospektweb\Calc\Config\ConfigManager();
-        if ($iblockId <= 0 || $iblockId !== (int)$config->getProductIblockId()) {
-            return;
-        }
         try {
+            $config = new \Prospektweb\Calc\Config\ConfigManager();
+            if ($iblockId <= 0 || $iblockId !== (int)$config->getProductIblockId()) {
+                return;
+            }
             $presetIblockId = (int)$config->getIblockId('CALC_PRESETS');
             $propertyAuthority = (new \Prospektweb\Calc\Services\PresetProductAssignmentPropertyAuthorityService())
                 ->resolve($iblockId, $presetIblockId);
@@ -306,8 +306,12 @@ class AdminHandler
             return;
         }
 
-        $configManager = new \Prospektweb\Calc\Config\ConfigManager();
-        $skuIblockId = $configManager->getSkuIblockId();
+        try {
+            $configManager = new \Prospektweb\Calc\Config\ConfigManager();
+            $skuIblockId = $configManager->getSkuIblockId();
+        } catch (\Throwable $error) {
+            return;
+        }
         $iblockId = self::resolveCurrentIblockId();
 
         if ($skuIblockId <= 0 || $iblockId !== $skuIblockId) {
@@ -380,8 +384,12 @@ class AdminHandler
             return;
         }
 
-        $configManager = new \Prospektweb\Calc\Config\ConfigManager();
-        $skuIblockId = $configManager->getSkuIblockId();
+        try {
+            $configManager = new \Prospektweb\Calc\Config\ConfigManager();
+            $skuIblockId = $configManager->getSkuIblockId();
+        } catch (\Throwable $error) {
+            return;
+        }
         $iblockId = self::resolveCurrentIblockId();
         $elementId = (int)($_REQUEST['ID'] ?? $_REQUEST['id'] ?? 0);
 
@@ -578,29 +586,23 @@ class AdminHandler
             return [];
         }
 
+        try {
+            $moduleIblocks = (new \Prospektweb\Calc\Config\ConfigManager())->getAllIblockIds();
+        } catch (\Throwable $error) {
+            return [];
+        }
+
         $types = [];
-        $configManager = new \Prospektweb\Calc\Config\ConfigManager();
-        
-        // Получаем все ID инфоблоков модуля
-        $moduleIblocks = $configManager->getAllIblockIds();
-        
-        // Карта типов инфоблоков (соответствует ConfigManager::IBLOCK_TYPES)
-        $iblockTypes = [
-            'CALC_PRESETS' => 'calculator',
-            'CALC_STAGES' => 'calculator_catalog',
-            'CALC_SETTINGS' => 'calculator',
-            'CALC_CUSTOM_FIELDS' => 'calculator',
-            'CALC_MATERIALS' => 'calculator_catalog',
-            'CALC_MATERIALS_VARIANTS' => 'calculator_catalog',
-            'CALC_OPERATIONS' => 'calculator_catalog',
-            'CALC_OPERATIONS_VARIANTS' => 'calculator_catalog',
-            'CALC_EQUIPMENT' => 'calculator_catalog',
-            'CALC_DETAILS' => 'calculator_catalog',
-        ];
-        
         foreach ($moduleIblocks as $code => $iblockId) {
-            if ($iblockId > 0 && isset($iblockTypes[$code])) {
-                $types[$iblockId] = $iblockTypes[$code];
+            if ($iblockId <= 0) {
+                continue;
+            }
+            $row = \CIBlock::GetByID($iblockId)->Fetch();
+            if (is_array($row)
+                && (int)($row['ID'] ?? 0) === $iblockId
+                && (string)($row['CODE'] ?? '') === $code
+                && trim((string)($row['IBLOCK_TYPE_ID'] ?? '')) !== '') {
+                $types[$iblockId] = (string)$row['IBLOCK_TYPE_ID'];
             }
         }
         

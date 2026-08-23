@@ -16,22 +16,21 @@ class ConfigManager
     protected const MODULE_ID = 'prospektweb.calc';
 
     /**
-     * Карта точных кодов и типов инфоблоков модуля.
-     * Runtime не ищет и не перепривязывает инфоблоки по коду: такая
-     * операция допустима только в явном installer/activation boundary.
+     * Точные коды инфоблоков модуля. Тип инфоблока является только группировкой
+     * в административном интерфейсе Bitrix и не участвует в runtime-идентичности.
      */
-    private const IBLOCK_TYPES = [
-        'CALC_PRESETS' => 'calculator',
-        'CALC_STAGES' => 'calculator_catalog',
-        'CALC_SETTINGS' => 'calculator',
-        'CALC_GLOBAL_VALUES' => 'calculator',
-        'CALC_CUSTOM_FIELDS' => 'calculator',
-        'CALC_MATERIALS' => 'calculator_catalog',
-        'CALC_MATERIALS_VARIANTS' => 'calculator_catalog',
-        'CALC_OPERATIONS' => 'calculator_catalog',
-        'CALC_OPERATIONS_VARIANTS' => 'calculator_catalog',
-        'CALC_EQUIPMENT' => 'calculator_catalog',
-        'CALC_DETAILS' => 'calculator_catalog',
+    private const IBLOCK_CODES = [
+        'CALC_PRESETS',
+        'CALC_STAGES',
+        'CALC_SETTINGS',
+        'CALC_GLOBAL_VALUES',
+        'CALC_CUSTOM_FIELDS',
+        'CALC_MATERIALS',
+        'CALC_MATERIALS_VARIANTS',
+        'CALC_OPERATIONS',
+        'CALC_OPERATIONS_VARIANTS',
+        'CALC_EQUIPMENT',
+        'CALC_DETAILS',
     ];
 
     private CatalogRuntimeConfigAuthorityService $runtimeConfigAuthority;
@@ -60,14 +59,13 @@ class ConfigManager
      */
     public function getIblockId(string $code): int
     {
-        $expectedType = self::IBLOCK_TYPES[$code] ?? null;
-        if ($expectedType === null) {
+        if (!in_array($code, self::IBLOCK_CODES, true)) {
             throw new \InvalidArgumentException('Unknown calculator iblock code: ' . $code . '.');
         }
 
         if (!array_key_exists($code, $this->calculatorIblockIds)) {
             $this->calculatorIblockIds[$code] = $this->runtimeConfigAuthority
-                ->resolveCalculatorIblockId($code, $expectedType);
+                ->resolveCalculatorIblockId($code);
         }
         return $this->calculatorIblockIds[$code];
     }
@@ -130,7 +128,7 @@ class ConfigManager
     public function getAllIblockIds(): array
     {
         $result = [];
-        foreach (array_keys(self::IBLOCK_TYPES) as $code) {
+        foreach (self::IBLOCK_CODES as $code) {
             $result[$code] = $this->getIblockId($code);
         }
 

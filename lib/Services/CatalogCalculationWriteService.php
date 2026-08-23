@@ -3207,7 +3207,7 @@ final class CatalogCalculationWriteService
         if ($globalSymbolIblockIds !== []) {
             $globalIblockList = implode(',', $globalSymbolIblockIds);
             $globalIblockRows = $this->selectForUpdate(
-                'SELECT ID, CODE, IBLOCK_TYPE_ID, ACTIVE FROM b_iblock WHERE ID IN ('
+                'SELECT ID, CODE, ACTIVE FROM b_iblock WHERE ID IN ('
                 . $globalIblockList . ') ORDER BY ID FOR UPDATE'
             );
             $actualGlobalIblockIds = [];
@@ -3218,8 +3218,6 @@ final class CatalogCalculationWriteService
                 }
                 if ((string)($globalIblockRow['CODE'] ?? $globalIblockRow['code'] ?? '')
                         !== 'CALC_GLOBAL_VALUES'
-                    || (string)($globalIblockRow['IBLOCK_TYPE_ID']
-                        ?? $globalIblockRow['iblock_type_id'] ?? '') !== 'calculator'
                     || (string)($globalIblockRow['ACTIVE'] ?? $globalIblockRow['active'] ?? '') !== 'Y') {
                     throw new \RuntimeException(
                         'The global-symbol storage identity changed after calc-server calculation.',

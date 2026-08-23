@@ -200,10 +200,10 @@ final class FormFirstDependencyContractService
             ];
         }
 
-        $presetIblockId = self::readOnlyIblockId('CALC_PRESETS', 'calculator');
-        $detailsIblockId = self::readOnlyIblockId('CALC_DETAILS', 'calculator_catalog');
-        $stagesIblockId = self::readOnlyIblockId('CALC_STAGES', 'calculator_catalog');
-        $globalsIblockId = self::readOnlyIblockId('CALC_GLOBAL_VALUES', 'calculator');
+        $presetIblockId = self::readOnlyIblockId('CALC_PRESETS');
+        $detailsIblockId = self::readOnlyIblockId('CALC_DETAILS');
+        $stagesIblockId = self::readOnlyIblockId('CALC_STAGES');
+        $globalsIblockId = self::readOnlyIblockId('CALC_GLOBAL_VALUES');
         foreach ([
             'CALC_PRESETS' => $presetIblockId,
             'CALC_DETAILS' => $detailsIblockId,
@@ -548,22 +548,9 @@ final class FormFirstDependencyContractService
         return preg_match('/^CALC_PROP_[A-Z0-9_]{1,100}$/D', $propertyCode) === 1;
     }
 
-    private static function readOnlyIblockId(string $code, string $type): int
+    private static function readOnlyIblockId(string $code): int
     {
-        $configured = (int)\Bitrix\Main\Config\Option::get(
-            'prospektweb.calc',
-            'IBLOCK_' . $code,
-            0
-        );
-        if ($configured > 0) {
-            return $configured;
-        }
-        if (!\Bitrix\Main\Loader::includeModule('iblock')) {
-            return 0;
-        }
-        $row = \CIBlock::GetList([], ['CODE' => $code, 'TYPE' => $type])->Fetch();
-
-        return is_array($row) ? (int)($row['ID'] ?? 0) : 0;
+        return (new \Prospektweb\Calc\Config\ConfigManager())->getIblockId($code);
     }
 
     /** @return int[] */

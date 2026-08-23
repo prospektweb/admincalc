@@ -67,25 +67,25 @@ namespace {
         $assert(false, $message);
     };
 
-    $types = [
-        'CALC_PRESETS' => 'calculator',
-        'CALC_STAGES' => 'calculator_catalog',
-        'CALC_SETTINGS' => 'calculator',
-        'CALC_GLOBAL_VALUES' => 'calculator',
-        'CALC_CUSTOM_FIELDS' => 'calculator',
-        'CALC_MATERIALS' => 'calculator_catalog',
-        'CALC_MATERIALS_VARIANTS' => 'calculator_catalog',
-        'CALC_OPERATIONS' => 'calculator_catalog',
-        'CALC_OPERATIONS_VARIANTS' => 'calculator_catalog',
-        'CALC_EQUIPMENT' => 'calculator_catalog',
-        'CALC_DETAILS' => 'calculator_catalog',
+    $codes = [
+        'CALC_PRESETS',
+        'CALC_STAGES',
+        'CALC_SETTINGS',
+        'CALC_GLOBAL_VALUES',
+        'CALC_CUSTOM_FIELDS',
+        'CALC_MATERIALS',
+        'CALC_MATERIALS_VARIANTS',
+        'CALC_OPERATIONS',
+        'CALC_OPERATIONS_VARIANTS',
+        'CALC_EQUIPMENT',
+        'CALC_DETAILS',
     ];
     $ids = [];
     $calculatorSnapshot = [
         'contract' => CatalogRuntimeConfigAuthorityService::CONTRACT,
         'prospektweb.calc:CALC_SERVER_URL' => 'https://pwrt.ru/calc-api',
     ];
-    foreach (array_keys($types) as $index => $code) {
+    foreach ($codes as $index => $code) {
         $ids[$code] = 41 + $index;
         $calculatorSnapshot['prospektweb.calc:IBLOCK_' . $code] = (string)$ids[$code];
     }
@@ -100,15 +100,11 @@ namespace {
     $resolvedCalls = [];
     $catalogCaptures = 0;
     $authority = new CatalogRuntimeConfigAuthorityService([
-        'resolve_calculator_iblock' => static function (string $code, string $type) use (
+        'resolve_calculator_iblock' => static function (string $code) use (
             &$resolvedCalls,
-            $types,
             $ids
         ): int {
-            $resolvedCalls[$code] = $type;
-            if (($types[$code] ?? null) !== $type) {
-                throw new RuntimeException('wrong type', 409);
-            }
+            $resolvedCalls[] = $code;
             return $ids[$code];
         },
         'capture_catalog' => static function () use (&$catalogCaptures, $catalogSnapshot): array {
@@ -119,15 +115,12 @@ namespace {
     $manager = new ConfigManager(['runtime_config_authority' => $authority]);
     $assert($manager->getIblockId('CALC_PRESETS') === $ids['CALC_PRESETS'], 'exact calculator target is returned');
     $assert(
-        $resolvedCalls === ['CALC_PRESETS' => $types['CALC_PRESETS']],
+        $resolvedCalls === ['CALC_PRESETS'],
         'one ConfigManager read validates only the requested calculator target'
     );
     $assert($manager->getIblockId('CALC_DETAILS') === $ids['CALC_DETAILS'], 'a second target is resolved independently');
     $assert(
-        $resolvedCalls === [
-            'CALC_PRESETS' => $types['CALC_PRESETS'],
-            'CALC_DETAILS' => $types['CALC_DETAILS'],
-        ],
+        $resolvedCalls === ['CALC_PRESETS', 'CALC_DETAILS'],
         'independently resolved calculator targets are cached by code'
     );
     $assert($manager->getProductIblockId() === 14, 'products source comes only from the Front aggregate');
@@ -143,7 +136,7 @@ namespace {
     }
 
     $brokenAuthority = new CatalogRuntimeConfigAuthorityService([
-        'resolve_calculator_iblock' => static function (string $code, string $type): int {
+        'resolve_calculator_iblock' => static function (string $code): int {
             throw new RuntimeException('ambiguous target', 409);
         },
     ]);
@@ -154,7 +147,7 @@ namespace {
     );
 
     $unrelatedConflictAuthority = new CatalogRuntimeConfigAuthorityService([
-        'resolve_calculator_iblock' => static function (string $code, string $type) use ($ids): int {
+        'resolve_calculator_iblock' => static function (string $code) use ($ids): int {
             if ($code === 'CALC_STAGES') {
                 throw new RuntimeException('unrelated stage authority drift', 409);
             }
@@ -197,8 +190,18 @@ namespace {
             && !str_contains($runtimeBody, 'PRODUCT_IBLOCK_ID')
             && !str_contains($runtimeBody, 'SKU_IBLOCK_ID')
             && !str_contains($source, 'findIblockId')
-            && !str_contains($source, 'setIblockId'),
-        'ConfigManager runtime contains no cache read, legacy mirror, discovery, or writer'
+            && !str_contains($source, 'setIblockId')
+            && !str_contains($source, 'IBLOCK_TYPES'),
+        'ConfigManager runtime contains no cache read, legacy mirror, type dependency, discovery, or writer'
+    );
+
+    $authoritySource = (string)file_get_contents(
+        dirname(__DIR__) . '/lib/Services/CatalogRuntimeConfigAuthorityService.php'
+    );
+    $assert(
+        !str_contains($authoritySource, 'SELECT ID, CODE, IBLOCK_TYPE_ID FROM b_iblock')
+            && str_contains($authoritySource, 'SELECT ID, CODE FROM b_iblock'),
+        'runtime calculator identity is configured ID plus exact code, independent of Bitrix admin grouping'
     );
 
     fwrite(STDOUT, "ConfigManager exact authority tests passed\n");

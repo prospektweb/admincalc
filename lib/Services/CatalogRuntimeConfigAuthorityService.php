@@ -260,30 +260,30 @@ final class CatalogRuntimeConfigAuthorityService
         return $normalized[self::adminOptionKey($name)];
     }
 
-    public function resolveCalculatorIblockId(string $code, string $expectedType): int
+    public function resolveCalculatorIblockId(string $code): int
     {
-        $resolved = $this->resolveCalculatorIblockIds([$code => $expectedType]);
+        $resolved = $this->resolveCalculatorIblockIds([$code]);
         return $resolved[$code];
     }
 
-    /** @param array<string,string> $targets @return array<string,int> */
-    public function resolveCalculatorIblockIds(array $targets): array
+    /** @param list<string> $codes @return array<string,int> */
+    public function resolveCalculatorIblockIds(array $codes): array
     {
-        if ($targets === []) {
+        if ($codes === []) {
             throw new \InvalidArgumentException('Calculator iblock authority targets are empty.');
         }
-        foreach ($targets as $code => $expectedType) {
-            if (!is_string($code)
-                || !is_string($expectedType)
-                || !in_array($code, self::CALCULATOR_IBLOCK_CODES, true)
-                || preg_match('/^[a-z0-9_]+$/D', $expectedType) !== 1) {
+        if (!array_is_list($codes)) {
+            throw new \InvalidArgumentException('Unsupported calculator iblock authority target.');
+        }
+        foreach ($codes as $code) {
+            if (!is_string($code) || !in_array($code, self::CALCULATOR_IBLOCK_CODES, true)) {
                 throw new \InvalidArgumentException('Unsupported calculator iblock authority target.');
             }
         }
         if (isset($this->adapters['resolve_calculator_iblock'])) {
             $resolved = [];
-            foreach ($targets as $code => $expectedType) {
-                $id = call_user_func($this->adapters['resolve_calculator_iblock'], $code, $expectedType);
+            foreach ($codes as $code) {
+                $id = call_user_func($this->adapters['resolve_calculator_iblock'], $code);
                 if (!is_int($id) || $id <= 0) {
                     throw new \RuntimeException('Calculator iblock adapter returned an invalid target.', 409);
                 }
@@ -302,7 +302,7 @@ final class CatalogRuntimeConfigAuthorityService
         try {
             $snapshot = $this->captureCalculatorSnapshot($connection, false);
             $resolved = [];
-            foreach ($targets as $code => $expectedType) {
+            foreach ($codes as $code) {
                 $configuredId = self::runtimeIblockId($snapshot, $code);
                 $rows = $this->readIblockCandidates($connection, $configuredId, $code);
                 if (count($rows) !== 1) {
@@ -310,8 +310,7 @@ final class CatalogRuntimeConfigAuthorityService
                 }
                 $row = $rows[0];
                 if ((int)($row['ID'] ?? $row['id'] ?? 0) !== $configuredId
-                    || (string)($row['CODE'] ?? $row['code'] ?? '') !== $code
-                    || (string)($row['IBLOCK_TYPE_ID'] ?? $row['iblock_type_id'] ?? '') !== $expectedType) {
+                    || (string)($row['CODE'] ?? $row['code'] ?? '') !== $code) {
                     throw new \RuntimeException(
                         'Calculator iblock authority does not match the exact target: ' . $code . '.',
                         409
@@ -751,7 +750,7 @@ final class CatalogRuntimeConfigAuthorityService
     {
         $helper = $connection->getSqlHelper();
         $cursor = $connection->query(
-            'SELECT ID, CODE, IBLOCK_TYPE_ID FROM b_iblock WHERE ID=' . $configuredId
+            'SELECT ID, CODE FROM b_iblock WHERE ID=' . $configuredId
             . " OR LOWER(CODE)='" . $helper->forSql(strtolower($code)) . "'"
             . ' ORDER BY ID LIMIT 3'
         );

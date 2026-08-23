@@ -28,9 +28,9 @@ foreach (['CALC_MATERIALS', 'CALC_MATERIALS_VARIANTS', 'CALC_OPERATIONS', 'CALC_
 $assert(strpos($authoritySource, 'lockConfiguredIblockIds(') !== false
     && strpos($authoritySource, 'FROM b_option') !== false
     && strpos($authoritySource, 'BINARY NAME IN (') !== false
-    && strpos($authoritySource, 'SELECT ID, CODE, IBLOCK_TYPE_ID FROM b_iblock WHERE ') !== false
+    && strpos($authoritySource, 'SELECT ID, CODE FROM b_iblock WHERE ') !== false
     && strpos($authoritySource, 'CODE IN (') !== false,
-    'Global authority must lock exact option mappings and complete code/type iblock identity sets');
+    'Global authority must lock exact option mappings and complete code iblock identity sets');
 $assert(strpos($globalSource, '$iblocks[$code] = $this->readIblock($iblockId)') !== false,
     'Global before/after readback must cover every pinned mutable iblock');
 $assert(strpos($metaSource, 'private array $pinnedIblockIds') !== false

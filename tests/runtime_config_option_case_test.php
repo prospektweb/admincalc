@@ -198,7 +198,7 @@ $resolverAuthority = new CatalogRuntimeConfigAuthorityService([
     },
 ]);
 try {
-    $resolverAuthority->resolveCalculatorIblockId('UNKNOWN', 'calculator_catalog');
+    $resolverAuthority->resolveCalculatorIblockId('UNKNOWN');
     $assert(false, 'single-target adapter must not bypass the exact calculator source contract');
 } catch (InvalidArgumentException $error) {
     $assert($resolverCalls === 0, 'invalid single-target authority is rejected before adapter invocation');

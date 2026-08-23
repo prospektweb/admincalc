@@ -25,7 +25,6 @@ final class GlobalSymbolService
         if (!is_array($row)
             || (int)($row['ID'] ?? 0) !== $iblockId
             || (string)($row['CODE'] ?? '') !== self::IBLOCK_CODE
-            || (string)($row['IBLOCK_TYPE_ID'] ?? '') !== 'calculator'
             || (string)($row['ACTIVE'] ?? '') !== 'Y') {
             throw new \RuntimeException('The pinned global-symbol iblock identity is invalid.', 409);
         }

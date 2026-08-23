@@ -31,21 +31,6 @@ final class CalculatorMutationAuthorityService
         'CALC_EQUIPMENT',
     ];
 
-    /** Exact code/type identities whose complete row sets are part of the authority lock. */
-    private const AUTHORITY_IBLOCK_TYPES = [
-        'CALC_DETAILS' => 'calculator_catalog',
-        'CALC_PRESETS' => 'calculator',
-        'CALC_SETTINGS' => 'calculator',
-        'CALC_STAGES' => 'calculator_catalog',
-        'CALC_GLOBAL_VALUES' => 'calculator',
-        'CALC_CUSTOM_FIELDS' => 'calculator',
-        'CALC_OPERATIONS' => 'calculator_catalog',
-        'CALC_OPERATIONS_VARIANTS' => 'calculator_catalog',
-        'CALC_MATERIALS' => 'calculator_catalog',
-        'CALC_MATERIALS_VARIANTS' => 'calculator_catalog',
-        'CALC_EQUIPMENT' => 'calculator_catalog',
-    ];
-
     /** @var array<string,true> */
     private const FORBIDDEN_ROOTS = [
         'product' => true,
@@ -769,36 +754,19 @@ final class CalculatorMutationAuthorityService
         if (count($uniqueIds) !== count($ids)) {
             throw new \RuntimeException('Calculator iblock authority contains duplicate targets.', 409);
         }
-        $codesByType = [];
-        foreach (self::AUTHORITY_IBLOCK_CODES as $code) {
-            $type = self::AUTHORITY_IBLOCK_TYPES[$code] ?? '';
-            if ($type === '') {
-                throw new \RuntimeException('Calculator iblock type authority is incomplete: ' . $code . '.', 409);
-            }
-            $codesByType[$type][] = $code;
-        }
-        ksort($codesByType, SORT_STRING);
-        $identityClauses = [];
-        foreach ($codesByType as $type => $codes) {
-            sort($codes, SORT_STRING);
-            $codeLiterals = array_map(static function (string $code) use ($helper): string {
-                return "'" . $helper->forSql($code) . "'";
-            }, $codes);
-            $identityClauses[] = "(IBLOCK_TYPE_ID='" . $helper->forSql($type)
-                . "' AND CODE IN (" . implode(',', $codeLiterals) . '))';
-        }
+        $codeLiterals = array_map(static function (string $code) use ($helper): string {
+            return "'" . $helper->forSql($code) . "'";
+        }, self::AUTHORITY_IBLOCK_CODES);
         $iblockRows = $connection->query(
-            'SELECT ID, CODE, IBLOCK_TYPE_ID FROM b_iblock WHERE '
-            . implode(' OR ', $identityClauses)
-            . ' ORDER BY IBLOCK_TYPE_ID, CODE, ID FOR UPDATE'
+            'SELECT ID, CODE FROM b_iblock WHERE CODE IN (' . implode(',', $codeLiterals)
+            . ') ORDER BY CODE, ID FOR UPDATE'
         );
         $actualIdsByCode = [];
         while (is_object($iblockRows) && method_exists($iblockRows, 'fetch') && ($row = $iblockRows->fetch())) {
             $id = (int)($row['ID'] ?? $row['id'] ?? 0);
             $code = (string)($row['CODE'] ?? $row['code'] ?? '');
-            $type = (string)($row['IBLOCK_TYPE_ID'] ?? $row['iblock_type_id'] ?? '');
             if ($id <= 0
-                || (self::AUTHORITY_IBLOCK_TYPES[$code] ?? null) !== $type
+                || !in_array($code, self::AUTHORITY_IBLOCK_CODES, true)
                 || isset($actualIdsByCode[$code])) {
                 throw new \RuntimeException('Calculator iblock identity rows are ambiguous.', 409);
             }

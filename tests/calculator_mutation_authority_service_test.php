@@ -402,10 +402,10 @@ $assert(in_array('rollback', $connection->events, true), 'rejected authority mut
 $assert($lockEvents !== [] && array_diff($lockEvents, [41, 42]) === [], 'locking is generic and follows requested preset IDs');
 $source = (string)file_get_contents(dirname(__DIR__) . '/lib/Services/CalculatorMutationAuthorityService.php');
 $assert(
-    str_contains($source, 'SELECT ID, CODE, IBLOCK_TYPE_ID FROM b_iblock WHERE ')
-    && str_contains($source, "IBLOCK_TYPE_ID='")
+    str_contains($source, 'SELECT ID, CODE FROM b_iblock WHERE ')
+    && !str_contains($source, "IBLOCK_TYPE_ID='")
     && str_contains($source, 'CODE IN ('),
-    'production authority locks every row matching each canonical code/type identity'
+    'production authority locks every row matching each canonical code independent of admin grouping'
 );
 $assert(str_contains($source, 'FROM b_option') && str_contains($source, 'BINARY NAME IN ('), 'production authority locks exact code-to-ID option rows');
 $assert(str_contains($source, 'withAuthorityInTransaction'), 'wider coordinators can join the same graph authority');
