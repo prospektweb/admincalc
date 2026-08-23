@@ -3,6 +3,7 @@
 namespace Prospektweb\Calc\Services;
 
 require_once __DIR__ . '/CatalogRuntimeConfigAuthorityService.php';
+require_once __DIR__ . '/CalcServerRequestDeadline.php';
 
 use Bitrix\Main\Application;
 use Bitrix\Main\Loader;
@@ -25,19 +26,26 @@ class BatchRecalculateService
     private InitPayloadService $initPayloadService;
     private ?CalcServerRequestSigner $requestSigner;
     private CatalogOutputMappingService $catalogOutputMappingService;
+    private CalcServerRequestDeadline $requestDeadline;
 
     /**
      * @param string $calcServerUrl URL сервера расчётов
      * @param int $timeout Таймаут запроса в секундах
      */
-    public function __construct(string $calcServerUrl, int $timeout = 30, ?CalcServerRequestSigner $requestSigner = null)
+    public function __construct(
+        string $calcServerUrl,
+        int $timeout = 30,
+        ?CalcServerRequestSigner $requestSigner = null,
+        ?CalcServerRequestDeadline $requestDeadline = null
+    )
     {
         $this->calcServerUrl = self::normalizeCalcServerUrl($calcServerUrl);
-        $this->timeout = $timeout;
+        $this->timeout = max(1, min(300, $timeout));
         $this->configManager = new ConfigManager();
         $this->initPayloadService = new InitPayloadService();
         $this->requestSigner = $requestSigner;
         $this->catalogOutputMappingService = new CatalogOutputMappingService();
+        $this->requestDeadline = $requestDeadline ?? new CalcServerRequestDeadline();
     }
 
     public static function normalizeCalcServerUrl(string $url): string
@@ -424,6 +432,7 @@ class BatchRecalculateService
         $siteId = defined('SITE_ID') ? SITE_ID : $this->getFirstAvailableSiteId();
 
         foreach (array_chunk($offerIds, self::PREVIEW_CHUNK_SIZE) as $offerChunk) {
+            $this->requestDeadline->assertAvailable();
             try {
                 $initPayload = $this->prepareCalculationPayload($offerChunk, $siteId);
                 $preview['stateFingerprints'] += $this->captureStateFingerprintsFromPayload($initPayload, $offerChunk);
@@ -446,6 +455,8 @@ class BatchRecalculateService
                 $offerResults = $this->projectCatalogOutputResults($offerResults, $requestPayload);
 
                 $chunkPreview = $offerUpdateService->previewOffersFromCalculation($offerResults, $offerChunk);
+            } catch (CalcServerRequestDeadlineExceeded $e) {
+                throw $e;
             } catch (\Throwable $e) {
                 $chunkPreview = $offerUpdateService->previewOffersFromCalculation([], $offerChunk);
                 array_unshift($chunkPreview['errors'], ['offerId' => 0, 'message' => $e->getMessage()]);
@@ -486,6 +497,7 @@ class BatchRecalculateService
             }
         }
         $preview['stateFingerprints'] = $postNetworkState;
+        $this->requestDeadline->assertAvailable();
 
         return $preview;
     }
@@ -601,6 +613,7 @@ class BatchRecalculateService
             'propertyIds' => [],
         ];
         foreach (array_chunk($offerIds, self::PREVIEW_CHUNK_SIZE) as $offerChunk) {
+            $this->requestDeadline->assertAvailable();
             $initPayload = $this->prepareCalculationPayload($offerChunk, $siteId);
             $fingerprints += $this->captureStateFingerprintsFromPayload($initPayload, $offerChunk);
             $requestPayload = $this->buildPayloadForOffers($initPayload, $offerChunk);
@@ -686,6 +699,7 @@ class BatchRecalculateService
         });
         $this->assertServerResultTargets($results, $offerIds);
         $sourceVersions = array_values(array_unique($sourceVersions));
+        $this->requestDeadline->assertAvailable();
 
         return [
             'contract' => self::SERVER_CALCULATION_CONTRACT,
@@ -998,9 +1012,11 @@ class BatchRecalculateService
 
         $fingerprints = [];
         foreach (array_chunk($offerIds, self::PREVIEW_CHUNK_SIZE) as $offerChunk) {
+            $this->requestDeadline->assertAvailable();
             $initPayload = $this->prepareCalculationPayload($offerChunk, $siteId);
             $fingerprints += $this->captureStateFingerprintsFromPayload($initPayload, $offerChunk);
         }
+        $this->requestDeadline->assertAvailable();
         ksort($fingerprints, SORT_NUMERIC);
         if (array_map('intval', array_keys($fingerprints)) !== $offerIds) {
             throw new \RuntimeException('Не удалось подтвердить текущее состояние всех выбранных ТП.');
@@ -1101,6 +1117,7 @@ class BatchRecalculateService
                 $approvedResults[$offerId] = strtolower(trim($resultFingerprint));
             }
 
+            $this->requestDeadline->assertAvailable();
             $catalogWriter = new CatalogCalculationWriteService();
             $presetId = (int)($requestPayload['preset']['id'] ?? 0);
             $writeResult = $catalogWriter->replayAuthoritativeBatch(
@@ -1136,6 +1153,10 @@ class BatchRecalculateService
                     $requestId
                 );
             }
+            // A timed-out response requeues this exact request ID. The catalog
+            // writer's receipt makes that replay idempotent if the commit won
+            // the race with the monotonic deadline.
+            $this->requestDeadline->assertAvailable();
 
             $writeResultsByOfferId = [];
             foreach (($writeResult['offers'] ?? []) as $offerWriteResult) {
@@ -1181,6 +1202,8 @@ class BatchRecalculateService
                 }
             }
 
+        } catch (CalcServerRequestDeadlineExceeded $e) {
+            throw $e;
         } catch (\Exception $e) {
             $message = $e->getMessage();
             foreach ($offerIds as $offerId) {
@@ -1584,13 +1607,22 @@ class BatchRecalculateService
             'Content-Type: application/json',
             'Accept: application/json',
         ], $authHeaders));
-        curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        $requestedTimeoutMilliseconds = $this->timeout * 1000;
+        $timeoutMilliseconds = $this->requestDeadline->capTimeoutMilliseconds($requestedTimeoutMilliseconds);
+        $deadlineLimited = $timeoutMilliseconds < $requestedTimeoutMilliseconds;
+        curl_setopt($ch, CURLOPT_TIMEOUT_MS, $timeoutMilliseconds);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, min(10000, $timeoutMilliseconds));
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $errorNumber = curl_errno($ch);
         $error = curl_error($ch);
         curl_close($ch);
+
+        if (($deadlineLimited && $errorNumber === CURLE_OPERATION_TIMEDOUT)
+            || $this->requestDeadline->remainingMilliseconds() < 1) {
+            throw new CalcServerRequestDeadlineExceeded();
+        }
 
         if ($error) {
             error_log("calc-server connection error: {$error}");

@@ -3,6 +3,8 @@
  * AJAX-эндпоинт для пакетного пересчёта калькуляций
  */
 
+$calcServerRequestStartedAtNanoseconds = hrtime(true);
+
 define('STOP_STATISTICS', true);
 define('NO_KEEP_STATISTIC', true);
 define('NO_AGENT_STATISTIC', true);
@@ -65,8 +67,11 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_ad
 
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
+use Prospektweb\Calc\Services\BatchJobLockUnavailable;
 use Prospektweb\Calc\Services\BatchPreviewFingerprintService;
 use Prospektweb\Calc\Services\BatchRecalculateService;
+use Prospektweb\Calc\Services\CalcServerRequestDeadline;
+use Prospektweb\Calc\Services\CalcServerRequestDeadlineExceeded;
 use Prospektweb\Calc\Services\CatalogCalculationWriteService;
 use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
 
@@ -95,9 +100,9 @@ function loadJobLimits(): array
 {
     $moduleId = 'prospektweb.calc';
 
-    $maxOffersPerJob = max(50, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_OFFERS', '400'));
-    $maxStepDurationSec = max(2, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_STEP_DURATION', '12'));
-    $maxBatchSize = max(1, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_BATCH_SIZE', '10'));
+    $maxOffersPerJob = max(1, min(400, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_OFFERS', '400')));
+    $maxStepDurationSec = max(2, min(240, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_STEP_DURATION', '12')));
+    $maxBatchSize = max(1, min(20, (int)Option::get($moduleId, 'BATCH_RECALC_MAX_BATCH_SIZE', '10')));
     $jobTtlSec = max(60, (int)Option::get($moduleId, 'BATCH_RECALC_JOB_TTL', '1800'));
     $previewTtlSec = max(30, min(900, (int)Option::get($moduleId, 'BATCH_RECALC_PREVIEW_TTL', '300')));
 
@@ -383,15 +388,41 @@ function deletePreviewState(int $userId): void
 }
 
 /** @return resource */
-function acquireJobLock(int $userId)
+function acquireJobLock(int $userId, CalcServerRequestDeadline $requestDeadline)
 {
     $handle = @fopen(getJobStorageDirectory() . '/batch_recalc_job_user_' . $userId . '.lock', 'c+');
-    if (!is_resource($handle) || !flock($handle, LOCK_EX)) {
+    if (!is_resource($handle)) {
         respondJson(503, [
             'success' => false,
             'errorCode' => 'JOB_LOCK_UNAVAILABLE',
             'error' => 'Unable to lock recalculate job',
         ]);
+    }
+    try {
+        while (true) {
+            $requestDeadline->assertAvailable();
+            $wouldBlock = 0;
+            if (flock($handle, LOCK_EX | LOCK_NB, $wouldBlock)) {
+                // This must remain the first operation after acquiring the
+                // lock: no action branch or persisted state may run stale.
+                $requestDeadline->assertAvailable();
+                break;
+            }
+            if ($wouldBlock !== 1) {
+                throw new BatchJobLockUnavailable();
+            }
+            $remainingMilliseconds = $requestDeadline->remainingMilliseconds();
+            if ($remainingMilliseconds < 1) {
+                throw new CalcServerRequestDeadlineExceeded();
+            }
+            usleep(min(10000, $remainingMilliseconds * 1000));
+        }
+    } catch (\Throwable $error) {
+        // LOCK_UN is harmless when acquisition never succeeded and guarantees
+        // cleanup for both pre- and post-acquisition deadline failures.
+        @flock($handle, LOCK_UN);
+        fclose($handle);
+        throw $error;
     }
     @chmod(getJobStorageDirectory() . '/batch_recalc_job_user_' . $userId . '.lock', 0600);
 
@@ -552,10 +583,46 @@ $maxBatchSize = (int)$limits['maxBatchSize'];
 $jobTtlSec = (int)$limits['jobTtlSec'];
 $previewTtlSec = (int)$limits['previewTtlSec'];
 $action = (string)($requestData['action'] ?? 'run');
+try {
+    $requestDeadline = new CalcServerRequestDeadline(
+        CalcServerRequestDeadline::MAX_BUDGET_MILLISECONDS,
+        null,
+        $calcServerRequestStartedAtNanoseconds
+    );
+    $requestDeadline->assertAvailable();
+} catch (CalcServerRequestDeadlineExceeded $error) {
+    respondJson(504, [
+        'success' => false,
+        'errorCode' => CalcServerRequestDeadlineExceeded::ERROR_CODE,
+        'error' => 'The batch request exceeded the 300 second request budget.',
+    ]);
+}
 
 $jobLock = null;
 if (in_array($action, ['preview', 'start', 'status', 'step', 'cancel', 'finish'], true)) {
-    $jobLock = acquireJobLock($userId);
+    try {
+        $jobLock = acquireJobLock($userId, $requestDeadline);
+        // No branch or state mutation may run after time spent waiting for the
+        // per-user lock has consumed the request budget.
+        $requestDeadline->assertAvailable();
+    } catch (CalcServerRequestDeadlineExceeded $error) {
+        if (is_resource($jobLock)) {
+            flock($jobLock, LOCK_UN);
+            fclose($jobLock);
+            $jobLock = null;
+        }
+        respondJson(504, [
+            'success' => false,
+            'errorCode' => CalcServerRequestDeadlineExceeded::ERROR_CODE,
+            'error' => 'The batch request exceeded the 300 second budget while waiting for its job lock.',
+        ]);
+    } catch (BatchJobLockUnavailable $error) {
+        respondJson(503, [
+            'success' => false,
+            'errorCode' => BatchJobLockUnavailable::ERROR_CODE,
+            'error' => $error->getMessage(),
+        ]);
+    }
     register_shutdown_function(static function () use ($jobLock): void {
         if (is_resource($jobLock)) {
             flock($jobLock, LOCK_UN);
@@ -595,7 +662,7 @@ if ($action === 'status') {
 
 if ($action === 'analyze') {
     [$presetIds, $onlyChanged, $calcServerUrl, $timeout] = validateCommonParams($requestData);
-    $service = new BatchRecalculateService($calcServerUrl, $timeout);
+    $service = new BatchRecalculateService($calcServerUrl, $timeout, null, $requestDeadline);
     $analysis = $service->getPresetAnalysis($presetIds);
     validateAnalysisContract($analysis);
 
@@ -622,7 +689,7 @@ if ($action === 'preview') {
     $productIdsByPreset = validateProductIdsByPreset($requestData);
     // A new attempt invalidates any older proof before doing remote work.
     deletePreviewState($userId);
-    $service = new BatchRecalculateService($calcServerUrl, $timeout);
+    $service = new BatchRecalculateService($calcServerUrl, $timeout, null, $requestDeadline);
     $analysis = $service->getPresetAnalysis($presetIds);
     validateAnalysisContract($analysis);
     $rows = buildScopedBatchRows($service, $analysis, $productIdsByPreset);
@@ -640,7 +707,15 @@ if ($action === 'preview') {
         ]);
     }
 
-    $preview = $service->previewOffers($offerIds);
+    try {
+        $preview = $service->previewOffers($offerIds);
+    } catch (CalcServerRequestDeadlineExceeded $error) {
+        respondJson(504, [
+            'success' => false,
+            'errorCode' => CalcServerRequestDeadlineExceeded::ERROR_CODE,
+            'error' => 'The server preview exceeded the 300 second request budget.',
+        ]);
+    }
     $stateFingerprints = is_array($preview['stateFingerprints'] ?? null)
         ? $preview['stateFingerprints']
         : [];
@@ -650,6 +725,7 @@ if ($action === 'preview') {
     $previewExpiresAt = null;
     if (($preview['ready'] ?? false) === true) {
         try {
+            $requestDeadline->assertAvailable();
             $resultFingerprints = BatchPreviewFingerprintService::resultFingerprints($preview);
             $proof = BatchPreviewFingerprintService::issue(
                 buildBatchPreviewScope(
@@ -665,6 +741,7 @@ if ($action === 'preview') {
             );
             $issuedAt = time();
             $previewExpiresAt = $issuedAt + $previewTtlSec;
+            $requestDeadline->assertAvailable();
             savePreviewState($userId, [
                 'contract' => (string)$proof['contract'],
                 'fingerprint' => (string)$proof['fingerprint'],
@@ -676,6 +753,13 @@ if ($action === 'preview') {
                 'expiresAt' => $previewExpiresAt,
             ]);
             $previewFingerprint = (string)$proof['fingerprint'];
+        } catch (CalcServerRequestDeadlineExceeded $error) {
+            deletePreviewState($userId);
+            respondJson(504, [
+                'success' => false,
+                'errorCode' => CalcServerRequestDeadlineExceeded::ERROR_CODE,
+                'error' => 'The server preview exceeded the 300 second request budget.',
+            ]);
         } catch (\Throwable $error) {
             deletePreviewState($userId);
             respondJson(500, [
@@ -758,7 +842,7 @@ if ($action === 'start') {
             ],
         ]);
     }
-    $service = new BatchRecalculateService($calcServerUrl, $timeout);
+    $service = new BatchRecalculateService($calcServerUrl, $timeout, null, $requestDeadline);
     $analysis = $service->getPresetAnalysis($presetIds);
     validateAnalysisContract($analysis);
     $rows = buildScopedBatchRows($service, $analysis, $productIdsByPreset);
@@ -861,7 +945,17 @@ if ($action === 'start') {
         ]);
     }
 
-    // The proof is single-use. Consume it only after every CAS check passes.
+    // The proof is single-use. Consume it only after every CAS and request
+    // deadline check passes.
+    try {
+        $requestDeadline->assertAvailable();
+    } catch (CalcServerRequestDeadlineExceeded $error) {
+        respondJson(504, [
+            'success' => false,
+            'errorCode' => CalcServerRequestDeadlineExceeded::ERROR_CODE,
+            'error' => 'The batch start exceeded the 300 second request budget.',
+        ]);
+    }
     deletePreviewState($userId);
     if (is_array($existingJob)) {
         deleteJobState($userId);
@@ -930,10 +1024,29 @@ if ($action === 'step') {
     }
 
     $params = $job['params'];
-    $service = new BatchRecalculateService((string)$params['calcServerUrl'], (int)$params['timeout']);
+    $service = new BatchRecalculateService(
+        (string)$params['calcServerUrl'],
+        (int)$params['timeout'],
+        null,
+        $requestDeadline
+    );
     $stepStartedAt = microtime(true);
 
     while (!empty($job['queue'])) {
+        try {
+            $requestDeadline->assertAvailable();
+        } catch (CalcServerRequestDeadlineExceeded $error) {
+            $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
+            $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'Шаг остановлен по общему лимиту запроса'];
+            saveJobState($userId, $job);
+            respondJson(504, [
+                'success' => false,
+                'errorCode' => CalcServerRequestDeadlineExceeded::ERROR_CODE,
+                'error' => 'The batch step exceeded the 300 second request budget.',
+                'jobId' => (string)$job['jobId'],
+                'finished' => false,
+            ]);
+        }
         if ((microtime(true) - $stepStartedAt) >= $maxStepDurationSec) {
             $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'Шаг остановлен по лимиту времени'];
             break;
@@ -999,14 +1112,28 @@ if ($action === 'step') {
                 'sha256',
                 (string)$job['jobId'] . ':' . $presetId . ':' . implode(',', $receiptOfferIds)
             );
-            $batchResults = $service->recalculateOffers(
-                $offerIds,
-                (bool)$params['onlyChanged'],
-                $batchExpectedState,
-                $batchExpectedResults,
-                $userId,
-                $batchRequestId
-            );
+            try {
+                $batchResults = $service->recalculateOffers(
+                    $offerIds,
+                    (bool)$params['onlyChanged'],
+                    $batchExpectedState,
+                    $batchExpectedResults,
+                    $userId,
+                    $batchRequestId
+                );
+            } catch (CalcServerRequestDeadlineExceeded $error) {
+                $job['queue'] = array_merge($batchItems, $job['queue']);
+                $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
+                $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'Пакет остановлен по общему лимиту запроса'];
+                saveJobState($userId, $job);
+                respondJson(504, [
+                    'success' => false,
+                    'errorCode' => CalcServerRequestDeadlineExceeded::ERROR_CODE,
+                    'error' => 'The batch step exceeded the 300 second request budget.',
+                    'jobId' => (string)$job['jobId'],
+                    'finished' => false,
+                ]);
+            }
         }
 
         foreach ($batchItems as $batchItem) {
@@ -1062,6 +1189,20 @@ if ($action === 'step') {
         $job['logs'] = array_slice($job['logs'], -400);
     }
 
+    try {
+        $requestDeadline->assertAvailable();
+    } catch (CalcServerRequestDeadlineExceeded $error) {
+        $job['summary']['duration'] = round(microtime(true) - (float)$job['startedAt'], 2);
+        $job['logs'][] = ['ts' => date('H:i:s'), 'message' => 'Шаг остановлен по общему лимиту запроса'];
+        saveJobState($userId, $job);
+        respondJson(504, [
+            'success' => false,
+            'errorCode' => CalcServerRequestDeadlineExceeded::ERROR_CODE,
+            'error' => 'The batch step exceeded the 300 second request budget.',
+            'jobId' => (string)$job['jobId'],
+            'finished' => (bool)$job['finished'],
+        ]);
+    }
     saveJobState($userId, $job);
 
     respondJson(200, [

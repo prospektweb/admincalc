@@ -164,6 +164,24 @@ namespace Prospektweb\Frontcalc\Service {
 }
 
 namespace Prospektweb\Calc\Services {
+    class CalcServerRequestDeadline
+    {
+        public const MAX_BUDGET_MILLISECONDS = 300000;
+
+        public function __construct(int $budgetMilliseconds = self::MAX_BUDGET_MILLISECONDS, ?callable $clock = null, ?int $startedAtNanoseconds = null)
+        {
+        }
+
+        public function assertAvailable(): void
+        {
+        }
+    }
+
+    class CalcServerRequestDeadlineExceeded extends \RuntimeException
+    {
+        public const ERROR_CODE = 'CALC_SERVER_REQUEST_DEADLINE_EXCEEDED';
+    }
+
     class ControlCenterSettingsService
     {
         public function getSettings(): array
