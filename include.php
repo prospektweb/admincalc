@@ -31,6 +31,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\CatalogOutputMappingService' => 'lib/Services/CatalogOutputMappingService.php',
     'Prospektweb\\Calc\\Services\\CatalogCalculationWriteService' => 'lib/Services/CatalogCalculationWriteService.php',
     'Prospektweb\\Calc\\Services\\CatalogRuntimeConfigAuthorityService' => 'lib/Services/CatalogRuntimeConfigAuthorityService.php',
+    'Prospektweb\\Calc\\Services\\BitrixTransactionStateAuthority' => 'lib/Services/BitrixTransactionStateAuthority.php',
     'Prospektweb\\Calc\\Services\\StandaloneCatalogPriceNormalizer' => 'lib/Services/StandaloneCatalogPriceNormalizer.php',
     'Prospektweb\\Calc\\Services\\BatchRecalculateService' => 'lib/Services/BatchRecalculateService.php',
     'Prospektweb\\Calc\\Services\\BatchJobLockUnavailable' => 'lib/Services/BatchJobLockUnavailable.php',

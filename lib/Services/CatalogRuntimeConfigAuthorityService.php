@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Prospektweb\Calc\Services;
 
+require_once __DIR__ . '/BitrixTransactionStateAuthority.php';
+
 use Bitrix\Main\Application;
 use Bitrix\Main\Loader;
 
@@ -715,8 +717,7 @@ final class CatalogRuntimeConfigAuthorityService
 
     private function transactionActive($connection): bool
     {
-        $row = $connection->query('SELECT @@session.in_transaction AS ACTIVE')->fetch();
-        return is_array($row) && (int)($row['ACTIVE'] ?? $row['active'] ?? 0) === 1;
+        return BitrixTransactionStateAuthority::isActive($connection);
     }
 
     private function lockModuleAuthorities($connection, bool $includeCatalog): void

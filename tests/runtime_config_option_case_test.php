@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/bitrix_transaction_test_stubs.php';
 require_once dirname(__DIR__) . '/lib/Services/CatalogRuntimeConfigAuthorityService.php';
 
 use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
@@ -134,7 +135,7 @@ final class RuntimeConfigCaseSqlHelper
     }
 }
 
-final class RuntimeConfigCaseConnection
+final class RuntimeConfigCaseConnection extends \Bitrix\Main\DB\MysqliConnection
 {
     /** @var array<int,array<string,mixed>> */
     private array $rows;
@@ -155,15 +156,12 @@ final class RuntimeConfigCaseConnection
     public function query(string $sql): RuntimeConfigCaseResult
     {
         $this->queries[] = $sql;
-        if (str_contains($sql, '@@session.in_transaction')) {
-            return new RuntimeConfigCaseResult([['ACTIVE' => 0]]);
-        }
         return new RuntimeConfigCaseResult($this->rows);
     }
 
-    public function startTransaction(): void {}
-    public function commitTransaction(): void {}
-    public function rollbackTransaction(): void {}
+    public function startTransaction(): void { $this->transactionLevel++; }
+    public function commitTransaction(): void { $this->transactionLevel--; }
+    public function rollbackTransaction(): void { $this->transactionLevel--; }
 }
 
 $connection = new RuntimeConfigCaseConnection($rows);
