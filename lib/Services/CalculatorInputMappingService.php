@@ -190,15 +190,19 @@ final class CalculatorInputMappingService
                 );
             }
             if ($whole !== []
-                && ((string)$whole[0]['value_mode'] !== 'dimensions'
-                    || !is_array($whole[0]['input_map'] ?? null)
-                    || $whole[0]['input_map'] === [])) {
+                && !in_array((string)$whole[0]['value_mode'], ['dimensions', 'dimension_xml_id'], true)) {
                 throw new \InvalidArgumentException(
-                    'Сопоставление составного поля ' . $fieldId . ' целиком требует dimensions и input_map.'
+                    'Сопоставление составного поля ' . $fieldId . ' целиком требует dimensions или dimension_xml_id.'
+                );
+            }
+            if ($whole !== [] && (string)$whole[0]['value_mode'] === 'dimensions'
+                && (!is_array($whole[0]['input_map'] ?? null) || $whole[0]['input_map'] === [])) {
+                throw new \InvalidArgumentException(
+                    'Сопоставление составного поля ' . $fieldId . ' в режиме dimensions требует input_map.'
                 );
             }
             foreach ($parts as $part) {
-                if ((string)$part['value_mode'] === 'dimensions') {
+                if (in_array((string)$part['value_mode'], ['dimensions', 'dimension_xml_id'], true)) {
                     throw new \InvalidArgumentException(
                         'Отдельный вход составного поля ' . $fieldId . ' не может использовать dimensions.'
                     );
@@ -258,6 +262,7 @@ final class CalculatorInputMappingService
                 throw new \InvalidArgumentException($path . '.source не соответствует активному свойству инфоблока.');
             }
             $propertyType = trim((string)($property['property_type'] ?? ''));
+            $propertyUserType = strtolower(trim((string)($property['user_type'] ?? '')));
             $sourceMultiple = ($property['multiple'] ?? null) === true;
             if ($propertyType === '' || !is_bool($property['multiple'] ?? null)) {
                 throw new \RuntimeException($path . '.source не содержит авторитетную форму значения свойства.', 409);
@@ -268,12 +273,19 @@ final class CalculatorInputMappingService
                     $enumXmlIds[$xmlId] = true;
                 }
             }
-            $isEnum = $propertyType === 'L';
+            $isEnum = $propertyType === 'L' || $propertyUserType === 'directory';
             if ($isEnum !== ($enumXmlIds !== [])) {
                 throw new \RuntimeException($path . '.source содержит неполную enum provenance.', 409);
             }
 
             $valueMode = (string)$mapping['value_mode'];
+            $sourceValue = (string)($mapping['source_value'] ?? ($isEnum ? 'xml_id' : 'value'));
+            if (!$isEnum && $sourceValue !== 'value') {
+                throw new \InvalidArgumentException($path . '.source_value XML_ID и SORT доступны только для свойств-списков.');
+            }
+            if (isset($mapping['transform_regex']) && $valueMode !== 'scalar') {
+                throw new \InvalidArgumentException($path . '.transform_regex допустим только для scalar-сопоставления.');
+            }
             $targetMode = trim((string)($bindingModes[$fieldId] ?? ''));
             if ($targetMode === '') {
                 $targetMode = $fieldType === 'checkbox'
@@ -287,7 +299,20 @@ final class CalculatorInputMappingService
                     );
                 }
             } elseif ($fieldType === 'dimensions') {
-                if ($valueMode !== 'dimensions' || !$sourceMultiple || !$isEnum) {
+                if ($valueMode === 'dimension_xml_id') {
+                    if ($sourceMultiple || !$isEnum || count($inputIds) !== 2 || $sourceValue !== 'xml_id') {
+                        throw new \InvalidArgumentException(
+                            $path . ' dimension_xml_id требует одиночное свойство-список и ровно два входа размеров.'
+                        );
+                    }
+                    foreach (array_keys($enumXmlIds) as $xmlId) {
+                        if (preg_match('/^\d+(?:[.,]\d+)?x\d+(?:[.,]\d+)?$/D', $xmlId) !== 1) {
+                            throw new \InvalidArgumentException(
+                                $path . '.source содержит XML_ID не по схеме widthxlength: ' . $xmlId . '.'
+                            );
+                        }
+                    }
+                } elseif ($valueMode !== 'dimensions' || !$sourceMultiple || !$isEnum) {
                     throw new \InvalidArgumentException(
                         $path . ' поле dimensions целиком требует множественное enum-свойство и value_mode dimensions.'
                     );
@@ -305,9 +330,9 @@ final class CalculatorInputMappingService
                         $path . ' checkbox требует одиночный источник и value_mode boolean_yn.'
                     );
                 }
-            } elseif ($valueMode !== 'scalar' || $targetMode !== 'scalar' || $sourceMultiple || $isEnum) {
+            } elseif ($valueMode !== 'scalar' || $targetMode !== 'scalar' || $sourceMultiple) {
                 throw new \InvalidArgumentException(
-                    $path . ' number требует одиночный scalar источник без enum.'
+                    $path . ' number требует одиночный scalar источник.'
                 );
             }
 
@@ -487,7 +512,7 @@ final class CalculatorInputMappingService
         $path = 'calculator_input_mapping.mappings[' . $index . ']';
         $this->assertAllowedKeys(
             $mapping,
-            ['target', 'source', 'value_mode', 'option_map', 'input_map'],
+            ['target', 'source', 'value_mode', 'source_value', 'transform_regex', 'option_map', 'input_map'],
             $path
         );
         if (!is_array($mapping['target'] ?? null) || $this->isList($mapping['target'])) {
@@ -497,10 +522,10 @@ final class CalculatorInputMappingService
             throw new \InvalidArgumentException($path . '.source должен быть JSON-объектом.');
         }
         $valueMode = $this->strictString($mapping['value_mode'] ?? null, 1, 32, $path . '.value_mode');
-        if (!in_array($valueMode, ['scalar', 'multiple', 'boolean_yn', 'dimensions'], true)) {
+        if (!in_array($valueMode, ['scalar', 'multiple', 'boolean_yn', 'dimensions', 'dimension_xml_id'], true)) {
             throw new \InvalidArgumentException($path . '.value_mode не поддерживается.');
         }
-        if ($valueMode === 'dimensions' && array_key_exists('option_map', $mapping)) {
+        if (in_array($valueMode, ['dimensions', 'dimension_xml_id'], true) && array_key_exists('option_map', $mapping)) {
             throw new \InvalidArgumentException($path . '.option_map недопустим для dimensions.');
         }
         if ($valueMode !== 'dimensions' && array_key_exists('input_map', $mapping)) {
@@ -512,6 +537,26 @@ final class CalculatorInputMappingService
             'source' => $this->normalizeSource($mapping['source'], $path . '.source'),
             'value_mode' => $valueMode,
         ];
+        if (array_key_exists('source_value', $mapping)) {
+            $sourceValue = $this->strictString($mapping['source_value'], 1, 16, $path . '.source_value');
+            if (!in_array($sourceValue, ['xml_id', 'value', 'sort'], true)) {
+                throw new \InvalidArgumentException($path . '.source_value не поддерживается.');
+            }
+            $normalized['source_value'] = $sourceValue;
+        }
+        if (array_key_exists('transform_regex', $mapping)) {
+            $regex = $this->strictString($mapping['transform_regex'], 1, 200, $path . '.transform_regex');
+            set_error_handler(static function (): bool { return true; });
+            try {
+                $validRegex = preg_match('~' . str_replace('~', '\\~', $regex) . '~u', '') !== false;
+            } finally {
+                restore_error_handler();
+            }
+            if (!$validRegex) {
+                throw new \InvalidArgumentException($path . '.transform_regex содержит некорректное регулярное выражение.');
+            }
+            $normalized['transform_regex'] = $regex;
+        }
         if (array_key_exists('option_map', $mapping)) {
             $optionMap = $this->normalizeStringMap(
                 $mapping['option_map'],

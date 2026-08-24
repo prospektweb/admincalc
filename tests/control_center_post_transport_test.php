@@ -225,6 +225,16 @@ namespace Prospektweb\Calc\Services {
 
     class ControlCenterEditorsService
     {
+        public static function assertStorefrontAuthoritativeReadback(array $saved, $readBack): array
+        {
+            if (!is_array($readBack)
+                || json_encode($saved, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                    !== json_encode($readBack, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) {
+                throw new \RuntimeException('Storefront authoritative save readback does not match the write');
+            }
+            return $readBack;
+        }
+
         public function getCatalog(): array
         {
             return [

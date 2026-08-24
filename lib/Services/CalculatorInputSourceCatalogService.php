@@ -23,7 +23,7 @@ final class CalculatorInputSourceCatalogService
 
     public function __construct(array $adapters = [])
     {
-        foreach (['source_iblocks', 'property_rows', 'enum_rows'] as $adapter) {
+        foreach (['source_iblocks', 'property_rows', 'enum_rows', 'directory_rows'] as $adapter) {
             if (isset($adapters[$adapter]) && !is_callable($adapters[$adapter])) {
                 throw new \InvalidArgumentException($adapter . ' adapter must be callable.');
             }
@@ -64,7 +64,10 @@ final class CalculatorInputSourceCatalogService
                 if ($propertyType === '') {
                     throw new \RuntimeException('Source property catalog contains an unknown property type.', 409);
                 }
-                $values = $propertyType === 'L' ? $this->enumValues($propertyId) : [];
+                $userType = trim((string)($row['USER_TYPE'] ?? ''));
+                $values = $propertyType === 'L'
+                    ? $this->enumValues($propertyId)
+                    : (strtolower($userType) === 'directory' ? $this->directoryValues($row, $propertyId) : []);
                 $properties[] = [
                     'scope' => $scope,
                     'iblock_id' => $iblockId,
@@ -72,7 +75,7 @@ final class CalculatorInputSourceCatalogService
                     'property_code' => $propertyCode,
                     'name' => trim((string)($row['NAME'] ?? '')),
                     'property_type' => $propertyType,
-                    'user_type' => trim((string)($row['USER_TYPE'] ?? '')),
+                    'user_type' => $userType,
                     'multiple' => (string)($row['MULTIPLE'] ?? '') === 'Y',
                     'values' => $values,
                 ];
@@ -110,6 +113,7 @@ final class CalculatorInputSourceCatalogService
                 'code' => (string)$property['property_code'],
                 'active' => true,
                 'property_type' => (string)$property['property_type'],
+                'user_type' => (string)$property['user_type'],
                 'multiple' => (bool)$property['multiple'],
                 'enum_xml_ids' => $enumXmlIds,
             ];
@@ -166,7 +170,7 @@ final class CalculatorInputSourceCatalogService
         return $rows;
     }
 
-    /** @return array<int,array{enum_id:int,xml_id:string,label:string}> */
+    /** @return array<int,array{enum_id:int,xml_id:string,label:string,sort:int}> */
     private function enumValues(int $propertyId): array
     {
         if (isset($this->adapters['enum_rows'])) {
@@ -212,6 +216,83 @@ final class CalculatorInputSourceCatalogService
                 'enum_id' => $enumId,
                 'xml_id' => $xmlId,
                 'label' => trim((string)($row['VALUE'] ?? '')),
+                'sort' => (int)($row['SORT'] ?? 0),
+            ];
+        }
+        return $values;
+    }
+
+    /** @return array<int,array{enum_id:int,xml_id:string,label:string,sort:int}> */
+    private function directoryValues(array $propertyRow, int $propertyId): array
+    {
+        if (isset($this->adapters['directory_rows'])) {
+            $rows = call_user_func($this->adapters['directory_rows'], $propertyRow, $propertyId);
+            if (!is_array($rows)) {
+                throw new \RuntimeException('Input source directory adapter returned invalid data.', 409);
+            }
+        } else {
+            $settings = $propertyRow['USER_TYPE_SETTINGS'] ?? [];
+            if (is_string($settings) && trim($settings) !== '') {
+                $settings = @unserialize($settings, ['allowed_classes' => false]);
+            }
+            $tableName = is_array($settings) ? trim((string)($settings['TABLE_NAME'] ?? '')) : '';
+            if ($tableName === '' || !class_exists(Loader::class) || !Loader::includeModule('highloadblock')) {
+                return [];
+            }
+            $hlblock = \Bitrix\Highloadblock\HighloadBlockTable::getList([
+                'filter' => ['=TABLE_NAME' => $tableName],
+                'limit' => 1,
+            ])->fetch();
+            if (!is_array($hlblock)) {
+                return [];
+            }
+            $entity = \Bitrix\Highloadblock\HighloadBlockTable::compileEntity($hlblock);
+            $dataClass = $entity->getDataClass();
+            $fields = $entity->getFields();
+            $order = isset($fields['UF_SORT']) ? ['UF_SORT' => 'ASC', 'ID' => 'ASC'] : ['ID' => 'ASC'];
+            $rows = $dataClass::getList(['select' => ['*'], 'order' => $order])->fetchAll();
+        }
+
+        $normalizedRows = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $normalizedRows[] = [
+                'ID' => $row['ID'] ?? null,
+                'XML_ID' => $row['UF_XML_ID'] ?? $row['XML_ID'] ?? null,
+                'VALUE' => $row['UF_NAME'] ?? $row['UF_DESCRIPTION'] ?? $row['VALUE'] ?? null,
+                'SORT' => $row['UF_SORT'] ?? $row['SORT'] ?? 0,
+            ];
+        }
+        return $this->normalizeChoiceValues($normalizedRows, $propertyId, 'Directory');
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<int,array{enum_id:int,xml_id:string,label:string,sort:int}>
+     */
+    private function normalizeChoiceValues(array $rows, int $propertyId, string $kind): array
+    {
+        $values = [];
+        $ids = [];
+        $xmlIds = [];
+        foreach ($rows as $row) {
+            $id = is_array($row) ? (int)($row['ID'] ?? 0) : 0;
+            $xmlId = is_array($row) ? trim((string)($row['XML_ID'] ?? '')) : '';
+            if ($id <= 0 || $id > self::MAX_SAFE_INTEGER || $xmlId === '') {
+                throw new \RuntimeException($kind . ' source authority is incomplete for property #' . $propertyId . '.', 409);
+            }
+            if (isset($ids[$id]) || isset($xmlIds[$xmlId])) {
+                throw new \RuntimeException($kind . ' identities are not unique for source property #' . $propertyId . '.', 409);
+            }
+            $ids[$id] = true;
+            $xmlIds[$xmlId] = true;
+            $values[] = [
+                'enum_id' => $id,
+                'xml_id' => $xmlId,
+                'label' => trim((string)($row['VALUE'] ?? '')),
+                'sort' => (int)($row['SORT'] ?? 0),
             ];
         }
         return $values;

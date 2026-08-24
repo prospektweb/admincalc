@@ -26,6 +26,7 @@ $propertyRows = [
     14 => [
         ['ID' => '301', 'CODE' => 'TYPE_PAPER', 'NAME' => 'Тип бумаги', 'ACTIVE' => 'Y', 'PROPERTY_TYPE' => 'L', 'USER_TYPE' => '', 'MULTIPLE' => 'N'],
         ['ID' => '302', 'CODE' => '', 'NAME' => 'Без кода', 'ACTIVE' => 'Y', 'PROPERTY_TYPE' => 'S', 'USER_TYPE' => '', 'MULTIPLE' => 'N'],
+        ['ID' => '304', 'CODE' => 'PAPER_DIRECTORY', 'NAME' => 'Справочник бумаги', 'ACTIVE' => 'Y', 'PROPERTY_TYPE' => 'S', 'USER_TYPE' => 'directory', 'MULTIPLE' => 'N', 'USER_TYPE_SETTINGS' => ['TABLE_NAME' => 'b_hlbd_paper']],
         ['ID' => '303', 'CODE' => 'INACTIVE', 'NAME' => 'Выключено', 'ACTIVE' => 'N', 'PROPERTY_TYPE' => 'S', 'USER_TYPE' => '', 'MULTIPLE' => 'N'],
     ],
     15 => [
@@ -48,6 +49,10 @@ $service = new CalculatorInputSourceCatalogService([
     'source_iblocks' => static fn(int $presetId): array => ['product' => 14, 'selected_offer' => 15],
     'property_rows' => static fn(int $iblockId, string $scope): array => $propertyRows[$iblockId] ?? [],
     'enum_rows' => static fn(int $propertyId): array => $enumRows[$propertyId] ?? [],
+    'directory_rows' => static fn(array $property, int $propertyId): array => $propertyId === 304 ? [
+        ['ID' => '9001', 'UF_XML_ID' => 'OFFSET_80', 'UF_NAME' => 'Офсетная 80 г/м²', 'UF_SORT' => 100],
+        ['ID' => '9002', 'UF_XML_ID' => 'MEL_130', 'UF_NAME' => 'Мелованная 130 г/м²', 'UF_SORT' => 200],
+    ] : [],
 ]);
 
 $catalog = $service->load(41);
@@ -58,7 +63,7 @@ $assert(
 $assert($catalog['contract'] === CalculatorInputSourceCatalogService::CONTRACT, 'source catalog is versioned');
 $assert($catalog['preset_id'] === 41, 'source catalog is scoped to the requested preset');
 $assert($catalog['product_iblock_id'] === 14 && $catalog['offer_iblock_id'] === 15, 'configured iblock identities are explicit');
-$assert(count($catalog['properties']) === 3, 'only active properties with stable codes are selectable');
+$assert(count($catalog['properties']) === 4, 'only active properties with stable codes are selectable');
 $assert($catalog['properties'][0] === [
     'scope' => 'product',
     'iblock_id' => 14,
@@ -69,15 +74,29 @@ $assert($catalog['properties'][0] === [
     'user_type' => '',
     'multiple' => false,
     'values' => [
-        ['enum_id' => 7001, 'xml_id' => 'OFFSET', 'label' => 'Офсетная'],
-        ['enum_id' => 7002, 'xml_id' => 'MEL', 'label' => 'Мелованная'],
+        ['enum_id' => 7001, 'xml_id' => 'OFFSET', 'label' => 'Офсетная', 'sort' => 0],
+        ['enum_id' => 7002, 'xml_id' => 'MEL', 'label' => 'Мелованная', 'sort' => 0],
     ],
 ], 'product property exposes exact property and enum provenance');
+$assert($catalog['properties'][1] === [
+    'scope' => 'product',
+    'iblock_id' => 14,
+    'property_id' => 304,
+    'property_code' => 'PAPER_DIRECTORY',
+    'name' => 'Справочник бумаги',
+    'property_type' => 'S',
+    'user_type' => 'directory',
+    'multiple' => false,
+    'values' => [
+        ['enum_id' => 9001, 'xml_id' => 'OFFSET_80', 'label' => 'Офсетная 80 г/м²', 'sort' => 100],
+        ['enum_id' => 9002, 'xml_id' => 'MEL_130', 'label' => 'Мелованная 130 г/м²', 'sort' => 200],
+    ],
+], 'directory property exposes the same stable choice contract');
 $assert(
-    $catalog['properties'][1]['scope'] === 'selected_offer'
-    && $catalog['properties'][1]['iblock_id'] === 15
-    && $catalog['properties'][1]['property_id'] === 902
-    && $catalog['properties'][1]['multiple'] === true,
+    $catalog['properties'][2]['scope'] === 'selected_offer'
+    && $catalog['properties'][2]['iblock_id'] === 15
+    && $catalog['properties'][2]['property_id'] === 902
+    && $catalog['properties'][2]['multiple'] === true,
     'offer property carries selected_offer scope without product inference'
 );
 
@@ -88,6 +107,7 @@ $assert($authority['properties']['product'][14][301] === [
     'code' => 'TYPE_PAPER',
     'active' => true,
     'property_type' => 'L',
+    'user_type' => '',
     'multiple' => false,
     'enum_xml_ids' => ['OFFSET', 'MEL'],
 ], 'validator projection is derived from the exact source catalog');
