@@ -1138,6 +1138,31 @@ final class ControlCenterEditorsService
         );
     }
 
+    /**
+     * Compare the canonical JSON value, not PHP object identity. Empty
+     * field_patches are deliberately represented as stdClass so they stay a
+     * JSON object; a fresh authoritative read creates an equivalent, distinct
+     * stdClass instance.
+     *
+     * @param mixed $readBack
+     * @return array<string,mixed>
+     */
+    public static function assertStorefrontAuthoritativeReadback(array $saved, $readBack): array
+    {
+        if (!is_array($readBack)) {
+            throw new \RuntimeException('Storefront authoritative save readback does not match the write');
+        }
+        $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+        $savedPayload = json_encode($saved, $flags);
+        $readBackPayload = json_encode($readBack, $flags);
+        if (!is_string($savedPayload)
+            || !is_string($readBackPayload)
+            || !hash_equals($savedPayload, $readBackPayload)) {
+            throw new \RuntimeException('Storefront authoritative save readback does not match the write');
+        }
+        return $readBack;
+    }
+
     public function setPresetActive(int $presetId, string $expectedRevision, bool $active): array
     {
         if ($presetId <= 0 || $presetId > 9007199254740991) {

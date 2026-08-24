@@ -1269,4 +1269,32 @@ $expectRuntime(static function () use ($unavailableFormFirstService): void {
     $unavailableFormFirstService->loadFormFirstWorkspace(41);
 }, 'A form-first load must fail closed when the provider is unavailable');
 
+$savedStorefront = [
+    'contract' => 'prospektweb.frontcalc.storefront-definition/v2',
+    'id' => 'storefront-01234567890123456789',
+    'preset_id' => 12740,
+    'name' => 'QA storefront',
+    'active' => false,
+    'revision' => 1,
+    'presentation' => ['field_patches' => new stdClass()],
+    'product_ids' => [],
+];
+$storefrontReadback = unserialize(serialize($savedStorefront));
+$assert(
+    $storefrontReadback !== $savedStorefront
+        && ControlCenterEditorsService::assertStorefrontAuthoritativeReadback(
+            $savedStorefront,
+            $storefrontReadback
+        ) === $storefrontReadback,
+    'Equivalent empty JSON objects must survive authoritative storefront readback'
+);
+$driftedStorefrontReadback = $storefrontReadback;
+$driftedStorefrontReadback['revision'] = 2;
+$expectRuntime(static function () use ($savedStorefront, $driftedStorefrontReadback): void {
+    ControlCenterEditorsService::assertStorefrontAuthoritativeReadback(
+        $savedStorefront,
+        $driftedStorefrontReadback
+    );
+}, 'Authoritative storefront readback must still reject real value drift');
+
 echo "Control center editors service tests passed\n";

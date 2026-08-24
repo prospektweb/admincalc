@@ -53,6 +53,12 @@ foreach ([
     $assert(str_contains($endpoint, "'" . $action . "'"), 'Missing vNext action ' . $action);
 }
 
+$assert(
+    str_contains($endpoint, 'assertStorefrontAuthoritativeReadback')
+        && !str_contains($endpoint, '$readBack !== $saved'),
+    'Storefront save readback must compare canonical JSON values instead of stdClass identity'
+);
+
 foreach ([
     'validate_storefront_launch',
     'storefront_load',

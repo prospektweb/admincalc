@@ -647,10 +647,10 @@ try {
                         $validateStorefrontPresentation($presetId, $definition);
                         $saved = $repository->save($definition);
                         $readBack = $repository->get((string)$saved['id']);
-                        if (!is_array($readBack) || $readBack !== $saved) {
-                            throw new \RuntimeException('Storefront authoritative save readback does not match the write');
-                        }
-                        return $readBack;
+                        return ControlCenterEditorsService::assertStorefrontAuthoritativeReadback(
+                            $saved,
+                            $readBack
+                        );
                     },
                     static function () use ($repository, $storefrontId) {
                         return $repository->get($storefrontId);
