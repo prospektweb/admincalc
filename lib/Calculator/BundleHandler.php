@@ -22,7 +22,7 @@ class BundleHandler
      * Create an independent preset. Products and
      * offers may be connected later; they are not part of preset identity.
      */
-    public function createStandalonePreset(string $name, int $pinnedPresetsIblockId): int
+    public function createStandalonePreset(string $name, int $pinnedPresetsIblockId, int $sectionId = 0): int
     {
         $name = trim($name);
         $nameLength = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
@@ -32,10 +32,22 @@ class BundleHandler
         if ($pinnedPresetsIblockId <= 0) {
             throw new \RuntimeException('The CALC_PRESETS iblock is not configured.', 409);
         }
+        if ($sectionId < 0) {
+            throw new \InvalidArgumentException('Calculator section ID must not be negative.', 422);
+        }
+        if ($sectionId > 0 && !\CIBlockSection::GetList(
+            [],
+            ['ID' => $sectionId, 'IBLOCK_ID' => $pinnedPresetsIblockId],
+            false,
+            ['ID']
+        )->Fetch()) {
+            throw new \InvalidArgumentException('Calculator section does not belong to CALC_PRESETS.', 422);
+        }
 
         $element = new \CIBlockElement();
         $presetId = (int)$element->Add([
             'IBLOCK_ID' => $pinnedPresetsIblockId,
+            'IBLOCK_SECTION_ID' => $sectionId > 0 ? $sectionId : false,
             'NAME' => $name,
             'CODE' => $this->generateUniqueElementCode($pinnedPresetsIblockId, $name),
             'ACTIVE' => 'Y',
@@ -52,12 +64,13 @@ class BundleHandler
             ['ID' => $presetId, 'IBLOCK_ID' => $pinnedPresetsIblockId],
             false,
             ['nTopCount' => 1],
-            ['ID', 'NAME', 'ACTIVE']
+            ['ID', 'NAME', 'ACTIVE', 'IBLOCK_SECTION_ID']
         )->Fetch();
         if (!is_array($readBack)
             || (int)($readBack['ID'] ?? 0) !== $presetId
             || trim((string)($readBack['NAME'] ?? '')) !== $name
-            || (string)($readBack['ACTIVE'] ?? 'N') !== 'Y') {
+            || (string)($readBack['ACTIVE'] ?? 'N') !== 'Y'
+            || (int)($readBack['IBLOCK_SECTION_ID'] ?? 0) !== $sectionId) {
             throw new \RuntimeException('Preset creation readback mismatch.', 409);
         }
 
@@ -91,7 +104,7 @@ class BundleHandler
             ['ID' => $presetId, 'IBLOCK_ID' => $presetsIblockId],
             false,
             ['nTopCount' => 1],
-            ['ID', 'NAME', 'ACTIVE', 'SORT', 'PREVIEW_TEXT', 'PREVIEW_TEXT_TYPE', 'DETAIL_TEXT', 'DETAIL_TEXT_TYPE']
+            ['ID', 'NAME', 'ACTIVE', 'SORT', 'IBLOCK_SECTION_ID', 'PREVIEW_TEXT', 'PREVIEW_TEXT_TYPE', 'DETAIL_TEXT', 'DETAIL_TEXT_TYPE']
         )->Fetch();
 
         if (!$original) {
@@ -109,6 +122,9 @@ class BundleHandler
                 'CODE' => $this->generateUniqueElementCode($presetsIblockId, $newPresetName),
                 'ACTIVE' => $original['ACTIVE'] ?? 'Y',
                 'SORT' => (int)($original['SORT'] ?? 500),
+                'IBLOCK_SECTION_ID' => (int)($original['IBLOCK_SECTION_ID'] ?? 0) > 0
+                    ? (int)$original['IBLOCK_SECTION_ID']
+                    : false,
                 'PREVIEW_TEXT' => $original['PREVIEW_TEXT'] ?? '',
                 'PREVIEW_TEXT_TYPE' => $original['PREVIEW_TEXT_TYPE'] ?? 'text',
                 'DETAIL_TEXT' => $original['DETAIL_TEXT'] ?? '',

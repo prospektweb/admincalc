@@ -41,6 +41,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\ControlCenterSettingsService' => 'lib/Services/ControlCenterSettingsService.php',
     'Prospektweb\\Calc\\Services\\ModuleCapabilityRegistryService' => 'lib/Services/ModuleCapabilityRegistryService.php',
     'Prospektweb\\Calc\\Services\\ControlCenterEditorsService' => 'lib/Services/ControlCenterEditorsService.php',
+    'Prospektweb\\Calc\\Services\\CalculatorCatalogService' => 'lib/Services/CalculatorCatalogService.php',
     'Prospektweb\\Calc\\Services\\PresetProductAssignmentLockService' => 'lib/Services/PresetProductAssignmentLockService.php',
     'Prospektweb\\Calc\\Services\\PresetProductAssignmentPropertyAuthorityService' => 'lib/Services/PresetProductAssignmentPropertyAuthorityService.php',
     'Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService' => 'lib/Services/PresetProductAssignmentMutationGuardService.php',

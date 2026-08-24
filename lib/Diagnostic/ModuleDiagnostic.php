@@ -65,6 +65,7 @@ class ModuleDiagnostic
         'lib/Services/ControlCenterSettingsService.php',
         'lib/Services/ModuleCapabilityRegistryService.php',
         'lib/Services/ControlCenterEditorsService.php',
+        'lib/Services/CalculatorCatalogService.php',
         'lib/Services/PresetProductAssignmentLockService.php',
         'lib/Services/PresetProductAssignmentMutationGuardService.php',
         'lib/Services/PresetMutationCoordinatorService.php',

@@ -19,6 +19,7 @@ final class ControlCenterEditorsService
     public const FORM_FIRST_AUTHORING_CONTRACT = 'prospektweb.frontcalc.form-first-authoring/v1';
     public const FORM_FIRST_FIELD_DELETE_IMPACT_CONTRACT = 'prospektweb.calc.form-first-field-delete-impact/v1';
     public const PRESET_PRODUCT_IMPACT_CONTRACT = 'prospektweb.calc.preset-product-impact/v1';
+    public const CALCULATOR_CATALOG_CONTRACT = 'prospektweb.calc.calculator-catalog/v1';
 
     private const MAX_CALCULATION_OFFERS = 500;
     private const MAX_EDITOR_DOCUMENT_BYTES = 60000;
@@ -107,6 +108,9 @@ final class ControlCenterEditorsService
     /** @var callable */
     private $presetProductPropertyAuthority;
 
+    /** @var callable */
+    private $presetCatalogLoader;
+
     public function __construct(
         ?callable $presetLoader = null,
         ?callable $productIblockIdResolver = null,
@@ -130,7 +134,8 @@ final class ControlCenterEditorsService
         ?callable $presetActiveMutationHandler = null,
         ?callable $presetActiveLockedStateLoader = null,
         ?callable $storefrontProductAssignmentLoader = null,
-        ?callable $presetProductPropertyAuthority = null
+        ?callable $presetProductPropertyAuthority = null,
+        ?callable $presetCatalogLoader = null
     ) {
         $usesDefaultStorefrontDetacher = $storefrontProductDetacher === null;
         $this->presetLoader = $presetLoader ?? static function (int $presetId): array {
@@ -162,7 +167,7 @@ final class ControlCenterEditorsService
             ? static function (): array {
                 return [];
             }
-            : static function (string $query = '', string $status = 'all', string $sort = 'updated_desc', int $page = 1, int $pageSize = 50): array {
+            : static function (string $query = '', string $status = 'all', string $sort = 'updated_desc', int $page = 1, int $pageSize = 50, ?int $sectionId = null): array {
                 if (!Loader::includeModule('iblock')) {
                     throw new \RuntimeException('The iblock module is not available');
                 }
@@ -183,6 +188,12 @@ final class ControlCenterEditorsService
                     }
                     $filter[] = $search;
                 }
+                if ($sectionId !== null) {
+                    $filter['SECTION_ID'] = $sectionId > 0 ? $sectionId : false;
+                    if ($sectionId > 0) {
+                        $filter['INCLUDE_SUBSECTIONS'] = 'Y';
+                    }
+                }
                 $order = match ($sort) {
                     'name_asc' => ['NAME' => 'ASC', 'ID' => 'ASC'],
                     'name_desc' => ['NAME' => 'DESC', 'ID' => 'DESC'],
@@ -195,7 +206,7 @@ final class ControlCenterEditorsService
                     $filter,
                     false,
                     ['nPageSize' => $pageSize, 'iNumPage' => $page],
-                    ['ID', 'NAME', 'ACTIVE', 'SORT', 'TIMESTAMP_X']
+                    ['ID', 'NAME', 'ACTIVE', 'SORT', 'TIMESTAMP_X', 'IBLOCK_SECTION_ID']
                 );
                 while ($cursor && ($row = $cursor->Fetch())) {
                     $id = (int)($row['ID'] ?? 0);
@@ -206,6 +217,7 @@ final class ControlCenterEditorsService
                             'active' => (string)($row['ACTIVE'] ?? 'N') === 'Y',
                             'sort' => (int)($row['SORT'] ?? 500),
                             'updatedAt' => (string)($row['TIMESTAMP_X'] ?? ''),
+                            'sectionId' => (int)($row['IBLOCK_SECTION_ID'] ?? 0),
                         ];
                     }
                 }
@@ -217,8 +229,23 @@ final class ControlCenterEditorsService
                         : count($rows),
                 ];
             });
-        $this->presetCreator = $presetCreator ?? static function (string $name): array {
-            return (new PresetLifecycleMutationService())->createPreset($name);
+        $this->presetCatalogLoader = $presetCatalogLoader ?? ($presetLoader !== null
+            ? static function (): array {
+                return [
+                    'contract' => self::CALCULATOR_CATALOG_CONTRACT,
+                    'iblockId' => 1,
+                    'revision' => str_repeat('0', 64),
+                    'sections' => [],
+                    'calculators' => [],
+                    'calculatorCount' => 0,
+                    'unsectionedCount' => 0,
+                ];
+            }
+            : static function (): array {
+                return (new CalculatorCatalogService())->snapshot();
+            });
+        $this->presetCreator = $presetCreator ?? static function (string $name, int $sectionId = 0): array {
+            return (new PresetLifecycleMutationService())->createPreset($name, $sectionId);
         };
         $this->presetUsageLoader = $presetUsageLoader ?? ($presetLoader !== null
             ? static function (array $presetIds): array {
@@ -487,7 +514,8 @@ final class ControlCenterEditorsService
         string $status = 'all',
         string $sort = 'updated_desc',
         int $page = 1,
-        int $pageSize = 50
+        int $pageSize = 50,
+        ?int $sectionId = null
     ): array {
         $query = trim($query);
         if (!in_array($status, ['all', 'active', 'archived'], true)) {
@@ -499,10 +527,22 @@ final class ControlCenterEditorsService
         if ($page <= 0 || $pageSize <= 0 || $pageSize > 100) {
             throw new \InvalidArgumentException('Invalid preset registry page');
         }
+        if ($sectionId !== null && ($sectionId < 0 || $sectionId > 9007199254740991)) {
+            throw new \InvalidArgumentException('Invalid calculator catalog section');
+        }
 
         $serverTotal = null;
         $serverPaged = false;
-        $rows = $this->listPresetRows($query, $status, $sort, $page, $pageSize, $serverTotal, $serverPaged);
+        $rows = $this->listPresetRows(
+            $query,
+            $status,
+            $sort,
+            $page,
+            $pageSize,
+            $sectionId,
+            $serverTotal,
+            $serverPaged
+        );
         if (!$serverPaged) {
             $rows = array_values(array_filter($rows, static function (array $row) use ($query, $status): bool {
             if ($status === 'active' && empty($row['active'])) {
@@ -541,9 +581,30 @@ final class ControlCenterEditorsService
         if (!is_array($usage)) {
             throw new \RuntimeException('The preset usage provider returned an invalid result');
         }
-        $normalizedRows = array_map(function (array $row) use ($usage): array {
+        $catalog = call_user_func($this->presetCatalogLoader);
+        if (!is_array($catalog)
+            || ($catalog['contract'] ?? null) !== self::CALCULATOR_CATALOG_CONTRACT
+            || !is_array($catalog['sections'] ?? null)) {
+            throw new \RuntimeException('The calculator catalog authority returned an invalid snapshot');
+        }
+        $sectionMap = [];
+        foreach ($catalog['sections'] as $section) {
+            if (!is_array($section)) {
+                throw new \RuntimeException('The calculator catalog authority returned an invalid section');
+            }
+            $catalogSectionId = (int)($section['id'] ?? 0);
+            if ($catalogSectionId <= 0 || isset($sectionMap[$catalogSectionId])) {
+                throw new \RuntimeException('The calculator catalog authority returned an ambiguous section');
+            }
+            $sectionMap[$catalogSectionId] = $section;
+        }
+        if ($sectionId !== null && $sectionId > 0 && !isset($sectionMap[$sectionId])) {
+            throw new \InvalidArgumentException('Calculator catalog section not found');
+        }
+        $normalizedRows = array_map(function (array $row) use ($usage, $sectionMap): array {
             $id = (int)$row['id'];
             $counts = is_array($usage[$id] ?? null) ? $usage[$id] : [];
+            $rowSectionId = (int)($row['sectionId'] ?? 0);
             return [
                 'presetId' => $id,
                 'presetName' => (string)$row['name'],
@@ -552,6 +613,8 @@ final class ControlCenterEditorsService
                 'offerCount' => max(0, (int)($counts['offerCount'] ?? 0)),
                 'updatedAt' => (string)($row['updatedAt'] ?? ''),
                 'revision' => $this->presetRegistryRevision($row),
+                'sectionId' => $rowSectionId,
+                'sectionPath' => $this->buildCalculatorSectionPath($rowSectionId, $sectionMap),
             ];
         }, $pageRows);
 
@@ -565,6 +628,7 @@ final class ControlCenterEditorsService
             'query' => $query,
             'status' => $status,
             'sort' => $sort,
+            'sectionId' => $sectionId,
         ];
     }
 
@@ -1139,14 +1203,30 @@ final class ControlCenterEditorsService
         ];
     }
 
-    public function createStandalonePreset(string $name): array
+    public function createStandalonePreset(string $name, int $sectionId = 0): array
     {
         $name = trim($name);
         $nameLength = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
         if ($name === '' || $nameLength > 200) {
             throw new \InvalidArgumentException('Preset name must contain 1 to 200 characters');
         }
-        $receipt = call_user_func($this->presetCreator, $name);
+        if ($sectionId < 0 || $sectionId > 9007199254740991) {
+            throw new \InvalidArgumentException('Calculator section ID must be a safe non-negative integer');
+        }
+        if ($sectionId > 0) {
+            $catalog = call_user_func($this->presetCatalogLoader);
+            $known = false;
+            foreach ((array)($catalog['sections'] ?? []) as $section) {
+                if (is_array($section) && (int)($section['id'] ?? 0) === $sectionId) {
+                    $known = true;
+                    break;
+                }
+            }
+            if (!$known) {
+                throw new \InvalidArgumentException('Calculator catalog section not found');
+            }
+        }
+        $receipt = call_user_func($this->presetCreator, $name, $sectionId);
         if (!is_array($receipt)) {
             throw new \RuntimeException('The preset lifecycle authority returned an invalid receipt');
         }
@@ -1624,17 +1704,18 @@ final class ControlCenterEditorsService
         return $usage;
     }
 
-    /** @return array<int,array{id:int,name:string,active:bool,sort:int,updatedAt:string}> */
+    /** @return array<int,array{id:int,name:string,active:bool,sort:int,updatedAt:string,sectionId:int}> */
     private function listPresetRows(
         string $query = '',
         string $status = 'all',
         string $sort = 'updated_desc',
         int $page = 1,
         int $pageSize = 50,
+        ?int $sectionId = null,
         ?int &$serverTotal = null,
         bool &$serverPaged = false
     ): array {
-        $rawResult = call_user_func($this->presetListLoader, $query, $status, $sort, $page, $pageSize);
+        $rawResult = call_user_func($this->presetListLoader, $query, $status, $sort, $page, $pageSize, $sectionId);
         if (!is_array($rawResult)) {
             throw new \RuntimeException('The preset list provider returned an invalid result');
         }
@@ -1661,6 +1742,7 @@ final class ControlCenterEditorsService
                     : (string)($rawRow['ACTIVE'] ?? 'Y') === 'Y',
                 'sort' => (int)($rawRow['sort'] ?? $rawRow['SORT'] ?? 500),
                 'updatedAt' => (string)($rawRow['updatedAt'] ?? $rawRow['TIMESTAMP_X'] ?? ''),
+                'sectionId' => max(0, (int)($rawRow['sectionId'] ?? $rawRow['IBLOCK_SECTION_ID'] ?? 0)),
             ];
         }
         if (!$serverPaged) {
@@ -2143,6 +2225,32 @@ final class ControlCenterEditorsService
         if (!is_array($preset) || (int)($preset['id'] ?? 0) !== $presetId) {
             throw new \RuntimeException('The preset identity authority is invalid');
         }
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $sectionMap
+     * @return array<int,array{id:int,name:string}>
+     */
+    private function buildCalculatorSectionPath(int $sectionId, array $sectionMap): array
+    {
+        if ($sectionId <= 0) {
+            return [];
+        }
+        $path = [];
+        $visited = [];
+        while ($sectionId > 0) {
+            if (isset($visited[$sectionId]) || !isset($sectionMap[$sectionId])) {
+                throw new \RuntimeException('Calculator registry contains an invalid section path');
+            }
+            $visited[$sectionId] = true;
+            $section = $sectionMap[$sectionId];
+            $path[] = [
+                'id' => $sectionId,
+                'name' => trim((string)($section['name'] ?? '')),
+            ];
+            $sectionId = max(0, (int)($section['parentId'] ?? 0));
+        }
+        return array_reverse($path);
     }
 
     private function assertSha256(string $value, string $field): void

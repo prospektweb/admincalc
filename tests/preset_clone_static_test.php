@@ -20,6 +20,7 @@ $checks = [
     [$bundleSource, 'remapPresetStageReferences', 'Preset properties must be remapped to cloned stage IDs'],
     [$bundleSource, 'extractHtmlPropertyValueForClone', 'Bitrix HTML property wrappers must be normalized before cloning'],
     [$bundleSource, 'public function clonePresetLocked(int $presetId, array $pinnedIblockIds): int', 'Preset cloning must require pinned source authority'],
+    [$bundleSource, "'IBLOCK_SECTION_ID' => (int)(\$original['IBLOCK_SECTION_ID'] ?? 0) > 0", 'Preset clone must preserve its calculator catalog section'],
     [$elementDataSource, "case 'clonePreset':", 'Refresh endpoint must expose preset cloning'],
     [$elementDataSource, 'PresetLifecycleMutationService())', 'Server cloning must use lifecycle authority'],
     [$elementDataSource, 'preparePresetPayload($newPresetId, $siteId)', 'Clone response must use the product-neutral preset payload'],

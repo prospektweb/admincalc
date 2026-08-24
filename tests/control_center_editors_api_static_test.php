@@ -44,6 +44,11 @@ foreach ([
     'catalog_output_mapping_save',
     'preset_sections',
     'preset_section_preview',
+    'calculator_catalog',
+    'calculator_section_create',
+    'calculator_section_rename',
+    'calculator_section_delete',
+    'calculator_move',
 ] as $action) {
     $assert(str_contains($endpoint, "'" . $action . "'"), 'Missing vNext action ' . $action);
 }
@@ -136,5 +141,7 @@ $assert(str_contains($autoload, 'FormFirstDependencyContractService'), 'clean de
 $assert(str_contains($autoload, 'CalculatorInputMappingService'), 'input mapping service is autoloaded');
 $assert(str_contains($autoload, 'CatalogOutputMappingService'), 'output mapping service is autoloaded');
 $assert(str_contains($autoload, 'PresetSectionSelectorService'), 'section selector is autoloaded');
+$assert(str_contains($autoload, 'CalculatorCatalogService'), 'calculator catalog authority is autoloaded');
+$assert(str_contains($diagnostic, 'CalculatorCatalogService.php'), 'calculator catalog authority is diagnosed');
 
 echo "Control center editors API static tests passed\n";

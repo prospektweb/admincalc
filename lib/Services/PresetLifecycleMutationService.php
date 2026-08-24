@@ -108,20 +108,24 @@ final class PresetLifecycleMutationService
     }
 
     /** @return array<string,mixed> */
-    public function createPreset(string $name): array
+    public function createPreset(string $name, int $sectionId = 0): array
     {
         $name = trim($name);
         $nameLength = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
         if ($name === '' || $nameLength > 200) {
             throw new \InvalidArgumentException('Preset name must contain 1 to 200 characters.', 422);
         }
+        if ($sectionId < 0 || $sectionId > 9007199254740991) {
+            throw new \InvalidArgumentException('Calculator section ID must be a safe non-negative integer.', 422);
+        }
 
-        return $this->withGlobalAuthority(function (array $pinnedIblockIds) use ($name): array {
+        return $this->withGlobalAuthority(function (array $pinnedIblockIds) use ($name, $sectionId): array {
             $newPresetId = isset($this->adapters['create_locked'])
-                ? (int)call_user_func($this->adapters['create_locked'], $name, $pinnedIblockIds)
+                ? (int)call_user_func($this->adapters['create_locked'], $name, $pinnedIblockIds, $sectionId)
                 : (new BundleHandler())->createStandalonePreset(
                     $name,
-                    (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0)
+                    (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0),
+                    $sectionId
                 );
             if ($newPresetId <= 0) {
                 throw new \RuntimeException('Preset creation returned an invalid identity.', 409);
@@ -133,6 +137,7 @@ final class PresetLifecycleMutationService
                 'actorId' => $this->actorId(),
                 'action' => 'create_preset',
                 'newPresetId' => $newPresetId,
+                'sectionId' => $sectionId,
                 'identitySha256' => $identityHash,
                 'result' => 'success',
             ];

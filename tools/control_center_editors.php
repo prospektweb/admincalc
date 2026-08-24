@@ -79,6 +79,7 @@ if (empty($_REQUEST['sessid']) && isset($request['sessid']) && is_scalar($reques
 require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php';
 
 use Bitrix\Main\Loader;
+use Prospektweb\Calc\Services\CalculatorCatalogService;
 use Prospektweb\Calc\Services\CalculatorInputMappingService;
 use Prospektweb\Calc\Services\CalculatorInputSourceCatalogService;
 use Prospektweb\Calc\Services\CalculatorMutationAuthorityService;
@@ -303,7 +304,7 @@ try {
     }
 
     if ($action === 'registry') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'query', 'status', 'sort', 'page', 'pageSize']);
+        $assertAllowedRequestKeys(['action', 'sessid', 'query', 'status', 'sort', 'page', 'pageSize', 'sectionId']);
         $query = $request['query'] ?? '';
         $status = $request['status'] ?? 'all';
         $sort = $request['sort'] ?? 'updated_desc';
@@ -315,9 +316,12 @@ try {
         }
         $page = $parseStrictPositiveInt($request['page'] ?? 1, 'page');
         $pageSize = $parseStrictPositiveInt($request['pageSize'] ?? 50, 'pageSize');
+        $sectionId = array_key_exists('sectionId', $request)
+            ? $parseStrictNonNegativeInt($request['sectionId'], 'sectionId')
+            : null;
         $respond(200, [
             'success' => true,
-            'data' => $service->getPresetRegistry($query, $status, $sort, $page, $pageSize),
+            'data' => $service->getPresetRegistry($query, $status, $sort, $page, $pageSize, $sectionId),
         ]);
     }
 
@@ -487,6 +491,73 @@ try {
         $respond(200, [
             'success' => true,
             'data' => (new PresetSectionSelectorService())->listSections($presetId),
+        ]);
+    }
+
+    if ($action === 'calculator_catalog') {
+        $assertAllowedRequestKeys(['action', 'sessid']);
+        $respond(200, [
+            'success' => true,
+            'data' => (new CalculatorCatalogService())->snapshot(),
+        ]);
+    }
+
+    if ($action === 'calculator_section_create') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'name', 'parentId', 'expected_revision']);
+        $name = $request['name'] ?? null;
+        $expectedRevision = $request['expected_revision'] ?? null;
+        if (!is_string($name) || !is_string($expectedRevision)) {
+            throw new \InvalidArgumentException('name and expected_revision are required');
+        }
+        $parentId = $parseStrictNonNegativeInt($request['parentId'] ?? 0, 'parentId');
+        $respond(200, [
+            'success' => true,
+            'data' => (new CalculatorCatalogService())->createSection($name, $parentId, $expectedRevision),
+        ]);
+    }
+
+    if ($action === 'calculator_section_rename') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'sectionId', 'name', 'expected_revision']);
+        $sectionId = $parseStrictPositiveInt($request['sectionId'] ?? null, 'sectionId');
+        $name = $request['name'] ?? null;
+        $expectedRevision = $request['expected_revision'] ?? null;
+        if (!is_string($name) || !is_string($expectedRevision)) {
+            throw new \InvalidArgumentException('name and expected_revision are required');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => (new CalculatorCatalogService())->renameSection($sectionId, $name, $expectedRevision),
+        ]);
+    }
+
+    if ($action === 'calculator_section_delete') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'sectionId', 'expected_revision']);
+        $sectionId = $parseStrictPositiveInt($request['sectionId'] ?? null, 'sectionId');
+        $expectedRevision = $request['expected_revision'] ?? null;
+        if (!is_string($expectedRevision)) {
+            throw new \InvalidArgumentException('expected_revision is required');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => (new CalculatorCatalogService())->deleteSection($sectionId, $expectedRevision),
+        ]);
+    }
+
+    if ($action === 'calculator_move') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'calculatorId', 'sectionId', 'expected_revision']);
+        $calculatorId = $parseStrictPositiveInt($request['calculatorId'] ?? null, 'calculatorId');
+        $sectionId = $parseStrictNonNegativeInt($request['sectionId'] ?? 0, 'sectionId');
+        $expectedRevision = $request['expected_revision'] ?? null;
+        if (!is_string($expectedRevision)) {
+            throw new \InvalidArgumentException('expected_revision is required');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => (new CalculatorCatalogService())->moveCalculator(
+                $calculatorId,
+                $sectionId,
+                $expectedRevision
+            ),
         ]);
     }
 
@@ -665,14 +736,15 @@ try {
     }
 
     if ($action === 'create_preset') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'name']);
+        $assertAllowedRequestKeys(['action', 'sessid', 'name', 'sectionId']);
         $name = $request['name'] ?? null;
         if (!is_string($name)) {
             throw new \InvalidArgumentException('name must be a string');
         }
+        $sectionId = $parseStrictNonNegativeInt($request['sectionId'] ?? 0, 'sectionId');
         $respond(200, [
             'success' => true,
-            'data' => $service->createStandalonePreset($name),
+            'data' => $service->createStandalonePreset($name, $sectionId),
         ]);
     }
 
