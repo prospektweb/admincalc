@@ -969,6 +969,17 @@ $deleteImpact = $formFirstService->inspectFormFirstFieldDeletion(41, 'volume', '
 $assert(
     ($deleteImpact['contract'] ?? '') === ControlCenterEditorsService::FORM_FIRST_FIELD_DELETE_IMPACT_CONTRACT
         && ($deleteImpact['removable'] ?? true) === false
+        && array_reduce(
+            $deleteImpact['blockers'] ?? [],
+            static fn(bool $valid, array $blocker): bool => $valid && array_keys($blocker) === [
+                'propertyCode',
+                'category',
+                'source',
+                'path',
+                'provenance',
+            ],
+            true
+        )
         && array_column($deleteImpact['blockers'] ?? [], 'category') === [
             'stage_inputs',
             'catalog_input_mapping',

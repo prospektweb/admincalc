@@ -1390,8 +1390,16 @@ final class ControlCenterEditorsService
                 || (string)($reference['fieldId'] ?? '') !== $fieldId) {
                 throw new \RuntimeException('The current field reference authority is invalid');
             }
-            $reference['propertyCode'] = $propertyCode;
-            $blockers[] = $reference;
+            // fieldId belongs to the internal reference-authority record. The
+            // public delete-impact contract already carries it at the response
+            // root, so expose only the exact dependency-consumer shape here.
+            $blockers[] = [
+                'propertyCode' => $propertyCode,
+                'category' => (string)$reference['category'],
+                'source' => (string)$reference['source'],
+                'path' => (string)$reference['path'],
+                'provenance' => (string)$reference['provenance'],
+            ];
         }
         $deduplicatedBlockers = [];
         foreach ($blockers as $blocker) {
