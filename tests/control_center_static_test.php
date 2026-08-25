@@ -111,7 +111,7 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($handler, 'product_generator.js') === false, 'The uncoordinated contextual product generator is retired');
-$assert(strpos($appIndex, 'c544655fa574') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, '31ee747bfd16') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
 $assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') === false, 'The published bundle no longer contains the legacy storefront editor launch contract');
@@ -131,7 +131,7 @@ $assert(strpos($appBundle, 'Управлять связями') === false, 'The 
 $assert(strpos($appBundle, 'Разделы калькулятора') !== false, 'The published bundle exposes the unified calculator workspace tabs');
 $assert(strpos($appBundle, 'Это поле должно передавать в калькулятор одно значение.') !== false, 'The published form editor contains independent calculation-input guidance');
 $assert(strpos($appBundle, 'Выберите свойство каталога') === false, 'The preset form editor no longer asks the operator to select a Bitrix property');
-foreach (['Отображается: черновик', 'Код поля и связь с Bitrix', 'Показывать подсказку на сайте', 'Чипсы пресетов', 'Добавить варианты из Bitrix', 'Подсказка', 'Сортировка', '210x297'] as $releaseLabel) {
+foreach (['Отображается: черновик', 'Связать со свойством Bitrix', 'Передавать в поле', 'Показывать подсказку на сайте', 'Чипсы пресетов', 'Добавить варианты из Bitrix', 'Применить выбор', 'Базовая витрина', 'SORT', '210x297'] as $releaseLabel) {
     $assert(strpos($appBundle, $releaseLabel) !== false, 'The published bundle contains form authoring release marker: ' . $releaseLabel);
 }
 $assert(strpos($appBundle, 'Черновик сохранён, но ещё не применён на сайте.') === false, 'The redundant compact draft banner is absent from the published bundle');

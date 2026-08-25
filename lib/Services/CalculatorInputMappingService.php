@@ -281,7 +281,7 @@ final class CalculatorInputMappingService
             $valueMode = (string)$mapping['value_mode'];
             $sourceValue = (string)($mapping['source_value'] ?? ($isEnum ? 'xml_id' : 'value'));
             if (!$isEnum && $sourceValue !== 'value') {
-                throw new \InvalidArgumentException($path . '.source_value XML_ID и SORT доступны только для свойств-списков.');
+                throw new \InvalidArgumentException($path . '.source_value XML_ID и своё значение доступны только для свойств-списков.');
             }
             if (isset($mapping['transform_regex']) && $valueMode !== 'scalar') {
                 throw new \InvalidArgumentException($path . '.transform_regex допустим только для scalar-сопоставления.');
@@ -348,11 +348,6 @@ final class CalculatorInputMappingService
             }
             if ($isEnum && in_array($fieldType, ['select', 'checkbox'], true)) {
                 $optionMap = is_array($mapping['option_map'] ?? null) ? $mapping['option_map'] : [];
-                if ($optionMap === []) {
-                    throw new \InvalidArgumentException(
-                        $path . '.option_map должен явно сопоставлять хотя бы один поддерживаемый XML_ID enum-свойства.'
-                    );
-                }
                 foreach (array_keys($enumXmlIds) as $xmlId) {
                     if (!array_key_exists($xmlId, $optionMap)) {
                         $issues[] = [
@@ -366,6 +361,16 @@ final class CalculatorInputMappingService
                 }
             } elseif (isset($mapping['option_map'])) {
                 throw new \InvalidArgumentException($path . '.option_map допустим только для enum -> select/checkbox.');
+            }
+            if (isset($mapping['custom_value_map'])) {
+                if (!$isEnum || $sourceValue !== 'custom') {
+                    throw new \InvalidArgumentException($path . '.custom_value_map требует enum-свойство и режим своего значения.');
+                }
+                foreach ($mapping['custom_value_map'] as $xmlId => $customValue) {
+                    if (!isset($enumXmlIds[(string)$xmlId]) || trim((string)$customValue) === '') {
+                        throw new \InvalidArgumentException($path . '.custom_value_map ссылается на неизвестный XML_ID или пустое значение.');
+                    }
+                }
             }
             if (isset($mapping['input_map'])) {
                 if ($enumXmlIds === [] || $inputIds === []) {
@@ -512,7 +517,7 @@ final class CalculatorInputMappingService
         $path = 'calculator_input_mapping.mappings[' . $index . ']';
         $this->assertAllowedKeys(
             $mapping,
-            ['target', 'source', 'value_mode', 'source_value', 'transform_regex', 'option_map', 'input_map'],
+            ['target', 'source', 'value_mode', 'source_value', 'transform_regex', 'option_map', 'custom_value_map', 'input_map'],
             $path
         );
         if (!is_array($mapping['target'] ?? null) || $this->isList($mapping['target'])) {
@@ -539,7 +544,7 @@ final class CalculatorInputMappingService
         ];
         if (array_key_exists('source_value', $mapping)) {
             $sourceValue = $this->strictString($mapping['source_value'], 1, 16, $path . '.source_value');
-            if (!in_array($sourceValue, ['xml_id', 'value', 'sort'], true)) {
+            if (!in_array($sourceValue, ['xml_id', 'value', 'custom'], true)) {
                 throw new \InvalidArgumentException($path . '.source_value не поддерживается.');
             }
             $normalized['source_value'] = $sourceValue;
@@ -567,6 +572,18 @@ final class CalculatorInputMappingService
             );
             if ($optionMap !== []) {
                 $normalized['option_map'] = $optionMap;
+            }
+        }
+        if (array_key_exists('custom_value_map', $mapping)) {
+            $customValueMap = $this->normalizeStringMap(
+                $mapping['custom_value_map'],
+                self::MAX_OPTION_MAP_ENTRIES,
+                160,
+                500,
+                $path . '.custom_value_map'
+            );
+            if ($customValueMap !== []) {
+                $normalized['custom_value_map'] = $customValueMap;
             }
         }
         if (array_key_exists('input_map', $mapping)) {

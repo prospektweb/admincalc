@@ -247,11 +247,14 @@ $assert(
     'validation reports form inputs that will not receive catalog prefill'
 );
 
-$invalid = $candidate;
-unset($invalid['mappings'][0]['option_map']);
-$expectFailure(static function () use ($service, $invalid): void {
-    $service->validate(41, $invalid);
-}, 'enum select never guesses XML_ID equals form option id');
+$unselected = $candidate;
+unset($unselected['mappings'][0]['option_map']);
+$unselectedValidation = $service->validate(41, $unselected);
+$assert(
+    $unselectedValidation['valid'] === true
+    && count($unselectedValidation['issues']) === 2,
+    'enum source may be linked before any import while every unmapped value remains an explicit warning'
+);
 
 $invalid = $candidate;
 $invalid['mappings'][2]['value_mode'] = 'scalar';
@@ -338,9 +341,8 @@ foreach (['entries', 'productProfiles', 'inputMappings', 'outputMappings'] as $l
 
 $emptyMap = $candidate;
 $emptyMap['mappings'][0]['option_map'] = [];
-$expectFailure(static function () use ($service, $emptyMap): void {
-    $service->validate(41, $emptyMap);
-}, 'empty enum option_map is rejected instead of normalized into an implicit mapping');
+$emptyValidation = $service->validate(41, $emptyMap);
+$assert($emptyValidation['valid'] === true, 'empty enum option_map is normalized as a valid link with no imported values');
 
 $expectFailure(static function (): void {
     new CalculatorInputMappingService(['get_option' => static function (): string { return ''; }]);

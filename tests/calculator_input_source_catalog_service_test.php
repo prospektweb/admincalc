@@ -53,6 +53,9 @@ $service = new CalculatorInputSourceCatalogService([
         ['ID' => '9001', 'UF_XML_ID' => 'OFFSET_80', 'UF_NAME' => 'Офсетная 80 г/м²', 'UF_SORT' => 100],
         ['ID' => '9002', 'UF_XML_ID' => 'MEL_130', 'UF_NAME' => 'Мелованная 130 г/м²', 'UF_SORT' => 200],
     ] : [],
+    'description_rows' => static fn(int $iblockId, int $propertyId, string $propertyCode, array $values): array => $propertyId === 301 ? [
+        '14:301:MEL' => ['ID' => 1],
+    ] : [],
 ]);
 
 $catalog = $service->load(41);
@@ -74,9 +77,10 @@ $assert($catalog['properties'][0] === [
     'user_type' => '',
     'multiple' => false,
     'values' => [
-        ['enum_id' => 7001, 'xml_id' => 'OFFSET', 'label' => 'Офсетная', 'sort' => 0],
-        ['enum_id' => 7002, 'xml_id' => 'MEL', 'label' => 'Мелованная', 'sort' => 0],
+        ['enum_id' => 7001, 'xml_id' => 'OFFSET', 'label' => 'Офсетная', 'sort' => 0, 'image_url' => '', 'has_description' => false],
+        ['enum_id' => 7002, 'xml_id' => 'MEL', 'label' => 'Мелованная', 'sort' => 0, 'image_url' => '', 'has_description' => true],
     ],
+    'admin_url' => '/bitrix/admin/iblock_edit_property.php?lang=ru&IBLOCK_ID=14&ID=301',
 ], 'product property exposes exact property and enum provenance');
 $assert($catalog['properties'][1] === [
     'scope' => 'product',
@@ -88,9 +92,10 @@ $assert($catalog['properties'][1] === [
     'user_type' => 'directory',
     'multiple' => false,
     'values' => [
-        ['enum_id' => 9001, 'xml_id' => 'OFFSET_80', 'label' => 'Офсетная 80 г/м²', 'sort' => 100],
-        ['enum_id' => 9002, 'xml_id' => 'MEL_130', 'label' => 'Мелованная 130 г/м²', 'sort' => 200],
+        ['enum_id' => 9001, 'xml_id' => 'OFFSET_80', 'label' => 'Офсетная 80 г/м²', 'sort' => 100, 'image_url' => '', 'has_description' => false],
+        ['enum_id' => 9002, 'xml_id' => 'MEL_130', 'label' => 'Мелованная 130 г/м²', 'sort' => 200, 'image_url' => '', 'has_description' => false],
     ],
+    'admin_url' => '/bitrix/admin/iblock_edit_property.php?lang=ru&IBLOCK_ID=14&ID=304',
 ], 'directory property exposes the same stable choice contract');
 $assert(
     $catalog['properties'][2]['scope'] === 'selected_offer'

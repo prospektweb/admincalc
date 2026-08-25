@@ -23,7 +23,7 @@ final class CalculatorInputSourceCatalogService
 
     public function __construct(array $adapters = [])
     {
-        foreach (['source_iblocks', 'property_rows', 'enum_rows', 'directory_rows'] as $adapter) {
+        foreach (['source_iblocks', 'property_rows', 'enum_rows', 'directory_rows', 'description_rows'] as $adapter) {
             if (isset($adapters[$adapter]) && !is_callable($adapters[$adapter])) {
                 throw new \InvalidArgumentException($adapter . ' adapter must be callable.');
             }
@@ -68,6 +68,12 @@ final class CalculatorInputSourceCatalogService
                 $values = $propertyType === 'L'
                     ? $this->enumValues($propertyId)
                     : (strtolower($userType) === 'directory' ? $this->directoryValues($row, $propertyId) : []);
+                $descriptionMap = $this->descriptionMap($iblockId, $propertyId, $propertyCode, $values);
+                foreach ($values as &$value) {
+                    $value['has_description'] = isset($descriptionMap[(string)$value['xml_id']]);
+                    $value['image_url'] = (string)($value['image_url'] ?? '');
+                }
+                unset($value);
                 $properties[] = [
                     'scope' => $scope,
                     'iblock_id' => $iblockId,
@@ -78,6 +84,7 @@ final class CalculatorInputSourceCatalogService
                     'user_type' => $userType,
                     'multiple' => (string)($row['MULTIPLE'] ?? '') === 'Y',
                     'values' => $values,
+                    'admin_url' => '/bitrix/admin/iblock_edit_property.php?lang=ru&IBLOCK_ID=' . $iblockId . '&ID=' . $propertyId,
                 ];
             }
         }
@@ -217,6 +224,7 @@ final class CalculatorInputSourceCatalogService
                 'xml_id' => $xmlId,
                 'label' => trim((string)($row['VALUE'] ?? '')),
                 'sort' => (int)($row['SORT'] ?? 0),
+                'image_url' => '',
             ];
         }
         return $values;
@@ -263,6 +271,9 @@ final class CalculatorInputSourceCatalogService
                 'XML_ID' => $row['UF_XML_ID'] ?? $row['XML_ID'] ?? null,
                 'VALUE' => $row['UF_NAME'] ?? $row['UF_DESCRIPTION'] ?? $row['VALUE'] ?? null,
                 'SORT' => $row['UF_SORT'] ?? $row['SORT'] ?? 0,
+                'IMAGE_URL' => isset($row['UF_FILE']) && (int)$row['UF_FILE'] > 0 && class_exists('\\CFile')
+                    ? (string)\CFile::GetPath((int)$row['UF_FILE'])
+                    : (string)($row['IMAGE_URL'] ?? ''),
             ];
         }
         return $this->normalizeChoiceValues($normalizedRows, $propertyId, 'Directory');
@@ -293,9 +304,41 @@ final class CalculatorInputSourceCatalogService
                 'xml_id' => $xmlId,
                 'label' => trim((string)($row['VALUE'] ?? '')),
                 'sort' => (int)($row['SORT'] ?? 0),
+                'image_url' => trim((string)($row['IMAGE_URL'] ?? '')),
             ];
         }
         return $values;
+    }
+
+    /** @param array<int,array<string,mixed>> $values @return array<string,bool> */
+    private function descriptionMap(int $iblockId, int $propertyId, string $propertyCode, array $values): array
+    {
+        if (isset($this->adapters['description_rows'])) {
+            $rows = call_user_func($this->adapters['description_rows'], $iblockId, $propertyId, $propertyCode, $values);
+        } elseif (class_exists(Loader::class)
+            && Loader::includeModule('prospektweb.propvalmanager')
+            && class_exists('\\Prospektweb\\PropValManager\\Service\\PropertyValueDescriptionRepository')) {
+            $keys = array_map(static fn(array $value): array => [
+                'IBLOCK_ID' => $iblockId,
+                'PROPERTY_ID' => $propertyId,
+                'XML_ID' => (string)$value['xml_id'],
+            ], $values);
+            $rows = (new \Prospektweb\PropValManager\Service\PropertyValueDescriptionRepository())->getLinkedMap($keys);
+        } else {
+            $rows = [];
+        }
+        if (!is_array($rows)) {
+            throw new \RuntimeException('Property description adapter returned invalid data.', 409);
+        }
+        $result = [];
+        foreach ($values as $value) {
+            $xmlId = (string)($value['xml_id'] ?? '');
+            $key = $iblockId . ':' . $propertyId . ':' . $xmlId;
+            if ($xmlId !== '' && (isset($rows[$key]) || isset($rows[$xmlId]))) {
+                $result[$xmlId] = true;
+            }
+        }
+        return $result;
     }
 
     private function assertPositiveInteger(int $value, string $path): void
