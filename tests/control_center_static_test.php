@@ -60,6 +60,7 @@ $assert(strpos($page, "'settings' => '/bitrix/tools/prospektweb.calc/control_cen
 $assert(strpos($page, "'diagnostics' => '/bitrix/tools/prospektweb.calc/diagnostic.php'") !== false, 'The bootstrap exposes the native diagnostics endpoint');
 $assert(strpos($page, "'batch' => '/bitrix/tools/prospektweb.calc/batch_recalculate.php'") !== false, 'The bootstrap exposes the native batch endpoint');
 $assert(strpos($page, "'modules' => '/bitrix/tools/prospektweb.calc/control_center_modules.php'") !== false, 'The bootstrap exposes the native modules endpoint');
+$assert(strpos($page, "'partners' => '/bitrix/tools/prospektweb/partnermanager/control_center.php'") !== false, 'The bootstrap exposes the partner manager endpoint');
 $assert(strpos($page, "'moduleVersion' => \$moduleVersion") !== false, 'The bootstrap exposes the installed module version');
 $assert(strpos($page, "'capabilities' => \$controlCenterCapabilities") !== false, 'The bootstrap exposes explicit feature capabilities');
 $assert(strpos($page, "'settings' => true") !== false && strpos($page, "'diagnostics' => true") !== false && strpos($page, "'batch' => true") !== false, 'All embedded Phase 2 capabilities are advertised');
@@ -88,6 +89,7 @@ $assert(strpos($page, 'allowedAdminPaths.indexOf(targetUrl.pathname) === -1') !=
 $routeKeys = [
     'presets',
     'products',
+    'partners',
     'storefront-calculators',
     'batch-recalculation',
     'directories',
@@ -109,7 +111,7 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($handler, 'product_generator.js') === false, 'The uncoordinated contextual product generator is retired');
-$assert(strpos($appIndex, 'b38bdf96f5d4') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, '5b2a3cc56c63') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
 $assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') === false, 'The published bundle no longer contains the legacy storefront editor launch contract');

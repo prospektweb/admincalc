@@ -50,6 +50,7 @@ $controlCenterEndpoints = [
     'batch' => '/bitrix/tools/prospektweb.calc/batch_recalculate.php',
     'modules' => '/bitrix/tools/prospektweb.calc/control_center_modules.php',
     'editors' => '/bitrix/tools/prospektweb.calc/control_center_editors.php',
+    'partners' => '/bitrix/tools/prospektweb/partnermanager/control_center.php',
 ];
 $controlCenterCapabilities = [
     'settings' => true,
@@ -57,6 +58,7 @@ $controlCenterCapabilities = [
     'batch' => true,
     'modules' => true,
     'editors' => true,
+    'partners' => ModuleManager::isModuleInstalled('prospektweb.partnermanager'),
 ];
 
 $resolveIblockType = static function (int $iblockId, string $fallback): string {
@@ -120,6 +122,7 @@ $appVersion = is_file($appIndexPath) ? (string)filemtime($appIndexPath) : '1';
 $requestedEmbeddedRoute = trim((string)($_GET['pwRoute'] ?? ''));
 $allowedEmbeddedRoutes = [
     'presets',
+    'partners',
     'storefront-calculators',
     'settings',
     'diagnostics',

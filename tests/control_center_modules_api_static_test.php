@@ -45,7 +45,9 @@ $assert(strpos($service, "'id' => 'storefront.property_descriptions'") !== false
 $assert(strpos($service, "'optionModule' => 'prospektweb.propvalmanager'") !== false && strpos($service, "'optionName' => 'ENABLED'") !== false && strpos($service, "'optionDefault' => 'Y'") !== false, 'Property descriptions must reuse the existing provider option and default');
 $assert(strpos($service, "'id' => 'storefront.checkout.company_suggestions'") !== false, 'Company suggestions capability must be stable');
 $assert(strpos($service, "'optionModule' => 'prospektweb.companyrequisites'") !== false && strpos($service, "'optionName' => 'enabled'") !== false, 'Company suggestions must reuse the existing provider option');
-$assert(substr_count($service, "'mutable' => true") === 8, 'Every mutable capability must be backed by a provider-owned runtime guard');
+$assert(substr_count($service, "'mutable' => true") === 9, 'Every mutable capability must be backed by a provider-owned runtime guard');
+$assert(strpos($service, "'id' => 'prospektweb.partnermanager'") !== false, 'Partner manager must be present in the canonical module catalog');
+$assert(strpos($service, "'id' => 'storefront.product.partners'") !== false, 'Partner storefront capability must be stable');
 $assert(strpos($service, "'id' => 'storefront.contacts.gallery'") !== false, 'Contacts gallery capability must be stable');
 $assert(strpos($service, "'optionName' => 'CONTACT_GALLERY_ENABLED'") !== false && strpos($service, "'optionDefault' => 'N'") !== false, 'Contacts gallery must be disabled by default and use its provider-owned option');
 $assert(strpos($service, "'optionName' => 'MASS_PROPERTY_EDITOR_ENABLED'") !== false, 'Mass offer property editor must use its provider-owned guard');
@@ -61,6 +63,7 @@ $assert(strpos($installer, "\$toolsDir . '/control_center_modules.php'") !== fal
 $assert(strpos($diagnostic, "'lib/Services/ModuleCapabilityRegistryService.php'") !== false && substr_count($diagnostic, "'control_center_modules.php'") >= 1, 'Module diagnostics must verify registry service and endpoint');
 $assert(strpos($host, "'modules' => '/bitrix/tools/prospektweb.calc/control_center_modules.php'") !== false, 'Control-center bootstrap must expose the modules endpoint');
 $assert(strpos($host, "'modules' => true") !== false, 'Control-center bootstrap must advertise the modules capability');
+$assert(strpos($host, "'partners' => '/bitrix/tools/prospektweb/partnermanager/control_center.php'") !== false, 'Control-center bootstrap must expose partner manager');
 $versionMatch = preg_match("/'VERSION'\\s*=>\\s*'([^']+)'/", $version, $versionParts);
 $assert($versionMatch === 1 && version_compare($versionParts[1], '1.4.0', '>='), 'Phase 3A requires admincalc module version 1.4.0 or newer');
 

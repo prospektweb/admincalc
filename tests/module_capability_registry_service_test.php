@@ -36,6 +36,7 @@ namespace Bitrix\Main {
             'prospektweb.propvalmanager' => '1.0.0',
             'prospektweb.companyrequisites' => '1.0.0',
             'prospektweb.layoutfiles' => '1.1.5',
+            'prospektweb.partnermanager' => '1.0.0',
             'prospektweb.offerfilter' => '1.0.0',
         ];
 
@@ -120,12 +121,13 @@ namespace {
     $assert($initial['contract'] === 'prospektweb.control-plane/catalog/v1', 'Catalog contract must be versioned');
     $assert(strlen((string)$initial['revision']) === 64, 'Catalog revision must be SHA-256');
     $assert($repeat['revision'] === $initial['revision'], 'Unchanged catalogs must have a stable revision');
-    $assert(count($initial['modules']) === 6, 'Catalog must expose exactly six canonical modules');
-    $assert($initial['summary']['capabilities'] === 14, 'Catalog capability summary must match the allowlist');
-    $assert($initial['summary']['mutableCapabilities'] === 8, 'Provider-owned feature guards must be mutable');
+    $assert(count($initial['modules']) === 7, 'Catalog must expose exactly seven canonical modules');
+    $assert($initial['summary']['capabilities'] === 16, 'Catalog capability summary must match the allowlist');
+    $assert($initial['summary']['mutableCapabilities'] === 9, 'Provider-owned feature guards must be mutable');
 
     $moduleIds = array_column($initial['modules'], 'id');
     $assert(in_array('prospektweb.layoutfiles', $moduleIds, true), 'Canonical layoutfiles module ID must be used');
+    $assert(in_array('prospektweb.partnermanager', $moduleIds, true), 'Canonical partner manager module ID must be used');
     $assert(!in_array('prospekt.layoutfiles', $moduleIds, true), 'Deprecated layoutfiles module ID must not be exposed');
 
     $propertyDescriptions = $findCapability($initial, 'storefront.property_descriptions');
