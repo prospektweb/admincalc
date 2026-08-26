@@ -151,6 +151,375 @@ final class PresetLifecycleMutationService
         });
     }
 
+    /** @return array<string,mixed> */
+    public function previewCascadeDelete(int $presetId): array
+    {
+        $this->assertPresetId($presetId);
+        $criticalSection = function ($authority, array $pinnedIblockIds) use ($presetId): array {
+            $graph = $authority->assertLockedPresetGraphDeletable($presetId);
+            $identity = $this->loadIdentity($presetId, $pinnedIblockIds);
+            $dependencies = $this->loadDeletionDependencies($presetId, $pinnedIblockIds);
+            return $this->deletionPreview($identity, $graph, $dependencies);
+        };
+        return $this->withSourceAuthority($presetId, $criticalSection);
+    }
+
+    /** @return array<string,mixed> */
+    public function deletePresetCascade(
+        int $presetId,
+        string $expectedDeletionRevision,
+        string $confirmationName
+    ): array {
+        $this->assertPresetId($presetId);
+        if (preg_match('/^[a-f0-9]{64}$/D', $expectedDeletionRevision) !== 1) {
+            throw new \InvalidArgumentException('Expected deletion revision must be a lowercase SHA-256 value.', 422);
+        }
+        $criticalSection = function ($authority, array $pinnedIblockIds) use (
+            $presetId,
+            $expectedDeletionRevision,
+            $confirmationName
+        ): array {
+            $graph = $authority->assertLockedPresetGraphDeletable($presetId);
+            $identity = $this->loadIdentity($presetId, $pinnedIblockIds);
+            if (!hash_equals((string)$identity['name'], $confirmationName)) {
+                throw new \InvalidArgumentException('Введите точное название калькулятора для удаления.', 422);
+            }
+            $dependencies = $this->loadDeletionDependencies($presetId, $pinnedIblockIds);
+            $preview = $this->deletionPreview($identity, $graph, $dependencies);
+            if (!hash_equals((string)$preview['deletionRevision'], $expectedDeletionRevision)) {
+                throw new \RuntimeException(
+                    'Состав калькулятора изменился после открытия подтверждения. Обновите данные и повторите удаление.',
+                    409
+                );
+            }
+
+            if (isset($this->adapters['delete_locked'])) {
+                $deleted = call_user_func(
+                    $this->adapters['delete_locked'],
+                    $presetId,
+                    $pinnedIblockIds,
+                    $dependencies,
+                    $graph,
+                    $authority
+                );
+            } else {
+                $deleted = $this->deleteOwnedDependenciesLocked(
+                    $presetId,
+                    $pinnedIblockIds,
+                    $dependencies,
+                    $graph,
+                    $authority
+                );
+            }
+            if (!is_array($deleted)) {
+                throw new \RuntimeException('Cascade deletion returned an invalid receipt.', 409);
+            }
+
+            $audit = [
+                'contract' => self::CONTRACT,
+                'actorId' => $this->actorId(),
+                'action' => 'delete_preset_cascade',
+                'sourcePresetId' => $presetId,
+                'presetName' => (string)$identity['name'],
+                'deletionRevision' => $expectedDeletionRevision,
+                'counts' => $preview['counts'],
+                'result' => 'success',
+            ];
+            $this->writeAudit($audit);
+            return [
+                'contract' => self::CONTRACT,
+                'presetId' => $presetId,
+                'presetName' => (string)$identity['name'],
+                'deletionRevision' => $expectedDeletionRevision,
+                'counts' => $preview['counts'],
+                'deleted' => true,
+            ];
+        };
+        return $this->withSourceAuthority($presetId, $criticalSection);
+    }
+
+    /** @return mixed */
+    private function withSourceAuthority(int $presetId, callable $criticalSection)
+    {
+        if (isset($this->adapters['with_source_authority'])) {
+            return call_user_func($this->adapters['with_source_authority'], $presetId, $criticalSection);
+        }
+        $authority = new CalculatorMutationAuthorityService();
+        return $authority->withAuthorityLock(
+            $presetId,
+            static function (
+                bool $_unusedProtection,
+                array $pinnedIblockIds
+            ) use ($authority, $criticalSection) {
+                return $criticalSection($authority, $pinnedIblockIds);
+            }
+        );
+    }
+
+    /** @param array<string,mixed> $identity @param array<string,mixed> $graph @param array<string,mixed> $dependencies */
+    private function deletionPreview(array $identity, array $graph, array $dependencies): array
+    {
+        $counts = [
+            'products' => count($dependencies['productIds']),
+            'storefronts' => count($dependencies['storefronts']),
+            'versions' => (int)$dependencies['versionCount'],
+            'documents' => count($dependencies['optionRows']),
+            'globals' => count($dependencies['globalIds']),
+            'details' => count($graph['detailIds']),
+            'stages' => count($graph['stageIds']),
+            'settings' => count($graph['settingsIds']),
+        ];
+        $revisionPayload = [
+            'presetId' => (int)$identity['id'],
+            'presetName' => (string)$identity['name'],
+            'graphRevision' => (string)$graph['revision'],
+            'productIds' => $dependencies['productIds'],
+            'storefronts' => array_map(static fn(array $row): array => [
+                'id' => (string)$row['id'],
+                'revision' => (int)$row['revision'],
+            ], $dependencies['storefronts']),
+            'globalIds' => $dependencies['globalIds'],
+            'options' => array_map(static fn(array $row): array => [
+                'moduleId' => (string)$row['moduleId'],
+                'name' => (string)$row['name'],
+                'sha256' => hash('sha256', (string)$row['value']),
+            ], $dependencies['optionRows']),
+        ];
+        return [
+            'contract' => self::CONTRACT,
+            'presetId' => (int)$identity['id'],
+            'presetName' => (string)$identity['name'],
+            'deletionRevision' => PresetMutationCoordinatorService::hashCanonical($revisionPayload),
+            'counts' => $counts,
+            'warnings' => [
+                'Будут удалены только данные этого калькулятора.',
+                'Товары и свойства Bitrix останутся; связи с калькулятором будут сняты.',
+            ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function loadDeletionDependencies(int $presetId, array $pinnedIblockIds): array
+    {
+        if (isset($this->adapters['deletion_dependencies'])) {
+            $result = call_user_func($this->adapters['deletion_dependencies'], $presetId, $pinnedIblockIds);
+            if (!is_array($result)) {
+                throw new \RuntimeException('Cascade deletion dependency snapshot is invalid.', 409);
+            }
+            return $this->normalizeDeletionDependencies($result);
+        }
+        if (!class_exists(Application::class)) {
+            throw new \RuntimeException('Bitrix database is unavailable for cascade deletion.', 409);
+        }
+        $productIblockId = (int)(new \Prospektweb\Calc\Config\ConfigManager())->getProductIblockId();
+        $presetIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+        $property = (new PresetProductAssignmentPropertyAuthorityService())->resolve(
+            $productIblockId,
+            $presetIblockId,
+            true
+        );
+        $productIds = [];
+        $cursor = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            ['IBLOCK_ID' => $productIblockId, '=PROPERTY_' . (int)$property['propertyId'] => $presetId],
+            false,
+            false,
+            ['ID', 'IBLOCK_ID']
+        );
+        while ($row = $cursor->Fetch()) {
+            $productIds[] = (int)$row['ID'];
+        }
+
+        $storefronts = [];
+        if (\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc')) {
+            $storefrontClass = '\\Prospektweb\\Frontcalc\\Service\\StorefrontRepository';
+            if (class_exists($storefrontClass)) {
+                $listing = (new $storefrontClass())->listStorefronts($presetId);
+                $storefronts = is_array($listing['items'] ?? null) ? $listing['items'] : [];
+            }
+        }
+        $globalIds = [];
+        $globalsIblockId = (int)($pinnedIblockIds['CALC_GLOBAL_VALUES'] ?? 0);
+        if ($globalsIblockId > 0) {
+            foreach ((new GlobalSymbolService())->listReadOnlyFromIblockId($globalsIblockId, $presetId) as $symbol) {
+                $globalIds[] = (int)$symbol['id'];
+            }
+        }
+        $optionRows = $this->loadOwnedOptionRows($presetId);
+        $versionCount = 0;
+        foreach ($optionRows as $optionRow) {
+            if ((string)$optionRow['moduleId'] === self::MODULE_ID
+                && (string)$optionRow['name'] === 'CALC_VERSIONS_' . $presetId) {
+                $decoded = json_decode((string)$optionRow['value'], true);
+                $versionCount = is_array($decoded['versions'] ?? null) ? count($decoded['versions']) : 0;
+            }
+        }
+        return $this->normalizeDeletionDependencies([
+            'productIblockId' => $productIblockId,
+            'productPropertyId' => (int)$property['propertyId'],
+            'productIds' => $productIds,
+            'storefronts' => $storefronts,
+            'globalIds' => $globalIds,
+            'optionRows' => $optionRows,
+            'versionCount' => $versionCount,
+        ]);
+    }
+
+    /** @param array<string,mixed> $raw @return array<string,mixed> */
+    private function normalizeDeletionDependencies(array $raw): array
+    {
+        foreach (['productIds', 'storefronts', 'globalIds', 'optionRows'] as $key) {
+            if (!is_array($raw[$key] ?? null) || !array_is_list($raw[$key])) {
+                throw new \RuntimeException('Cascade deletion dependency list is invalid: ' . $key . '.', 409);
+            }
+        }
+        $raw['productIds'] = array_values(array_unique(array_map('intval', $raw['productIds'])));
+        $raw['globalIds'] = array_values(array_unique(array_map('intval', $raw['globalIds'])));
+        sort($raw['productIds'], SORT_NUMERIC);
+        sort($raw['globalIds'], SORT_NUMERIC);
+        usort($raw['storefronts'], static fn(array $left, array $right): int => strcmp((string)$left['id'], (string)$right['id']));
+        usort($raw['optionRows'], static fn(array $left, array $right): int => [
+            (string)$left['moduleId'], (string)$left['name'],
+        ] <=> [
+            (string)$right['moduleId'], (string)$right['name'],
+        ]);
+        $raw['productIblockId'] = (int)($raw['productIblockId'] ?? 0);
+        $raw['productPropertyId'] = (int)($raw['productPropertyId'] ?? 0);
+        $raw['versionCount'] = max(0, (int)($raw['versionCount'] ?? 0));
+        return $raw;
+    }
+
+    /** @return array<int,array{moduleId:string,name:string,value:string}> */
+    private function loadOwnedOptionRows(int $presetId): array
+    {
+        $connection = Application::getConnection();
+        $helper = $connection->getSqlHelper();
+        $adminNames = [
+            'CALC_VERSIONS_' . $presetId,
+            'CALCULATOR_INPUT_MAPPING_' . $presetId,
+            'CATALOG_OUTPUT_MAPPING_' . $presetId,
+            'PRESET_MUTATION_V2_' . $presetId,
+        ];
+        $adminPrefixes = [
+            'CALC_VERSION_BUNDLE_' . $presetId . '_',
+            'CALC_VERSION_COMPONENT_' . $presetId . '_',
+            'CALC_VERSION_FORM_' . $presetId . '_',
+        ];
+        $clauses = [];
+        foreach ($adminNames as $name) {
+            $clauses[] = "NAME='" . $helper->forSql($name) . "'";
+        }
+        foreach ($adminPrefixes as $prefix) {
+            $clauses[] = "NAME LIKE '" . $helper->forSql($prefix) . "%'";
+        }
+        $frontName = 'FORM_FIRST_PRESET_' . $presetId;
+        $frontPublicName = 'PUBLIC_CALC_BASE_' . $presetId;
+        $sql = "SELECT MODULE_ID, NAME, SITE_ID, VALUE FROM b_option WHERE SITE_ID IS NULL AND ((MODULE_ID='"
+            . $helper->forSql(self::MODULE_ID) . "' AND (" . implode(' OR ', $clauses) . ")) OR (MODULE_ID='prospektweb.frontcalc' AND (NAME='"
+            . $helper->forSql($frontName) . "' OR NAME='" . $helper->forSql($frontPublicName)
+            . "'))) ORDER BY BINARY MODULE_ID, BINARY NAME FOR UPDATE";
+        $cursor = $connection->query($sql);
+        $rows = [];
+        while ($row = $cursor->fetch()) {
+            if (!is_array($row)) {
+                throw new \RuntimeException('Cascade deletion option snapshot is invalid.', 409);
+            }
+            $rows[] = [
+                'moduleId' => (string)($row['MODULE_ID'] ?? $row['module_id'] ?? ''),
+                'name' => (string)($row['NAME'] ?? $row['name'] ?? ''),
+                'value' => (string)($row['VALUE'] ?? $row['value'] ?? ''),
+            ];
+        }
+        return $rows;
+    }
+
+    /** @return array<string,mixed> */
+    private function deleteOwnedDependenciesLocked(
+        int $presetId,
+        array $pinnedIblockIds,
+        array $dependencies,
+        array $graph,
+        $authority
+    ): array {
+        if (\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc')) {
+            $storefrontClass = '\\Prospektweb\\Frontcalc\\Service\\StorefrontRepository';
+            if (class_exists($storefrontClass)) {
+                $repository = new $storefrontClass();
+                foreach ($dependencies['storefronts'] as $storefront) {
+                    $repository->delete((string)$storefront['id'], (int)$storefront['revision']);
+                    if ($repository->get((string)$storefront['id']) !== null) {
+                        throw new \RuntimeException('Deleted storefront remains present during cascade readback.', 409);
+                    }
+                }
+            }
+        }
+        foreach ($dependencies['productIds'] as $productId) {
+            \CIBlockElement::SetPropertyValues(
+                (int)$productId,
+                (int)$dependencies['productIblockId'],
+                false,
+                (int)$dependencies['productPropertyId']
+            );
+        }
+        foreach ($dependencies['globalIds'] as $globalId) {
+            if (!\CIBlockElement::Delete((int)$globalId)) {
+                throw new \RuntimeException('Unable to delete calculator global #' . (int)$globalId . '.', 409);
+            }
+            if (\CIBlockElement::GetByID((int)$globalId)->Fetch()) {
+                throw new \RuntimeException('Deleted calculator global remains present during readback.', 409);
+            }
+        }
+        $connection = Application::getConnection();
+        $helper = $connection->getSqlHelper();
+        foreach ($dependencies['optionRows'] as $optionRow) {
+            $moduleId = (string)$optionRow['moduleId'];
+            $name = (string)$optionRow['name'];
+            $connection->queryExecute(
+                "DELETE FROM b_option WHERE MODULE_ID='" . $helper->forSql($moduleId)
+                . "' AND BINARY MODULE_ID=BINARY '" . $helper->forSql($moduleId)
+                . "' AND NAME='" . $helper->forSql($name)
+                . "' AND BINARY NAME=BINARY '" . $helper->forSql($name) . "' AND SITE_ID IS NULL"
+            );
+            $remaining = $connection->query(
+                "SELECT NAME FROM b_option WHERE MODULE_ID='" . $helper->forSql($moduleId)
+                . "' AND BINARY MODULE_ID=BINARY '" . $helper->forSql($moduleId)
+                . "' AND NAME='" . $helper->forSql($name)
+                . "' AND BINARY NAME=BINARY '" . $helper->forSql($name) . "' AND SITE_ID IS NULL"
+            )->fetch();
+            if (is_array($remaining)) {
+                throw new \RuntimeException('Deleted calculator option remains present during readback.', 409);
+            }
+        }
+        foreach ($dependencies['productIds'] as $productId) {
+            $propertyCursor = \CIBlockElement::GetProperty(
+                (int)$dependencies['productIblockId'],
+                (int)$productId,
+                ['sort' => 'asc'],
+                ['ID' => (int)$dependencies['productPropertyId']]
+            );
+            while ($propertyRow = $propertyCursor->Fetch()) {
+                if ((int)($propertyRow['VALUE'] ?? 0) === $presetId) {
+                    throw new \RuntimeException('Product remains linked to the deleted calculator.', 409);
+                }
+            }
+        }
+        $graphReceipt = $authority->deleteLockedPresetGraph($presetId, (string)$graph['revision']);
+        return [
+            'productsDetached' => count($dependencies['productIds']),
+            'storefrontsDeleted' => count($dependencies['storefronts']),
+            'globalsDeleted' => count($dependencies['globalIds']),
+            'documentsDeleted' => count($dependencies['optionRows']),
+            'graph' => $graphReceipt,
+        ];
+    }
+
+    private function assertPresetId(int $presetId): void
+    {
+        if ($presetId <= 0 || $presetId > 9007199254740991) {
+            throw new \InvalidArgumentException('Preset ID must be a safe positive integer.', 422);
+        }
+    }
+
     /** @return mixed */
     private function withGlobalAuthority(callable $criticalSection)
     {

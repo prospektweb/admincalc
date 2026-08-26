@@ -573,6 +573,90 @@ final class CalculatorMutationAuthorityService
         return $graphs[$presetId];
     }
 
+    /**
+     * Prove that every structural entity reachable from a preset is owned by
+     * that preset and has no incoming references from outside its graph.
+     * Lifecycle deletion calls this while the global calculator authority is
+     * held, immediately before the physical delete.
+     *
+     * @return array<string,mixed>
+     */
+    public function assertLockedPresetGraphDeletable(int $presetId): array
+    {
+        $graph = $this->readLockedPresetGraph($presetId);
+        foreach (['detail' => 'detailIds', 'stage' => 'stageIds', 'settings' => 'settingsIds'] as $kind => $key) {
+            foreach ($graph[$key] as $entityId) {
+                $entityId = (int)$entityId;
+                $this->assertEntityOwnedOnlyByPreset($kind, $entityId, $presetId, $graph);
+                foreach ($this->structuralReferenceIndex()[$kind][$entityId] ?? [] as $reference) {
+                    $sourceKind = (string)($reference['sourceKind'] ?? '');
+                    $sourceId = (int)($reference['sourceId'] ?? 0);
+                    $internal = ($sourceKind === 'preset' && $sourceId === $presetId)
+                        || ($sourceKind === 'detail' && in_array($sourceId, $graph['detailIds'], true))
+                        || ($sourceKind === 'stage' && in_array($sourceId, $graph['stageIds'], true));
+                    if (!$internal) {
+                        throw new \RuntimeException(
+                            ucfirst($kind) . ' #' . $entityId . ' has an external calculator reference.',
+                            409
+                        );
+                    }
+                }
+            }
+        }
+        return $graph;
+    }
+
+    /**
+     * Delete a previously-proven preset graph inside the caller transaction.
+     * Shared catalog products and properties are deliberately outside this
+     * primitive and must only be detached by the lifecycle coordinator.
+     *
+     * @return array{presetId:int,detailCount:int,stageCount:int,settingsCount:int}
+     */
+    public function deleteLockedPresetGraph(int $presetId, string $expectedRevision): array
+    {
+        if (preg_match('/^[a-f0-9]{64}$/D', $expectedRevision) !== 1) {
+            throw new \InvalidArgumentException('Expected calculator graph revision must be a SHA-256 value.', 422);
+        }
+        $graph = $this->assertLockedPresetGraphDeletable($presetId);
+        if (!hash_equals((string)$graph['revision'], $expectedRevision)) {
+            throw new \RuntimeException('Calculator graph changed before deletion.', 409);
+        }
+        $iblockIds = $this->lockedIblockIds();
+        $targets = [
+            ['preset', [(int)$presetId], (int)$iblockIds['CALC_PRESETS']],
+            ['detail', array_reverse($graph['detailIds']), (int)$iblockIds['CALC_DETAILS']],
+            ['stage', array_reverse($graph['stageIds']), (int)$iblockIds['CALC_STAGES']],
+            ['settings', array_reverse($graph['settingsIds']), (int)$iblockIds['CALC_SETTINGS']],
+        ];
+        foreach ($targets as [$kind, $ids, $iblockId]) {
+            foreach ($ids as $entityId) {
+                $entityId = (int)$entityId;
+                if (!\CIBlockElement::Delete($entityId)) {
+                    throw new \RuntimeException('Unable to delete calculator ' . $kind . ' #' . $entityId . '.', 409);
+                }
+                $row = \CIBlockElement::GetList(
+                    [],
+                    ['ID' => $entityId, 'IBLOCK_ID' => $iblockId],
+                    false,
+                    ['nTopCount' => 1],
+                    ['ID', 'IBLOCK_ID']
+                )->Fetch();
+                if (is_array($row)) {
+                    throw new \RuntimeException('Calculator ' . $kind . ' deletion readback failed.', 409);
+                }
+            }
+        }
+        $this->presetGraphsCache = null;
+        $this->structuralReferenceIndex = null;
+        return [
+            'presetId' => $presetId,
+            'detailCount' => count($graph['detailIds']),
+            'stageCount' => count($graph['stageIds']),
+            'settingsCount' => count($graph['settingsIds']),
+        ];
+    }
+
     /** @return array<string,int> */
     public function lockedIblockIds(): array
     {

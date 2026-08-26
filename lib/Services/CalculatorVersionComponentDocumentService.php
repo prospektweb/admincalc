@@ -108,8 +108,10 @@ final class CalculatorVersionComponentDocumentService
         if ($contract !== $expectedContract || $documentPresetId !== $presetId) {
             throw new \InvalidArgumentException('Документ компонента не соответствует выбранной версии калькулятора.');
         }
-        if ($component === 'storefronts' && !is_array($document['items'] ?? null)) {
-            throw new \InvalidArgumentException('Снимок витрин должен содержать список items.');
+        if ($component === 'storefronts'
+            && (!is_array($document['items'] ?? null)
+                || (array_key_exists('base_public', $document) && !is_bool($document['base_public'])))) {
+            throw new \InvalidArgumentException('Снимок витрин должен содержать items и настройку базовой публичной витрины.');
         }
         if ($component === 'productAssignments') {
             $assignments = $document['assignments'] ?? null;

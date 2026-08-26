@@ -110,6 +110,7 @@ final class CalculatorVersionSnapshotSourceService
         if (isset($this->adapters['storefronts'])) {
             $value = call_user_func($this->adapters['storefronts'], $presetId);
             if (!is_array($value)) throw new \RuntimeException('Storefront snapshot adapter returned invalid data.');
+            if (!array_key_exists('base_public', $value)) $value['base_public'] = true;
             return $value;
         }
         if (!Loader::includeModule('prospektweb.frontcalc')) {
@@ -117,7 +118,12 @@ final class CalculatorVersionSnapshotSourceService
         }
         $class = '\\Prospektweb\\Frontcalc\\Service\\StorefrontRepository';
         if (!class_exists($class)) throw new \RuntimeException('Хранилище витрин недоступно.');
-        return (new $class())->listStorefronts($presetId);
+        $listing = (new $class())->listStorefronts($presetId);
+        $settingsClass = '\\Prospektweb\\Frontcalc\\Service\\PublicCalculatorCatalogService';
+        $listing['base_public'] = class_exists($settingsClass)
+            ? (bool)(new $settingsClass())->settings($presetId)['show_base']
+            : true;
+        return $listing;
     }
 
     /** @return array<string,mixed> */

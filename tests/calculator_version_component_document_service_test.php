@@ -44,6 +44,7 @@ $documents = [
     'storefronts' => [
         'contract' => 'prospektweb.frontcalc.storefront-definition/v2',
         'preset_id' => $presetId,
+        'base_public' => true,
         'items' => [],
     ],
     'inputMappings' => [
@@ -103,14 +104,26 @@ try {
 }
 $assert($staleRejected, 'stale aggregate/component CAS must be rejected');
 
+$legacyStorefronts = $changed;
+unset($legacyStorefronts['base_public']);
+$legacySaved = $service->saveDraft(
+    $presetId,
+    $versionId,
+    'storefronts',
+    $saved['contentHash'],
+    $saved['componentHash'],
+    $legacyStorefronts
+);
+$assert(!array_key_exists('base_public', $legacySaved['document']), 'legacy storefront document without base_public must remain writable');
+
 $invalidRejected = false;
 try {
     $service->saveDraft(
         $presetId,
         $versionId,
         'storefronts',
-        $saved['contentHash'],
-        $saved['componentHash'],
+        $legacySaved['contentHash'],
+        $legacySaved['componentHash'],
         ['contract' => 'invalid', 'preset_id' => $presetId, 'items' => []]
     );
 } catch (InvalidArgumentException $error) {

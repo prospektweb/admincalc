@@ -673,9 +673,31 @@ try {
     if ($action === 'storefront_list') {
         $assertAllowedRequestKeys(['action', 'sessid', 'preset_id']);
         $presetId = $parseStrictPositiveInt($request['preset_id'] ?? null, 'preset_id');
+        $listing = $storefrontRepository()->listStorefronts($presetId);
+        $settingsClass = '\\Prospektweb\\Frontcalc\\Service\\PublicCalculatorCatalogService';
+        if (!class_exists($settingsClass)) {
+            throw new \RuntimeException('Public calculator catalog settings are unavailable.');
+        }
+        $listing['base_public'] = (bool)(new $settingsClass())->settings($presetId)['show_base'];
         $respond(200, [
             'success' => true,
-            'data' => $storefrontRepository()->listStorefronts($presetId),
+            'data' => $listing,
+        ]);
+    }
+
+    if ($action === 'storefront_base_public_save') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'preset_id', 'show_base']);
+        $presetId = $parseStrictPositiveInt($request['preset_id'] ?? null, 'preset_id');
+        if (!is_bool($request['show_base'] ?? null)) {
+            throw new \InvalidArgumentException('show_base must be boolean');
+        }
+        if (!Loader::includeModule('prospektweb.frontcalc')) {
+            throw new \RuntimeException('Module prospektweb.frontcalc is required.');
+        }
+        $settingsClass = '\\Prospektweb\\Frontcalc\\Service\\PublicCalculatorCatalogService';
+        $respond(200, [
+            'success' => true,
+            'data' => (new $settingsClass())->saveSettings($presetId, (bool)$request['show_base']),
         ]);
     }
 
@@ -817,6 +839,39 @@ try {
         $respond(200, [
             'success' => true,
             'data' => $service->duplicatePreset($presetId),
+        ]);
+    }
+
+    if ($action === 'preset_delete_preview') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $respond(200, [
+            'success' => true,
+            'data' => (new PresetLifecycleMutationService())->previewCascadeDelete($presetId),
+        ]);
+    }
+
+    if ($action === 'preset_delete_cascade') {
+        $assertAllowedRequestKeys([
+            'action',
+            'sessid',
+            'presetId',
+            'expectedDeletionRevision',
+            'confirmationName',
+        ]);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedDeletionRevision = $request['expectedDeletionRevision'] ?? null;
+        $confirmationName = $request['confirmationName'] ?? null;
+        if (!is_string($expectedDeletionRevision) || !is_string($confirmationName)) {
+            throw new \InvalidArgumentException('Deletion revision and exact calculator name are required.');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => (new PresetLifecycleMutationService())->deletePresetCascade(
+                $presetId,
+                $expectedDeletionRevision,
+                $confirmationName
+            ),
         ]);
     }
 
