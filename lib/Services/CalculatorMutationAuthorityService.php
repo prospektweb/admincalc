@@ -584,24 +584,61 @@ final class CalculatorMutationAuthorityService
     public function assertLockedPresetGraphDeletable(int $presetId): array
     {
         $graph = $this->readLockedPresetGraph($presetId);
-        foreach (['detail' => 'detailIds', 'stage' => 'stageIds', 'settings' => 'settingsIds'] as $kind => $key) {
-            foreach ($graph[$key] as $entityId) {
-                $entityId = (int)$entityId;
-                $this->assertEntityOwnedOnlyByPreset($kind, $entityId, $presetId, $graph);
-                foreach ($this->structuralReferenceIndex()[$kind][$entityId] ?? [] as $reference) {
-                    $sourceKind = (string)($reference['sourceKind'] ?? '');
-                    $sourceId = (int)($reference['sourceId'] ?? 0);
-                    $internal = ($sourceKind === 'preset' && $sourceId === $presetId)
-                        || ($sourceKind === 'detail' && in_array($sourceId, $graph['detailIds'], true))
-                        || ($sourceKind === 'stage' && in_array($sourceId, $graph['stageIds'], true));
-                    if (!$internal) {
-                        throw new \RuntimeException(
-                            ucfirst($kind) . ' #' . $entityId . ' has an external calculator reference.',
-                            409
-                        );
+        $keys = ['detail' => 'detailIds', 'stage' => 'stageIds', 'settings' => 'settingsIds'];
+        $deletable = [];
+        foreach ($keys as $kind => $key) {
+            $deletable[$kind] = array_fill_keys(array_map('intval', $graph[$key]), true);
+        }
+
+        foreach ($this->allPresetGraphs() as $otherPresetId => $otherGraph) {
+            if ((int)$otherPresetId === $presetId) {
+                continue;
+            }
+            foreach ($keys as $kind => $key) {
+                foreach ($otherGraph[$key] as $entityId) {
+                    $entityId = (int)$entityId;
+                    if (array_key_exists($entityId, $deletable[$kind])) {
+                        $deletable[$kind][$entityId] = false;
                     }
                 }
             }
+        }
+
+        do {
+            $changed = false;
+            foreach ($keys as $kind => $key) {
+                foreach ($graph[$key] as $entityId) {
+                    $entityId = (int)$entityId;
+                    if (($deletable[$kind][$entityId] ?? false) !== true) {
+                        continue;
+                    }
+                    foreach ($this->structuralReferenceIndex()[$kind][$entityId] ?? [] as $reference) {
+                        $sourceKind = (string)($reference['sourceKind'] ?? '');
+                        $sourceId = (int)($reference['sourceId'] ?? 0);
+                        $sourceWillBeDeleted = $sourceKind === 'preset'
+                            ? $sourceId === $presetId
+                            : isset($deletable[$sourceKind][$sourceId])
+                                && $deletable[$sourceKind][$sourceId] === true;
+                        if (!$sourceWillBeDeleted) {
+                            $deletable[$kind][$entityId] = false;
+                            $changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        } while ($changed);
+
+        foreach ($keys as $kind => $key) {
+            $prefix = $kind === 'settings' ? 'Settings' : ucfirst($kind);
+            $graph['deletion' . $prefix . 'Ids'] = array_values(array_filter(
+                array_map('intval', $graph[$key]),
+                static fn(int $entityId): bool => ($deletable[$kind][$entityId] ?? false) === true
+            ));
+            $graph['preserved' . $prefix . 'Ids'] = array_values(array_filter(
+                array_map('intval', $graph[$key]),
+                static fn(int $entityId): bool => ($deletable[$kind][$entityId] ?? false) !== true
+            ));
         }
         return $graph;
     }
@@ -624,10 +661,10 @@ final class CalculatorMutationAuthorityService
         }
         $iblockIds = $this->lockedIblockIds();
         $targets = [
+            ['settings', array_reverse($graph['deletionSettingsIds']), (int)$iblockIds['CALC_SETTINGS']],
+            ['stage', array_reverse($graph['deletionStageIds']), (int)$iblockIds['CALC_STAGES']],
+            ['detail', array_reverse($graph['deletionDetailIds']), (int)$iblockIds['CALC_DETAILS']],
             ['preset', [(int)$presetId], (int)$iblockIds['CALC_PRESETS']],
-            ['detail', array_reverse($graph['detailIds']), (int)$iblockIds['CALC_DETAILS']],
-            ['stage', array_reverse($graph['stageIds']), (int)$iblockIds['CALC_STAGES']],
-            ['settings', array_reverse($graph['settingsIds']), (int)$iblockIds['CALC_SETTINGS']],
         ];
         foreach ($targets as [$kind, $ids, $iblockId]) {
             foreach ($ids as $entityId) {
@@ -651,9 +688,9 @@ final class CalculatorMutationAuthorityService
         $this->structuralReferenceIndex = null;
         return [
             'presetId' => $presetId,
-            'detailCount' => count($graph['detailIds']),
-            'stageCount' => count($graph['stageIds']),
-            'settingsCount' => count($graph['settingsIds']),
+            'detailCount' => count($graph['deletionDetailIds']),
+            'stageCount' => count($graph['deletionStageIds']),
+            'settingsCount' => count($graph['deletionSettingsIds']),
         ];
     }
 

@@ -17,6 +17,11 @@ $assert = static function (bool $condition, string $message): void {
     }
 };
 
+$assert(
+    strpos($endpoint, "Loader::includeModule('iblock')") !== false,
+    'Control center editors endpoint must bootstrap the iblock module before lifecycle actions.'
+);
+
 foreach ([
     'catalog',
     'registry',

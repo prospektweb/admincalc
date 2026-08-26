@@ -265,9 +265,9 @@ final class PresetLifecycleMutationService
             'versions' => (int)$dependencies['versionCount'],
             'documents' => count($dependencies['optionRows']),
             'globals' => count($dependencies['globalIds']),
-            'details' => count($graph['detailIds']),
-            'stages' => count($graph['stageIds']),
-            'settings' => count($graph['settingsIds']),
+            'details' => count($graph['deletionDetailIds'] ?? $graph['detailIds']),
+            'stages' => count($graph['deletionStageIds'] ?? $graph['stageIds']),
+            'settings' => count($graph['deletionSettingsIds'] ?? $graph['settingsIds']),
         ];
         $revisionPayload = [
             'presetId' => (int)$identity['id'],
@@ -294,6 +294,7 @@ final class PresetLifecycleMutationService
             'warnings' => [
                 'Будут удалены только данные этого калькулятора.',
                 'Товары и свойства Bitrix останутся; связи с калькулятором будут сняты.',
+                'Общие элементы расчётного графа сохранятся у других калькуляторов.',
             ],
         ];
     }

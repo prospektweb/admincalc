@@ -378,6 +378,24 @@ $expectConflict(
 );
 $graphs[41]['detailStages'] = [101 => [201], 102 => [202]];
 
+$graphs[42]['settingsIds'][] = 301;
+$graphs[42]['stageSettings'][211][] = 301;
+$deletePlan = $underLock(41, static fn(bool $protected) =>
+    $authority->assertLockedPresetGraphDeletable(41));
+$assert(
+    !in_array(301, $deletePlan['deletionSettingsIds'], true)
+        && in_array(301, $deletePlan['preservedSettingsIds'], true),
+    'Cascade deletion preserves settings referenced by another calculator'
+);
+$assert(
+    $deletePlan['deletionDetailIds'] === [101, 102]
+        && $deletePlan['deletionStageIds'] === [201, 202]
+        && $deletePlan['deletionSettingsIds'] === [302],
+    'Cascade deletion removes the target-owned graph while retaining shared descendants'
+);
+$graphs[42]['settingsIds'] = [311];
+$graphs[42]['stageSettings'][211] = [311];
+
 $invalidLogic = [
     ['', 'non-empty JSON string'],
     ['{broken', 'invalid JSON'],

@@ -147,6 +147,14 @@ if (!Loader::includeModule('prospektweb.calc')) {
     ]);
 }
 
+if (!Loader::includeModule('iblock')) {
+    $respond(500, [
+        'success' => false,
+        'errorCode' => 'IBLOCK_MODULE_NOT_INSTALLED',
+        'error' => 'Module iblock is not installed',
+    ]);
+}
+
 $action = $request['action'] ?? 'catalog';
 $service = new ControlCenterEditorsService();
 $versionBundles = new CalculatorVersionBundleDocumentService();
@@ -1730,6 +1738,6 @@ try {
     $respond(500, [
         'success' => false,
         'errorCode' => 'INTERNAL_ERROR',
-        'error' => 'Unable to prepare the editor workspace',
+        'error' => 'Unable to prepare the editor workspace: ' . $exception->getMessage(),
     ]);
 }
