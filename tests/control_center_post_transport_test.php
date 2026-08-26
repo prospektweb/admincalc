@@ -164,6 +164,27 @@ namespace Prospektweb\Frontcalc\Service {
 }
 
 namespace Prospektweb\Calc\Services {
+    class CalculatorVersionBundleDocumentService
+    {
+        public function __construct(array $adapters = []) {}
+        public function load(int $presetId, string $versionId): ?array { return null; }
+    }
+
+    class CalculatorVersionSnapshotSourceService
+    {
+        public function __construct(array $adapters = []) {}
+    }
+
+    class CalculatorVersionRegistryService
+    {
+        public function __construct(array $adapters = []) {}
+    }
+
+    class CalculatorVersionFormDocumentService
+    {
+        public function __construct(array $adapters = []) {}
+    }
+
     class CalcServerRequestDeadline
     {
         public const MAX_BUDGET_MILLISECONDS = 300000;

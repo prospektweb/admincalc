@@ -96,21 +96,22 @@ try {
 }
 $assert($activeArchiveBlocked, 'active published version must not be archived');
 
-$republished = false;
-$reactivated = $service->coordinatedActivatePublished(
-    12740,
-    $deleted['registryRevision'],
-    $deleted['activeVersionId'],
-    'Листовая печать',
-    $legacy,
-    $actor,
-    static function () use (&$republished, $publishedHash): array {
-        $republished = true;
-        return ['published' => ['revision' => 5, 'compileHash' => $publishedHash]];
-    }
-);
-$assert($republished, 'published version activation must republish its stored components');
-$assert($reactivated['activeVersionId'] === $deleted['activeVersionId'], 'published version was not reactivated');
+$legacyActivationBlocked = false;
+try {
+    $service->coordinatedActivatePublished(
+        12740,
+        $deleted['registryRevision'],
+        $deleted['activeVersionId'],
+        'Листовая печать',
+        $legacy,
+        $actor,
+        static fn(): array => ['published' => ['revision' => 5, 'compileHash' => $publishedHash]]
+    );
+} catch (RuntimeException $error) {
+    $legacyActivationBlocked = $error->getCode() === 409
+        && str_contains($error->getMessage(), 'Полный снимок');
+}
+$assert($legacyActivationBlocked, 'form-only legacy publication must not be presented as a complete activatable version');
 
 $staleConflict = false;
 try {

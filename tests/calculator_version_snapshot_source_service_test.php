@@ -1,0 +1,79 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Bitrix\Main {
+    final class Loader
+    {
+        public static function includeModule(string $moduleId): bool
+        {
+            return false;
+        }
+    }
+}
+
+namespace {
+    require_once __DIR__ . '/../lib/Services/CalculatorVersionFormDocumentService.php';
+    require_once __DIR__ . '/../lib/Services/CalculatorVersionBundleDocumentService.php';
+    require_once __DIR__ . '/../lib/Services/CalculatorVersionSnapshotSourceService.php';
+
+    use Prospektweb\Calc\Services\CalculatorVersionBundleDocumentService;
+    use Prospektweb\Calc\Services\CalculatorVersionFormDocumentService;
+    use Prospektweb\Calc\Services\CalculatorVersionSnapshotSourceService;
+
+    $assert = static function (bool $condition, string $message): void {
+        if (!$condition) throw new RuntimeException($message);
+    };
+
+    $calls = [];
+    $source = new CalculatorVersionSnapshotSourceService([
+        'logic' => static function (int $presetId) use (&$calls): array {
+            $calls[] = 'logic';
+            return ['contract' => CalculatorVersionSnapshotSourceService::LOGIC_CONTRACT, 'presetId' => $presetId];
+        },
+        'storefronts' => static function (int $presetId) use (&$calls): array {
+            $calls[] = 'storefronts';
+            return ['items' => [['id' => 'main', 'active' => true, 'product_ids' => [11]]]];
+        },
+        'inputMappings' => static function (int $presetId) use (&$calls): array {
+            $calls[] = 'inputMappings';
+            return ['presetId' => $presetId, 'mappings' => []];
+        },
+        'outputMappings' => static function (int $presetId) use (&$calls): array {
+            $calls[] = 'outputMappings';
+            return ['presetId' => $presetId, 'mappings' => []];
+        },
+        'productAssignments' => static function (int $presetId, array $storefronts) use (&$calls): array {
+            $calls[] = 'productAssignments';
+            return [
+                'contract' => CalculatorVersionSnapshotSourceService::PRODUCT_ASSIGNMENTS_CONTRACT,
+                'presetId' => $presetId,
+                'assignments' => [['productId' => 11, 'storefrontId' => $storefronts['items'][0]['id']]],
+            ];
+        },
+    ]);
+
+    $snapshot = $source->capture(12740, [
+        'formDefinition' => ['contract' => 'prospektweb.calc.form-definition/v1', 'fields' => []],
+        'bindingDefinition' => ['contract' => 'prospektweb.calc.binding-definition/v1', 'mappings' => []],
+    ]);
+
+    $assert(array_keys($snapshot) === CalculatorVersionBundleDocumentService::COMPONENTS, 'snapshot must contain exactly all six version components');
+    $assert(($snapshot['form']['contract'] ?? null) === CalculatorVersionFormDocumentService::CONTRACT, 'form envelope contract is missing');
+    $assert(($snapshot['logic']['presetId'] ?? null) === 12740, 'logic snapshot is missing');
+    $assert(($snapshot['storefronts']['items'][0]['id'] ?? null) === 'main', 'storefront snapshot is missing');
+    $assert(($snapshot['inputMappings']['presetId'] ?? null) === 12740, 'input mappings snapshot is missing');
+    $assert(($snapshot['outputMappings']['presetId'] ?? null) === 12740, 'output mappings snapshot is missing');
+    $assert(($snapshot['productAssignments']['assignments'][0]['storefrontId'] ?? null) === 'main', 'product assignments snapshot is missing');
+    $assert($calls === ['storefronts', 'logic', 'inputMappings', 'outputMappings', 'productAssignments'], 'snapshot authorities were not read exactly once');
+
+    $invalidFormRejected = false;
+    try {
+        $source->capture(12740, ['formDefinition' => []]);
+    } catch (InvalidArgumentException $error) {
+        $invalidFormRejected = str_contains($error->getMessage(), 'точный документ формы');
+    }
+    $assert($invalidFormRejected, 'incomplete form document must be rejected before reading other authorities');
+
+    echo "Calculator version snapshot source service tests passed\n";
+}

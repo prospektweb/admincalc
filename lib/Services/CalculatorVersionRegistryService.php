@@ -93,6 +93,8 @@ final class CalculatorVersionRegistryService
                     'publishedBy' => null,
                     'legacyFormRevision' => null,
                     'legacyCompileHash' => null,
+                    'contentHash' => null,
+                    'componentHashes' => null,
                 ];
                 return $state;
             }
@@ -230,6 +232,9 @@ final class CalculatorVersionRegistryService
                 $state['versions'][$index]['publishedBy'] = $actor;
                 $state['versions'][$index]['legacyFormRevision'] = $legacyPublishedRevision;
                 $state['versions'][$index]['legacyCompileHash'] = $legacyCompileHash;
+                $bundle = $this->bundleMeta((int)$state['presetId'], $versionId, true);
+                $state['versions'][$index]['contentHash'] = $bundle['contentHash'];
+                $state['versions'][$index]['componentHashes'] = $bundle['componentHashes'];
                 $state['activeVersionId'] = $versionId;
                 return $state;
             }
@@ -297,6 +302,9 @@ final class CalculatorVersionRegistryService
             $state['versions'][$index]['publishedBy'] = $actor;
             $state['versions'][$index]['legacyFormRevision'] = $publishedRevision;
             $state['versions'][$index]['legacyCompileHash'] = $compileHash;
+            $bundle = $this->bundleMeta($presetId, $versionId, true);
+            $state['versions'][$index]['contentHash'] = $bundle['contentHash'];
+            $state['versions'][$index]['componentHashes'] = $bundle['componentHashes'];
             $state['activeVersionId'] = $versionId;
             $state['updatedAt'] = $now;
             $this->saveState($presetId, $state);
@@ -326,6 +334,11 @@ final class CalculatorVersionRegistryService
             $index = $this->findVersionIndex($state, $versionId);
             if (($state['versions'][$index]['status'] ?? null) !== self::STATUS_PUBLISHED) {
                 throw new \InvalidArgumentException('Активировать повторно можно только опубликованную версию.');
+            }
+            $bundle = $this->bundleMeta($presetId, $versionId, true);
+            $storedHash = (string)($state['versions'][$index]['contentHash'] ?? '');
+            if ($storedHash === '' || !hash_equals($storedHash, (string)$bundle['contentHash'])) {
+                throw new \RuntimeException('Полный снимок опубликованной версии отсутствует или изменён.', 409);
             }
             $published = call_user_func($publisher);
             if (!is_array($published)
@@ -404,6 +417,8 @@ final class CalculatorVersionRegistryService
                 'publishedBy' => $actor,
                 'legacyFormRevision' => $publishedRevision,
                 'legacyCompileHash' => $compileHash,
+                'contentHash' => null,
+                'componentHashes' => null,
             ];
         }
         $diff = is_array($legacyWorkspace['compile']['diff'] ?? null) ? $legacyWorkspace['compile']['diff'] : [];
@@ -422,6 +437,8 @@ final class CalculatorVersionRegistryService
                 'publishedBy' => null,
                 'legacyFormRevision' => null,
                 'legacyCompileHash' => null,
+                'contentHash' => null,
+                'componentHashes' => null,
             ];
         }
 
@@ -459,6 +476,15 @@ final class CalculatorVersionRegistryService
         });
         foreach ($rows as &$row) {
             $row['active'] = ($row['versionId'] ?? null) === $activeId;
+            $bundle = $this->bundleMeta((int)$state['presetId'], (string)$row['versionId'], false);
+            $row['snapshotComplete'] = $bundle !== null;
+            if ($bundle !== null) {
+                $row['contentHash'] = (string)$bundle['contentHash'];
+                $row['componentHashes'] = $bundle['componentHashes'];
+            } else {
+                $row['contentHash'] = null;
+                $row['componentHashes'] = null;
+            }
         }
         unset($row);
 
@@ -491,8 +517,15 @@ final class CalculatorVersionRegistryService
             throw new \RuntimeException('Хранилище версий калькулятора повреждено или имеет неизвестную версию.');
         }
         foreach ($state['versions'] as $row) {
+            if (!array_key_exists('contentHash', $row)) $row['contentHash'] = null;
+            if (!array_key_exists('componentHashes', $row)) $row['componentHashes'] = null;
             $this->assertStoredVersion($row);
         }
+        foreach ($state['versions'] as &$row) {
+            if (!array_key_exists('contentHash', $row)) $row['contentHash'] = null;
+            if (!array_key_exists('componentHashes', $row)) $row['componentHashes'] = null;
+        }
+        unset($row);
         return $state;
     }
 
@@ -653,6 +686,37 @@ final class CalculatorVersionRegistryService
         if (($row['status'] ?? null) !== self::STATUS_DRAFT && (int)($row['versionNo'] ?? 0) <= 0) {
             throw new \RuntimeException('Published version must have a positive number.');
         }
+        $contentHash = $row['contentHash'] ?? null;
+        if ($contentHash !== null && preg_match('/^[a-f0-9]{64}$/D', (string)$contentHash) !== 1) {
+            throw new \RuntimeException('Version registry contains an invalid content hash.');
+        }
+        $componentHashes = $row['componentHashes'] ?? null;
+        if ($componentHashes !== null) {
+            if (!is_array($componentHashes)) throw new \RuntimeException('Version registry contains invalid component hashes.');
+            foreach (CalculatorVersionBundleDocumentService::COMPONENTS as $component) {
+                if (preg_match('/^[a-f0-9]{64}$/D', (string)($componentHashes[$component] ?? '')) !== 1) {
+                    throw new \RuntimeException('Version registry contains an invalid ' . $component . ' hash.');
+                }
+            }
+        }
+    }
+
+    /** @return array<string,mixed>|null */
+    private function bundleMeta(int $presetId, string $versionId, bool $required): ?array
+    {
+        $bundle = isset($this->adapters['bundle_meta'])
+            ? call_user_func($this->adapters['bundle_meta'], $presetId, $versionId)
+            : null;
+        if ($bundle === null && $required) {
+            throw new \RuntimeException('Полный снимок версии не сформирован.', 409);
+        }
+        if ($bundle !== null
+            && (!is_array($bundle)
+                || preg_match('/^[a-f0-9]{64}$/D', (string)($bundle['contentHash'] ?? '')) !== 1
+                || !is_array($bundle['componentHashes'] ?? null))) {
+            throw new \RuntimeException('Манифест полного снимка версии повреждён.', 409);
+        }
+        return is_array($bundle) ? $bundle : null;
     }
 
     private function assertPresetId(int $presetId): void
