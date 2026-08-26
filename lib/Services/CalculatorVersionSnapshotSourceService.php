@@ -39,7 +39,7 @@ final class CalculatorVersionSnapshotSourceService
                 'formDefinition' => $formDocument['formDefinition'],
                 'bindingDefinition' => $formDocument['bindingDefinition'],
             ],
-            'logic' => $this->logic($presetId),
+            'logic' => $this->captureLogic($presetId),
             'storefronts' => $storefronts,
             'inputMappings' => $this->inputMappings($presetId),
             'outputMappings' => $this->outputMappings($presetId),
@@ -48,47 +48,60 @@ final class CalculatorVersionSnapshotSourceService
     }
 
     /** @return array<string,mixed> */
-    private function logic(int $presetId): array
+    public function captureLogic(
+        int $sourcePresetId,
+        ?int $calculatorPresetId = null,
+        ?string $workingVersionId = null
+    ): array
     {
         if (isset($this->adapters['logic'])) {
-            $value = call_user_func($this->adapters['logic'], $presetId);
+            $value = call_user_func($this->adapters['logic'], $sourcePresetId);
             if (!is_array($value)) throw new \RuntimeException('Logic snapshot adapter returned invalid data.');
-            return $value;
-        }
-        $authority = new CalculatorMutationAuthorityService();
-        return $authority->withAuthorityLock(
-            $presetId,
-            static function (bool $_protection, array $iblockIds, array $_lockedAuthority) use ($presetId, $authority): array {
-                $graph = $authority->readLockedPresetGraph($presetId);
-                $loader = new ElementDataService($iblockIds);
-                $requests = [[
-                    'iblockId' => (int)$iblockIds['CALC_PRESETS'],
-                    'iblockType' => null,
-                    'ids' => [$presetId],
-                    'includeParent' => false,
-                ]];
-                foreach ([
-                    'details' => ['CALC_DETAILS', $graph['detailIds']],
-                    'stages' => ['CALC_STAGES', $graph['stageIds']],
-                    'settings' => ['CALC_SETTINGS', $graph['settingsIds']],
-                ] as [$iblockCode, $ids]) {
-                    if ($ids === []) continue;
-                    $requests[] = [
-                        'iblockId' => (int)$iblockIds[$iblockCode],
+        } else {
+            $authority = new CalculatorMutationAuthorityService();
+            $value = $authority->withAuthorityLock(
+                $sourcePresetId,
+                static function (bool $_protection, array $iblockIds, array $_lockedAuthority) use ($sourcePresetId, $authority): array {
+                    $graph = $authority->readLockedPresetGraph($sourcePresetId);
+                    $loader = new ElementDataService($iblockIds);
+                    $requests = [[
+                        'iblockId' => (int)$iblockIds['CALC_PRESETS'],
                         'iblockType' => null,
-                        'ids' => $ids,
+                        'ids' => [$sourcePresetId],
                         'includeParent' => false,
+                    ]];
+                    foreach ([
+                        'details' => ['CALC_DETAILS', $graph['detailIds']],
+                        'stages' => ['CALC_STAGES', $graph['stageIds']],
+                        'settings' => ['CALC_SETTINGS', $graph['settingsIds']],
+                    ] as [$iblockCode, $ids]) {
+                        if ($ids === []) continue;
+                        $requests[] = [
+                            'iblockId' => (int)$iblockIds[$iblockCode],
+                            'iblockType' => null,
+                            'ids' => $ids,
+                            'includeParent' => false,
+                        ];
+                    }
+                    $payload = $loader->prepareRefreshPayload($requests);
+                    return [
+                        'contract' => self::LOGIC_CONTRACT,
+                        'presetId' => $sourcePresetId,
+                        'graph' => $graph,
+                        'elements' => array_values($payload),
                     ];
                 }
-                $payload = $loader->prepareRefreshPayload($requests);
-                return [
-                    'contract' => self::LOGIC_CONTRACT,
-                    'presetId' => $presetId,
-                    'graph' => $graph,
-                    'elements' => array_values($payload),
-                ];
-            }
-        );
+            );
+        }
+        $calculatorPresetId = $calculatorPresetId ?? $sourcePresetId;
+        $value['presetId'] = $calculatorPresetId;
+        if ($calculatorPresetId !== $sourcePresetId) {
+            $value['workingPresetId'] = $sourcePresetId;
+            if ($workingVersionId !== null) $value['workingVersionId'] = $workingVersionId;
+        } else {
+            unset($value['workingPresetId'], $value['workingVersionId']);
+        }
+        return $value;
     }
 
     /** @return array<string,mixed> */

@@ -67,6 +67,11 @@ namespace {
     $assert(($snapshot['productAssignments']['assignments'][0]['storefrontId'] ?? null) === 'main', 'product assignments snapshot is missing');
     $assert($calls === ['storefronts', 'logic', 'inputMappings', 'outputMappings', 'productAssignments'], 'snapshot authorities were not read exactly once');
 
+    $isolatedLogic = $source->captureLogic(54321, 12740, 'v_4444444444444444');
+    $assert(($isolatedLogic['presetId'] ?? null) === 12740, 'isolated logic must retain calculator identity');
+    $assert(($isolatedLogic['workingPresetId'] ?? null) === 54321, 'isolated logic must retain physical working preset');
+    $assert(($isolatedLogic['workingVersionId'] ?? null) === 'v_4444444444444444', 'isolated logic must retain owning version');
+
     $invalidFormRejected = false;
     try {
         $source->capture(12740, ['formDefinition' => []]);
@@ -79,7 +84,7 @@ namespace {
     $assert(is_string($logicSource), 'snapshot source implementation must be readable');
     $assert(
         str_contains($logicSource, 'array $_lockedAuthority')
-        && str_contains($logicSource, 'use ($presetId, $authority)'),
+        && str_contains($logicSource, 'use ($sourcePresetId, $authority)'),
         'authority lock callback must consume the authority snapshot as an array and use the captured service for graph readback'
     );
 

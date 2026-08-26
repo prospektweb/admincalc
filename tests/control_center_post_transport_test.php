@@ -175,6 +175,11 @@ namespace Prospektweb\Calc\Services {
         public function __construct(array $adapters = []) {}
     }
 
+    class CalculatorVersionComponentDocumentService
+    {
+        public function __construct(?CalculatorVersionBundleDocumentService $bundles = null) {}
+    }
+
     class CalculatorVersionRegistryService
     {
         public function __construct(array $adapters = []) {}

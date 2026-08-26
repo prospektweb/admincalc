@@ -84,12 +84,14 @@ use Prospektweb\Calc\Services\CalculatorInputMappingService;
 use Prospektweb\Calc\Services\CalculatorInputSourceCatalogService;
 use Prospektweb\Calc\Services\CalculatorMutationAuthorityService;
 use Prospektweb\Calc\Services\CalculatorVersionBundleDocumentService;
+use Prospektweb\Calc\Services\CalculatorVersionComponentDocumentService;
 use Prospektweb\Calc\Services\CalculatorVersionFormDocumentService;
 use Prospektweb\Calc\Services\CalculatorVersionRegistryService;
 use Prospektweb\Calc\Services\CalculatorVersionSnapshotSourceService;
 use Prospektweb\Calc\Services\CatalogOutputMappingService;
 use Prospektweb\Calc\Services\ControlCenterEditorsService;
 use Prospektweb\Calc\Services\PresetSectionSelectorService;
+use Prospektweb\Calc\Services\PresetLifecycleMutationService;
 
 global $APPLICATION, $USER;
 
@@ -147,6 +149,7 @@ if (!Loader::includeModule('prospektweb.calc')) {
 $action = $request['action'] ?? 'catalog';
 $service = new ControlCenterEditorsService();
 $versionBundles = new CalculatorVersionBundleDocumentService();
+$versionComponents = new CalculatorVersionComponentDocumentService($versionBundles);
 $versionSources = new CalculatorVersionSnapshotSourceService();
 $versionRegistry = new CalculatorVersionRegistryService([
     'bundle_meta' => static function (int $presetId, string $versionId) use ($versionBundles): ?array {
@@ -168,9 +171,13 @@ $currentActor = static function () use ($USER): array {
 };
 $versionContext = static function (int $presetId) use ($service, $currentActor): array {
     $legacy = $service->loadFormFirstWorkspace($presetId);
+    $identity = $service->validatePresetLaunch($presetId);
     return [
         'legacy' => $legacy,
-        'presetName' => (string)($legacy['preset']['name'] ?? ('Калькулятор #' . $presetId)),
+        // Form-first providers may legitimately return a technical fallback
+        // such as "Пресет #12740". Version metadata must follow the canonical
+        // calculator identity used by the registry and launch boundary.
+        'presetName' => (string)$identity['presetName'],
         'actor' => $currentActor(),
     ];
 };
@@ -1043,6 +1050,154 @@ try {
         ]);
     }
 
+    if ($action === 'version_component_load') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId', 'component']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $versionId = $request['versionId'] ?? null;
+        $component = $request['component'] ?? null;
+        if (!is_string($versionId) || !is_string($component)) {
+            throw new \InvalidArgumentException('versionId and component are required');
+        }
+        $versionState($presetId, $versionId);
+        $respond(200, [
+            'success' => true,
+            'data' => $versionComponents->load($presetId, $versionId, $component),
+        ]);
+    }
+
+    if ($action === 'version_component_save_draft') {
+        $assertAllowedRequestKeys([
+            'action', 'sessid', 'presetId', 'versionId', 'component',
+            'expectedContentHash', 'expectedComponentHash', 'document',
+        ]);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $versionId = $request['versionId'] ?? null;
+        $component = $request['component'] ?? null;
+        $expectedContentHash = $request['expectedContentHash'] ?? null;
+        $expectedComponentHash = $request['expectedComponentHash'] ?? null;
+        $document = $request['document'] ?? null;
+        if (!is_string($versionId)
+            || !is_string($component)
+            || !is_string($expectedContentHash)
+            || !is_string($expectedComponentHash)
+            || !is_array($document)) {
+            throw new \InvalidArgumentException('Version component draft request is incomplete');
+        }
+        $state = $versionState($presetId, $versionId);
+        if (($state['row']['status'] ?? null) !== 'DRAFT') {
+            throw new \InvalidArgumentException('Изменять можно только компонент черновика версии.');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $versionComponents->saveDraft(
+                $presetId,
+                $versionId,
+                $component,
+                $expectedContentHash,
+                $expectedComponentHash,
+                $document
+            ),
+        ]);
+    }
+
+    if ($action === 'version_logic_launch') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId', 'mode']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $versionId = $request['versionId'] ?? null;
+        $mode = $request['mode'] ?? null;
+        if (!is_string($versionId) || !is_string($mode) || !in_array($mode, ['edit', 'readonly'], true)) {
+            throw new \InvalidArgumentException('Version logic launch context is invalid');
+        }
+        $state = $versionState($presetId, $versionId);
+        $isDraft = ($state['row']['status'] ?? null) === 'DRAFT';
+        if (($mode === 'edit') !== $isDraft) {
+            throw new \InvalidArgumentException($isDraft
+                ? 'Черновик логики должен открываться в режиме редактирования.'
+                : 'Опубликованная логика доступна только для просмотра.');
+        }
+        $bundle = $ensureVersionBundle(
+            $presetId,
+            $versionId,
+            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+            $state['context']['legacy']
+        );
+        $logic = $bundle['documents']['logic'];
+        $workingPresetId = (int)($logic['workingPresetId'] ?? 0);
+        $workingVersionId = (string)($logic['workingVersionId'] ?? '');
+        if ($isDraft && ($workingPresetId <= 0 || $workingVersionId !== $versionId)) {
+            $sourcePresetId = $workingPresetId > 0 ? $workingPresetId : $presetId;
+            $clone = (new PresetLifecycleMutationService())->duplicatePreset($sourcePresetId);
+            $workingPresetId = (int)($clone['newPresetId'] ?? 0);
+            if ($workingPresetId <= 0) {
+                throw new \RuntimeException('Не удалось создать изолированный граф логики черновика.', 409);
+            }
+            $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
+            $saved = $versionComponents->saveDraft(
+                $presetId,
+                $versionId,
+                'logic',
+                (string)$bundle['contentHash'],
+                (string)$bundle['componentHashes']['logic'],
+                $logic
+            );
+            $bundle['contentHash'] = $saved['contentHash'];
+            $bundle['componentHashes']['logic'] = $saved['componentHash'];
+        }
+        if ($workingPresetId <= 0 || ($workingVersionId !== $versionId && !$isDraft)) {
+            throw new \RuntimeException(
+                'У этой исторической версии нет отдельного графа логики для точного просмотра. Создайте черновик на её основе.',
+                409
+            );
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => [
+                'presetId' => $presetId,
+                'focusPresetId' => $workingPresetId,
+                'presetName' => (string)$state['context']['presetName'],
+                'versionId' => $versionId,
+                'mode' => $mode,
+                'contentHash' => (string)$bundle['contentHash'],
+                'logicHash' => (string)$bundle['componentHashes']['logic'],
+            ],
+        ]);
+    }
+
+    if ($action === 'version_logic_sync') {
+        $assertAllowedRequestKeys([
+            'action', 'sessid', 'presetId', 'versionId', 'workingPresetId',
+            'expectedContentHash', 'expectedLogicHash',
+        ]);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $workingPresetId = $parseStrictPositiveInt($request['workingPresetId'] ?? null, 'workingPresetId');
+        $versionId = $request['versionId'] ?? null;
+        $expectedContentHash = $request['expectedContentHash'] ?? null;
+        $expectedLogicHash = $request['expectedLogicHash'] ?? null;
+        if (!is_string($versionId) || !is_string($expectedContentHash) || !is_string($expectedLogicHash)) {
+            throw new \InvalidArgumentException('Version logic sync context is incomplete');
+        }
+        $state = $versionState($presetId, $versionId);
+        if (($state['row']['status'] ?? null) !== 'DRAFT') {
+            throw new \InvalidArgumentException('Синхронизировать можно только логику черновика.');
+        }
+        $current = $versionComponents->load($presetId, $versionId, 'logic');
+        if ((int)($current['document']['workingPresetId'] ?? 0) !== $workingPresetId
+            || (string)($current['document']['workingVersionId'] ?? '') !== $versionId) {
+            throw new \RuntimeException('Редактор логики не принадлежит выбранному черновику.', 409);
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $versionComponents->saveDraft(
+                $presetId,
+                $versionId,
+                'logic',
+                $expectedContentHash,
+                $expectedLogicHash,
+                $versionSources->captureLogic($workingPresetId, $presetId, $versionId)
+            ),
+        ]);
+    }
+
     if ($action === 'version_form_save_draft') {
         $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId', 'expectedAggregateRevision', 'formDefinition', 'bindingDefinition']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
@@ -1141,13 +1296,35 @@ try {
             || !is_string($preview['compile']['hash'] ?? null)) {
             throw new \InvalidArgumentException('Черновик не прошёл проверку формы и связей. Перейдите к исправлению ошибок.');
         }
-        // Publication seals one authoritative instant of all six calculator
-        // components; a form-only version is never marked complete.
-        $versionBundles->save(
+        // The draft already owns all six components. Publication validates
+        // and seals that exact bundle; recapturing shared runtime here would
+        // silently discard version-scoped storefront/mapping/product edits.
+        $storedBundle = $ensureVersionBundle(
             $presetId,
             $versionId,
-            $versionSources->capture($presetId, $document)
+            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+            $legacy
         );
+        $versionBundles->inspect($storedBundle['documents']);
+        $effectiveNow = $versionBundles->inspect($versionSources->capture($presetId, $document));
+        $drifted = [];
+        foreach (CalculatorVersionBundleDocumentService::COMPONENTS as $component) {
+            if ($component === 'form') continue;
+            if (!hash_equals(
+                (string)$storedBundle['componentHashes'][$component],
+                (string)$effectiveNow['componentHashes'][$component]
+            )) {
+                $drifted[] = $component;
+            }
+        }
+        if ($drifted !== []) {
+            throw new \RuntimeException(
+                'Публикация остановлена: выбранный черновик отличается от рабочего runtime в компонентах '
+                . implode(', ', $drifted)
+                . '. Полная материализация bundle будет добавлена отдельным этапом; смешанная версия не будет активирована.',
+                409
+            );
+        }
         $respond(200, [
             'success' => true,
             'data' => $versionRegistry->coordinatedPublishAndActivateDraft(
@@ -1196,6 +1373,7 @@ try {
         if ($storedBundle === null) {
             throw new \RuntimeException('У версии отсутствует полный снимок формы, логики, витрин, сопоставлений и товаров.', 409);
         }
+        $versionBundles->inspect($storedBundle['documents']);
         $effectiveNow = $versionBundles->inspect($versionSources->capture($presetId, $document));
         $drifted = [];
         foreach (CalculatorVersionBundleDocumentService::COMPONENTS as $component) {

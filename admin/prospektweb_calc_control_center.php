@@ -426,7 +426,13 @@ body {
         }
 
         launchPending = true;
-        var validation = catalogLaunch
+        var validation = versionLaunch
+            ? postEditorAction('version_logic_launch', {
+                presetId: presetId,
+                versionId: versionId,
+                mode: editorMode
+            })
+            : catalogLaunch
             ? postEditorAction('validate_calculation_launch', {
                 presetId: presetId,
                 offerIds: offerIds
@@ -453,8 +459,11 @@ body {
             }
             targetUrl.searchParams.set('control_center', 'Y');
             if (versionLaunch) {
+                targetUrl.searchParams.set('original_preset_id', String(presetId));
                 targetUrl.searchParams.set('version_id', versionId);
                 targetUrl.searchParams.set('version_mode', editorMode);
+                targetUrl.searchParams.set('version_content_hash', data.contentHash);
+                targetUrl.searchParams.set('version_logic_hash', data.logicHash);
                 targetUrl.searchParams.set('return_route', returnRoute);
             }
             targetUrl.searchParams.set('lang', <?= json_encode($languageId) ?>);

@@ -46,6 +46,18 @@ $versionId = is_string($_GET['version_id'] ?? null) && preg_match('/^v_[a-f0-9]{
 $versionMode = in_array((string)($_GET['version_mode'] ?? ''), ['edit', 'readonly'], true)
     ? (string)$_GET['version_mode']
     : '';
+$versionOriginalPresetId = is_string($_GET['original_preset_id'] ?? null)
+    && preg_match('/^[1-9][0-9]*$/D', (string)$_GET['original_preset_id'])
+    ? (int)$_GET['original_preset_id']
+    : 0;
+$versionContentHash = is_string($_GET['version_content_hash'] ?? null)
+    && preg_match('/^[a-f0-9]{64}$/D', (string)$_GET['version_content_hash'])
+    ? (string)$_GET['version_content_hash']
+    : '';
+$versionLogicHash = is_string($_GET['version_logic_hash'] ?? null)
+    && preg_match('/^[a-f0-9]{64}$/D', (string)$_GET['version_logic_hash'])
+    ? (string)$_GET['version_logic_hash']
+    : '';
 $editorInstanceId = is_string($_GET['editor_instance_id'] ?? null)
     && preg_match('/^[a-f0-9]{32}$/', (string)$_GET['editor_instance_id'])
         ? (string)$_GET['editor_instance_id']
@@ -54,7 +66,9 @@ if ($controlCenterMode && !$USER->IsAdmin()) {
     $APPLICATION->AuthForm(Loc::getMessage('PROSPEKTWEB_CALC_ACCESS_DENIED'));
     exit;
 }
-if (($versionId === '') !== ($versionMode === '') || (($versionId !== '' || $versionMode !== '') && !$controlCenterMode)) {
+if (($versionId === '') !== ($versionMode === '')
+    || (($versionId !== '' || $versionMode !== '') && !$controlCenterMode)
+    || ($versionId !== '' && ($versionOriginalPresetId <= 0 || $versionContentHash === '' || $versionLogicHash === ''))) {
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php');
     ShowError('Некорректный контекст версии калькулятора');
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php');
@@ -315,6 +329,9 @@ document.addEventListener('DOMContentLoaded', function() {
         presetId: <?= json_encode(($isStandalonePresetLaunch || $isCatalogPresetLaunch) ? $standalonePresetId : 0) ?>,
         versionId: <?= json_encode($versionId) ?>,
         versionMode: <?= json_encode($versionMode) ?>,
+        versionOriginalPresetId: <?= json_encode($versionOriginalPresetId) ?>,
+        versionContentHash: <?= json_encode($versionContentHash) ?>,
+        versionLogicHash: <?= json_encode($versionLogicHash) ?>,
         siteId: '<?= SITE_ID ?>',
         sessid: '<?= bitrix_sessid() ?>',
         onClose: function() {

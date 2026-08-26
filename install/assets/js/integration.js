@@ -36,6 +36,9 @@
                 presetId: Number.isSafeInteger(config.presetId) ? config.presetId : 0,
                 versionId: typeof config.versionId === 'string' ? config.versionId : '',
                 versionMode: config.versionMode === 'readonly' ? 'readonly' : config.versionMode === 'edit' ? 'edit' : '',
+                versionOriginalPresetId: Number.isSafeInteger(config.versionOriginalPresetId) ? config.versionOriginalPresetId : 0,
+                versionContentHash: typeof config.versionContentHash === 'string' ? config.versionContentHash : '',
+                versionLogicHash: typeof config.versionLogicHash === 'string' ? config.versionLogicHash : '',
                 siteId: config.siteId || '',
                 sessid: config.sessid || '',
                 onClose: config.onClose || null,
@@ -4315,12 +4318,57 @@
                         this.initData.globalMutationFingerprint = resultingGlobalFingerprint;
                     }
                 }
+                if (mutationItems.length === 1 && this.config.versionMode === 'edit') {
+                    await this.syncVersionLogic();
+                }
 
                 return data.data || [];
             } catch (error) {
                 console.error('[BitrixBridge][DEBUG] fetchRefreshData ERROR: ' + error.message);
                 throw error;
             }
+        }
+
+        async syncVersionLogic() {
+            const originalPresetId = Number(this.config.versionOriginalPresetId || 0);
+            const workingPresetId = Number(this.config.presetId || 0);
+            if (!Number.isSafeInteger(originalPresetId) || originalPresetId <= 0
+                || !Number.isSafeInteger(workingPresetId) || workingPresetId <= 0
+                || !/^v_[a-f0-9]{16,40}$/.test(this.config.versionId)
+                || !/^[a-f0-9]{64}$/.test(this.config.versionContentHash)
+                || !/^[a-f0-9]{64}$/.test(this.config.versionLogicHash)) {
+                throw new Error('Редактор не содержит точный контекст черновика логики.');
+            }
+            const form = new URLSearchParams();
+            form.set('sessid', this.config.sessid);
+            form.set('payload', JSON.stringify({
+                action: 'version_logic_sync',
+                presetId: originalPresetId,
+                versionId: this.config.versionId,
+                workingPresetId: workingPresetId,
+                expectedContentHash: this.config.versionContentHash,
+                expectedLogicHash: this.config.versionLogicHash,
+            }));
+            const response = await fetch('/bitrix/tools/prospektweb.calc/control_center_editors.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: form.toString(),
+                cache: 'no-store',
+            });
+            const result = await response.json().catch(() => null);
+            if (!response.ok || !result || result.success !== true || !result.data) {
+                throw new Error(result && result.error ? result.error : 'Не удалось закрепить логику в выбранном черновике.');
+            }
+            if (!/^[a-f0-9]{64}$/.test(result.data.contentHash)
+                || !/^[a-f0-9]{64}$/.test(result.data.componentHash)) {
+                throw new Error('Сервер не подтвердил ревизию черновика логики.');
+            }
+            this.config.versionContentHash = result.data.contentHash;
+            this.config.versionLogicHash = result.data.componentHash;
         }
 
         authoritativePresetId() {

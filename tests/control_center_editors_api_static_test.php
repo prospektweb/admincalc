@@ -35,6 +35,10 @@ foreach ([
     'version_restore',
     'version_form_load',
     'version_form_save_draft',
+    'version_component_load',
+    'version_component_save_draft',
+    'version_logic_launch',
+    'version_logic_sync',
     'version_publish_activate',
     'version_activate',
     'form_first_load',
@@ -63,6 +67,23 @@ foreach ([
 ] as $action) {
     $assert(str_contains($endpoint, "'" . $action . "'"), 'Missing vNext action ' . $action);
 }
+
+$assert(
+    str_contains($endpoint, '$identity = $service->validatePresetLaunch($presetId);')
+        && str_contains($endpoint, "'presetName' => (string)\$identity['presetName']"),
+    'version registry must use canonical preset identity instead of form-first fallback name'
+);
+$publication = strpos($endpoint, "if (\$action === 'version_publish_activate')");
+$activation = strpos($endpoint, "if (\$action === 'version_activate')", $publication ?: 0);
+$publicationSource = $publication !== false && $activation !== false
+    ? substr($endpoint, $publication, $activation - $publication)
+    : '';
+$assert(
+    str_contains($publicationSource, '$versionBundles->inspect($storedBundle[\'documents\']);')
+        && str_contains($publicationSource, '$versionSources->capture($presetId, $document)')
+        && !str_contains($publicationSource, '$versionBundles->save('),
+    'publication must preserve the edited version bundle and only compare shared runtime for the safety gate'
+);
 
 $assert(
     str_contains($endpoint, 'assertStorefrontAuthoritativeReadback')
