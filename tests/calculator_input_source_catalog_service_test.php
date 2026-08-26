@@ -24,7 +24,7 @@ $expectFailure = static function (callable $callback, string $message, ?int $cod
 
 $propertyRows = [
     14 => [
-        ['ID' => '301', 'CODE' => 'TYPE_PAPER', 'NAME' => 'Тип бумаги', 'ACTIVE' => 'Y', 'PROPERTY_TYPE' => 'L', 'USER_TYPE' => '', 'MULTIPLE' => 'N'],
+        ['ID' => '301', 'CODE' => 'TYPE_PAPER', 'NAME' => 'Тип бумаги', 'HINT' => 'Выберите подходящий тип бумаги', 'ACTIVE' => 'Y', 'PROPERTY_TYPE' => 'L', 'USER_TYPE' => '', 'MULTIPLE' => 'N'],
         ['ID' => '302', 'CODE' => '', 'NAME' => 'Без кода', 'ACTIVE' => 'Y', 'PROPERTY_TYPE' => 'S', 'USER_TYPE' => '', 'MULTIPLE' => 'N'],
         ['ID' => '304', 'CODE' => 'PAPER_DIRECTORY', 'NAME' => 'Справочник бумаги', 'ACTIVE' => 'Y', 'PROPERTY_TYPE' => 'S', 'USER_TYPE' => 'directory', 'MULTIPLE' => 'N', 'USER_TYPE_SETTINGS' => ['TABLE_NAME' => 'b_hlbd_paper']],
         ['ID' => '303', 'CODE' => 'INACTIVE', 'NAME' => 'Выключено', 'ACTIVE' => 'N', 'PROPERTY_TYPE' => 'S', 'USER_TYPE' => '', 'MULTIPLE' => 'N'],
@@ -73,6 +73,7 @@ $assert($catalog['properties'][0] === [
     'property_id' => 301,
     'property_code' => 'TYPE_PAPER',
     'name' => 'Тип бумаги',
+    'hint' => 'Выберите подходящий тип бумаги',
     'property_type' => 'L',
     'user_type' => '',
     'multiple' => false,
@@ -88,6 +89,7 @@ $assert($catalog['properties'][1] === [
     'property_id' => 304,
     'property_code' => 'PAPER_DIRECTORY',
     'name' => 'Справочник бумаги',
+    'hint' => '',
     'property_type' => 'S',
     'user_type' => 'directory',
     'multiple' => false,

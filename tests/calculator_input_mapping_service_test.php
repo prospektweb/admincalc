@@ -260,7 +260,22 @@ $invalid = $candidate;
 $invalid['mappings'][2]['value_mode'] = 'scalar';
 $expectFailure(static function () use ($service, $invalid): void {
     $service->validate(41, $invalid);
-}, 'multiple source and select binding require value_mode multiple');
+}, 'select value_mode must match the form binding');
+
+$independentContext = $semanticContext;
+$independentContext['binding_modes']['paper.type'] = 'multiple';
+$independentContext['binding_modes']['lamination'] = 'scalar';
+$independentService = new CalculatorInputMappingService([
+    'semantic_context' => static fn(int $presetId): array => $independentContext,
+]);
+$independent = $candidate;
+$independent['mappings'][0]['value_mode'] = 'multiple';
+$independent['mappings'][2]['value_mode'] = 'scalar';
+$independentValidation = $independentService->validate(41, $independent);
+$assert(
+    $independentValidation['valid'] === true,
+    'select target multiplicity is independent in both directions from Bitrix property multiplicity'
+);
 
 $invalid = $candidate;
 $invalid['mappings'][3]['value_mode'] = 'scalar';

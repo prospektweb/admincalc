@@ -318,10 +318,9 @@ final class CalculatorInputMappingService
                     );
                 }
             } elseif ($fieldType === 'select') {
-                $expectedMode = $sourceMultiple ? 'multiple' : 'scalar';
-                if ($valueMode !== $expectedMode || $targetMode !== $expectedMode || !$isEnum) {
+                if (!in_array($valueMode, ['scalar', 'multiple'], true) || $targetMode !== $valueMode || !$isEnum) {
                     throw new \InvalidArgumentException(
-                        $path . ' select требует enum-свойство и value_mode, совпадающий с multiplicity источника и binding.'
+                        $path . ' select требует enum-свойство и value_mode, совпадающий с режимом поля независимо от multiplicity источника.'
                     );
                 }
             } elseif ($fieldType === 'checkbox') {

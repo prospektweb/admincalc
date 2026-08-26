@@ -80,6 +80,7 @@ final class CalculatorInputSourceCatalogService
                     'property_id' => $propertyId,
                     'property_code' => $propertyCode,
                     'name' => trim((string)($row['NAME'] ?? '')),
+                    'hint' => trim((string)($row['HINT'] ?? '')),
                     'property_type' => $propertyType,
                     'user_type' => $userType,
                     'multiple' => (string)($row['MULTIPLE'] ?? '') === 'Y',
