@@ -40,6 +40,12 @@ if (!Loader::includeModule('prospektweb.calc')) {
 $offerIdsRaw = is_string($_GET['offer_ids'] ?? null) ? (string)$_GET['offer_ids'] : '';
 $presetIdRaw = is_string($_GET['preset_id'] ?? null) ? (string)$_GET['preset_id'] : '';
 $controlCenterMode = (string)($_GET['control_center'] ?? '') === 'Y';
+$versionId = is_string($_GET['version_id'] ?? null) && preg_match('/^v_[a-f0-9]{16,40}$/D', (string)$_GET['version_id'])
+    ? (string)$_GET['version_id']
+    : '';
+$versionMode = in_array((string)($_GET['version_mode'] ?? ''), ['edit', 'readonly'], true)
+    ? (string)$_GET['version_mode']
+    : '';
 $editorInstanceId = is_string($_GET['editor_instance_id'] ?? null)
     && preg_match('/^[a-f0-9]{32}$/', (string)$_GET['editor_instance_id'])
         ? (string)$_GET['editor_instance_id']
@@ -47,6 +53,12 @@ $editorInstanceId = is_string($_GET['editor_instance_id'] ?? null)
 if ($controlCenterMode && !$USER->IsAdmin()) {
     $APPLICATION->AuthForm(Loc::getMessage('PROSPEKTWEB_CALC_ACCESS_DENIED'));
     exit;
+}
+if (($versionId === '') !== ($versionMode === '') || (($versionId !== '' || $versionMode !== '') && !$controlCenterMode)) {
+    require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php');
+    ShowError('Некорректный контекст версии калькулятора');
+    require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php');
+    die();
 }
 $offerIds = preg_match('/^[1-9][0-9]*(?:,[1-9][0-9]*)*$/', $offerIdsRaw)
     ? array_map('intval', explode(',', $offerIdsRaw))
@@ -301,6 +313,8 @@ document.addEventListener('DOMContentLoaded', function() {
         ajaxEndpoint: '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
         offerIds: <?= json_encode($offerIds) ?>,
         presetId: <?= json_encode(($isStandalonePresetLaunch || $isCatalogPresetLaunch) ? $standalonePresetId : 0) ?>,
+        versionId: <?= json_encode($versionId) ?>,
+        versionMode: <?= json_encode($versionMode) ?>,
         siteId: '<?= SITE_ID ?>',
         sessid: '<?= bitrix_sessid() ?>',
         onClose: function() {

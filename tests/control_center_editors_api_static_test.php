@@ -7,6 +7,7 @@ $endpoint = (string)file_get_contents($root . '/tools/control_center_editors.php
 $service = (string)file_get_contents($root . '/lib/Services/ControlCenterEditorsService.php');
 $host = (string)file_get_contents($root . '/admin/prospektweb_calc_control_center.php');
 $calculator = (string)file_get_contents($root . '/admin/calculator.php');
+$integration = (string)file_get_contents($root . '/install/assets/js/integration.js');
 $autoload = (string)file_get_contents($root . '/include.php');
 $diagnostic = (string)file_get_contents($root . '/lib/Diagnostic/ModuleDiagnostic.php');
 
@@ -26,6 +27,16 @@ foreach ([
     'create_preset',
     'set_preset_active',
     'duplicate_preset',
+    'version_registry',
+    'version_create',
+    'version_rename',
+    'version_delete_draft',
+    'version_archive',
+    'version_restore',
+    'version_form_load',
+    'version_form_save_draft',
+    'version_publish_activate',
+    'version_activate',
     'form_first_load',
     'form_first_save_draft',
     'form_first_preview',
@@ -131,6 +142,24 @@ $assert(
 $assert(!str_contains($host, 'OPEN_STOREFRONT_EDITOR'), 'host has no separate storefront editor bridge');
 $assert(!str_contains($host, 'prospektweb_frontcalc_editor.php'), 'host does not launch the removed editor');
 $assert(str_contains($host, "message.type === 'OPEN_CALC_EDITOR'"), 'calculator editor launch remains');
+$assert(
+    str_contains($host, "['controlCenterInstanceId', 'mode', 'presetId', 'returnRoute', 'versionId']")
+        && str_contains($host, "targetUrl.searchParams.set('version_id', versionId)")
+        && str_contains($host, "targetUrl.searchParams.set('version_mode', editorMode)"),
+    'calculator editor launch carries the exact focused version and access mode'
+);
+$assert(
+    str_contains($endpoint, "if (\$action === 'version_form_load')")
+        && str_contains($endpoint, "if (\$action === 'version_form_save_draft')")
+        && str_contains($endpoint, 'CalculatorVersionFormDocumentService'),
+    'version drafts own isolated form documents instead of sharing the legacy preset draft'
+);
+$assert(
+    str_contains($calculator, "\$versionMode = in_array")
+        && str_contains($integration, "this.config.versionMode === 'readonly'")
+        && str_contains($integration, 'CALCULATOR_VERSION_READ_ONLY'),
+    'published calculation logic is fail-closed against editor mutations'
+);
 $assert(!str_contains($calculator, 'StandaloneCatalogSelectionMapper'), 'calculator launch has no preset/product allowlist');
 $assert(!str_contains($calculator, '=== 12740'), 'calculator launch has no pilot gate');
 $assert(

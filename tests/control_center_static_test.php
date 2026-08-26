@@ -46,7 +46,7 @@ $assert(strpos($page, "message.target !== 'bitrix'") !== false, 'Messages must t
 $assert(strpos($page, "message.type === 'READY'") !== false, 'The host recognizes the control-center readiness message');
 $assert(strpos($page, "message.type === 'CONTROL_CENTER_ROUTE_CHANGED'") !== false, 'The host synchronizes trusted calculator workspace routes');
 $assert(strpos($page, 'normalizeCalculatorWorkspaceHash') !== false, 'Workspace hashes are normalized before they reach the parent history');
-$assert(strpos($page, "['q', 'status', 'sort', 'field']") !== false, 'Only the agreed workspace query keys can be persisted');
+$assert(strpos($page, "['q', 'status', 'sort', 'field', 'version']") !== false, 'Only the agreed workspace query keys can be persisted');
 $assert(strpos($page, "window.addEventListener('popstate', syncCalculatorWorkspaceFromHost)") !== false, 'Browser history is forwarded back into the embedded workspace');
 $assert(strpos($page, 'childLocation.replace(childLocation.pathname + childLocation.search + hash)') !== false, 'Parent history changes replace the nested entry instead of duplicating browser history');
 $assert(strpos($page, "message.payload.mode !== 'control-center'") !== false, 'Legacy editor readiness messages cannot receive the control-center bootstrap');

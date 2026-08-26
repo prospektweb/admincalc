@@ -34,6 +34,8 @@
                 ajaxEndpoint: config.ajaxEndpoint || '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
                 offerIds: config.offerIds || [],
                 presetId: Number.isSafeInteger(config.presetId) ? config.presetId : 0,
+                versionId: typeof config.versionId === 'string' ? config.versionId : '',
+                versionMode: config.versionMode === 'readonly' ? 'readonly' : config.versionMode === 'edit' ? 'edit' : '',
                 siteId: config.siteId || '',
                 sessid: config.sessid || '',
                 onClose: config.onClose || null,
@@ -223,6 +225,36 @@
             });
 
             console.log('[BitrixBridge][DEBUG] Routing message type:', message.type);
+
+            if (this.config.versionMode === 'readonly') {
+                const readOnlyAllowed = new Set([
+                    'GET_AI_SETTINGS_REQUEST',
+                    'GET_AI_BASE_PRODUCTS_REQUEST',
+                    'GET_CATALOG_ENTITY_META_REQUEST',
+                    'GET_CATALOG_TREE_REQUEST',
+                    'GET_PRESET_LOAD_OPTIONS_REQUEST',
+                    'GENERATE_STAGE_PREVIEW_REQUEST',
+                    'GENERATE_AI_TEXT_REQUEST',
+                    'GENERATE_LOGIC_PROPOSAL_REQUEST',
+                    'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST',
+                    'GENERATE_LOGIC_AUDIT_REQUEST',
+                    'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST',
+                    'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
+                    'CHECK_CALC_CONTRACT_REQUEST',
+                    'PREVIEW_CATALOG_WRITE_REQUEST',
+                    'SAVE_USER_THEME_REQUEST',
+                    'CLOSE_REQUEST',
+                    'UNSAVED_CHANGES_CHANGED',
+                ]);
+                if (!readOnlyAllowed.has(message.type)) {
+                    this.sendPwrtMessage('ERROR', {
+                        code: 'CALCULATOR_VERSION_READ_ONLY',
+                        message: 'Опубликованная версия открыта только для просмотра. Создайте черновик, чтобы изменить расчётную логику.',
+                        requestType: message.type,
+                    }, message.requestId, origin);
+                    return;
+                }
+            }
 
             switch (message.type) {
                 case 'SELECT_REQUEST':

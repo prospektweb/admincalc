@@ -83,6 +83,8 @@ use Prospektweb\Calc\Services\CalculatorCatalogService;
 use Prospektweb\Calc\Services\CalculatorInputMappingService;
 use Prospektweb\Calc\Services\CalculatorInputSourceCatalogService;
 use Prospektweb\Calc\Services\CalculatorMutationAuthorityService;
+use Prospektweb\Calc\Services\CalculatorVersionFormDocumentService;
+use Prospektweb\Calc\Services\CalculatorVersionRegistryService;
 use Prospektweb\Calc\Services\CatalogOutputMappingService;
 use Prospektweb\Calc\Services\ControlCenterEditorsService;
 use Prospektweb\Calc\Services\PresetSectionSelectorService;
@@ -142,6 +144,70 @@ if (!Loader::includeModule('prospektweb.calc')) {
 
 $action = $request['action'] ?? 'catalog';
 $service = new ControlCenterEditorsService();
+$versionRegistry = new CalculatorVersionRegistryService();
+$versionForms = new CalculatorVersionFormDocumentService();
+$currentActor = static function () use ($USER): array {
+    $id = (int)$USER->GetID();
+    $name = trim((string)$USER->GetFullName());
+    if ($name === '') {
+        $name = trim((string)$USER->GetLogin());
+    }
+    return ['id' => $id, 'name' => $name !== '' ? $name : 'Пользователь #' . $id];
+};
+$versionContext = static function (int $presetId) use ($service, $currentActor): array {
+    $legacy = $service->loadFormFirstWorkspace($presetId);
+    return [
+        'legacy' => $legacy,
+        'presetName' => (string)($legacy['preset']['name'] ?? ('Калькулятор #' . $presetId)),
+        'actor' => $currentActor(),
+    ];
+};
+$versionState = static function (int $presetId, string $versionId) use ($versionContext, $versionRegistry): array {
+    $context = $versionContext($presetId);
+    $workspace = $versionRegistry->loadWorkspace(
+        $presetId,
+        $context['presetName'],
+        $context['legacy'],
+        $context['actor']
+    );
+    foreach ($workspace['versions'] as $row) {
+        if (($row['versionId'] ?? null) === $versionId) {
+            return ['context' => $context, 'registry' => $workspace, 'row' => $row];
+        }
+    }
+    throw new \InvalidArgumentException('Версия калькулятора не найдена.');
+};
+$versionFormWorkspace = static function (
+    int $presetId,
+    string $versionId,
+    string $operation
+) use ($service, $versionForms, $versionState): array {
+    $state = $versionState($presetId, $versionId);
+    $legacy = $state['context']['legacy'];
+    if (($state['row']['status'] ?? null) !== 'DRAFT'
+        && !$versionForms->has($presetId, $versionId)
+        && (array)($legacy['compile']['diff'] ?? []) !== []) {
+        throw new \RuntimeException('У перенесённой опубликованной версии сохранился исполняемый снимок, но её исходная форма недоступна для точного просмотра. Создайте черновик на основе текущего черновика или активируйте новую версию.', 409);
+    }
+    $document = $versionForms->ensure(
+        $presetId,
+        $versionId,
+        is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+        $legacy
+    );
+    $preview = $service->previewFormFirst(
+        $presetId,
+        $document['formDefinition'],
+        $document['bindingDefinition']
+    );
+    $legacy['operation'] = $operation;
+    $legacy['aggregateRevision'] = $document['revision'];
+    $legacy['formDefinition'] = $document['formDefinition'];
+    $legacy['bindingDefinition'] = $document['bindingDefinition'];
+    $legacy['coverage'] = $preview['coverage'];
+    $legacy['compile'] = $preview['compile'];
+    return $legacy;
+};
 $assertAllowedRequestKeys = static function (array $allowedKeys) use ($request): void {
     foreach (array_keys($request) as $requestKey) {
         if (!is_string($requestKey) || !in_array($requestKey, $allowedKeys, true)) {
@@ -769,6 +835,312 @@ try {
         $respond(200, [
             'success' => true,
             'data' => $service->validatePresetLaunch($presetId),
+        ]);
+    }
+
+    if ($action === 'version_registry') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $context = $versionContext($presetId);
+        $respond(200, [
+            'success' => true,
+            'data' => $versionRegistry->loadWorkspace(
+                $presetId,
+                $context['presetName'],
+                $context['legacy'],
+                $context['actor']
+            ),
+        ]);
+    }
+
+    if ($action === 'version_create') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'name', 'basedOnVersionId']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
+        $name = $request['name'] ?? null;
+        $basedOnVersionId = $request['basedOnVersionId'] ?? null;
+        if (!is_string($name) || ($basedOnVersionId !== null && !is_string($basedOnVersionId))) {
+            throw new \InvalidArgumentException('name and optional basedOnVersionId are required');
+        }
+        $context = $versionContext($presetId);
+        $before = $versionRegistry->loadWorkspace(
+            $presetId,
+            $context['presetName'],
+            $context['legacy'],
+            $context['actor']
+        );
+        $beforeIds = array_fill_keys(array_map(static fn(array $row): string => (string)$row['versionId'], $before['versions']), true);
+        if ($basedOnVersionId !== null) {
+            $baseRow = null;
+            foreach ($before['versions'] as $row) {
+                if (($row['versionId'] ?? null) === $basedOnVersionId) {
+                    $baseRow = $row;
+                    break;
+                }
+            }
+            if (is_array($baseRow)
+                && ($baseRow['status'] ?? null) !== 'DRAFT'
+                && !$versionForms->has($presetId, $basedOnVersionId)
+                && (array)($context['legacy']['compile']['diff'] ?? []) !== []) {
+                throw new \InvalidArgumentException('Нельзя точно клонировать перенесённую опубликованную версию: её исходная форма отсутствует. Выберите текущий черновик.');
+            }
+        }
+        $createdWorkspace = $versionRegistry->createDraft(
+            $presetId,
+            $expectedRegistryRevision,
+            $name,
+            $basedOnVersionId,
+            $context['presetName'],
+            $context['legacy'],
+            $context['actor']
+        );
+        $createdRow = null;
+        foreach ($createdWorkspace['versions'] as $row) {
+            if (!isset($beforeIds[(string)$row['versionId']])) {
+                $createdRow = $row;
+                break;
+            }
+        }
+        if (!is_array($createdRow)) {
+            throw new \RuntimeException('Сервер не определил созданный черновик версии.');
+        }
+        $versionForms->ensure(
+            $presetId,
+            (string)$createdRow['versionId'],
+            is_string($createdRow['basedOnVersionId'] ?? null) ? $createdRow['basedOnVersionId'] : null,
+            $context['legacy']
+        );
+        $respond(200, [
+            'success' => true,
+            'data' => $createdWorkspace,
+        ]);
+    }
+
+    if ($action === 'version_rename') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId', 'name']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
+        $versionId = $request['versionId'] ?? null;
+        $name = $request['name'] ?? null;
+        if (!is_string($versionId) || !is_string($name)) {
+            throw new \InvalidArgumentException('versionId and name are required');
+        }
+        $context = $versionContext($presetId);
+        $respond(200, [
+            'success' => true,
+            'data' => $versionRegistry->renameVersion(
+                $presetId,
+                $expectedRegistryRevision,
+                $versionId,
+                $name,
+                $context['presetName'],
+                $context['legacy'],
+                $context['actor']
+            ),
+        ]);
+    }
+
+    if ($action === 'version_delete_draft') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
+        $versionId = $request['versionId'] ?? null;
+        if (!is_string($versionId)) {
+            throw new \InvalidArgumentException('versionId is required');
+        }
+        $context = $versionContext($presetId);
+        $nextWorkspace = $versionRegistry->deleteDraft(
+            $presetId,
+            $expectedRegistryRevision,
+            $versionId,
+            $context['presetName'],
+            $context['legacy'],
+            $context['actor']
+        );
+        $versionForms->delete($presetId, $versionId);
+        $respond(200, [
+            'success' => true,
+            'data' => $nextWorkspace,
+        ]);
+    }
+
+    if ($action === 'version_archive' || $action === 'version_restore') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
+        $versionId = $request['versionId'] ?? null;
+        if (!is_string($versionId)) {
+            throw new \InvalidArgumentException('versionId is required');
+        }
+        $context = $versionContext($presetId);
+        $respond(200, [
+            'success' => true,
+            'data' => $versionRegistry->archivePublished(
+                $presetId,
+                $expectedRegistryRevision,
+                $versionId,
+                $action === 'version_restore',
+                $context['presetName'],
+                $context['legacy'],
+                $context['actor']
+            ),
+        ]);
+    }
+
+    if ($action === 'version_form_load') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $versionId = $request['versionId'] ?? null;
+        if (!is_string($versionId)) {
+            throw new \InvalidArgumentException('versionId is required');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $versionFormWorkspace($presetId, $versionId, 'load'),
+        ]);
+    }
+
+    if ($action === 'version_form_save_draft') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId', 'expectedAggregateRevision', 'formDefinition', 'bindingDefinition']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $versionId = $request['versionId'] ?? null;
+        $expectedVersionRevision = $parseAggregateRevision($request['expectedAggregateRevision'] ?? null, 'expectedAggregateRevision');
+        if (!is_string($versionId)
+            || !is_array($request['formDefinition'] ?? null)
+            || !is_array($request['bindingDefinition'] ?? null)) {
+            throw new \InvalidArgumentException('versionId, formDefinition and bindingDefinition are required');
+        }
+        $state = $versionState($presetId, $versionId);
+        if (($state['row']['status'] ?? null) !== 'DRAFT') {
+            throw new \InvalidArgumentException('Редактировать можно только черновик версии.');
+        }
+        $service->previewFormFirst(
+            $presetId,
+            $request['formDefinition'],
+            $request['bindingDefinition']
+        );
+        $versionForms->ensure(
+            $presetId,
+            $versionId,
+            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+            $state['context']['legacy']
+        );
+        $versionForms->saveDraft(
+            $presetId,
+            $versionId,
+            $expectedVersionRevision,
+            $request['formDefinition'],
+            $request['bindingDefinition']
+        );
+        $respond(200, [
+            'success' => true,
+            'data' => $versionFormWorkspace($presetId, $versionId, 'save_draft'),
+        ]);
+    }
+
+    if ($action === 'version_publish_activate') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
+        $versionId = $request['versionId'] ?? null;
+        if (!is_string($versionId)) {
+            throw new \InvalidArgumentException('versionId is required');
+        }
+        $context = $versionContext($presetId);
+        $legacy = $context['legacy'];
+        $state = $versionState($presetId, $versionId);
+        if (($state['row']['status'] ?? null) !== 'DRAFT') {
+            throw new \InvalidArgumentException('Опубликовать и активировать можно только черновик версии.');
+        }
+        $document = $versionForms->ensure(
+            $presetId,
+            $versionId,
+            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+            $legacy
+        );
+        $preview = $service->previewFormFirst(
+            $presetId,
+            $document['formDefinition'],
+            $document['bindingDefinition']
+        );
+        if (($preview['coverage']['valid'] ?? false) !== true
+            || ($preview['compile']['valid'] ?? false) !== true
+            || !is_string($preview['compile']['hash'] ?? null)) {
+            throw new \InvalidArgumentException('Черновик не прошёл проверку формы и связей. Перейдите к исправлению ошибок.');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $versionRegistry->coordinatedPublishAndActivateDraft(
+                $presetId,
+                $expectedRegistryRevision,
+                $versionId,
+                $context['presetName'],
+                $legacy,
+                $context['actor'],
+                static function () use ($service, $presetId, $legacy, $preview, $document): array {
+                    $saved = $service->saveFormFirstDraft(
+                        $presetId,
+                        (string)$legacy['aggregateRevision'],
+                        $document['formDefinition'],
+                        $document['bindingDefinition']
+                    );
+                    return $service->publishFormFirst(
+                        $presetId,
+                        (string)$saved['aggregateRevision'],
+                        (string)$preview['compile']['hash']
+                    );
+                }
+            ),
+        ]);
+    }
+
+    if ($action === 'version_activate') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
+        $versionId = $request['versionId'] ?? null;
+        if (!is_string($versionId)) {
+            throw new \InvalidArgumentException('versionId is required');
+        }
+        $state = $versionState($presetId, $versionId);
+        if (($state['row']['status'] ?? null) !== 'PUBLISHED') {
+            throw new \InvalidArgumentException('Повторно активировать можно только опубликованную версию.');
+        }
+        $context = $state['context'];
+        $legacy = $context['legacy'];
+        if (!$versionForms->has($presetId, $versionId)) {
+            throw new \RuntimeException('Точный документ этой перенесённой версии отсутствует; повторная активация недоступна.', 409);
+        }
+        $document = $versionForms->ensure($presetId, $versionId, null, $legacy);
+        $preview = $service->previewFormFirst($presetId, $document['formDefinition'], $document['bindingDefinition']);
+        if (($preview['coverage']['valid'] ?? false) !== true
+            || ($preview['compile']['valid'] ?? false) !== true
+            || !is_string($preview['compile']['hash'] ?? null)) {
+            throw new \InvalidArgumentException('Версия больше не проходит проверку с текущими зависимостями калькулятора.');
+        }
+        $respond(200, [
+            'success' => true,
+            'data' => $versionRegistry->coordinatedActivatePublished(
+                $presetId,
+                $expectedRegistryRevision,
+                $versionId,
+                $context['presetName'],
+                $legacy,
+                $context['actor'],
+                static function () use ($service, $presetId, $legacy, $preview, $document): array {
+                    $saved = $service->saveFormFirstDraft(
+                        $presetId,
+                        (string)$legacy['aggregateRevision'],
+                        $document['formDefinition'],
+                        $document['bindingDefinition']
+                    );
+                    return $service->publishFormFirst(
+                        $presetId,
+                        (string)$saved['aggregateRevision'],
+                        (string)$preview['compile']['hash']
+                    );
+                }
+            ),
         ]);
     }
 

@@ -243,7 +243,7 @@ body {
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     var activeEditor = null;
     var launchPending = false;
-    var calculatorWorkspaceHashPattern = /^#\/presets(?:\/[1-9]\d*\/(?:overview|form|logic|storefront|usage|versions))?(?:\?.*)?$/;
+    var calculatorWorkspaceHashPattern = /^#\/presets(?:\/[1-9]\d*\/(?:overview|form|logic|storefront|usage|products|versions))?(?:\?.*)?$/;
 
     function normalizeCalculatorWorkspaceHash(hash) {
         if (typeof hash !== 'string' || hash.length === 0 || hash.length > 1200
@@ -253,7 +253,7 @@ body {
 
         var queryStart = hash.indexOf('?');
         var params = new URLSearchParams(queryStart >= 0 ? hash.slice(queryStart + 1) : '');
-        var allowedKeys = ['q', 'status', 'sort', 'field'];
+        var allowedKeys = ['q', 'status', 'sort', 'field', 'version'];
         var valid = true;
         params.forEach(function (value, key) {
             if (allowedKeys.indexOf(key) === -1 || value.length > (key === 'q' ? 160 : 128)) {
@@ -265,7 +265,9 @@ body {
             || params.getAll('sort').length > 1
             || (params.has('sort') && ['updated_desc', 'name_asc', 'name_desc', 'id_desc'].indexOf(params.get('sort')) === -1)
             || params.getAll('q').length > 1
-            || params.getAll('field').length > 1) {
+            || params.getAll('field').length > 1
+            || params.getAll('version').length > 1
+            || (params.has('version') && !/^v_[a-f0-9]{16,40}$/.test(params.get('version')))) {
             valid = false;
         }
 
@@ -399,14 +401,21 @@ body {
         }
         var standaloneLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId']);
         var catalogLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'offerIds', 'presetId']);
-        if (!standaloneLaunch && !catalogLaunch) {
+        var versionLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'mode', 'presetId', 'returnRoute', 'versionId']);
+        if (!standaloneLaunch && !catalogLaunch && !versionLaunch) {
             return;
         }
         var presetId = Number.isSafeInteger(payload.presetId) ? payload.presetId : 0;
+        var versionId = versionLaunch && typeof payload.versionId === 'string' ? payload.versionId : '';
+        var editorMode = versionLaunch && (payload.mode === 'edit' || payload.mode === 'readonly') ? payload.mode : '';
+        var returnRoute = versionLaunch && typeof payload.returnRoute === 'string' ? payload.returnRoute : '';
         var offerIds = catalogLaunch && Array.isArray(payload.offerIds)
             ? payload.offerIds.slice()
             : [];
         if (presetId <= 0
+            || (versionLaunch && (!/^v_[a-f0-9]{16,40}$/.test(versionId)
+                || editorMode === ''
+                || !/^#\/presets\/\d+\/versions(?:\?version=v_[a-f0-9]{16,40})?$/.test(returnRoute)))
             || (catalogLaunch && (offerIds.length === 0
                 || offerIds.length > 500
                 || offerIds.some(function (offerId) {
@@ -443,6 +452,11 @@ body {
                 targetUrl.searchParams.set('offer_ids', data.offerIds.join(','));
             }
             targetUrl.searchParams.set('control_center', 'Y');
+            if (versionLaunch) {
+                targetUrl.searchParams.set('version_id', versionId);
+                targetUrl.searchParams.set('version_mode', editorMode);
+                targetUrl.searchParams.set('return_route', returnRoute);
+            }
             targetUrl.searchParams.set('lang', <?= json_encode($languageId) ?>);
             targetUrl.searchParams.set('IFRAME', 'Y');
             targetUrl.searchParams.set('IFRAME_TYPE', 'SIDE_SLIDER');
