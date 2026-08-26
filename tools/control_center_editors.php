@@ -1068,6 +1068,30 @@ try {
             is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
             $state['context']['legacy']
         );
+        // Assemble and validate the exact six-component bundle before advancing
+        // the form CAS revision. A source/capture failure must not leave the UI
+        // with a successfully saved form followed by a stale-revision conflict.
+        $prospectiveForm = [
+            'contract' => CalculatorVersionFormDocumentService::CONTRACT,
+            'formDefinition' => $request['formDefinition'],
+            'bindingDefinition' => $request['bindingDefinition'],
+        ];
+        $existingBundle = $versionBundles->load($presetId, $versionId);
+        if ($existingBundle !== null) {
+            $components = $existingBundle['documents'];
+        } else {
+            $sourceVersionId = is_string($state['row']['basedOnVersionId'] ?? null)
+                ? $state['row']['basedOnVersionId']
+                : null;
+            $sourceBundle = $sourceVersionId !== null
+                ? $versionBundles->load($presetId, $sourceVersionId)
+                : null;
+            $components = $sourceBundle !== null
+                ? $sourceBundle['documents']
+                : $versionSources->capture($presetId, $prospectiveForm);
+        }
+        $components['form'] = $prospectiveForm;
+        $versionBundles->inspect($components);
         $savedForm = $versionForms->saveDraft(
             $presetId,
             $versionId,
@@ -1075,13 +1099,6 @@ try {
             $request['formDefinition'],
             $request['bindingDefinition']
         );
-        $bundle = $ensureVersionBundle(
-            $presetId,
-            $versionId,
-            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-            $state['context']['legacy']
-        );
-        $components = $bundle['documents'];
         $components['form'] = [
             'contract' => CalculatorVersionFormDocumentService::CONTRACT,
             'formDefinition' => $savedForm['formDefinition'],

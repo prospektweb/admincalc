@@ -58,8 +58,8 @@ final class CalculatorVersionSnapshotSourceService
         $authority = new CalculatorMutationAuthorityService();
         return $authority->withAuthorityLock(
             $presetId,
-            static function (bool $_protection, array $iblockIds, CalculatorMutationAuthorityService $lockedAuthority) use ($presetId): array {
-                $graph = $lockedAuthority->readLockedPresetGraph($presetId);
+            static function (bool $_protection, array $iblockIds, array $_lockedAuthority) use ($presetId, $authority): array {
+                $graph = $authority->readLockedPresetGraph($presetId);
                 $loader = new ElementDataService($iblockIds);
                 $requests = [[
                     'iblockId' => (int)$iblockIds['CALC_PRESETS'],

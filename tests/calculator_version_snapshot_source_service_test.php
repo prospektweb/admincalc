@@ -75,5 +75,13 @@ namespace {
     }
     $assert($invalidFormRejected, 'incomplete form document must be rejected before reading other authorities');
 
+    $logicSource = file_get_contents(__DIR__ . '/../lib/Services/CalculatorVersionSnapshotSourceService.php');
+    $assert(is_string($logicSource), 'snapshot source implementation must be readable');
+    $assert(
+        str_contains($logicSource, 'array $_lockedAuthority')
+        && str_contains($logicSource, 'use ($presetId, $authority)'),
+        'authority lock callback must consume the authority snapshot as an array and use the captured service for graph readback'
+    );
+
     echo "Calculator version snapshot source service tests passed\n";
 }
