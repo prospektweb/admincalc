@@ -441,7 +441,12 @@ body {
                 presetId: presetId
             });
         validation.then(function (data) {
-            if (data.focusPresetId !== presetId || typeof data.presetName !== 'string' || data.presetName === '') {
+            var focusPresetId = Number(data.focusPresetId || 0);
+            if (!Number.isSafeInteger(focusPresetId)
+                || focusPresetId <= 0
+                || (versionLaunch ? data.presetId !== presetId : focusPresetId !== presetId)
+                || typeof data.presetName !== 'string'
+                || data.presetName === '') {
                 throw new Error('Сервер вернул некорректный пресет');
             }
             if (catalogLaunch
@@ -453,7 +458,7 @@ body {
                 throw new Error('Сервер вернул некорректную каталоговую выборку');
             }
             var targetUrl = new URL('/bitrix/admin/prospektweb_calc_calculator.php', window.location.origin);
-            targetUrl.searchParams.set('preset_id', String(data.focusPresetId));
+            targetUrl.searchParams.set('preset_id', String(focusPresetId));
             if (catalogLaunch) {
                 targetUrl.searchParams.set('offer_ids', data.offerIds.join(','));
             }

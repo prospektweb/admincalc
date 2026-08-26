@@ -355,9 +355,6 @@ $validateStorefrontPresentation = static function (int $presetId, array $definit
         ? $presentation['field_patches']
         : [];
     if ($fieldPatches === []) {
-        if (($definition['active'] ?? false) === true) {
-            throw new \InvalidArgumentException('Активная витрина должна изменять представление базовой формы.');
-        }
         return;
     }
     if (!Loader::includeModule('prospektweb.frontcalc')) {
@@ -387,10 +384,8 @@ $validateStorefrontPresentation = static function (int $presetId, array $definit
     // The projector is the runtime authority for unknown fields, absent
     // bindings and required/conditionally-required fields hidden by a patch.
     $projected = (new $projectorClass())->apply($snapshot, $authoring, $definition);
-    if (($definition['active'] ?? false) === true
-        && ($projected['fields'] ?? null) === ($snapshot['fields'] ?? null)) {
-        throw new \InvalidArgumentException('Активная витрина не содержит отличий от базовой формы.');
-    }
+    // An active storefront may intentionally reuse the base presentation and
+    // exist only as an explicit product assignment target.
 };
 
 try {

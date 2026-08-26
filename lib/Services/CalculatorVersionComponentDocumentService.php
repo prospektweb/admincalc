@@ -64,7 +64,7 @@ final class CalculatorVersionComponentDocumentService
                 409
             );
         }
-        $this->assertDocument($presetId, $component, $document);
+        $this->assertDocument($presetId, $component, $document, $bundle['documents']);
         $components = $bundle['documents'];
         $components[$component] = $document;
         $saved = $this->bundles->save($presetId, $versionId, $components);
@@ -94,7 +94,7 @@ final class CalculatorVersionComponentDocumentService
     }
 
     /** @param array<string,mixed> $document */
-    private function assertDocument(int $presetId, string $component, array $document): void
+    private function assertDocument(int $presetId, string $component, array $document, array $bundleDocuments = []): void
     {
         $contract = (string)($document['contract'] ?? '');
         $documentPresetId = (int)($document['presetId'] ?? $document['preset_id'] ?? 0);
@@ -111,8 +111,27 @@ final class CalculatorVersionComponentDocumentService
         if ($component === 'storefronts' && !is_array($document['items'] ?? null)) {
             throw new \InvalidArgumentException('Снимок витрин должен содержать список items.');
         }
-        if ($component === 'productAssignments' && !is_array($document['assignments'] ?? null)) {
-            throw new \InvalidArgumentException('Снимок товарных назначений должен содержать список assignments.');
+        if ($component === 'productAssignments') {
+            $assignments = $document['assignments'] ?? null;
+            if (!is_array($assignments) || !array_is_list($assignments)) {
+                throw new \InvalidArgumentException('Снимок товарных назначений должен содержать список assignments.');
+            }
+            $knownStorefronts = ['BASE' => true];
+            foreach ((array)($bundleDocuments['storefronts']['items'] ?? []) as $storefront) {
+                if (is_array($storefront) && is_string($storefront['id'] ?? null) && trim($storefront['id']) !== '') {
+                    $knownStorefronts[trim($storefront['id'])] = true;
+                }
+            }
+            $seenProductIds = [];
+            foreach ($assignments as $assignment) {
+                $productId = is_array($assignment) ? ($assignment['productId'] ?? null) : null;
+                $storefrontId = is_array($assignment) ? ($assignment['storefrontId'] ?? null) : null;
+                if (!is_int($productId) || $productId <= 0 || isset($seenProductIds[$productId])
+                    || !is_string($storefrontId) || !isset($knownStorefronts[$storefrontId])) {
+                    throw new \InvalidArgumentException('Каждому товару должна быть назначена существующая витрина или BASE.');
+                }
+                $seenProductIds[$productId] = true;
+            }
         }
         if ($component === 'logic'
             && (!is_array($document['graph'] ?? null) || !is_array($document['elements'] ?? null))) {

@@ -28,6 +28,9 @@ $assert(strpos($page, "'mode' => 'control-center'") !== false, 'The admin page o
 $assert(strpos($page, "\$_GET['offer_ids']") === false, 'The control center must not require selected offers');
 $assert(strpos($page, 'position: fixed') !== false && strpos($page, 'height: 100dvh') !== false, 'The control center must take over the full viewport so the editor is not constrained to the narrow Bitrix workarea');
 $assert(strpos($page, '.adm-workarea') !== false && strpos($page, 'padding: 0 !important') !== false, 'The control center removes page-local workarea padding');
+$assert(strpos($page, 'var focusPresetId = Number(data.focusPresetId || 0);') !== false
+    && strpos($page, '(versionLaunch ? data.presetId !== presetId : focusPresetId !== presetId)') !== false,
+    'Version logic launch validates the owning preset separately from its internal working graph');
 $assert(strpos($page, '#adm-title') !== false && strpos($page, 'display: none !important') !== false, 'The duplicate Bitrix page title is hidden');
 $assert(strpos($page, 'prospektweb-control-center-editor__bar') === false, 'The owned editor does not reserve space for a duplicate outer header');
 $assert(strpos($page, 'prospektweb-control-center-editor-title') === false, 'The owned editor does not render a duplicate outer title');
@@ -111,7 +114,7 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($handler, 'product_generator.js') === false, 'The uncoordinated contextual product generator is retired');
-$assert(strpos($appIndex, '7523d421f7e0') !== false, 'The control center ships the current calcconfig release');
+$assert(strpos($appIndex, '85c89fe48c84') !== false, 'The control center ships the current calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
 $assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') === false, 'The published bundle no longer contains the legacy storefront editor launch contract');
@@ -124,9 +127,9 @@ $assert(strpos($appBundle, 'calculator_input_mapping_validate') !== false, 'The 
 $assert(strpos($appBundle, 'calculator_input_mapping_save') !== false, 'The published bundle saves preset-owned calculator input mappings');
 $assert(strpos($appBundle, 'prospektweb.control-center.editors/v1') !== false, 'The published bundle validates the Phase 4A editors catalog');
 $assert(strpos($appBundle, 'Реестр калькуляторов') !== false, 'The published bundle contains the server-driven calculator registry');
-$assert(strpos($appBundle, 'Подключённые товары и торговые предложения') !== false, 'The published bundle exposes exact preset usage inside the selected calculator');
-$assert(strpos($appBundle, 'Связь товара с пресетом разрешает запуск базовой формы') !== false, 'The published bundle explains that preset product links launch the base calculator independently');
-$assert(strpos($appBundle, 'Она не требует витрины') !== false, 'The published bundle keeps preset product links independent from optional storefronts');
+$assert(strpos($appBundle, 'Витрина запуска по товару') !== false, 'The published bundle assigns an explicit storefront to every linked product');
+$assert(strpos($appBundle, 'Для нового товара автоматически используется базовая витрина') !== false, 'The published bundle defaults newly linked products to the base storefront');
+$assert(strpos($appBundle, 'Все поля формы присутствуют всегда') !== false, 'The published bundle renders every form field in storefront settings');
 $assert(strpos($appBundle, 'Управлять связями') === false, 'The storefront workspace no longer owns preset product assignment management');
 $assert(strpos($appBundle, 'Разделы калькулятора') !== false, 'The published bundle exposes the unified calculator workspace tabs');
 $assert(strpos($appBundle, 'Это поле должно передавать в калькулятор одно значение.') !== false, 'The published form editor contains independent calculation-input guidance');

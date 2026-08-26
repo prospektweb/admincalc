@@ -53,8 +53,9 @@ storefront_vnext_api_assert(
     'storefront validation must read authoring and runtime from one immutable publication bundle'
 );
 storefront_vnext_api_assert(
-    strpos($endpoint, 'Активная витрина должна изменять представление базовой формы.') !== false,
-    'an active no-op storefront is rejected instead of creating a meaningless assignment'
+    strpos($endpoint, 'exist only as an explicit product assignment target') !== false
+        && strpos($endpoint, 'Активная витрина должна изменять представление базовой формы.') === false,
+    'an active storefront may serve as an explicit product assignment even without field overrides'
 );
 storefront_vnext_api_assert(
     strpos($endpoint, 'catch (\InvalidArgumentException $exception)') !== false
