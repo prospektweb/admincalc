@@ -1926,6 +1926,35 @@ final class ControlCenterEditorsService
                 'presetIds' => $this->loadProductPresetIds($productIblockId, $propertyId, $productId),
             ];
         }
+        if ($query === '' && $linkedProductIds !== []) {
+            $loadedIds = array_fill_keys(array_map(static fn(array $row): int => (int)$row['id'], $rows), true);
+            $missingLinkedIds = array_values(array_filter(
+                $linkedProductIds,
+                static fn(int $productId): bool => !isset($loadedIds[$productId])
+            ));
+            if ($missingLinkedIds !== []) {
+                $linkedCursor = \CIBlockElement::GetList(
+                    ['NAME' => 'ASC', 'ID' => 'ASC'],
+                    ['IBLOCK_ID' => $productIblockId, 'ID' => $missingLinkedIds],
+                    false,
+                    false,
+                    ['ID', 'NAME', 'ACTIVE']
+                );
+                while ($linkedCursor && ($linkedRow = $linkedCursor->Fetch())) {
+                    $productId = (int)($linkedRow['ID'] ?? 0);
+                    if ($productId <= 0 || isset($loadedIds[$productId])) {
+                        continue;
+                    }
+                    $loadedIds[$productId] = true;
+                    $rows[] = [
+                        'id' => $productId,
+                        'name' => (string)($linkedRow['NAME'] ?? ''),
+                        'active' => (string)($linkedRow['ACTIVE'] ?? 'N') === 'Y',
+                        'presetIds' => $this->loadProductPresetIds($productIblockId, $propertyId, $productId),
+                    ];
+                }
+            }
+        }
         $total = $cursor && method_exists($cursor, 'SelectedRowsCount')
             ? (int)$cursor->SelectedRowsCount()
             : count($rows);
@@ -1938,7 +1967,7 @@ final class ControlCenterEditorsService
             'rows' => $rows,
             'page' => $page,
             'pageSize' => $pageSize,
-            'total' => $total,
+            'total' => max($total, count($rows)),
         ];
     }
 

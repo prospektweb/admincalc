@@ -255,6 +255,11 @@ if ($productIblockType !== '') {
 $APPLICATION->SetTitle(Loc::getMessage('PROSPEKTWEB_CALC_PAGE_TITLE'));
 $appIndexPath = $_SERVER['DOCUMENT_ROOT'] . '/local/apps/prospektweb.calc/index.html';
 $appVersion = is_file($appIndexPath) ? (string)filemtime($appIndexPath) : '1';
+$appIframeQuery = ['v' => $appVersion];
+if (isset($_GET['open_calculation_panel']) && (string)$_GET['open_calculation_panel'] === 'Y') {
+    $appIframeQuery['open_calculation_panel'] = 'Y';
+}
+$appIframeUrl = '/local/apps/prospektweb.calc/index.html?' . http_build_query($appIframeQuery);
 
 // Подключение JS интеграции
 Asset::getInstance()->addJs('/local/js/prospektweb.calc/integration.js');
@@ -306,7 +311,7 @@ body {
 <div id="calc-container">
     <iframe 
         id="calc-iframe" 
-        src="/local/apps/prospektweb.calc/index.html?v=<?= htmlspecialcharsbx($appVersion) ?>"
+        src="<?= htmlspecialcharsbx($appIframeUrl) ?>"
         title="<?= Loc::getMessage('PROSPEKTWEB_CALC_IFRAME_TITLE') ?>">
     </iframe>
 </div>

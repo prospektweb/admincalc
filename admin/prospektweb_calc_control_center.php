@@ -401,7 +401,9 @@ body {
         }
         var standaloneLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'presetId']);
         var catalogLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'offerIds', 'presetId']);
-        var versionLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'mode', 'presetId', 'returnRoute', 'versionId']);
+        var versionLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'mode', 'presetId', 'returnRoute', 'versionId'])
+            || (payload.openCalculationPanel === true
+                && hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'mode', 'openCalculationPanel', 'presetId', 'returnRoute', 'versionId']));
         if (!standaloneLaunch && !catalogLaunch && !versionLaunch) {
             return;
         }
@@ -409,6 +411,7 @@ body {
         var versionId = versionLaunch && typeof payload.versionId === 'string' ? payload.versionId : '';
         var editorMode = versionLaunch && (payload.mode === 'edit' || payload.mode === 'readonly') ? payload.mode : '';
         var returnRoute = versionLaunch && typeof payload.returnRoute === 'string' ? payload.returnRoute : '';
+        var openCalculationPanel = versionLaunch && payload.openCalculationPanel === true;
         var offerIds = catalogLaunch && Array.isArray(payload.offerIds)
             ? payload.offerIds.slice()
             : [];
@@ -470,6 +473,9 @@ body {
                 targetUrl.searchParams.set('version_content_hash', data.contentHash);
                 targetUrl.searchParams.set('version_logic_hash', data.logicHash);
                 targetUrl.searchParams.set('return_route', returnRoute);
+                if (openCalculationPanel) {
+                    targetUrl.searchParams.set('open_calculation_panel', 'Y');
+                }
             }
             targetUrl.searchParams.set('lang', <?= json_encode($languageId) ?>);
             targetUrl.searchParams.set('IFRAME', 'Y');
