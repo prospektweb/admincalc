@@ -38,6 +38,7 @@ foreach ([
     'version_component_load',
     'version_component_save_draft',
     'version_logic_launch',
+    'version_logic_init',
     'version_logic_sync',
     'version_publish_activate',
     'version_activate',
@@ -180,6 +181,14 @@ $assert(
         && str_contains($integration, "this.config.versionMode === 'readonly'")
         && str_contains($integration, 'CALCULATOR_VERSION_READ_ONLY'),
     'published calculation logic is fail-closed against editor mutations'
+);
+$assert(
+    str_contains($endpoint, 'prepareVersionEditorInitPayloadReadOnly(')
+        && str_contains($endpoint, "(int)(\$logic['workingPresetId'] ?? 0) !== \$workingPresetId")
+        && str_contains($integration, "action: 'version_logic_init'")
+        && str_contains($integration, 'endpoint = this.config.versionAjaxEndpoint')
+        && str_contains($integration, 'const serverMessage = data && (data.message || data.error || data.details);'),
+    'version logic INIT must load the isolated graph from its full version bundle and expose server conflicts'
 );
 $assert(!str_contains($calculator, 'StandaloneCatalogSelectionMapper'), 'calculator launch has no preset/product allowlist');
 $assert(!str_contains($calculator, '=== 12740'), 'calculator launch has no pilot gate');

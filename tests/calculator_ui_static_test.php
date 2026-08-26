@@ -78,6 +78,7 @@ $checks = [
     [$elementDataService, "strpos(\$value, '|')", 'Custom field values must reject the reserved visibility separator'],
     [$elementDataService, "\$value . '|' . (\$visible ? 'Y' : 'N')", 'Stage custom fields must persist their visibility marker'],
     [$initPayloadService, 'prepareNeutralInitPayloadReadOnly', 'INIT load must remain on the read-only neutral path'],
+    [$initPayloadService, 'prepareVersionEditorInitPayloadReadOnly', 'Version editor INIT must not require a public publication for its internal working clone'],
     [$initPayloadService, 'public function preparePresetPayload(int $presetId, string $siteId): array', 'Preset authoring must have a product-neutral INIT path'],
     [$initPayloadService, "'selectedOffers' => \$selectedOffers", 'Standalone preset INIT must expose only explicitly loaded SKUs'],
     [$initPayloadService, "'product' => null", 'Standalone preset INIT must not fabricate a product'],

@@ -79,6 +79,7 @@ if (empty($_REQUEST['sessid']) && isset($request['sessid']) && is_scalar($reques
 require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php';
 
 use Bitrix\Main\Loader;
+use Prospektweb\Calc\Calculator\InitPayloadService;
 use Prospektweb\Calc\Services\CalculatorCatalogService;
 use Prospektweb\Calc\Services\CalculatorInputMappingService;
 use Prospektweb\Calc\Services\CalculatorInputSourceCatalogService;
@@ -1155,6 +1156,90 @@ try {
                 'contentHash' => (string)$bundle['contentHash'],
                 'logicHash' => (string)$bundle['componentHashes']['logic'],
             ],
+        ]);
+    }
+
+    if ($action === 'version_logic_init') {
+        $assertAllowedRequestKeys([
+            'action', 'sessid', 'presetId', 'versionId', 'workingPresetId', 'mode',
+            'expectedContentHash', 'expectedLogicHash', 'siteId',
+        ]);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $workingPresetId = $parseStrictPositiveInt($request['workingPresetId'] ?? null, 'workingPresetId');
+        $versionId = $request['versionId'] ?? null;
+        $mode = $request['mode'] ?? null;
+        $expectedContentHash = $request['expectedContentHash'] ?? null;
+        $expectedLogicHash = $request['expectedLogicHash'] ?? null;
+        $siteId = trim((string)($request['siteId'] ?? ''));
+        if (!is_string($versionId)
+            || !is_string($mode)
+            || !in_array($mode, ['edit', 'readonly'], true)
+            || !is_string($expectedContentHash)
+            || !is_string($expectedLogicHash)
+            || preg_match('/^[a-f0-9]{64}$/D', $expectedContentHash) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $expectedLogicHash) !== 1
+            || $siteId === '') {
+            throw new \InvalidArgumentException('Version logic INIT context is invalid');
+        }
+
+        $state = $versionState($presetId, $versionId);
+        $isDraft = ($state['row']['status'] ?? null) === 'DRAFT';
+        if (($mode === 'edit') !== $isDraft) {
+            throw new \InvalidArgumentException($isDraft
+                ? 'Черновик логики должен открываться в режиме редактирования.'
+                : 'Опубликованная логика доступна только для просмотра.');
+        }
+        $bundle = $versionBundles->load($presetId, $versionId);
+        if ($bundle === null
+            || !hash_equals((string)$bundle['contentHash'], $expectedContentHash)
+            || !hash_equals((string)$bundle['componentHashes']['logic'], $expectedLogicHash)) {
+            throw new \RuntimeException('Снимок выбранной версии изменился. Откройте редактор повторно.', 409);
+        }
+        $logic = $bundle['documents']['logic'];
+        if ((int)($logic['workingPresetId'] ?? 0) !== $workingPresetId
+            || (string)($logic['workingVersionId'] ?? '') !== $versionId) {
+            throw new \RuntimeException('Изолированный граф не принадлежит выбранной версии.', 409);
+        }
+
+        $form = $bundle['documents']['form'];
+        $preview = $service->previewFormFirst(
+            $presetId,
+            $form['formDefinition'],
+            $form['bindingDefinition']
+        );
+        $compile = is_array($preview['compile'] ?? null) ? $preview['compile'] : [];
+        $compileHash = (string)($compile['hash'] ?? '');
+        $runtimeSnapshot = is_array($compile['runtimeSchema'] ?? null)
+            ? $compile['runtimeSchema']
+            : null;
+        if ($runtimeSnapshot === null || preg_match('/^[a-f0-9]{64}$/D', $compileHash) !== 1) {
+            throw new \RuntimeException('Не удалось собрать форму выбранной версии для редактора логики.', 409);
+        }
+        $publicationRevision = 1;
+        $runtimeSnapshot['_form_first'] = [
+            'publishedRevision' => $publicationRevision,
+            'compileHash' => $compileHash,
+        ];
+        $authoring = [
+            'formDefinition' => $form['formDefinition'],
+            'bindingDefinition' => $form['bindingDefinition'],
+            'publication' => [
+                'revision' => $publicationRevision,
+                'compileHash' => $compileHash,
+            ],
+        ];
+
+        $respond(200, [
+            'success' => true,
+            'data' => (new InitPayloadService())->prepareVersionEditorInitPayloadReadOnly(
+                $presetId,
+                $workingPresetId,
+                $siteId,
+                $authoring,
+                $runtimeSnapshot,
+                $bundle['documents']['inputMappings'],
+                $bundle['documents']['outputMappings']
+            ),
         ]);
     }
 

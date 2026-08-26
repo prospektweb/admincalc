@@ -185,6 +185,95 @@ class InitPayloadService
     }
 
     /**
+     * Build the editor INIT for an isolated calculator-version logic graph.
+     *
+     * The working preset owns only the mutable graph. Form-first authoring and
+     * catalog mappings remain immutable documents of the selected calculator
+     * version, so an internal clone must never be required to have its own
+     * public FrontCalc publication.
+     *
+     * @param array<string,mixed> $pinnedAuthoring
+     * @param array<string,mixed> $pinnedRuntimeSnapshot
+     * @param array<string,mixed> $pinnedInputMapping
+     * @param array<string,mixed> $pinnedOutputMapping
+     * @return array<string,mixed>
+     */
+    public function prepareVersionEditorInitPayloadReadOnly(
+        int $calculatorPresetId,
+        int $workingPresetId,
+        string $siteId,
+        array $pinnedAuthoring,
+        array $pinnedRuntimeSnapshot,
+        array $pinnedInputMapping,
+        array $pinnedOutputMapping
+    ): array {
+        if ($calculatorPresetId <= 0 || $workingPresetId <= 0) {
+            throw new \InvalidArgumentException('Calculator and working preset IDs must be positive.');
+        }
+
+        $this->ensureBitrixModulesLoaded();
+        $runtimeConfigSnapshot = (new CatalogRuntimeConfigAuthorityService())
+            ->captureCalculatorSnapshot();
+        $this->pinnedRuntimeIblockIds = CatalogRuntimeConfigAuthorityService::runtimeIblockMap(
+            $runtimeConfigSnapshot
+        );
+
+        $this->assertNeutralPresetAvailableReadOnly($workingPresetId);
+        $globalSymbolIblockId = $this->resolvePinnedGlobalSymbolIblockId($runtimeConfigSnapshot);
+        $globalSymbols = (new \Prospektweb\Calc\Services\GlobalSymbolService())
+            ->listReadOnlyFromIblockId($globalSymbolIblockId, $calculatorPresetId);
+
+        $this->elementsStore = [];
+        $preset = $this->loadPreset($workingPresetId);
+        if (!is_array($preset) || (int)($preset['id'] ?? 0) !== $workingPresetId) {
+            throw new \RuntimeException('Изолированный граф версии не найден.', 409);
+        }
+
+        // The stored mappings belong to the public calculator identity. The
+        // transient editor runtime is addressed by the working graph identity,
+        // therefore only the envelope identity is projected for this INIT.
+        $pinnedInputMapping['preset_id'] = $workingPresetId;
+        $pinnedOutputMapping['preset_id'] = $workingPresetId;
+        $editorRuntime = $this->buildEditorRuntime(
+            $workingPresetId,
+            [],
+            null,
+            'manual',
+            $pinnedAuthoring,
+            $pinnedRuntimeSnapshot,
+            $pinnedInputMapping,
+            $pinnedOutputMapping
+        );
+
+        $payload = [
+            'context' => $this->buildContext($siteId),
+            'iblocks' => $this->getIblocks(),
+            'iblocksTree' => $this->buildIblocksTree(),
+            'selectedOffers' => [],
+            'priceTypes' => $this->getPriceTypes(),
+            'preset' => $preset,
+            'product' => null,
+            'elementsStore' => $this->elementsStore,
+            'elementsSiblings' => $this->buildElementsSiblings($preset),
+            'globalSymbols' => array_values($globalSymbols),
+            'editorRuntime' => $editorRuntime,
+            'neutralInputRequired' => true,
+            'versionContext' => [
+                'calculatorPresetId' => $calculatorPresetId,
+                'workingPresetId' => $workingPresetId,
+            ],
+        ];
+        $payload['semanticRevision'] = \Prospektweb\Calc\Services\CalculatorSemanticMutationService::revisionFromInitPayload(
+            $payload
+        );
+        $globalAuthority = (new \Prospektweb\Calc\Services\CalculatorGlobalMutationService())
+            ->currentAuthority();
+        $payload['globalMutationRevision'] = $globalAuthority['revision'];
+        $payload['globalMutationFingerprint'] = $globalAuthority['fingerprint'];
+        return $payload;
+    }
+
+    /**
      * Build the preset-owned calc-server payload from an explicit direct
      * b_option snapshot. This path is intentionally read-only and never asks
      * ConfigManager (or Bitrix Option) which source iblocks should be used.

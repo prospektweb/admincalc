@@ -32,6 +32,7 @@
                 iframe: config.iframe || null,
                 iframeSelector: config.iframeSelector || '#calc-iframe',
                 ajaxEndpoint: config.ajaxEndpoint || '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
+                versionAjaxEndpoint: config.versionAjaxEndpoint || '/bitrix/tools/prospektweb.calc/control_center_editors.php',
                 offerIds: config.offerIds || [],
                 presetId: Number.isSafeInteger(config.presetId) ? config.presetId : 0,
                 versionId: typeof config.versionId === 'string' ? config.versionId : '',
@@ -4784,11 +4785,36 @@
          */
         async fetchInitData() {
             const body = new URLSearchParams();
-            body.set('action', 'getInitData');
-            body.set('offerIds', this.config.offerIds.join(','));
-            body.set('presetId', String(this.config.presetId || ''));
-            body.set('siteId', this.config.siteId);
             body.set('sessid', this.config.sessid);
+            const isVersionLaunch = this.config.versionMode === 'edit' || this.config.versionMode === 'readonly';
+            let endpoint = this.config.ajaxEndpoint;
+            if (isVersionLaunch) {
+                const originalPresetId = Number(this.config.versionOriginalPresetId || 0);
+                const workingPresetId = Number(this.config.presetId || 0);
+                if (!Number.isSafeInteger(originalPresetId) || originalPresetId <= 0
+                    || !Number.isSafeInteger(workingPresetId) || workingPresetId <= 0
+                    || !/^v_[a-f0-9]{16,40}$/.test(this.config.versionId)
+                    || !/^[a-f0-9]{64}$/.test(this.config.versionContentHash)
+                    || !/^[a-f0-9]{64}$/.test(this.config.versionLogicHash)) {
+                    throw new Error('Редактор не содержит точный контекст выбранной версии логики.');
+                }
+                endpoint = this.config.versionAjaxEndpoint;
+                body.set('payload', JSON.stringify({
+                    action: 'version_logic_init',
+                    presetId: originalPresetId,
+                    versionId: this.config.versionId,
+                    workingPresetId: workingPresetId,
+                    mode: this.config.versionMode,
+                    expectedContentHash: this.config.versionContentHash,
+                    expectedLogicHash: this.config.versionLogicHash,
+                    siteId: this.config.siteId,
+                }));
+            } else {
+                body.set('action', 'getInitData');
+                body.set('offerIds', this.config.offerIds.join(','));
+                body.set('presetId', String(this.config.presetId || ''));
+                body.set('siteId', this.config.siteId);
+            }
 
             const startedAt = (window.performance && window.performance.now) ? window.performance.now() : Date.now();
             this.logBridge('[BitrixBridge] AJAX getInitData start', {
@@ -4798,7 +4824,7 @@
             });
 
             try {
-                const response = await fetch(this.config.ajaxEndpoint, {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
@@ -4809,15 +4835,26 @@
 
                 const duration = ((window.performance && window.performance.now) ? window.performance.now() : Date.now()) - startedAt;
 
+                const responseText = await response.text();
+                let data = null;
+                try {
+                    data = responseText ? JSON.parse(responseText) : null;
+                } catch (_parseError) {
+                    data = null;
+                }
+
                 if (!response.ok) {
                     this.logBridge('[BitrixBridge] AJAX getInitData error response', {
                         status: response.status,
                         durationMs: Math.round(duration),
                     });
-                    throw new Error('HTTP error ' + response.status);
+                    const serverMessage = data && (data.message || data.error || data.details);
+                    throw new Error(serverMessage || ('HTTP error ' + response.status));
                 }
 
-                const data = await response.json();
+                if (!data || typeof data !== 'object') {
+                    throw new Error('Сервер вернул некорректный ответ инициализации');
+                }
 
                 if (!data.success) {
                     this.logBridge('[BitrixBridge] AJAX getInitData business error', {

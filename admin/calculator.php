@@ -325,6 +325,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var integration = new ProspektwebCalcIntegration({
         iframeSelector: '#calc-iframe',
         ajaxEndpoint: '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
+        versionAjaxEndpoint: '/bitrix/tools/prospektweb.calc/control_center_editors.php',
         offerIds: <?= json_encode($offerIds) ?>,
         presetId: <?= json_encode(($isStandalonePresetLaunch || $isCatalogPresetLaunch) ? $standalonePresetId : 0) ?>,
         versionId: <?= json_encode($versionId) ?>,
