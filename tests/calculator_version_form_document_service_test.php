@@ -32,6 +32,15 @@ if (($saved['formDefinition']['fields'][0]['fieldId'] ?? '') !== 'quantity') thr
 $baseAgain = $service->ensure(12740, 'v_1111111111111111', null, $legacy);
 if (($baseAgain['formDefinition']['fields'][0]['fieldId'] ?? '') !== 'volume') throw new RuntimeException('base document was mutated');
 
+$emptyLegacy = [
+    'formDefinition' => ['contract' => 'form/v1', 'fields' => []],
+    'bindingDefinition' => ['contract' => 'binding/v1', 'bindings' => []],
+];
+$empty = $service->ensure(12740, 'v_3333333333333333', null, $emptyLegacy);
+$seededDraft = $service->ensure(12740, 'v_3333333333333333', null, $legacy, true);
+if (($seededDraft['formDefinition']['fields'][0]['fieldId'] ?? '') !== 'volume') throw new RuntimeException('empty draft system seed failed');
+if ($seededDraft['revision'] === $empty['revision']) throw new RuntimeException('empty draft seed did not advance revision');
+
 $conflict = false;
 try {
     $service->saveDraft(12740, 'v_2222222222222222', $clone['revision'], $changed, $clone['bindingDefinition']);

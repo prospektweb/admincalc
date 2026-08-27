@@ -34,11 +34,22 @@ final class CalculatorVersionFormDocumentService
         int $presetId,
         string $versionId,
         ?string $sourceVersionId,
-        array $legacyWorkspace
+        array $legacyWorkspace,
+        bool $seedEmptyDraft = false
     ): array {
         $this->assertIdentity($presetId, $versionId);
         $stored = $this->load($presetId, $versionId);
         if ($stored !== null) {
+            if ($seedEmptyDraft
+                && ($stored['formDefinition']['fields'] ?? null) === []
+                && is_array($legacyWorkspace['formDefinition']['fields'] ?? null)
+                && $legacyWorkspace['formDefinition']['fields'] !== []) {
+                $stored['formDefinition'] = $legacyWorkspace['formDefinition'];
+                $stored['bindingDefinition'] = $legacyWorkspace['bindingDefinition'];
+                $stored['updatedAt'] = $this->now();
+                $this->assertDocument($stored);
+                $this->save($stored);
+            }
             return $this->publicDocument($stored);
         }
         $source = null;

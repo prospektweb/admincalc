@@ -224,7 +224,8 @@ $versionFormWorkspace = static function (
         $presetId,
         $versionId,
         is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-        $legacy
+        $legacy,
+        ($state['row']['status'] ?? null) === 'DRAFT'
     );
     $preview = $service->previewFormFirst(
         $presetId,
@@ -1453,7 +1454,8 @@ try {
             $presetId,
             $versionId,
             is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-            $state['context']['legacy']
+            $state['context']['legacy'],
+            true
         );
         // Assemble and validate the exact complete bundle before advancing
         // the form CAS revision. A source/capture failure must not leave the UI
