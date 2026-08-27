@@ -785,18 +785,19 @@ class BundleHandler
 
         if (is_array($rawValue)) {
             $text = $rawValue['TEXT'] ?? '';
-            $type = $rawValue['TYPE'] ?? $property['VALUE_TYPE'] ?? 'text';
         } elseif (is_array($fallbackValue)) {
             $text = $fallbackValue['TEXT'] ?? '';
-            $type = $fallbackValue['TYPE'] ?? $property['VALUE_TYPE'] ?? 'text';
         } else {
             $text = $rawValue;
-            $type = $property['VALUE_TYPE'] ?? 'text';
         }
 
         return [
             'TEXT' => (string)$text,
-            'TYPE' => (string)$type,
+            // USER_TYPE=HTML is the schema authority. Historical rows can
+            // still expose TEXT/text here, while SetPropertyValuesEx writes
+            // them back as HTML. Canonicalize that storage-only difference so
+            // clone read-back remains strict about the actual payload.
+            'TYPE' => 'HTML',
         ];
     }
 

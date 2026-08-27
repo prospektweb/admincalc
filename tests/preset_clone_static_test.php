@@ -71,12 +71,19 @@ $rawValueWrapped = $htmlPropertyMethod->invoke($handler, [
     'PROPERTY_TYPE' => 'S',
     'USER_TYPE' => 'HTML',
 ]);
+$legacyTextWrapped = $htmlPropertyMethod->invoke($handler, [
+    'VALUE' => ['TEXT' => $jsonFixture, 'TYPE' => 'text'],
+    'PROPERTY_TYPE' => 'S',
+    'USER_TYPE' => 'HTML',
+]);
 
 if (($valueWrapped['TEXT'] ?? null) !== $jsonFixture
     || ($valueWrapped['TYPE'] ?? null) !== 'HTML'
     || ($rawValueWrapped['TEXT'] ?? null) !== $jsonFixture
-    || ($rawValueWrapped['TYPE'] ?? null) !== 'HTML') {
-    throw new RuntimeException('Bitrix VALUE.TEXT and ~VALUE.TEXT HTML property formats must preserve STAGE_GROUPS JSON');
+    || ($rawValueWrapped['TYPE'] ?? null) !== 'HTML'
+    || ($legacyTextWrapped['TEXT'] ?? null) !== $jsonFixture
+    || ($legacyTextWrapped['TYPE'] ?? null) !== 'HTML') {
+    throw new RuntimeException('Bitrix HTML property wrappers must preserve JSON and canonicalize legacy TEXT markers');
 }
 
 $groups = [
