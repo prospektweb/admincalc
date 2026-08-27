@@ -565,4 +565,14 @@ $assert(
     'non-versioned catalog drift must fail closed instead of producing a mixed editable graph'
 );
 
+$rehydratorSource = file_get_contents(
+    dirname(__DIR__) . '/lib/Services/CalculatorVersionWorkingGraphRehydrator.php'
+);
+$assert(
+    is_string($rehydratorSource)
+        && str_contains($rehydratorSource, "['IBLOCK_ID' => \$iblockId, 'CODE' => \$code]")
+        && !str_contains($rehydratorSource, "['IBLOCK_ID' => \$iblockId, '=CODE' => \$code]"),
+    'CIBlockProperty schema lookup must use the native Bitrix CODE filter'
+);
+
 echo "calculator_version_working_graph_rehydrator_test: OK\n";

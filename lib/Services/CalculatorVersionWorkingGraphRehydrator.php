@@ -323,7 +323,7 @@ final class CalculatorVersionWorkingGraphRehydrator
             }
             $schema = \CIBlockProperty::GetList(
                 [],
-                ['IBLOCK_ID' => $iblockId, '=CODE' => $code]
+                ['IBLOCK_ID' => $iblockId, 'CODE' => $code]
             )->Fetch();
             if (!is_array($schema)
                 || (string)($schema['PROPERTY_TYPE'] ?? '') !== (string)($property['PROPERTY_TYPE'] ?? '')
