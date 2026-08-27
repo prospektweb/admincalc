@@ -27,6 +27,7 @@ final class ControlCenterEditorsService
     private const FORM_FIRST_AUTHORING_METHODS = [
         'loadFormFirstWorkspace',
         'newVersionFormTemplate',
+        'materializeSystemFields',
         'saveFormFirstDraft',
         'previewFormFirst',
         'previewVersionFormFirst',
@@ -1374,6 +1375,33 @@ final class ControlCenterEditorsService
             'new_version_template',
             $dependencyContract['fingerprint']
         );
+    }
+
+    /**
+     * Materialize the four canonical system roles in an existing version form.
+     * This method is deliberately pure: the version endpoint owns CAS,
+     * transaction, bundle validation, and persistence.
+     *
+     * @return array{changed:bool,formDefinition:array<string,mixed>,bindingDefinition:array<string,mixed>}
+     */
+    public function materializeFormFirstSystemFields(
+        int $presetId,
+        array $formDefinition,
+        array $bindingDefinition
+    ): array {
+        $this->assertPresetFormAuthority($presetId);
+        $result = $this->requireFormFirstAuthoring()->materializeSystemFields(
+            $formDefinition,
+            $bindingDefinition
+        );
+        if (!is_array($result)
+            || array_keys($result) !== ['changed', 'formDefinition', 'bindingDefinition']
+            || !is_bool($result['changed'] ?? null)
+            || !is_array($result['formDefinition'] ?? null)
+            || !is_array($result['bindingDefinition'] ?? null)) {
+            throw new \RuntimeException('Провайдер формы вернул некорректный результат восстановления системных полей.');
+        }
+        return $result;
     }
 
     /** @return array<string,mixed> */

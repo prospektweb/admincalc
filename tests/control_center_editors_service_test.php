@@ -41,6 +41,18 @@ class TestFormFirstAuthoringProvider
         return $this->formFirstResult('new_version_template', $dependencyContract, $presetId);
     }
 
+    public function materializeSystemFields(
+        array $formDefinition,
+        array $bindingDefinition
+    ): array {
+        $this->calls[] = ['materializeSystemFields', $formDefinition, $bindingDefinition];
+        return [
+            'changed' => true,
+            'formDefinition' => $formDefinition,
+            'bindingDefinition' => $bindingDefinition,
+        ];
+    }
+
     public function saveFormFirstDraft(
         int $presetId,
         string $expectedAggregateRevision,
@@ -992,6 +1004,18 @@ $assert(
 $assert(
     ($formFirstService->newVersionFormTemplate(41)['operation'] ?? '') === 'new_version_template',
     'The service must expose the canonical clean-version form template'
+);
+$materializedSystemFields = $formFirstService->materializeFormFirstSystemFields(
+    41,
+    $formDefinition,
+    $bindingDefinition
+);
+$assert(
+    ($materializedSystemFields['changed'] ?? false) === true
+        && ($materializedSystemFields['formDefinition'] ?? null) === $formDefinition
+        && ($materializedSystemFields['bindingDefinition'] ?? null) === $bindingDefinition
+        && ($provider->calls[count($provider->calls) - 1][0] ?? '') === 'materializeSystemFields',
+    'The service must expose the pure system-field materializer without mutating a version itself'
 );
 $deleteImpact = $formFirstService->inspectFormFirstFieldDeletion(41, 'volume', 'CALC_PROP_VOLUME');
 $assert(

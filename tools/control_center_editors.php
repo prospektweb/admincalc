@@ -1902,6 +1902,153 @@ try {
         ]);
     }
 
+    if ($action === 'version_form_materialize_system_fields') {
+        $assertAllowedRequestKeys([
+            'action', 'sessid', 'presetId', 'versionId',
+            'expectedAggregateRevision', 'expectedContentHash',
+        ]);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $versionId = $request['versionId'] ?? null;
+        $expectedVersionRevision = $parseAggregateRevision(
+            $request['expectedAggregateRevision'] ?? null,
+            'expectedAggregateRevision'
+        );
+        $expectedContentHash = $parseAggregateRevision(
+            $request['expectedContentHash'] ?? null,
+            'expectedContentHash'
+        );
+        if (!is_string($versionId)) {
+            throw new \InvalidArgumentException('versionId is required');
+        }
+        $materializedWorkspace = $versionRegistry->coordinateVersionMutation(
+            $presetId,
+            static function () use (
+                $presetId,
+                $versionId,
+                $expectedVersionRevision,
+                $expectedContentHash,
+                $versionState,
+                $assertVersionEditable,
+                $versionRuntimePublications,
+                $versionForms,
+                $ensureVersionBundle,
+                $versionBundles,
+                $versionComponents,
+                $service,
+                $versionFormWorkspace
+            ): array {
+                $state = $versionState($presetId, $versionId);
+                $assertVersionEditable($state);
+                $versionRuntimePublications->freezeLegacyActiveForEditing($presetId, $versionId);
+                $document = $versionForms->ensure(
+                    $presetId,
+                    $versionId,
+                    is_string($state['row']['basedOnVersionId'] ?? null)
+                        ? $state['row']['basedOnVersionId']
+                        : null,
+                    $state['context']['legacy']
+                );
+                if (!hash_equals($expectedVersionRevision, (string)($document['revision'] ?? ''))) {
+                    throw new \RuntimeException(
+                        'Форма версии изменилась в другой вкладке. Перезагрузите редактор.',
+                        409
+                    );
+                }
+                $bundle = $ensureVersionBundle(
+                    $presetId,
+                    $versionId,
+                    is_string($state['row']['basedOnVersionId'] ?? null)
+                        ? $state['row']['basedOnVersionId']
+                        : null,
+                    $state['context']['legacy'],
+                    true
+                );
+                if (!hash_equals($expectedContentHash, (string)($bundle['contentHash'] ?? ''))) {
+                    throw new \RuntimeException(
+                        'Полный bundle версии изменился в другой вкладке. Перезагрузите редактор.',
+                        409
+                    );
+                }
+                // Fail closed if the independently stored form and the form
+                // component of the bundle have already diverged.
+                $versionBundles->formForActivation($bundle, $document);
+                $materialized = $service->materializeFormFirstSystemFields(
+                    $presetId,
+                    $document['formDefinition'],
+                    $document['bindingDefinition']
+                );
+                if (($materialized['changed'] ?? false) !== true) {
+                    return $versionFormWorkspace($presetId, $versionId, 'materialize_system_fields');
+                }
+                $prospectiveForm = [
+                    'contract' => CalculatorVersionFormDocumentService::CONTRACT,
+                    'formDefinition' => $materialized['formDefinition'],
+                    'bindingDefinition' => $materialized['bindingDefinition'],
+                ];
+                $components = $bundle['documents'];
+                $components['form'] = $prospectiveForm;
+                $mappingValidation = $versionComponents->validateInputMappings(
+                    $presetId,
+                    $versionId,
+                    is_array($components['inputMappings'] ?? null)
+                        ? $components['inputMappings']
+                        : [],
+                    $prospectiveForm
+                );
+                if (($mappingValidation['valid'] ?? false) !== true) {
+                    $issues = is_array($mappingValidation['issues'] ?? null)
+                        ? $mappingValidation['issues']
+                        : [];
+                    throw new \RuntimeException(
+                        'Системные поля не восстановлены: '
+                        . (string)($issues[0]['message'] ?? 'сопоставления входов несовместимы с формой.'),
+                        409
+                    );
+                }
+                $components['inputMappings'] = $mappingValidation['mapping'];
+                $preview = $service->previewVersionFormFirst(
+                    $presetId,
+                    $materialized['formDefinition'],
+                    $materialized['bindingDefinition'],
+                    $components
+                );
+                if (($preview['coverage']['valid'] ?? false) !== true
+                    || ($preview['compile']['valid'] ?? false) !== true) {
+                    $issues = is_array($preview['coverage']['issues'] ?? null)
+                        ? $preview['coverage']['issues']
+                        : [];
+                    throw new \RuntimeException(
+                        'Системные поля не восстановлены: '
+                        . (string)($issues[0]['message'] ?? 'форма не прошла проверку полного bundle.'),
+                        409
+                    );
+                }
+                $versionBundles->inspect($components);
+                $savedForm = $versionForms->saveDraft(
+                    $presetId,
+                    $versionId,
+                    $expectedVersionRevision,
+                    $materialized['formDefinition'],
+                    $materialized['bindingDefinition']
+                );
+                $components['form'] = [
+                    'contract' => CalculatorVersionFormDocumentService::CONTRACT,
+                    'formDefinition' => $savedForm['formDefinition'],
+                    'bindingDefinition' => $savedForm['bindingDefinition'],
+                ];
+                // Standalone form and complete working bundle are committed by
+                // the shared outer transaction. The active v3 snapshot is not
+                // touched until the operator explicitly activates this version.
+                $versionBundles->save($presetId, $versionId, $components);
+                return $versionFormWorkspace($presetId, $versionId, 'materialize_system_fields');
+            }
+        );
+        $respond(200, [
+            'success' => true,
+            'data' => $materializedWorkspace,
+        ]);
+    }
+
     if ($action === 'version_publish_activate') {
         $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId', 'expectedContentHash']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');

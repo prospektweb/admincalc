@@ -47,6 +47,7 @@ foreach ([
     'version_input_mapping_validate',
     'version_form_save',
     'version_form_save_draft',
+    'version_form_materialize_system_fields',
     'version_component_load',
     'version_component_save',
     'version_component_save_draft',
@@ -241,6 +242,25 @@ $assert(
         && str_contains($endpoint, "\$legacy['history'] = [];")
         && str_contains($endpoint, 'CalculatorVersionFormDocumentService'),
     'editable versions own isolated form documents, previews and publication metadata instead of sharing the active workspace'
+);
+$systemMaterialize = strpos($endpoint, "if (\$action === 'version_form_materialize_system_fields')");
+$systemMaterializeEnd = strpos($endpoint, "if (\$action === 'version_publish_activate')", $systemMaterialize ?: 0);
+$systemMaterializeSource = $systemMaterialize !== false && $systemMaterializeEnd !== false
+    ? substr($endpoint, $systemMaterialize, $systemMaterializeEnd - $systemMaterialize)
+    : '';
+$assert(
+    str_contains($systemMaterializeSource, "'expectedAggregateRevision', 'expectedContentHash'")
+        && str_contains($systemMaterializeSource, '$versionRegistry->coordinateVersionMutation(')
+        && str_contains($systemMaterializeSource, '$versionBundles->formForActivation($bundle, $document);')
+        && str_contains($systemMaterializeSource, '$service->materializeFormFirstSystemFields(')
+        && str_contains($systemMaterializeSource, '$versionComponents->validateInputMappings(')
+        && str_contains($systemMaterializeSource, '$service->previewVersionFormFirst(')
+        && str_contains($systemMaterializeSource, '$versionBundles->inspect($components);')
+        && str_contains($systemMaterializeSource, '$versionForms->saveDraft(')
+        && str_contains($systemMaterializeSource, '$versionBundles->save(')
+        && str_contains($systemMaterializeSource, "'materialize_system_fields'")
+        && !str_contains($systemMaterializeSource, '$versionRuntimePublications->activate('),
+    'system field materialization must be an explicit exact-CAS full-bundle mutation without activating the version'
 );
 $assert(
     str_contains($endpoint, '$versionRegistry->coordinateVersionMutation(')
