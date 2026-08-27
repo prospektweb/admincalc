@@ -35,19 +35,26 @@ final class CalculatorVersionSnapshotSourceService
             throw new \InvalidArgumentException('Для полного снимка требуется точный документ формы версии.');
         }
         $storefronts = $this->storefronts($presetId);
+        $logic = $this->captureLogic($presetId);
+        $inputMappings = $this->inputMappings($presetId);
+        $outputMappings = $this->outputMappings($presetId);
+        $productAssignments = $this->productAssignments($presetId, $storefronts);
+        $versionedStorefronts = $this->withoutProductAssignmentCopies($storefronts);
+        $publicationMetadata = $this->publicationMetadata($presetId);
+        $commercialPolicy = $this->commercialPolicy($presetId);
         return [
             'form' => [
                 'contract' => CalculatorVersionFormDocumentService::CONTRACT,
                 'formDefinition' => $formDocument['formDefinition'],
                 'bindingDefinition' => $formDocument['bindingDefinition'],
             ],
-            'logic' => $this->captureLogic($presetId),
-            'storefronts' => $storefronts,
-            'inputMappings' => $this->inputMappings($presetId),
-            'outputMappings' => $this->outputMappings($presetId),
-            'productAssignments' => $this->productAssignments($presetId, $storefronts),
-            'publicationMetadata' => $this->publicationMetadata($presetId),
-            'commercialPolicy' => $this->commercialPolicy($presetId),
+            'logic' => $logic,
+            'storefronts' => $versionedStorefronts,
+            'inputMappings' => $inputMappings,
+            'outputMappings' => $outputMappings,
+            'productAssignments' => $productAssignments,
+            'publicationMetadata' => $publicationMetadata,
+            'commercialPolicy' => $commercialPolicy,
         ];
     }
 
@@ -114,8 +121,7 @@ final class CalculatorVersionSnapshotSourceService
         if (isset($this->adapters['storefronts'])) {
             $value = call_user_func($this->adapters['storefronts'], $presetId);
             if (!is_array($value)) throw new \RuntimeException('Storefront snapshot adapter returned invalid data.');
-            if (!array_key_exists('base_public', $value)) $value['base_public'] = true;
-            return $value;
+            return $this->normalizeStorefronts($presetId, $value, (bool)($value['base_public'] ?? true));
         }
         if (!Loader::includeModule('prospektweb.frontcalc')) {
             throw new \RuntimeException('Модуль prospektweb.frontcalc недоступен для полного снимка витрин.');
@@ -124,10 +130,56 @@ final class CalculatorVersionSnapshotSourceService
         if (!class_exists($class)) throw new \RuntimeException('Хранилище витрин недоступно.');
         $listing = (new $class())->listStorefronts($presetId);
         $settingsClass = '\\Prospektweb\\Frontcalc\\Service\\PublicCalculatorCatalogService';
-        $listing['base_public'] = class_exists($settingsClass)
+        $basePublic = class_exists($settingsClass)
             ? (bool)(new $settingsClass())->settings($presetId)['show_base']
             : true;
-        return $listing;
+        return $this->normalizeStorefronts($presetId, $listing, $basePublic);
+    }
+
+    /** @param array<string,mixed> $listing @return array<string,mixed> */
+    private function normalizeStorefronts(int $presetId, array $listing, bool $basePublic): array
+    {
+        $normalize = static function (array $row, bool $base = false) use ($presetId, $basePublic): array {
+            $active = $base ? true : (bool)($row['active'] ?? false);
+            return [
+                'contract' => 'prospektweb.frontcalc.storefront-definition/v2',
+                'id' => $base ? 'BASE' : trim((string)($row['id'] ?? '')),
+                'preset_id' => $presetId,
+                'name' => trim((string)($row['name'] ?? ($base ? 'Базовая витрина' : ''))),
+                'active' => $active,
+                'public' => $base ? (bool)($row['public'] ?? $basePublic) : (bool)($row['public'] ?? $active),
+                'public_sort' => max(0, (int)($row['public_sort'] ?? ($base ? 100 : 500))),
+                'default_product_id' => max(0, (int)($row['default_product_id'] ?? 0)),
+                'revision' => max(0, (int)($row['revision'] ?? 0)),
+                'presentation' => is_array($row['presentation'] ?? null)
+                    ? $row['presentation']
+                    : ['field_patches' => new \stdClass()],
+                'product_ids' => array_values(array_unique(array_map('intval', (array)($row['product_ids'] ?? [])))),
+            ];
+        };
+        $items = [];
+        foreach ((array)($listing['items'] ?? []) as $row) {
+            if (!is_array($row) || trim((string)($row['id'] ?? '')) === '') continue;
+            $items[] = $normalize($row);
+        }
+        $base = $normalize(is_array($listing['base'] ?? null) ? $listing['base'] : [], true);
+        return [
+            'contract' => 'prospektweb.frontcalc.storefront-definition/v2',
+            'preset_id' => $presetId,
+            'base_public' => $base['public'],
+            'base' => $base,
+            'items' => $items,
+        ];
+    }
+
+    /** @param array<string,mixed> $storefronts @return array<string,mixed> */
+    private function withoutProductAssignmentCopies(array $storefronts): array
+    {
+        if (is_array($storefronts['base'] ?? null)) $storefronts['base']['product_ids'] = [];
+        foreach ((array)($storefronts['items'] ?? []) as $index => $row) {
+            if (is_array($row)) $storefronts['items'][$index]['product_ids'] = [];
+        }
+        return $storefronts;
     }
 
     /** @return array<string,mixed> */
