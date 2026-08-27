@@ -15,6 +15,8 @@ namespace Bitrix\Main {
 namespace {
     require_once __DIR__ . '/../lib/Services/CalculatorVersionFormDocumentService.php';
     require_once __DIR__ . '/../lib/Services/CalculatorVersionBundleDocumentService.php';
+    require_once __DIR__ . '/../lib/Services/CalculatorInputMappingService.php';
+    require_once __DIR__ . '/../lib/Services/CatalogOutputMappingService.php';
     require_once __DIR__ . '/../lib/Services/CalculatorVersionSnapshotSourceService.php';
 
     use Prospektweb\Calc\Services\CalculatorVersionBundleDocumentService;
@@ -88,6 +90,18 @@ namespace {
     $assert(($snapshot['publicationMetadata']['calculatorName'] ?? null) === 'Листовая печать', 'publication metadata snapshot is missing');
     $assert(($snapshot['commercialPolicy']['deadlinePolicy']['mode'] ?? null) === 'basic', 'commercial policy snapshot is missing');
     $assert($calls === ['storefronts', 'logic', 'inputMappings', 'outputMappings', 'productAssignments', 'publicationMetadata', 'commercialPolicy'], 'snapshot authorities were not read exactly once');
+
+    $calls = [];
+    $blank = $source->blankVersion(12740, [
+        'formDefinition' => ['contract' => 'prospektweb.frontcalc.form-definition/v1', 'fields' => [['systemKey' => 'volume']]],
+        'bindingDefinition' => ['contract' => 'prospektweb.frontcalc.binding-definition/v1', 'bindings' => []],
+    ]);
+    $assert(array_keys($blank) === CalculatorVersionBundleDocumentService::COMPONENTS, 'blank version must contain every version component');
+    $assert(($blank['logic']['initializationMode'] ?? '') === 'blank' && !isset($blank['logic']['runtimePayload']), 'blank logic must remain non-activatable until initialized');
+    $assert(($blank['storefronts']['base']['public'] ?? true) === false && ($blank['storefronts']['items'] ?? null) === [], 'blank version must start with one non-public base storefront');
+    $assert(($blank['inputMappings']['mappings'] ?? null) === [] && ($blank['productAssignments']['assignments'] ?? null) === [], 'blank version must not inherit mappings or products');
+    $assert(($blank['outputMappings']['revision'] ?? -1) === 0 && count($blank['outputMappings']['mappings'] ?? []) === 7, 'blank version must use canonical output mappings');
+    $assert($calls === ['publicationMetadata'], 'blank version must not read mutable logic, storefront, mapping, product or commercial-policy authorities');
 
     $isolatedLogic = $source->captureLogic(54321, 12740, 'v_4444444444444444');
     $assert(($isolatedLogic['presetId'] ?? null) === 12740, 'isolated logic must retain calculator identity');

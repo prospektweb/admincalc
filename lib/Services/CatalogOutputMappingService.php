@@ -310,6 +310,15 @@ final class CatalogOutputMappingService
     /** @return array<string,mixed> */
     private function defaultDocument(int $presetId): array
     {
+        return self::initialDocument($presetId);
+    }
+
+    /** @return array<string,mixed> */
+    public static function initialDocument(int $presetId): array
+    {
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Catalog output mapping presetId must be positive.');
+        }
         $mappings = [];
         foreach (self::PAIRS as $sourcePath => $targetPath) {
             $mappings[] = ['source_path' => $sourcePath, 'target_path' => $targetPath];

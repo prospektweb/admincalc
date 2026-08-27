@@ -119,8 +119,6 @@ final class CalculatorVersionRegistryService
                 if ($baseId !== null) {
                     $this->assertVersionId($baseId);
                     $this->findVersion($state, $baseId);
-                } elseif (is_string($state['activeVersionId'] ?? null)) {
-                    $baseId = (string)$state['activeVersionId'];
                 }
                 $usedNumbers = array_map(
                     static fn(array $row): int => (int)($row['versionNo'] ?? 0),

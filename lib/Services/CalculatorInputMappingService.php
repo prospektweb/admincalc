@@ -167,6 +167,15 @@ final class CalculatorInputMappingService
     /** @return array<string,mixed> */
     private function defaultDocument(int $presetId): array
     {
+        return self::initialDocument($presetId);
+    }
+
+    /** @return array<string,mixed> */
+    public static function initialDocument(int $presetId): array
+    {
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Calculator input mapping presetId must be positive.');
+        }
         return [
             'contract' => self::CONTRACT,
             'preset_id' => $presetId,

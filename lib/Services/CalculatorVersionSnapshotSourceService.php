@@ -60,6 +60,72 @@ final class CalculatorVersionSnapshotSourceService
         ];
     }
 
+    /**
+     * Materialize a clean editable version without reading mutable calculator
+     * components. Only calculator identity is retained; every owned document
+     * starts from its canonical default.
+     *
+     * @param array<string,mixed> $formDocument
+     * @return array<string,mixed>
+     */
+    public function blankVersion(int $presetId, array $formDocument): array
+    {
+        if ($presetId <= 0
+            || !is_array($formDocument['formDefinition'] ?? null)
+            || !is_array($formDocument['bindingDefinition'] ?? null)) {
+            throw new \InvalidArgumentException('Для чистой версии требуется канонический документ системной формы.');
+        }
+        return [
+            'form' => [
+                'contract' => CalculatorVersionFormDocumentService::CONTRACT,
+                'formDefinition' => $formDocument['formDefinition'],
+                'bindingDefinition' => $formDocument['bindingDefinition'],
+            ],
+            'logic' => [
+                'contract' => self::LOGIC_CONTRACT,
+                'presetId' => $presetId,
+                'initializationMode' => 'blank',
+                'graph' => [
+                    'detailIds' => [],
+                    'stageIds' => [],
+                    'settingsIds' => [],
+                    'detailStages' => [],
+                    'stageSettings' => [],
+                ],
+                'elements' => [],
+            ],
+            'storefronts' => [
+                'contract' => 'prospektweb.frontcalc.storefront-definition/v2',
+                'preset_id' => $presetId,
+                'base_public' => false,
+                'base' => [
+                    'contract' => 'prospektweb.frontcalc.storefront-definition/v2',
+                    'id' => 'BASE',
+                    'preset_id' => $presetId,
+                    'name' => 'Базовая витрина',
+                    'active' => true,
+                    'public' => false,
+                    'public_sort' => 100,
+                    'default_product_id' => 0,
+                    'revision' => 0,
+                    'presentation' => ['field_patches' => new \stdClass()],
+                    'product_ids' => [],
+                ],
+                'items' => [],
+            ],
+            'inputMappings' => CalculatorInputMappingService::initialDocument($presetId),
+            'outputMappings' => CatalogOutputMappingService::initialDocument($presetId),
+            'productAssignments' => [
+                'contract' => self::PRODUCT_ASSIGNMENTS_CONTRACT,
+                'presetId' => $presetId,
+                'sourceRevision' => hash('sha256', '[]'),
+                'assignments' => [],
+            ],
+            'publicationMetadata' => $this->publicationMetadata($presetId),
+            'commercialPolicy' => self::defaultCommercialPolicy($presetId),
+        ];
+    }
+
     /** @return array<string,mixed> */
     public function captureLogic(
         int $sourcePresetId,

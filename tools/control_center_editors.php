@@ -261,8 +261,15 @@ $ensureVersionBundle = static function (
             return $existing;
         }
         $documents = $existing['documents'];
-        $documents['publicationMetadata'] = $versionSources->publicationMetadata($presetId);
-        $documents['commercialPolicy'] = $versionSources->commercialPolicy($presetId);
+        // Legacy bundles may lack the two v2 components. Existing versioned
+        // documents, including an intentionally incomplete blank version,
+        // must never be overwritten from mutable live authorities.
+        if (!is_array($documents['publicationMetadata'] ?? null)) {
+            $documents['publicationMetadata'] = $versionSources->publicationMetadata($presetId);
+        }
+        if (!is_array($documents['commercialPolicy'] ?? null)) {
+            $documents['commercialPolicy'] = $versionSources->commercialPolicy($presetId);
+        }
         return $versionBundles->save($presetId, $versionId, $documents);
     }
     if ($sourceVersionId !== null && $versionBundles->has($presetId, $sourceVersionId)) {
@@ -275,8 +282,12 @@ $ensureVersionBundle = static function (
             if (!$allowRebuild) {
                 throw new \RuntimeException('Исходная версия требует пересборки полного bundle.', 409);
             }
-            $documents['publicationMetadata'] = $versionSources->publicationMetadata($presetId);
-            $documents['commercialPolicy'] = $versionSources->commercialPolicy($presetId);
+            if (!is_array($documents['publicationMetadata'] ?? null)) {
+                $documents['publicationMetadata'] = $versionSources->publicationMetadata($presetId);
+            }
+            if (!is_array($documents['commercialPolicy'] ?? null)) {
+                $documents['commercialPolicy'] = $versionSources->commercialPolicy($presetId);
+            }
         }
         return $versionBundles->save($presetId, $versionId, $documents);
     }
@@ -996,16 +1007,23 @@ try {
     }
 
     if ($action === 'version_create') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'name', 'basedOnVersionId', 'expectedContentHash']);
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'name', 'creationMode', 'basedOnVersionId', 'expectedContentHash']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
         $name = $request['name'] ?? null;
+        $creationMode = $request['creationMode'] ?? null;
         $basedOnVersionId = $request['basedOnVersionId'] ?? null;
         $expectedContentHash = $request['expectedContentHash'] ?? null;
         if (!is_string($name)
+            || !is_string($creationMode)
+            || !in_array($creationMode, ['blank', 'clone'], true)
             || ($basedOnVersionId !== null && !is_string($basedOnVersionId))
             || ($expectedContentHash !== null && !is_string($expectedContentHash))) {
-            throw new \InvalidArgumentException('name, optional basedOnVersionId and expectedContentHash are required');
+            throw new \InvalidArgumentException('Режим создания версии и название заданы некорректно.');
+        }
+        if (($creationMode === 'blank' && ($basedOnVersionId !== null || $expectedContentHash !== null))
+            || ($creationMode === 'clone' && ($basedOnVersionId === null || $expectedContentHash === null))) {
+            throw new \InvalidArgumentException('Чистая версия не принимает источник, а копия требует точную исходную версию и её hash.');
         }
         $createdWorkspace = $versionRegistry->coordinateVersionMutation(
             $presetId,
@@ -1013,13 +1031,15 @@ try {
                 $presetId,
                 $expectedRegistryRevision,
                 $name,
+                $creationMode,
                 $basedOnVersionId,
                 $expectedContentHash,
                 $versionContext,
                 $versionRegistry,
                 $versionForms,
                 $versionBundles,
-                $ensureVersionBundle
+                $versionSources,
+                $service
             ): array {
                 $context = $versionContext($presetId);
                 $before = $versionRegistry->loadWorkspace(
@@ -1032,7 +1052,7 @@ try {
                     static fn(array $row): string => (string)$row['versionId'],
                     $before['versions']
                 ), true);
-                if ($basedOnVersionId !== null) {
+                if ($creationMode === 'clone') {
                     $baseRow = null;
                     foreach ($before['versions'] as $row) {
                         if (($row['versionId'] ?? null) === $basedOnVersionId) {
@@ -1043,16 +1063,19 @@ try {
                     if (!is_array($baseRow)) {
                         throw new \InvalidArgumentException('Исходная версия не найдена.');
                     }
-                    if (!$versionForms->has($presetId, $basedOnVersionId)
-                        && (array)($context['legacy']['compile']['diff'] ?? []) !== []) {
-                        throw new \InvalidArgumentException('Нельзя точно клонировать перенесённую версию: её исходная форма отсутствует. Выберите версию с полным bundle.');
-                    }
                     $baseBundle = $versionBundles->load($presetId, $basedOnVersionId);
                     if ($baseBundle === null
+                        || ($baseBundle['readiness']['complete'] ?? false) !== true
                         || !is_string($expectedContentHash)
                         || preg_match('/^[a-f0-9]{64}$/D', $expectedContentHash) !== 1
                         || !hash_equals((string)$baseBundle['contentHash'], $expectedContentHash)) {
-                        throw new \RuntimeException('Исходная версия изменилась в другой вкладке. Повторите создание версии.', 409);
+                        throw new \RuntimeException('Исходная версия неполна или изменилась в другой вкладке. Исправьте её либо повторите создание копии.', 409);
+                    }
+                    $bundleForm = $baseBundle['documents']['form'] ?? null;
+                    if (!is_array($bundleForm)
+                        || !is_array($bundleForm['formDefinition'] ?? null)
+                        || !is_array($bundleForm['bindingDefinition'] ?? null)) {
+                        throw new \RuntimeException('В полном bundle исходной версии отсутствует документ формы.', 409);
                     }
                 }
                 $workspace = $versionRegistry->createVersion(
@@ -1075,17 +1098,32 @@ try {
                     throw new \RuntimeException('Сервер не определил созданную версию.');
                 }
                 $createdVersionId = (string)$createdRow['versionId'];
-                $sourceVersionId = is_string($createdRow['basedOnVersionId'] ?? null)
-                    ? $createdRow['basedOnVersionId']
-                    : null;
-                $versionForms->ensure($presetId, $createdVersionId, $sourceVersionId, $context['legacy']);
-                $ensureVersionBundle(
-                    $presetId,
-                    $createdVersionId,
-                    $sourceVersionId,
-                    $context['legacy'],
-                    true
-                );
+                if ($creationMode === 'clone') {
+                    $bundleForm = $baseBundle['documents']['form'];
+                    $versionForms->create(
+                        $presetId,
+                        $createdVersionId,
+                        $bundleForm['formDefinition'],
+                        $bundleForm['bindingDefinition']
+                    );
+                    $copiedBundle = $versionBundles->copy($presetId, $basedOnVersionId, $createdVersionId);
+                    if (!hash_equals((string)$expectedContentHash, (string)$copiedBundle['contentHash'])) {
+                        throw new \RuntimeException('Контрольное чтение копии версии не совпало с источником.', 409);
+                    }
+                } else {
+                    $template = $service->newVersionFormTemplate($presetId);
+                    $formDocument = $versionForms->create(
+                        $presetId,
+                        $createdVersionId,
+                        $template['formDefinition'],
+                        $template['bindingDefinition']
+                    );
+                    $versionBundles->save(
+                        $presetId,
+                        $createdVersionId,
+                        $versionSources->blankVersion($presetId, $formDocument)
+                    );
+                }
                 $workspace = $versionRegistry->loadWorkspace(
                     $presetId,
                     $context['presetName'],
@@ -1356,17 +1394,25 @@ try {
                 $workingVersionId = (string)($logic['workingVersionId'] ?? '');
                 if ($isEditable && ($workingPresetId <= 0 || $workingVersionId !== $versionId)) {
                     $versionRuntimePublications->freezeLegacyActiveForEditing($presetId, $versionId);
+                    $blankInitialization = ($logic['initializationMode'] ?? null) === 'blank';
                     $historicalWorkingPresetMissing = $workingPresetId > 0 && !$presetElementExists($workingPresetId);
-                    $sourcePresetId = $workingPresetId > 0 && !$historicalWorkingPresetMissing
-                        ? $workingPresetId
-                        : $presetId;
-                    $clone = (new PresetLifecycleMutationService())->duplicatePreset($sourcePresetId);
-                    $workingPresetId = (int)($clone['newPresetId'] ?? 0);
+                    if ($blankInitialization) {
+                        $created = (new PresetLifecycleMutationService())->createPreset(
+                            'Рабочая логика «' . (string)$state['context']['presetName'] . '»'
+                        );
+                        $workingPresetId = (int)($created['presetId'] ?? 0);
+                    } else {
+                        $sourcePresetId = $workingPresetId > 0 && !$historicalWorkingPresetMissing
+                            ? $workingPresetId
+                            : $presetId;
+                        $clone = (new PresetLifecycleMutationService())->duplicatePreset($sourcePresetId);
+                        $workingPresetId = (int)($clone['newPresetId'] ?? 0);
+                    }
                     if ($workingPresetId <= 0) {
-                        throw new \RuntimeException('Не удалось создать изолированный граф логики версии.', 409);
+                        throw new \RuntimeException('Не удалось создать чистый изолированный граф логики версии.', 409);
                     }
                     $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
-                    if ($historicalWorkingPresetMissing) {
+                    if ($historicalWorkingPresetMissing && !$blankInitialization) {
                         $stageOrderPlan = CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan(
                             $bundle['documents']['logic'],
                             $logic

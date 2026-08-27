@@ -116,5 +116,11 @@ $assert(
         && str_contains($editors, "'action' => 'set_preset_active'"),
     'single-preset activation is coordinated while duplicate uses its dedicated lifecycle authority'
 );
+$assert(
+    str_contains($lifecycle, 'BitrixTransactionStateAuthority::isActive($connection)')
+        && str_contains($lifecycle, 'if ($ownsTransaction)')
+        && substr_count($lifecycle, 'if ($ownsTransaction)') >= 3,
+    'clean-version logic initialization must preserve an outer version transaction instead of opening a nested rollback boundary'
+);
 
 fwrite(STDOUT, "Preset document mutation boundary static tests passed\n");

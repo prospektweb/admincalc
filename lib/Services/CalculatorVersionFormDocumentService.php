@@ -34,6 +34,39 @@ final class CalculatorVersionFormDocumentService
     }
 
     /** @return array<string,mixed> */
+    public function create(
+        int $presetId,
+        string $versionId,
+        array $formDefinition,
+        array $bindingDefinition
+    ): array {
+        return $this->withLock($presetId, function () use (
+            $presetId,
+            $versionId,
+            $formDefinition,
+            $bindingDefinition
+        ): array {
+            $this->assertIdentity($presetId, $versionId);
+            if ($this->load($presetId, $versionId) !== null) {
+                throw new \RuntimeException('Документ формы версии уже существует.', 409);
+            }
+            $now = $this->now();
+            $document = [
+                'storageVersion' => self::STORAGE_VERSION,
+                'presetId' => $presetId,
+                'versionId' => $versionId,
+                'formDefinition' => $formDefinition,
+                'bindingDefinition' => $bindingDefinition,
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ];
+            $this->assertDocument($document);
+            $this->save($document);
+            return $this->publicDocument($document);
+        });
+    }
+
+    /** @return array<string,mixed> */
     public function ensure(
         int $presetId,
         string $versionId,

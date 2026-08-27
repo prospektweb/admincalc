@@ -102,6 +102,27 @@ $deleted = $service->deleteDraft(
 );
 $assert(count($deleted['versions']) === 2, 'version delete did not remove only the requested row');
 
+$blank = $service->createVersion(
+    12740,
+    $deleted['registryRevision'],
+    'Чистая версия',
+    null,
+    'Листовая печать',
+    $legacy,
+    $actor
+);
+$blankRow = array_values(array_filter($blank['versions'], static fn(array $row): bool => $row['name'] === 'Чистая версия'))[0] ?? null;
+$assert(is_array($blankRow) && $blankRow['versionId'] === 'v_3333333333333333', 'blank version identity mismatch');
+$assert($blankRow['basedOnVersionId'] === null, 'blank version must not silently inherit the active version lineage');
+$deleted = $service->deleteDraft(
+    12740,
+    $blank['registryRevision'],
+    $blankRow['versionId'],
+    'Листовая печать',
+    $legacy,
+    $actor
+);
+
 $activeArchiveBlocked = false;
 try {
     $service->archivePublished(

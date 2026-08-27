@@ -26,6 +26,7 @@ final class ControlCenterEditorsService
     private const FORM_FIRST_AUTHORING_PROVIDER = '\\Prospektweb\\Frontcalc\\Service\\ControlCenterFormFirstAuthoringService';
     private const FORM_FIRST_AUTHORING_METHODS = [
         'loadFormFirstWorkspace',
+        'newVersionFormTemplate',
         'saveFormFirstDraft',
         'previewFormFirst',
         'publishFormFirst',
@@ -1351,6 +1352,22 @@ final class ControlCenterEditorsService
             ),
             $presetId,
             'load',
+            $dependencyContract['fingerprint']
+        );
+    }
+
+    /** @return array<string,mixed> */
+    public function newVersionFormTemplate(int $presetId): array
+    {
+        $this->assertPresetFormAuthority($presetId);
+        $dependencyContract = $this->resolveDependencyContract($presetId);
+        return $this->assertFormFirstEditorResult(
+            $this->requireFormFirstAuthoring()->newVersionFormTemplate(
+                $presetId,
+                $dependencyContract
+            ),
+            $presetId,
+            'new_version_template',
             $dependencyContract['fingerprint']
         );
     }

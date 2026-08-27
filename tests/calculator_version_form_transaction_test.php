@@ -52,6 +52,17 @@ namespace {
     $bundles = new CalculatorVersionBundleDocumentService();
 
     $originalForm = $forms->ensure($presetId, $versionId, null, $legacy);
+    $cleanVersionId = 'v_2222222222222222';
+    $cleanForm = $forms->create(
+        $presetId,
+        $cleanVersionId,
+        ['contract' => 'form/v1', 'fields' => [['fieldId' => 'system.volume']]],
+        ['contract' => 'binding/v1', 'bindings' => [['fieldId' => 'system.volume']]]
+    );
+    $assert(
+        ($cleanForm['formDefinition']['fields'][0]['fieldId'] ?? '') === 'system.volume',
+        'explicit clean form creation must not inherit the legacy form'
+    );
     $documents = [];
     foreach (CalculatorVersionBundleDocumentService::COMPONENTS as $component) {
         $documents[$component] = ['contract' => 'test/' . $component, 'marker' => 'original'];

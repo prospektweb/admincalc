@@ -105,6 +105,33 @@ $assert(
         && !str_contains($endpoint, "(string)\$saved['aggregateRevision']"),
     'version publication and reactivation must refresh the composite form/dependency authority after legacy save'
 );
+$versionCreate = strpos($endpoint, "if (\$action === 'version_create')");
+$versionRename = strpos($endpoint, "if (\$action === 'version_rename')", $versionCreate ?: 0);
+$versionCreateSource = $versionCreate !== false && $versionRename !== false
+    ? substr($endpoint, $versionCreate, $versionRename - $versionCreate)
+    : '';
+$assert(
+    str_contains($versionCreateSource, "in_array(\$creationMode, ['blank', 'clone'], true)")
+        && str_contains($versionCreateSource, '$service->newVersionFormTemplate($presetId)')
+        && str_contains($versionCreateSource, '$versionSources->blankVersion($presetId, $formDocument)')
+        && str_contains($versionCreateSource, '$versionBundles->copy($presetId, $basedOnVersionId, $createdVersionId)')
+        && str_contains($versionCreateSource, "(\$baseBundle['readiness']['complete'] ?? false) !== true")
+        && str_contains($versionCreateSource, "\$bundleForm = \$baseBundle['documents']['form']")
+        && str_contains($versionCreateSource, "\$versionForms->create(\n                        \$presetId,\n                        \$createdVersionId")
+        && !str_contains($versionCreateSource, '$versionForms->ensure($presetId, $createdVersionId, $basedOnVersionId'),
+    'version creation must discriminate clean creation from exact complete-bundle cloning'
+);
+$assert(
+    str_contains($endpoint, "(\$logic['initializationMode'] ?? null) === 'blank'")
+        && str_contains($endpoint, "->createPreset(\n                            'Рабочая логика")
+        && str_contains($endpoint, 'if ($historicalWorkingPresetMissing && !$blankInitialization)'),
+    'the first logic launch of a clean version must create an empty graph instead of duplicating the owning calculator'
+);
+$assert(
+    substr_count($endpoint, "if (!is_array(\$documents['publicationMetadata'] ?? null))") === 2
+        && substr_count($endpoint, "if (!is_array(\$documents['commercialPolicy'] ?? null))") === 2,
+    'existing and source-copy legacy rebuilds must not overwrite present versioned metadata or commercial policy'
+);
 
 $assert(
     str_contains($endpoint, 'assertStorefrontAuthoritativeReadback')

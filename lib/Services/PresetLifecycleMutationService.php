@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Prospektweb\Calc\Services;
 
+require_once __DIR__ . '/BitrixTransactionStateAuthority.php';
+
 use Bitrix\Main\Application;
 use Prospektweb\Calc\Calculator\BundleHandler;
 
@@ -532,15 +534,22 @@ final class PresetLifecycleMutationService
         }
         $connection = Application::getConnection();
         $authority = new CalculatorMutationAuthorityService();
-        $connection->startTransaction();
+        $ownsTransaction = !BitrixTransactionStateAuthority::isActive($connection);
+        if ($ownsTransaction) {
+            $connection->startTransaction();
+        }
         try {
             $locked = $authority->lockAllAuthority($connection);
             $pinnedIblockIds = is_array($locked['iblockIds'] ?? null) ? $locked['iblockIds'] : [];
             $result = $criticalSection($pinnedIblockIds);
-            $connection->commitTransaction();
+            if ($ownsTransaction) {
+                $connection->commitTransaction();
+            }
             return $result;
         } catch (\Throwable $error) {
-            $connection->rollbackTransaction();
+            if ($ownsTransaction) {
+                $connection->rollbackTransaction();
+            }
             throw $error;
         }
     }

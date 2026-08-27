@@ -33,6 +33,14 @@ class TestFormFirstAuthoringProvider
         return $this->formFirstResult('load', $dependencyContract, $presetId);
     }
 
+    public function newVersionFormTemplate(
+        int $presetId,
+        array $dependencyContract = []
+    ): array {
+        $this->calls[] = ['newVersionFormTemplate', $presetId, $dependencyContract];
+        return $this->formFirstResult('new_version_template', $dependencyContract, $presetId);
+    }
+
     public function saveFormFirstDraft(
         int $presetId,
         string $expectedAggregateRevision,
@@ -965,6 +973,10 @@ $assert(
     ($formFirstService->loadFormFirstWorkspace(41)['operation'] ?? '') === 'load',
     'The service must delegate the form-first workspace load'
 );
+$assert(
+    ($formFirstService->newVersionFormTemplate(41)['operation'] ?? '') === 'new_version_template',
+    'The service must expose the canonical clean-version form template'
+);
 $deleteImpact = $formFirstService->inspectFormFirstFieldDeletion(41, 'volume', 'CALC_PROP_VOLUME');
 $assert(
     ($deleteImpact['contract'] ?? '') === ControlCenterEditorsService::FORM_FIRST_FIELD_DELETE_IMPACT_CONTRACT
@@ -1032,20 +1044,21 @@ $assert(
     'Publish and rollback must validate all active storefronts after the provider mutation'
 );
 $assert(
-    count($dependencyResolveCalls) === 14
-        && array_column($dependencyResolveCalls, 0) === array_fill(0, 14, 41),
+    count($dependencyResolveCalls) === 15
+        && array_column($dependencyResolveCalls, 0) === array_fill(0, 15, 41),
     'Every form-first action and deletion impact must freshly resolve the server-owned dependency authority'
 );
 $formFirstCalls = array_values(array_filter($provider->calls, static function (array $call): bool {
     return in_array($call[0] ?? '', [
         'loadFormFirstWorkspace',
+        'newVersionFormTemplate',
         'saveFormFirstDraft',
         'previewFormFirst',
         'publishFormFirst',
         'rollbackFormFirst',
     ], true);
 }));
-$assert(count($formFirstCalls) === 11, 'Form mutations must include authoritative before/after workspace readbacks');
+$assert(count($formFirstCalls) === 12, 'Form mutations must include authoritative before/after workspace readbacks');
 foreach ($formFirstCalls as $formFirstCall) {
     $passedContract = $formFirstCall[count($formFirstCall) - 1] ?? null;
     $assert(
