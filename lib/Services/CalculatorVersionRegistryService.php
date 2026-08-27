@@ -157,6 +157,121 @@ final class CalculatorVersionRegistryService
         );
     }
 
+    /**
+     * Permanently remove explicitly selected non-active versions and their
+     * documents. This is intentionally not a normal archive operation: callers
+     * must supply the current registry CAS. Registry and runtime active
+     * pointers must agree, version documents are deleted in the same Bitrix
+     * transaction, and the active version is always protected.
+     *
+     * @param string[] $versionIds
+     * @return array<string,mixed>
+     */
+    public function deleteInactiveVersions(
+        int $presetId,
+        string $expectedRegistryRevision,
+        array $versionIds,
+        string $presetName,
+        array $legacyWorkspace,
+        array $actor
+    ): array {
+        $this->assertRevision($expectedRegistryRevision);
+        if (!array_is_list($versionIds) || $versionIds === [] || count($versionIds) > 100) {
+            throw new \InvalidArgumentException('Для удаления нужен непустой список не более чем из 100 версий.');
+        }
+        $normalizedIds = [];
+        foreach ($versionIds as $versionId) {
+            if (!is_string($versionId)) {
+                throw new \InvalidArgumentException('Идентификатор удаляемой версии недопустим.');
+            }
+            $this->assertVersionId($versionId);
+            if (isset($normalizedIds[$versionId])) {
+                throw new \InvalidArgumentException('Список удаляемых версий содержит дубликат.');
+            }
+            $normalizedIds[$versionId] = true;
+        }
+        $actor = $this->normalizeActor($actor);
+
+        return $this->mutate(
+            $presetId,
+            $expectedRegistryRevision,
+            $presetName,
+            $legacyWorkspace,
+            $actor,
+            function (array $state) use ($presetId, $normalizedIds, $actor): array {
+                $activeVersionId = is_string($state['activeVersionId'] ?? null)
+                    ? (string)$state['activeVersionId']
+                    : null;
+                $runtime = $this->runtimePublicationMeta($presetId);
+                $runtimeVersionId = is_array($runtime) && is_string($runtime['versionId'] ?? null)
+                    ? (string)$runtime['versionId']
+                    : null;
+                if ($activeVersionId === null
+                    || $runtimeVersionId === null
+                    || !hash_equals($activeVersionId, $runtimeVersionId)) {
+                    throw new \RuntimeException(
+                        'Активная версия в реестре и публичном runtime не совпадает. Удаление остановлено.',
+                        409
+                    );
+                }
+                $activeRow = $this->findVersion($state, $activeVersionId);
+                $registryContentHash = (string)($activeRow['contentHash'] ?? '');
+                $runtimeContentHash = (string)($runtime['contentHash'] ?? '');
+                if (preg_match('/^[a-f0-9]{64}$/D', $registryContentHash) !== 1
+                    || preg_match('/^[a-f0-9]{64}$/D', $runtimeContentHash) !== 1
+                    || !hash_equals($registryContentHash, $runtimeContentHash)) {
+                    throw new \RuntimeException(
+                        'Hash активного полного bundle в реестре и публичном runtime не совпадает. Удаление остановлено.',
+                        409
+                    );
+                }
+                foreach (array_keys($normalizedIds) as $versionId) {
+                    $row = $this->findVersion($state, $versionId);
+                    if (hash_equals($activeVersionId, $versionId)) {
+                        throw new \InvalidArgumentException('Активную версию нельзя удалить.');
+                    }
+                    if (!in_array(
+                        (string)($row['status'] ?? ''),
+                        [self::STATUS_PUBLISHED, self::STATUS_ARCHIVED],
+                        true
+                    )) {
+                        throw new \InvalidArgumentException(
+                            'Постоянно удалить можно только неактивную опубликованную или архивную версию.'
+                        );
+                    }
+                }
+                if (count($state['versions']) <= count($normalizedIds)) {
+                    throw new \InvalidArgumentException('Нельзя удалить все версии калькулятора.');
+                }
+                foreach (array_keys($normalizedIds) as $versionId) {
+                    $this->deleteVersionDocuments($presetId, $versionId);
+                    if ($this->versionDocumentsExist($presetId, $versionId)) {
+                        throw new \RuntimeException(
+                            'Не удалось подтвердить удаление документов версии ' . $versionId . '.',
+                            409
+                        );
+                    }
+                }
+                $state['versions'] = array_values(array_filter(
+                    $state['versions'],
+                    static fn(array $row): bool => !isset($normalizedIds[(string)($row['versionId'] ?? '')])
+                ));
+                foreach ($state['versions'] as &$row) {
+                    $baseId = is_string($row['basedOnVersionId'] ?? null)
+                        ? (string)$row['basedOnVersionId']
+                        : null;
+                    if ($baseId !== null && isset($normalizedIds[$baseId])) {
+                        $row['basedOnVersionId'] = null;
+                        $row['updatedAt'] = $this->now();
+                        $row['updatedBy'] = $actor;
+                    }
+                }
+                unset($row);
+                return $state;
+            }
+        );
+    }
+
     /** @return array<string,mixed> */
     public function archivePublished(
         int $presetId,
@@ -735,6 +850,35 @@ final class CalculatorVersionRegistryService
             throw new \RuntimeException('Полный снимок версии требует пересборки перед публикацией.', 409);
         }
         return is_array($bundle) ? $bundle : null;
+    }
+
+    /** @return array<string,mixed>|null */
+    private function runtimePublicationMeta(int $presetId): ?array
+    {
+        if (isset($this->adapters['runtime_meta'])) {
+            $runtime = call_user_func($this->adapters['runtime_meta'], $presetId);
+            return is_array($runtime) ? $runtime : null;
+        }
+        return (new CalculatorVersionRuntimePublicationService())->resolve($presetId);
+    }
+
+    private function deleteVersionDocuments(int $presetId, string $versionId): void
+    {
+        if (isset($this->adapters['delete_version_documents'])) {
+            call_user_func($this->adapters['delete_version_documents'], $presetId, $versionId);
+            return;
+        }
+        (new CalculatorVersionFormDocumentService())->delete($presetId, $versionId);
+        (new CalculatorVersionBundleDocumentService())->delete($presetId, $versionId);
+    }
+
+    private function versionDocumentsExist(int $presetId, string $versionId): bool
+    {
+        if (isset($this->adapters['version_documents_exist'])) {
+            return (bool)call_user_func($this->adapters['version_documents_exist'], $presetId, $versionId);
+        }
+        return (new CalculatorVersionFormDocumentService())->has($presetId, $versionId)
+            || (new CalculatorVersionBundleDocumentService())->has($presetId, $versionId);
     }
 
     private function assertPresetId(int $presetId): void
