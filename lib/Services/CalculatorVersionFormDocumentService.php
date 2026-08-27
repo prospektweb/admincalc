@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace Prospektweb\Calc\Services;
 
-use Bitrix\Main\Config\Option;
+require_once __DIR__ . '/BitrixTransactionStateAuthority.php';
+
+use Bitrix\Main\Application;
+
+require_once __DIR__ . '/BitrixTransactionStateAuthority.php';
 
 /** Isolated editable form documents owned by calculator version ids. */
 final class CalculatorVersionFormDocumentService
@@ -36,6 +40,31 @@ final class CalculatorVersionFormDocumentService
         ?string $sourceVersionId,
         array $legacyWorkspace,
         bool $seedEmptyDraft = false
+    ): array {
+        return $this->withLock($presetId, function () use (
+            $presetId,
+            $versionId,
+            $sourceVersionId,
+            $legacyWorkspace,
+            $seedEmptyDraft
+        ): array {
+            return $this->ensureLocked(
+                $presetId,
+                $versionId,
+                $sourceVersionId,
+                $legacyWorkspace,
+                $seedEmptyDraft
+            );
+        });
+    }
+
+    /** @return array<string,mixed> */
+    private function ensureLocked(
+        int $presetId,
+        string $versionId,
+        ?string $sourceVersionId,
+        array $legacyWorkspace,
+        bool $seedEmptyDraft
     ): array {
         $this->assertIdentity($presetId, $versionId);
         $stored = $this->load($presetId, $versionId);
@@ -80,6 +109,31 @@ final class CalculatorVersionFormDocumentService
         array $formDefinition,
         array $bindingDefinition
     ): array {
+        return $this->withLock($presetId, function () use (
+            $presetId,
+            $versionId,
+            $expectedRevision,
+            $formDefinition,
+            $bindingDefinition
+        ): array {
+            return $this->saveDraftLocked(
+                $presetId,
+                $versionId,
+                $expectedRevision,
+                $formDefinition,
+                $bindingDefinition
+            );
+        });
+    }
+
+    /** @return array<string,mixed> */
+    private function saveDraftLocked(
+        int $presetId,
+        string $versionId,
+        string $expectedRevision,
+        array $formDefinition,
+        array $bindingDefinition
+    ): array {
         $this->assertIdentity($presetId, $versionId);
         $this->assertRevision($expectedRevision);
         $current = $this->load($presetId, $versionId);
@@ -100,19 +154,15 @@ final class CalculatorVersionFormDocumentService
     public function delete(int $presetId, string $versionId): void
     {
         $this->assertIdentity($presetId, $versionId);
-        if (isset($this->adapters['delete'])) {
-            call_user_func($this->adapters['delete'], $this->optionName($presetId, $versionId));
-            return;
-        }
-        Option::delete(self::MODULE_ID, ['name' => $this->optionName($presetId, $versionId)]);
+        $this->withLock($presetId, function () use ($presetId, $versionId): void {
+            $this->rawDelete($this->optionName($presetId, $versionId));
+        });
     }
 
     /** @return array<string,mixed>|null */
     private function load(int $presetId, string $versionId): ?array
     {
-        $raw = isset($this->adapters['get'])
-            ? (string)call_user_func($this->adapters['get'], $this->optionName($presetId, $versionId))
-            : (string)Option::get(self::MODULE_ID, $this->optionName($presetId, $versionId), '');
+        $raw = $this->rawGet($this->optionName($presetId, $versionId));
         if ($raw === '') {
             return null;
         }
@@ -137,11 +187,7 @@ final class CalculatorVersionFormDocumentService
             throw new \InvalidArgumentException('Документ формы версии превышает безопасный лимит 2 МБ.');
         }
         $name = $this->optionName((int)$document['presetId'], (string)$document['versionId']);
-        if (isset($this->adapters['set'])) {
-            call_user_func($this->adapters['set'], $name, $encoded);
-        } else {
-            Option::set(self::MODULE_ID, $name, $encoded);
-        }
+        $this->rawSet($name, $encoded);
         $readBack = $this->load((int)$document['presetId'], (string)$document['versionId']);
         if ($readBack === null || !hash_equals($this->revision($document), $this->revision($readBack))) {
             throw new \RuntimeException('Не удалось подтвердить сохранение документа формы версии.');
@@ -210,6 +256,131 @@ final class CalculatorVersionFormDocumentService
         $encoded = json_encode($canonicalize($value), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if (!is_string($encoded)) throw new \RuntimeException('Не удалось сериализовать документ формы версии.');
         return $encoded;
+    }
+
+    private function rawGet(string $name): string
+    {
+        if (isset($this->adapters['get'])) {
+            return (string)call_user_func($this->adapters['get'], $name);
+        }
+        $connection = Application::getConnection();
+        $helper = $connection->getSqlHelper();
+        $sql = "SELECT VALUE FROM b_option WHERE BINARY MODULE_ID='"
+            . $helper->forSql(self::MODULE_ID)
+            . "' AND BINARY NAME='" . $helper->forSql($name)
+            . "' AND SITE_ID IS NULL";
+        if (BitrixTransactionStateAuthority::isActive($connection)) {
+            $sql .= ' FOR UPDATE';
+        }
+        $rows = [];
+        $result = $connection->query($sql);
+        while (is_array($row = $result->fetch())) {
+            $rows[] = $row;
+            if (count($rows) > 1) break;
+        }
+        if (count($rows) > 1) {
+            throw new \RuntimeException('Хранилище формы версии содержит дублирующий параметр.', 409);
+        }
+        return count($rows) === 1 ? (string)($rows[0]['VALUE'] ?? '') : '';
+    }
+
+    private function rawSet(string $name, string $value): void
+    {
+        if (isset($this->adapters['set'])) {
+            call_user_func($this->adapters['set'], $name, $value);
+            return;
+        }
+        $connection = Application::getConnection();
+        if (!BitrixTransactionStateAuthority::isActive($connection)) {
+            throw new \RuntimeException('Документ формы версии можно менять только в транзакции.', 409);
+        }
+        $helper = $connection->getSqlHelper();
+        $moduleSql = $helper->forSql(self::MODULE_ID);
+        $nameSql = $helper->forSql($name);
+        $valueSql = $helper->forSql($value);
+        if ($this->rawGet($name) === '') {
+            $connection->queryExecute(
+                "INSERT INTO b_option (MODULE_ID, NAME, VALUE, DESCRIPTION, SITE_ID) VALUES ('"
+                . $moduleSql . "','" . $nameSql . "','" . $valueSql . "','',NULL)"
+            );
+        } else {
+            $connection->queryExecute(
+                "UPDATE b_option SET VALUE='" . $valueSql
+                . "' WHERE BINARY MODULE_ID='" . $moduleSql
+                . "' AND BINARY NAME='" . $nameSql . "' AND SITE_ID IS NULL"
+            );
+        }
+        if (!hash_equals($value, $this->rawGet($name))) {
+            throw new \RuntimeException('Не удалось подтвердить сохранение документа формы версии.', 409);
+        }
+    }
+
+    private function rawDelete(string $name): void
+    {
+        if (isset($this->adapters['delete'])) {
+            call_user_func($this->adapters['delete'], $name);
+            return;
+        }
+        $connection = Application::getConnection();
+        if (!BitrixTransactionStateAuthority::isActive($connection)) {
+            throw new \RuntimeException('Документ формы версии можно удалять только в транзакции.', 409);
+        }
+        $helper = $connection->getSqlHelper();
+        $connection->queryExecute(
+            "DELETE FROM b_option WHERE BINARY MODULE_ID='" . $helper->forSql(self::MODULE_ID)
+            . "' AND BINARY NAME='" . $helper->forSql($name) . "' AND SITE_ID IS NULL"
+        );
+        if ($this->rawGet($name) !== '') {
+            throw new \RuntimeException('Не удалось подтвердить удаление документа формы версии.', 409);
+        }
+    }
+
+    /** @template T @param callable():T $callback @return T */
+    private function withLock(int $presetId, callable $callback)
+    {
+        if (isset($this->adapters['lock'])) {
+            return call_user_func($this->adapters['lock'], $presetId, $callback);
+        }
+        // Adapter-backed unit stores do not participate in the Bitrix DB
+        // transaction; their callbacks provide their own deterministic CAS.
+        if (isset($this->adapters['get']) || isset($this->adapters['set']) || isset($this->adapters['delete'])) {
+            return $callback();
+        }
+        $connection = Application::getConnection();
+        $ownsTransaction = !BitrixTransactionStateAuthority::isActive($connection);
+        if ($ownsTransaction) {
+            $connection->startTransaction();
+        }
+        try {
+            $helper = $connection->getSqlHelper();
+            $expectedModules = [self::MODULE_ID, 'prospektweb.frontcalc'];
+            $result = $connection->query(
+                "SELECT ID FROM b_module WHERE BINARY ID IN ('"
+                . implode("','", array_map([$helper, 'forSql'], $expectedModules))
+                . "') ORDER BY BINARY ID FOR UPDATE"
+            );
+            $lockedModules = [];
+            while (is_array($row = $result->fetch())) {
+                $lockedModules[] = (string)($row['ID'] ?? '');
+            }
+            sort($expectedModules, SORT_STRING);
+            if ($lockedModules !== $expectedModules) {
+                throw new \RuntimeException('Строки авторитета модулей калькулятора не найдены точно.', 409);
+            }
+            $result = $callback();
+            if ($ownsTransaction) {
+                $connection->commitTransaction();
+            }
+            return $result;
+        } catch (\Throwable $error) {
+            if ($ownsTransaction) {
+                try {
+                    $connection->rollbackTransaction();
+                } catch (\Throwable $ignored) {
+                }
+            }
+            throw $error;
+        }
     }
 
     private function now(): string

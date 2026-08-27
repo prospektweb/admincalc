@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Prospektweb\Calc\Services;
 
-use Bitrix\Main\Config\Option;
+require_once __DIR__ . '/BitrixTransactionStateAuthority.php';
+
+use Bitrix\Main\Application;
 
 /**
  * Immutable-by-convention component store for one calculator version.
@@ -349,21 +351,86 @@ final class CalculatorVersionBundleDocumentService
 
     private function rawGet(string $name): string
     {
-        return isset($this->adapters['get'])
-            ? (string)call_user_func($this->adapters['get'], $name)
-            : (string)Option::get(self::MODULE_ID, $name, '');
+        if (isset($this->adapters['get'])) {
+            return (string)call_user_func($this->adapters['get'], $name);
+        }
+        $connection = Application::getConnection();
+        $helper = $connection->getSqlHelper();
+        $sql = "SELECT VALUE FROM b_option WHERE BINARY MODULE_ID='"
+            . $helper->forSql(self::MODULE_ID)
+            . "' AND BINARY NAME='" . $helper->forSql($name)
+            . "' AND SITE_ID IS NULL";
+        if (BitrixTransactionStateAuthority::isActive($connection)) {
+            $sql .= ' FOR UPDATE';
+        }
+        $rows = [];
+        $result = $connection->query($sql);
+        while (is_array($row = $result->fetch())) {
+            $rows[] = $row;
+            if (count($rows) > 1) break;
+        }
+        if (count($rows) > 1) {
+            throw new \RuntimeException('Хранилище полного bundle содержит дублирующий параметр.', 409);
+        }
+        return count($rows) === 1 ? (string)($rows[0]['VALUE'] ?? '') : '';
     }
 
     private function rawSet(string $name, string $value): void
     {
-        if (isset($this->adapters['set'])) call_user_func($this->adapters['set'], $name, $value);
-        else Option::set(self::MODULE_ID, $name, $value);
+        if (isset($this->adapters['set'])) {
+            call_user_func($this->adapters['set'], $name, $value);
+            return;
+        }
+        $connection = Application::getConnection();
+        if (!BitrixTransactionStateAuthority::isActive($connection)) {
+            throw new \RuntimeException(
+                'Полный bundle версии можно менять только в общей транзакции версии.',
+                409
+            );
+        }
+        $helper = $connection->getSqlHelper();
+        $moduleSql = $helper->forSql(self::MODULE_ID);
+        $nameSql = $helper->forSql($name);
+        $valueSql = $helper->forSql($value);
+        $current = $this->rawGet($name);
+        if ($current === '') {
+            $connection->queryExecute(
+                "INSERT INTO b_option (MODULE_ID, NAME, VALUE, DESCRIPTION, SITE_ID) VALUES ('"
+                . $moduleSql . "','" . $nameSql . "','" . $valueSql . "','',NULL)"
+            );
+        } else {
+            $connection->queryExecute(
+                "UPDATE b_option SET VALUE='" . $valueSql
+                . "' WHERE BINARY MODULE_ID='" . $moduleSql
+                . "' AND BINARY NAME='" . $nameSql . "' AND SITE_ID IS NULL"
+            );
+        }
+        if (!hash_equals($value, $this->rawGet($name))) {
+            throw new \RuntimeException('Не удалось подтвердить запись полного bundle.', 409);
+        }
     }
 
     private function rawDelete(string $name): void
     {
-        if (isset($this->adapters['delete'])) call_user_func($this->adapters['delete'], $name);
-        else Option::delete(self::MODULE_ID, ['name' => $name]);
+        if (isset($this->adapters['delete'])) {
+            call_user_func($this->adapters['delete'], $name);
+            return;
+        }
+        $connection = Application::getConnection();
+        if (!BitrixTransactionStateAuthority::isActive($connection)) {
+            throw new \RuntimeException(
+                'Полный bundle версии можно удалять только в общей транзакции версии.',
+                409
+            );
+        }
+        $helper = $connection->getSqlHelper();
+        $connection->queryExecute(
+            "DELETE FROM b_option WHERE BINARY MODULE_ID='" . $helper->forSql(self::MODULE_ID)
+            . "' AND BINARY NAME='" . $helper->forSql($name) . "' AND SITE_ID IS NULL"
+        );
+        if ($this->rawGet($name) !== '') {
+            throw new \RuntimeException('Не удалось подтвердить удаление документа версии.', 409);
+        }
     }
 
     private function encodeCanonical($value): string

@@ -19,7 +19,7 @@ use Bitrix\Main\Config\Option;
  */
 final class CalculatorVersionRegistryService
 {
-    public const CONTRACT = 'prospektweb.calc.calculator-versions/v1';
+    public const CONTRACT = 'prospektweb.calc.calculator-versions/v2';
 
     private const MODULE_ID = 'prospektweb.calc';
     private const STORAGE_VERSION = 1;
@@ -48,10 +48,16 @@ final class CalculatorVersionRegistryService
             if ($state === null) {
                 $state = $this->bootstrap($presetId, $presetName, $legacyWorkspace, $actor);
                 $this->saveState($presetId, $state);
-            } elseif ((string)$state['calculatorName'] !== $presetName) {
-                $state['calculatorName'] = $presetName;
-                $state['updatedAt'] = $this->now();
-                $this->saveState($presetId, $state);
+            } else {
+                $migrated = $this->migrateLegacyDraftRows($state);
+                if ((string)$state['calculatorName'] !== $presetName) {
+                    $state['calculatorName'] = $presetName;
+                    $state['updatedAt'] = $this->now();
+                    $migrated = true;
+                }
+                if ($migrated) {
+                    $this->saveState($presetId, $state);
+                }
             }
             return $this->publicWorkspace($state);
         });
@@ -59,6 +65,42 @@ final class CalculatorVersionRegistryService
 
     /** @return array<string,mixed> */
     public function createDraft(
+        int $presetId,
+        string $expectedRegistryRevision,
+        string $name,
+        ?string $basedOnVersionId,
+        string $presetName,
+        array $legacyWorkspace,
+        array $actor
+    ): array {
+        return $this->createVersion(
+            $presetId,
+            $expectedRegistryRevision,
+            $name,
+            $basedOnVersionId,
+            $presetName,
+            $legacyWorkspace,
+            $actor
+        );
+    }
+
+    /**
+     * Run a complete version-document mutation under the same per-calculator
+     * transaction and row lock as the registry CAS. Nested service calls reuse
+     * the transaction through BitrixTransactionStateAuthority.
+     *
+     * @template T
+     * @param callable():T $callback
+     * @return T
+     */
+    public function coordinateVersionMutation(int $presetId, callable $callback)
+    {
+        $this->assertPresetId($presetId);
+        return $this->withLock($presetId, $callback);
+    }
+
+    /** @return array<string,mixed> */
+    public function createVersion(
         int $presetId,
         string $expectedRegistryRevision,
         string $name,
@@ -80,11 +122,16 @@ final class CalculatorVersionRegistryService
                 } elseif (is_string($state['activeVersionId'] ?? null)) {
                     $baseId = (string)$state['activeVersionId'];
                 }
+                $usedNumbers = array_map(
+                    static fn(array $row): int => (int)($row['versionNo'] ?? 0),
+                    $state['versions']
+                );
+                $versionNo = ($usedNumbers ? max($usedNumbers) : 0) + 1;
                 $now = $this->now();
                 $state['versions'][] = [
                     'versionId' => $this->newVersionId(),
-                    'versionNo' => null,
-                    'status' => self::STATUS_DRAFT,
+                    'versionNo' => $versionNo,
+                    'status' => self::STATUS_PUBLISHED,
                     'name' => $name,
                     'basedOnVersionId' => $baseId,
                     'createdAt' => $now,
@@ -148,8 +195,8 @@ final class CalculatorVersionRegistryService
         return $this->mutate($presetId, $expectedRegistryRevision, $presetName, $legacyWorkspace, $actor,
             function (array $state) use ($versionId): array {
                 $index = $this->findVersionIndex($state, $versionId);
-                if (($state['versions'][$index]['status'] ?? null) !== self::STATUS_DRAFT) {
-                    throw new \InvalidArgumentException('Удалить можно только черновик. Опубликованная версия архивируется.');
+                if (($state['activeVersionId'] ?? null) === $versionId) {
+                    throw new \InvalidArgumentException('Активную версию нельзя удалить. Сначала активируйте другую.');
                 }
                 array_splice($state['versions'], $index, 1);
                 return $state;
@@ -216,7 +263,7 @@ final class CalculatorVersionRegistryService
                 }
                 $activeRow = $this->findVersion($state, $activeVersionId);
                 $registryContentHash = (string)($activeRow['contentHash'] ?? '');
-                $runtimeContentHash = (string)($runtime['contentHash'] ?? '');
+                $runtimeContentHash = (string)($runtime['sourceContentHash'] ?? $runtime['contentHash'] ?? '');
                 if (preg_match('/^[a-f0-9]{64}$/D', $registryContentHash) !== 1
                     || preg_match('/^[a-f0-9]{64}$/D', $runtimeContentHash) !== 1
                     || !hash_equals($registryContentHash, $runtimeContentHash)) {
@@ -333,7 +380,7 @@ final class CalculatorVersionRegistryService
             function (array $state) use ($versionId, $legacyPublishedRevision, $legacyCompileHash, $actor): array {
                 $index = $this->findVersionIndex($state, $versionId);
                 if (($state['versions'][$index]['status'] ?? null) !== self::STATUS_DRAFT) {
-                    throw new \InvalidArgumentException('Опубликовать и активировать можно только черновик.');
+                    throw new \InvalidArgumentException('Активировать можно только видимую редактируемую версию.');
                 }
                 $usedNumbers = array_map(
                     static fn(array $row): int => (int)($row['versionNo'] ?? 0),
@@ -395,7 +442,7 @@ final class CalculatorVersionRegistryService
             }
             $index = $this->findVersionIndex($state, $versionId);
             if (($state['versions'][$index]['status'] ?? null) !== self::STATUS_DRAFT) {
-                throw new \InvalidArgumentException('Опубликовать и активировать можно только черновик.');
+                throw new \InvalidArgumentException('Активировать можно только видимую редактируемую версию.');
             }
             $published = call_user_func($publisher);
             if (!is_array($published)) {
@@ -429,11 +476,12 @@ final class CalculatorVersionRegistryService
         });
     }
 
-    /** Reactivate an immutable published version after its stored components were republished to runtime. */
-    public function coordinatedActivatePublished(
+    /** Activate the current editable work of any visible version. */
+    public function coordinatedActivateVersion(
         int $presetId,
         string $expectedRegistryRevision,
         string $versionId,
+        string $expectedContentHash,
         string $presetName,
         array $legacyWorkspace,
         array $actor,
@@ -442,31 +490,48 @@ final class CalculatorVersionRegistryService
         $this->assertPresetId($presetId);
         $this->assertRevision($expectedRegistryRevision);
         $this->assertVersionId($versionId);
+        if (preg_match('/^[a-f0-9]{64}$/D', $expectedContentHash) !== 1) {
+            throw new \InvalidArgumentException('Hash редактируемой версии некорректен.');
+        }
         $actor = $this->normalizeActor($actor);
-        return $this->withLock($presetId, function () use ($presetId, $expectedRegistryRevision, $versionId, $presetName, $legacyWorkspace, $actor, $publisher): array {
+        return $this->withLock($presetId, function () use ($presetId, $expectedRegistryRevision, $versionId, $expectedContentHash, $presetName, $legacyWorkspace, $actor, $publisher): array {
             $state = $this->loadState($presetId) ?? $this->bootstrap($presetId, $presetName, $legacyWorkspace, $actor);
             if (!hash_equals($this->revision($state), $expectedRegistryRevision)) {
                 throw new \RuntimeException('Список версий изменён в другой вкладке. Перезагрузите калькулятор.', 409);
             }
             $index = $this->findVersionIndex($state, $versionId);
             if (($state['versions'][$index]['status'] ?? null) !== self::STATUS_PUBLISHED) {
-                throw new \InvalidArgumentException('Активировать повторно можно только опубликованную версию.');
+                throw new \InvalidArgumentException('Скрытую версию нужно сначала вернуть в список.');
             }
             $bundle = $this->bundleMeta($presetId, $versionId, true);
-            $storedHash = (string)($state['versions'][$index]['contentHash'] ?? '');
-            if ($storedHash === '' || !hash_equals($storedHash, (string)$bundle['contentHash'])) {
-                throw new \RuntimeException('Полный снимок опубликованной версии отсутствует или изменён.', 409);
+            if (!hash_equals($expectedContentHash, (string)$bundle['contentHash'])) {
+                throw new \RuntimeException('Версия изменилась в другой вкладке. Повторите активацию с актуальными данными.', 409);
             }
-            $published = call_user_func($publisher);
+            $result = call_user_func($publisher);
+            $published = is_array($result['published'] ?? null) ? $result['published'] : null;
+            $runtime = is_array($result['runtime'] ?? null) ? $result['runtime'] : null;
             if (!is_array($published)
                 || (int)($published['published']['revision'] ?? 0) <= 0
-                || preg_match('/^[a-f0-9]{64}$/D', (string)($published['published']['compileHash'] ?? '')) !== 1) {
-                throw new \RuntimeException('Сервер не подтвердил повторную публикацию версии.');
+                || preg_match('/^[a-f0-9]{64}$/D', (string)($published['published']['compileHash'] ?? '')) !== 1
+                || !is_array($runtime)
+                || (string)($runtime['versionId'] ?? '') !== $versionId
+                || !hash_equals($expectedContentHash, (string)($runtime['sourceContentHash'] ?? ''))
+                || !is_array($runtime['sourceComponentHashes'] ?? null)) {
+                throw new \RuntimeException('Сервер не подтвердил активацию полного bundle версии.', 409);
             }
             $now = $this->now();
             $state['activeVersionId'] = $versionId;
             $state['versions'][$index]['updatedAt'] = $now;
             $state['versions'][$index]['updatedBy'] = $actor;
+            $state['versions'][$index]['publishedAt'] = $now;
+            $state['versions'][$index]['publishedBy'] = $actor;
+            $state['versions'][$index]['legacyFormRevision'] = (int)$published['published']['revision'];
+            $state['versions'][$index]['legacyCompileHash'] = (string)$published['published']['compileHash'];
+            // Registry deployment metadata tracks the exact editable source
+            // bundle that was activated. The runtime content hash belongs to
+            // the enriched immutable snapshot and intentionally differs.
+            $state['versions'][$index]['contentHash'] = (string)$runtime['sourceContentHash'];
+            $state['versions'][$index]['componentHashes'] = $runtime['sourceComponentHashes'];
             $state['updatedAt'] = $now;
             $this->saveState($presetId, $state);
             return $this->publicWorkspace($state);
@@ -540,11 +605,14 @@ final class CalculatorVersionRegistryService
         }
         $diff = is_array($legacyWorkspace['compile']['diff'] ?? null) ? $legacyWorkspace['compile']['diff'] : [];
         if ($activeVersionId === null || $diff !== []) {
+            $nextVersionNo = $versions === []
+                ? 1
+                : max(array_map(static fn(array $row): int => (int)($row['versionNo'] ?? 0), $versions)) + 1;
             $versions[] = [
                 'versionId' => $this->newVersionId(),
-                'versionNo' => null,
-                'status' => self::STATUS_DRAFT,
-                'name' => $activeVersionId === null ? 'Первичный черновик' : 'Текущий черновик',
+                'versionNo' => $nextVersionNo,
+                'status' => self::STATUS_PUBLISHED,
+                'name' => 'Версия ' . $nextVersionNo,
                 'basedOnVersionId' => $activeVersionId,
                 'createdAt' => $now,
                 'updatedAt' => $now,
@@ -576,23 +644,22 @@ final class CalculatorVersionRegistryService
         $rows = array_values($state['versions']);
         $activeId = is_string($state['activeVersionId'] ?? null) ? $state['activeVersionId'] : null;
         usort($rows, static function (array $left, array $right) use ($activeId): int {
-            $leftDraft = ($left['status'] ?? null) === self::STATUS_DRAFT;
-            $rightDraft = ($right['status'] ?? null) === self::STATUS_DRAFT;
-            if ($leftDraft !== $rightDraft) {
-                return $leftDraft ? -1 : 1;
-            }
             $leftActive = ($left['versionId'] ?? null) === $activeId;
             $rightActive = ($right['versionId'] ?? null) === $activeId;
             if ($leftActive !== $rightActive) {
                 return $leftActive ? -1 : 1;
             }
-            if ($leftDraft && $rightDraft) {
-                return strcmp((string)$right['updatedAt'], (string)$left['updatedAt']);
-            }
             return (int)($right['versionNo'] ?? 0) <=> (int)($left['versionNo'] ?? 0);
         });
         foreach ($rows as &$row) {
             $row['active'] = ($row['versionId'] ?? null) === $activeId;
+            $row['status'] = ($row['status'] ?? null) === self::STATUS_ARCHIVED
+                ? self::STATUS_ARCHIVED
+                : 'VERSION';
+            $row['deployedContentHash'] = $row['contentHash'] ?? null;
+            $row['deployedComponentHashes'] = $row['componentHashes'] ?? null;
+            $row['lastActivatedAt'] = $row['publishedAt'] ?? null;
+            $row['lastActivatedBy'] = $row['publishedBy'] ?? null;
             $bundle = $this->bundleMeta((int)$state['presetId'], (string)$row['versionId'], false);
             $row['snapshotComplete'] = $bundle !== null
                 && ($bundle['readiness']['complete'] ?? true) === true;
@@ -602,23 +669,108 @@ final class CalculatorVersionRegistryService
                 'requiresRebuild' => true,
             ];
             if ($bundle !== null) {
-                $row['contentHash'] = (string)$bundle['contentHash'];
-                $row['componentHashes'] = $bundle['componentHashes'];
+                $row['workContentHash'] = (string)$bundle['contentHash'];
+                $row['workComponentHashes'] = $bundle['componentHashes'];
             } else {
-                $row['contentHash'] = null;
-                $row['componentHashes'] = null;
+                $row['workContentHash'] = null;
+                $row['workComponentHashes'] = null;
             }
+            // Compatibility aliases for clients transitioning from v1. They
+            // now always identify mutable authoring work, never deployment.
+            $row['contentHash'] = $row['workContentHash'];
+            $row['componentHashes'] = $row['workComponentHashes'];
+            $deployedHash = (string)($row['deployedContentHash'] ?? '');
+            $workHash = (string)($row['workContentHash'] ?? '');
+            $row['hasUnactivatedChanges'] = $workHash !== ''
+                && ($deployedHash === '' || !hash_equals($deployedHash, $workHash));
         }
         unset($row);
+
+        $deploymentProblem = null;
+        try {
+            $runtime = $this->runtimePublicationMeta((int)$state['presetId']);
+        } catch (\Throwable $ignored) {
+            $runtime = null;
+            $deploymentProblem = 'bundle_invalid';
+        }
+        if ($runtime === null && $deploymentProblem === null) {
+            $deploymentProblem = 'rebuild_required';
+        }
+        if (is_array($runtime)
+            && ($activeId === null
+                || !is_string($runtime['versionId'] ?? null)
+                || !hash_equals($activeId, (string)$runtime['versionId']))) {
+            $deploymentProblem = 'registry_runtime_mismatch';
+        }
+        if (is_array($runtime) && $deploymentProblem === null && $activeId !== null) {
+            $activeRow = $this->findVersion($state, $activeId);
+            $registryContentHash = (string)($activeRow['contentHash'] ?? '');
+            $runtimeContentHash = (string)($runtime['sourceContentHash'] ?? $runtime['contentHash'] ?? '');
+            $registryComponentHashes = $activeRow['componentHashes'] ?? null;
+            $runtimeComponentHashes = $runtime['sourceComponentHashes'] ?? $runtime['componentHashes'] ?? null;
+            if (preg_match('/^[a-f0-9]{64}$/D', $registryContentHash) !== 1
+                || preg_match('/^[a-f0-9]{64}$/D', $runtimeContentHash) !== 1
+                || !hash_equals($registryContentHash, $runtimeContentHash)
+                || !is_array($registryComponentHashes)
+                || !is_array($runtimeComponentHashes)
+                || $this->encodeCanonical($registryComponentHashes) !== $this->encodeCanonical($runtimeComponentHashes)) {
+                $deploymentProblem = 'registry_runtime_hash_mismatch';
+            }
+        }
+        $activeDeployment = is_array($runtime) ? [
+            'versionId' => (string)($runtime['versionId'] ?? ''),
+            'activationId' => $runtime['activationId'] ?? null,
+            'snapshotVersionId' => $runtime['snapshotVersionId'] ?? null,
+            'contentHash' => (string)($runtime['contentHash'] ?? ''),
+            'sourceContentHash' => (string)($runtime['sourceContentHash'] ?? $runtime['contentHash'] ?? ''),
+            'activatedAt' => $runtime['activatedAt'] ?? null,
+        ] : null;
 
         return [
             'contract' => self::CONTRACT,
             'presetId' => (int)$state['presetId'],
             'calculatorName' => (string)$state['calculatorName'],
             'activeVersionId' => $activeId,
+            'activeDeployment' => $activeDeployment,
+            'deploymentReadiness' => [
+                'ready' => $deploymentProblem === null,
+                'problem' => $deploymentProblem,
+            ],
             'registryRevision' => $this->revision($state),
             'versions' => $rows,
         ];
+    }
+
+    /**
+     * Legacy DRAFT rows become ordinary numbered editable versions. This is a
+     * lossless metadata migration: identifiers, documents and provenance stay
+     * unchanged, and activation state is not inferred.
+     */
+    private function migrateLegacyDraftRows(array &$state): bool
+    {
+        $changed = false;
+        $nextVersionNo = 0;
+        foreach ($state['versions'] as $row) {
+            $nextVersionNo = max($nextVersionNo, (int)($row['versionNo'] ?? 0));
+        }
+        foreach ($state['versions'] as &$row) {
+            if (($row['status'] ?? null) !== self::STATUS_DRAFT) {
+                continue;
+            }
+            $nextVersionNo++;
+            $row['status'] = self::STATUS_PUBLISHED;
+            $row['versionNo'] = $nextVersionNo;
+            if (in_array((string)($row['name'] ?? ''), ['Первичный черновик', 'Текущий черновик'], true)) {
+                $row['name'] = 'Версия ' . $nextVersionNo;
+            }
+            $row['updatedAt'] = $this->now();
+            $changed = true;
+        }
+        unset($row);
+        if ($changed) {
+            $state['updatedAt'] = $this->now();
+        }
+        return $changed;
     }
 
     /** @return array<string,mixed>|null */
@@ -697,7 +849,25 @@ final class CalculatorVersionRegistryService
         if (isset($this->adapters['get'])) {
             return (string)call_user_func($this->adapters['get'], $this->optionName($presetId));
         }
-        return (string)Option::get(self::MODULE_ID, $this->optionName($presetId), '');
+        $connection = Application::getConnection();
+        $helper = $connection->getSqlHelper();
+        $sql = "SELECT VALUE FROM b_option WHERE BINARY MODULE_ID='"
+            . $helper->forSql(self::MODULE_ID)
+            . "' AND BINARY NAME='" . $helper->forSql($this->optionName($presetId))
+            . "' AND SITE_ID IS NULL";
+        if (BitrixTransactionStateAuthority::isActive($connection)) {
+            $sql .= ' FOR UPDATE';
+        }
+        $rows = [];
+        $result = $connection->query($sql);
+        while (is_array($row = $result->fetch())) {
+            $rows[] = $row;
+            if (count($rows) > 1) break;
+        }
+        if (count($rows) > 1) {
+            throw new \RuntimeException('Version registry contains a duplicate option row.', 409);
+        }
+        return count($rows) === 1 ? (string)($rows[0]['VALUE'] ?? '') : '';
     }
 
     private function setRaw(int $presetId, string $raw): void
@@ -706,7 +876,30 @@ final class CalculatorVersionRegistryService
             call_user_func($this->adapters['set'], $this->optionName($presetId), $raw);
             return;
         }
-        Option::set(self::MODULE_ID, $this->optionName($presetId), $raw);
+        $connection = Application::getConnection();
+        if (!BitrixTransactionStateAuthority::isActive($connection)) {
+            Option::set(self::MODULE_ID, $this->optionName($presetId), $raw);
+            return;
+        }
+        $helper = $connection->getSqlHelper();
+        $moduleSql = $helper->forSql(self::MODULE_ID);
+        $nameSql = $helper->forSql($this->optionName($presetId));
+        $rawSql = $helper->forSql($raw);
+        if ($this->getRaw($presetId) === '') {
+            $connection->queryExecute(
+                "INSERT INTO b_option (MODULE_ID, NAME, VALUE, DESCRIPTION, SITE_ID) VALUES ('"
+                . $moduleSql . "','" . $nameSql . "','" . $rawSql . "','',NULL)"
+            );
+        } else {
+            $connection->queryExecute(
+                "UPDATE b_option SET VALUE='" . $rawSql
+                . "' WHERE BINARY MODULE_ID='" . $moduleSql
+                . "' AND BINARY NAME='" . $nameSql . "' AND SITE_ID IS NULL"
+            );
+        }
+        if (!hash_equals($raw, $this->getRaw($presetId))) {
+            throw new \RuntimeException('Version registry write was not confirmed.', 409);
+        }
     }
 
     private function withLock(int $presetId, callable $callback)
@@ -721,11 +914,19 @@ final class CalculatorVersionRegistryService
         }
         try {
             $helper = $connection->getSqlHelper();
-            $module = $connection->query(
-                "SELECT ID FROM b_module WHERE ID='" . $helper->forSql(self::MODULE_ID) . "' FOR UPDATE"
-            )->fetch();
-            if (!is_array($module)) {
-                throw new \RuntimeException('Строка авторитета модуля калькулятора не найдена.', 409);
+            $expectedModules = [self::MODULE_ID, 'prospektweb.frontcalc'];
+            $result = $connection->query(
+                "SELECT ID FROM b_module WHERE BINARY ID IN ('"
+                . implode("','", array_map([$helper, 'forSql'], $expectedModules))
+                . "') ORDER BY BINARY ID FOR UPDATE"
+            );
+            $lockedModules = [];
+            while (is_array($row = $result->fetch())) {
+                $lockedModules[] = (string)($row['ID'] ?? '');
+            }
+            sort($expectedModules, SORT_STRING);
+            if ($lockedModules !== $expectedModules) {
+                throw new \RuntimeException('Строки авторитета модулей калькулятора не найдены точно.', 409);
             }
             $result = $callback();
             if ($ownsTransaction) {
@@ -858,6 +1059,9 @@ final class CalculatorVersionRegistryService
         if (isset($this->adapters['runtime_meta'])) {
             $runtime = call_user_func($this->adapters['runtime_meta'], $presetId);
             return is_array($runtime) ? $runtime : null;
+        }
+        if (!class_exists(CalculatorVersionRuntimePublicationService::class)) {
+            return null;
         }
         return (new CalculatorVersionRuntimePublicationService())->resolve($presetId);
     }

@@ -208,6 +208,11 @@ $versionState = static function (int $presetId, string $versionId) use ($version
     }
     throw new \InvalidArgumentException('Версия калькулятора не найдена.');
 };
+$assertVersionEditable = static function (array $state): void {
+    if (($state['row']['status'] ?? null) === 'ARCHIVED') {
+        throw new \InvalidArgumentException('Скрытая версия доступна только для просмотра. Верните её в список перед изменением.');
+    }
+};
 $versionFormWorkspace = static function (
     int $presetId,
     string $versionId,
@@ -215,17 +220,20 @@ $versionFormWorkspace = static function (
 ) use ($service, $versionForms, $versionState): array {
     $state = $versionState($presetId, $versionId);
     $legacy = $state['context']['legacy'];
-    if (($state['row']['status'] ?? null) !== 'DRAFT'
-        && !$versionForms->has($presetId, $versionId)
+    $isEditable = ($state['row']['status'] ?? null) !== 'ARCHIVED';
+    if (!$versionForms->has($presetId, $versionId)
         && (array)($legacy['compile']['diff'] ?? []) !== []) {
-        throw new \RuntimeException('У перенесённой опубликованной версии сохранился исполняемый снимок, но её исходная форма недоступна для точного просмотра. Создайте черновик на основе текущего черновика или активируйте новую версию.', 409);
+        throw new \RuntimeException('У перенесённой версии сохранился исполняемый снимок, но её исходная форма недоступна для точного редактирования. Создайте версию на основе версии с полным bundle.', 409);
+    }
+    if (!$isEditable && !$versionForms->has($presetId, $versionId)) {
+        throw new \RuntimeException('У скрытой версии нет точного документа формы для просмотра.', 409);
     }
     $document = $versionForms->ensure(
         $presetId,
         $versionId,
         is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
         $legacy,
-        ($state['row']['status'] ?? null) === 'DRAFT'
+        $isEditable
     );
     $preview = $service->previewFormFirst(
         $presetId,
@@ -988,74 +996,105 @@ try {
     }
 
     if ($action === 'version_create') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'name', 'basedOnVersionId']);
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'name', 'basedOnVersionId', 'expectedContentHash']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
         $name = $request['name'] ?? null;
         $basedOnVersionId = $request['basedOnVersionId'] ?? null;
-        if (!is_string($name) || ($basedOnVersionId !== null && !is_string($basedOnVersionId))) {
-            throw new \InvalidArgumentException('name and optional basedOnVersionId are required');
+        $expectedContentHash = $request['expectedContentHash'] ?? null;
+        if (!is_string($name)
+            || ($basedOnVersionId !== null && !is_string($basedOnVersionId))
+            || ($expectedContentHash !== null && !is_string($expectedContentHash))) {
+            throw new \InvalidArgumentException('name, optional basedOnVersionId and expectedContentHash are required');
         }
-        $context = $versionContext($presetId);
-        $before = $versionRegistry->loadWorkspace(
+        $createdWorkspace = $versionRegistry->coordinateVersionMutation(
             $presetId,
-            $context['presetName'],
-            $context['legacy'],
-            $context['actor']
-        );
-        $beforeIds = array_fill_keys(array_map(static fn(array $row): string => (string)$row['versionId'], $before['versions']), true);
-        if ($basedOnVersionId !== null) {
-            $baseRow = null;
-            foreach ($before['versions'] as $row) {
-                if (($row['versionId'] ?? null) === $basedOnVersionId) {
-                    $baseRow = $row;
-                    break;
+            static function () use (
+                $presetId,
+                $expectedRegistryRevision,
+                $name,
+                $basedOnVersionId,
+                $expectedContentHash,
+                $versionContext,
+                $versionRegistry,
+                $versionForms,
+                $versionBundles,
+                $ensureVersionBundle
+            ): array {
+                $context = $versionContext($presetId);
+                $before = $versionRegistry->loadWorkspace(
+                    $presetId,
+                    $context['presetName'],
+                    $context['legacy'],
+                    $context['actor']
+                );
+                $beforeIds = array_fill_keys(array_map(
+                    static fn(array $row): string => (string)$row['versionId'],
+                    $before['versions']
+                ), true);
+                if ($basedOnVersionId !== null) {
+                    $baseRow = null;
+                    foreach ($before['versions'] as $row) {
+                        if (($row['versionId'] ?? null) === $basedOnVersionId) {
+                            $baseRow = $row;
+                            break;
+                        }
+                    }
+                    if (!is_array($baseRow)) {
+                        throw new \InvalidArgumentException('Исходная версия не найдена.');
+                    }
+                    if (!$versionForms->has($presetId, $basedOnVersionId)
+                        && (array)($context['legacy']['compile']['diff'] ?? []) !== []) {
+                        throw new \InvalidArgumentException('Нельзя точно клонировать перенесённую версию: её исходная форма отсутствует. Выберите версию с полным bundle.');
+                    }
+                    $baseBundle = $versionBundles->load($presetId, $basedOnVersionId);
+                    if ($baseBundle === null
+                        || !is_string($expectedContentHash)
+                        || preg_match('/^[a-f0-9]{64}$/D', $expectedContentHash) !== 1
+                        || !hash_equals((string)$baseBundle['contentHash'], $expectedContentHash)) {
+                        throw new \RuntimeException('Исходная версия изменилась в другой вкладке. Повторите создание версии.', 409);
+                    }
                 }
+                $workspace = $versionRegistry->createVersion(
+                    $presetId,
+                    $expectedRegistryRevision,
+                    $name,
+                    $basedOnVersionId,
+                    $context['presetName'],
+                    $context['legacy'],
+                    $context['actor']
+                );
+                $createdRow = null;
+                foreach ($workspace['versions'] as $row) {
+                    if (!isset($beforeIds[(string)$row['versionId']])) {
+                        $createdRow = $row;
+                        break;
+                    }
+                }
+                if (!is_array($createdRow)) {
+                    throw new \RuntimeException('Сервер не определил созданную версию.');
+                }
+                $createdVersionId = (string)$createdRow['versionId'];
+                $sourceVersionId = is_string($createdRow['basedOnVersionId'] ?? null)
+                    ? $createdRow['basedOnVersionId']
+                    : null;
+                $versionForms->ensure($presetId, $createdVersionId, $sourceVersionId, $context['legacy']);
+                $ensureVersionBundle(
+                    $presetId,
+                    $createdVersionId,
+                    $sourceVersionId,
+                    $context['legacy'],
+                    true
+                );
+                $workspace = $versionRegistry->loadWorkspace(
+                    $presetId,
+                    $context['presetName'],
+                    $context['legacy'],
+                    $context['actor']
+                );
+                $workspace['createdVersionId'] = $createdVersionId;
+                return $workspace;
             }
-            if (is_array($baseRow)
-                && ($baseRow['status'] ?? null) !== 'DRAFT'
-                && !$versionForms->has($presetId, $basedOnVersionId)
-                && (array)($context['legacy']['compile']['diff'] ?? []) !== []) {
-                throw new \InvalidArgumentException('Нельзя точно клонировать перенесённую опубликованную версию: её исходная форма отсутствует. Выберите текущий черновик.');
-            }
-        }
-        $createdWorkspace = $versionRegistry->createDraft(
-            $presetId,
-            $expectedRegistryRevision,
-            $name,
-            $basedOnVersionId,
-            $context['presetName'],
-            $context['legacy'],
-            $context['actor']
-        );
-        $createdRow = null;
-        foreach ($createdWorkspace['versions'] as $row) {
-            if (!isset($beforeIds[(string)$row['versionId']])) {
-                $createdRow = $row;
-                break;
-            }
-        }
-        if (!is_array($createdRow)) {
-            throw new \RuntimeException('Сервер не определил созданный черновик версии.');
-        }
-        $versionForms->ensure(
-            $presetId,
-            (string)$createdRow['versionId'],
-            is_string($createdRow['basedOnVersionId'] ?? null) ? $createdRow['basedOnVersionId'] : null,
-            $context['legacy']
-        );
-        $ensureVersionBundle(
-            $presetId,
-            (string)$createdRow['versionId'],
-            is_string($createdRow['basedOnVersionId'] ?? null) ? $createdRow['basedOnVersionId'] : null,
-            $context['legacy'],
-            true
-        );
-        $createdWorkspace = $versionRegistry->loadWorkspace(
-            $presetId,
-            $context['presetName'],
-            $context['legacy'],
-            $context['actor']
         );
         $respond(200, [
             'success' => true,
@@ -1087,7 +1126,7 @@ try {
         ]);
     }
 
-    if ($action === 'version_delete_draft') {
+    if ($action === 'version_delete' || $action === 'version_delete_draft') {
         $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
@@ -1096,16 +1135,14 @@ try {
             throw new \InvalidArgumentException('versionId is required');
         }
         $context = $versionContext($presetId);
-        $nextWorkspace = $versionRegistry->deleteDraft(
+        $nextWorkspace = $versionRegistry->deleteInactiveVersions(
             $presetId,
             $expectedRegistryRevision,
-            $versionId,
+            [$versionId],
             $context['presetName'],
             $context['legacy'],
             $context['actor']
         );
-        $versionForms->delete($presetId, $versionId);
-        $versionBundles->delete($presetId, $versionId);
         $respond(200, [
             'success' => true,
             'data' => $nextWorkspace,
@@ -1156,19 +1193,31 @@ try {
         if (!is_string($versionId) || !is_string($component)) {
             throw new \InvalidArgumentException('versionId and component are required');
         }
-        $state = $versionState($presetId, $versionId);
-        if (($state['row']['status'] ?? null) === 'DRAFT') {
-            $ensureVersionBundle(
+        $loadedComponent = $versionRegistry->coordinateVersionMutation(
+            $presetId,
+            static function () use (
                 $presetId,
                 $versionId,
-                is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-                $state['context']['legacy'],
-                true
-            );
-        }
+                $component,
+                $versionState,
+                $ensureVersionBundle,
+                $versionComponents
+            ): array {
+                $state = $versionState($presetId, $versionId);
+                $allowRebuild = ($state['row']['status'] ?? null) !== 'ARCHIVED';
+                $ensureVersionBundle(
+                    $presetId,
+                    $versionId,
+                    is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+                    $state['context']['legacy'],
+                    $allowRebuild
+                );
+                return $versionComponents->load($presetId, $versionId, $component);
+            }
+        );
         $respond(200, [
             'success' => true,
-            'data' => $versionComponents->load($presetId, $versionId, $component),
+            'data' => $loadedComponent,
         ]);
     }
 
@@ -1180,21 +1229,35 @@ try {
         if (!is_string($versionId) || !is_array($mapping)) {
             throw new \InvalidArgumentException('versionId and mapping are required');
         }
-        $state = $versionState($presetId, $versionId);
-        $ensureVersionBundle(
+        $validation = $versionRegistry->coordinateVersionMutation(
             $presetId,
-            $versionId,
-            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-            $state['context']['legacy'],
-            ($state['row']['status'] ?? null) === 'DRAFT'
+            static function () use (
+                $presetId,
+                $versionId,
+                $mapping,
+                $versionState,
+                $ensureVersionBundle,
+                $versionComponents
+            ): array {
+                $state = $versionState($presetId, $versionId);
+                $allowRebuild = ($state['row']['status'] ?? null) !== 'ARCHIVED';
+                $ensureVersionBundle(
+                    $presetId,
+                    $versionId,
+                    is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+                    $state['context']['legacy'],
+                    $allowRebuild
+                );
+                return $versionComponents->validateInputMappings($presetId, $versionId, $mapping);
+            }
         );
         $respond(200, [
             'success' => true,
-            'data' => $versionComponents->validateInputMappings($presetId, $versionId, $mapping),
+            'data' => $validation,
         ]);
     }
 
-    if ($action === 'version_component_save_draft') {
+    if ($action === 'version_component_save' || $action === 'version_component_save_draft') {
         $assertAllowedRequestKeys([
             'action', 'sessid', 'presetId', 'versionId', 'component',
             'expectedContentHash', 'expectedComponentHash', 'document',
@@ -1210,29 +1273,46 @@ try {
             || !is_string($expectedContentHash)
             || !is_string($expectedComponentHash)
             || !is_array($document)) {
-            throw new \InvalidArgumentException('Version component draft request is incomplete');
+            throw new \InvalidArgumentException('Version component save request is incomplete');
         }
-        $state = $versionState($presetId, $versionId);
-        if (($state['row']['status'] ?? null) !== 'DRAFT') {
-            throw new \InvalidArgumentException('Изменять можно только компонент черновика версии.');
-        }
-        $ensureVersionBundle(
+        $savedComponent = $versionRegistry->coordinateVersionMutation(
             $presetId,
-            $versionId,
-            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-            $state['context']['legacy'],
-            true
-        );
-        $respond(200, [
-            'success' => true,
-            'data' => $versionComponents->saveDraft(
+            static function () use (
                 $presetId,
                 $versionId,
                 $component,
                 $expectedContentHash,
                 $expectedComponentHash,
-                $document
-            ),
+                $document,
+                $versionState,
+                $assertVersionEditable,
+                $versionRuntimePublications,
+                $ensureVersionBundle,
+                $versionComponents
+            ): array {
+                $state = $versionState($presetId, $versionId);
+                $assertVersionEditable($state);
+                $versionRuntimePublications->freezeLegacyActiveForEditing($presetId, $versionId);
+                $ensureVersionBundle(
+                    $presetId,
+                    $versionId,
+                    is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+                    $state['context']['legacy'],
+                    true
+                );
+                return $versionComponents->saveDraft(
+                    $presetId,
+                    $versionId,
+                    $component,
+                    $expectedContentHash,
+                    $expectedComponentHash,
+                    $document
+                );
+            }
+        );
+        $respond(200, [
+            'success' => true,
+            'data' => $savedComponent,
         ]);
     }
 
@@ -1244,92 +1324,107 @@ try {
         if (!is_string($versionId) || !is_string($mode) || !in_array($mode, ['edit', 'readonly'], true)) {
             throw new \InvalidArgumentException('Version logic launch context is invalid');
         }
-        $state = $versionState($presetId, $versionId);
-        $isDraft = ($state['row']['status'] ?? null) === 'DRAFT';
-        if (($mode === 'edit') !== $isDraft) {
-            throw new \InvalidArgumentException($isDraft
-                ? 'Черновик логики должен открываться в режиме редактирования.'
-                : 'Опубликованная логика доступна только для просмотра.');
-        }
-        $bundle = $ensureVersionBundle(
+        $launch = $versionRegistry->coordinateVersionMutation(
             $presetId,
-            $versionId,
-            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-            $state['context']['legacy'],
-            $isDraft
-        );
-        $logic = $bundle['documents']['logic'];
-        $workingPresetId = (int)($logic['workingPresetId'] ?? 0);
-        $workingVersionId = (string)($logic['workingVersionId'] ?? '');
-        if ($isDraft && ($workingPresetId <= 0 || $workingVersionId !== $versionId)) {
-            $historicalWorkingPresetMissing = $workingPresetId > 0 && !$presetElementExists($workingPresetId);
-            $sourcePresetId = $workingPresetId > 0 && !$historicalWorkingPresetMissing
-                ? $workingPresetId
-                : $presetId;
-            $clone = (new PresetLifecycleMutationService())->duplicatePreset($sourcePresetId);
-            $workingPresetId = (int)($clone['newPresetId'] ?? 0);
-            if ($workingPresetId <= 0) {
-                throw new \RuntimeException('Не удалось создать изолированный граф логики черновика.', 409);
-            }
-            $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
-            if ($historicalWorkingPresetMissing) {
-                $stageOrderPlan = CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan(
-                    $bundle['documents']['logic'],
-                    $logic
-                );
-                $detailHandler = new \Prospektweb\Calc\Services\DetailHandler();
-                foreach ($stageOrderPlan as $order) {
-                    if (($order['alreadyOrdered'] ?? false) === true) continue;
-                    $result = $detailHandler->changeSortStage(
-                        (int)$order['detailId'],
-                        (array)$order['stageIds']
-                    );
-                    if (($result['status'] ?? null) !== 'ok') {
-                        throw new \RuntimeException(
-                            'Не удалось восстановить исторический порядок этапов: '
-                            . (string)($result['message'] ?? 'неизвестная ошибка'),
-                            409
-                        );
-                    }
-                }
-                $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
-                foreach (CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan(
-                    $bundle['documents']['logic'],
-                    $logic
-                ) as $verifiedOrder) {
-                    if (($verifiedOrder['alreadyOrdered'] ?? false) !== true) {
-                        throw new \RuntimeException('Исторический порядок этапов не подтверждён после сохранения.', 409);
-                    }
-                }
-            }
-            $saved = $versionComponents->saveDraft(
+            static function () use (
                 $presetId,
                 $versionId,
-                'logic',
-                (string)$bundle['contentHash'],
-                (string)$bundle['componentHashes']['logic'],
-                $logic
-            );
-            $bundle['contentHash'] = $saved['contentHash'];
-            $bundle['componentHashes']['logic'] = $saved['componentHash'];
-        }
-        if ($workingPresetId <= 0 || ($workingVersionId !== $versionId && !$isDraft)) {
-            throw new \RuntimeException(
-                'У этой исторической версии нет отдельного графа логики для точного просмотра. Создайте черновик на её основе.',
-                409
-            );
-        }
+                $mode,
+                $versionState,
+                $ensureVersionBundle,
+                $versionRuntimePublications,
+                $presetElementExists,
+                $versionSources,
+                $versionComponents
+            ): array {
+                $state = $versionState($presetId, $versionId);
+                $isEditable = ($state['row']['status'] ?? null) !== 'ARCHIVED';
+                if ($mode !== ($isEditable ? 'edit' : 'readonly')) {
+                    throw new \InvalidArgumentException($isEditable
+                        ? 'Версия логики должна открываться в режиме редактирования.'
+                        : 'Скрытая версия логики доступна только для просмотра.');
+                }
+                $bundle = $ensureVersionBundle(
+                    $presetId,
+                    $versionId,
+                    is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+                    $state['context']['legacy'],
+                    $isEditable
+                );
+                $logic = $bundle['documents']['logic'];
+                $workingPresetId = (int)($logic['workingPresetId'] ?? 0);
+                $workingVersionId = (string)($logic['workingVersionId'] ?? '');
+                if ($isEditable && ($workingPresetId <= 0 || $workingVersionId !== $versionId)) {
+                    $versionRuntimePublications->freezeLegacyActiveForEditing($presetId, $versionId);
+                    $historicalWorkingPresetMissing = $workingPresetId > 0 && !$presetElementExists($workingPresetId);
+                    $sourcePresetId = $workingPresetId > 0 && !$historicalWorkingPresetMissing
+                        ? $workingPresetId
+                        : $presetId;
+                    $clone = (new PresetLifecycleMutationService())->duplicatePreset($sourcePresetId);
+                    $workingPresetId = (int)($clone['newPresetId'] ?? 0);
+                    if ($workingPresetId <= 0) {
+                        throw new \RuntimeException('Не удалось создать изолированный граф логики версии.', 409);
+                    }
+                    $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
+                    if ($historicalWorkingPresetMissing) {
+                        $stageOrderPlan = CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan(
+                            $bundle['documents']['logic'],
+                            $logic
+                        );
+                        $detailHandler = new \Prospektweb\Calc\Services\DetailHandler();
+                        foreach ($stageOrderPlan as $order) {
+                            if (($order['alreadyOrdered'] ?? false) === true) continue;
+                            $result = $detailHandler->changeSortStage((int)$order['detailId'], (array)$order['stageIds']);
+                            if (($result['status'] ?? null) !== 'ok') {
+                                throw new \RuntimeException(
+                                    'Не удалось восстановить исторический порядок этапов: '
+                                    . (string)($result['message'] ?? 'неизвестная ошибка'),
+                                    409
+                                );
+                            }
+                        }
+                        $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
+                        foreach (CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan(
+                            $bundle['documents']['logic'],
+                            $logic
+                        ) as $verifiedOrder) {
+                            if (($verifiedOrder['alreadyOrdered'] ?? false) !== true) {
+                                throw new \RuntimeException('Исторический порядок этапов не подтверждён после сохранения.', 409);
+                            }
+                        }
+                    }
+                    $saved = $versionComponents->saveDraft(
+                        $presetId,
+                        $versionId,
+                        'logic',
+                        (string)$bundle['contentHash'],
+                        (string)$bundle['componentHashes']['logic'],
+                        $logic
+                    );
+                    $bundle['contentHash'] = $saved['contentHash'];
+                    $bundle['componentHashes']['logic'] = $saved['componentHash'];
+                    $workingVersionId = $versionId;
+                }
+                if ($workingPresetId <= 0 || ($workingVersionId !== $versionId && !$isEditable)) {
+                    throw new \RuntimeException(
+                        'У этой версии нет отдельного графа логики для точного просмотра. Создайте новую версию на её основе.',
+                        409
+                    );
+                }
+                return [
+                    'presetId' => $presetId,
+                    'focusPresetId' => $workingPresetId,
+                    'presetName' => (string)$state['context']['presetName'],
+                    'versionId' => $versionId,
+                    'mode' => $mode,
+                    'contentHash' => (string)$bundle['contentHash'],
+                    'logicHash' => (string)$bundle['componentHashes']['logic'],
+                ];
+            }
+        );
         $respond(200, [
             'success' => true,
-            'data' => [
-                'presetId' => $presetId,
-                'focusPresetId' => $workingPresetId,
-                'presetName' => (string)$state['context']['presetName'],
-                'versionId' => $versionId,
-                'mode' => $mode,
-                'contentHash' => (string)$bundle['contentHash'],
-                'logicHash' => (string)$bundle['componentHashes']['logic'],
-            ],
+            'data' => $launch,
         ]);
     }
 
@@ -1357,11 +1452,11 @@ try {
         }
 
         $state = $versionState($presetId, $versionId);
-        $isDraft = ($state['row']['status'] ?? null) === 'DRAFT';
-        if (($mode === 'edit') !== $isDraft) {
-            throw new \InvalidArgumentException($isDraft
-                ? 'Черновик логики должен открываться в режиме редактирования.'
-                : 'Опубликованная логика доступна только для просмотра.');
+        $isEditable = ($state['row']['status'] ?? null) !== 'ARCHIVED';
+        if ($mode !== ($isEditable ? 'edit' : 'readonly')) {
+            throw new \InvalidArgumentException($isEditable
+                ? 'Версия логики должна открываться в режиме редактирования.'
+                : 'Скрытая версия логики доступна только для просмотра.');
         }
         $bundle = $versionBundles->load($presetId, $versionId);
         if ($bundle === null
@@ -1431,29 +1526,45 @@ try {
         if (!is_string($versionId) || !is_string($expectedContentHash) || !is_string($expectedLogicHash)) {
             throw new \InvalidArgumentException('Version logic sync context is incomplete');
         }
-        $state = $versionState($presetId, $versionId);
-        if (($state['row']['status'] ?? null) !== 'DRAFT') {
-            throw new \InvalidArgumentException('Синхронизировать можно только логику черновика.');
-        }
-        $current = $versionComponents->load($presetId, $versionId, 'logic');
-        if ((int)($current['document']['workingPresetId'] ?? 0) !== $workingPresetId
-            || (string)($current['document']['workingVersionId'] ?? '') !== $versionId) {
-            throw new \RuntimeException('Редактор логики не принадлежит выбранному черновику.', 409);
-        }
-        $respond(200, [
-            'success' => true,
-            'data' => $versionComponents->saveDraft(
+        $savedLogic = $versionRegistry->coordinateVersionMutation(
+            $presetId,
+            static function () use (
                 $presetId,
                 $versionId,
-                'logic',
+                $workingPresetId,
                 $expectedContentHash,
                 $expectedLogicHash,
-                $versionSources->captureLogic($workingPresetId, $presetId, $versionId)
-            ),
+                $versionState,
+                $assertVersionEditable,
+                $versionRuntimePublications,
+                $versionComponents,
+                $versionSources
+            ): array {
+                $state = $versionState($presetId, $versionId);
+                $assertVersionEditable($state);
+                $versionRuntimePublications->freezeLegacyActiveForEditing($presetId, $versionId);
+                $current = $versionComponents->load($presetId, $versionId, 'logic');
+                if ((int)($current['document']['workingPresetId'] ?? 0) !== $workingPresetId
+                    || (string)($current['document']['workingVersionId'] ?? '') !== $versionId) {
+                    throw new \RuntimeException('Редактор логики не принадлежит выбранной версии.', 409);
+                }
+                return $versionComponents->saveDraft(
+                    $presetId,
+                    $versionId,
+                    'logic',
+                    $expectedContentHash,
+                    $expectedLogicHash,
+                    $versionSources->captureLogic($workingPresetId, $presetId, $versionId)
+                );
+            }
+        );
+        $respond(200, [
+            'success' => true,
+            'data' => $savedLogic,
         ]);
     }
 
-    if ($action === 'version_form_save_draft') {
+    if ($action === 'version_form_save' || $action === 'version_form_save_draft') {
         $assertAllowedRequestKeys([
             'action', 'sessid', 'presetId', 'versionId', 'expectedAggregateRevision',
             'formDefinition', 'bindingDefinition', 'inputMappings', 'expectedInputMappingsHash',
@@ -1466,16 +1577,33 @@ try {
             || !is_array($request['bindingDefinition'] ?? null)) {
             throw new \InvalidArgumentException('versionId, formDefinition and bindingDefinition are required');
         }
+        $savedFormWorkspace = $versionRegistry->coordinateVersionMutation(
+            $presetId,
+            static function () use (
+                $presetId,
+                $versionId,
+                $expectedVersionRevision,
+                $request,
+                $versionState,
+                $assertVersionEditable,
+                $versionRuntimePublications,
+                $service,
+                $versionForms,
+                $ensureVersionBundle,
+                $parseAggregateRevision,
+                $versionComponents,
+                $versionBundles,
+                $versionFormWorkspace
+            ): array {
         $state = $versionState($presetId, $versionId);
-        if (($state['row']['status'] ?? null) !== 'DRAFT') {
-            throw new \InvalidArgumentException('Редактировать можно только черновик версии.');
-        }
+        $assertVersionEditable($state);
+        $versionRuntimePublications->freezeLegacyActiveForEditing($presetId, $versionId);
         $service->previewFormFirst(
             $presetId,
             $request['formDefinition'],
             $request['bindingDefinition']
         );
-        $currentFormDocument = $versionForms->ensure(
+        $versionForms->ensure(
             $presetId,
             $versionId,
             is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
@@ -1528,10 +1656,6 @@ try {
             $components['inputMappings'] = $mappingValidation['mapping'];
         }
         $versionBundles->inspect($components);
-        $previousForm = [
-            'formDefinition' => $currentFormDocument['formDefinition'],
-            'bindingDefinition' => $currentFormDocument['bindingDefinition'],
-        ];
         $savedForm = $versionForms->saveDraft(
             $presetId,
             $versionId,
@@ -1544,46 +1668,30 @@ try {
             'formDefinition' => $savedForm['formDefinition'],
             'bindingDefinition' => $savedForm['bindingDefinition'],
         ];
-        try {
-            $versionBundles->save($presetId, $versionId, $components);
-        } catch (\Throwable $bundleError) {
-            try {
-                $versionForms->saveDraft(
-                    $presetId,
-                    $versionId,
-                    (string)$savedForm['revision'],
-                    is_array($previousForm['formDefinition']) ? $previousForm['formDefinition'] : [],
-                    is_array($previousForm['bindingDefinition']) ? $previousForm['bindingDefinition'] : []
-                );
-            } catch (\Throwable $rollbackError) {
-                throw new \RuntimeException(
-                    'Не удалось сохранить полный снимок версии и автоматически восстановить форму. Перезагрузите редактор.',
-                    500,
-                    $bundleError
-                );
+        // Form and complete bundle share the outer version transaction. Any
+        // write failure rolls both documents back atomically.
+        $versionBundles->save($presetId, $versionId, $components);
+        return $versionFormWorkspace($presetId, $versionId, 'save');
             }
-            throw $bundleError;
-        }
+        );
         $respond(200, [
             'success' => true,
-            'data' => $versionFormWorkspace($presetId, $versionId, 'save_draft'),
+            'data' => $savedFormWorkspace,
         ]);
     }
 
     if ($action === 'version_publish_activate') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId']);
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId', 'expectedContentHash']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
         $versionId = $request['versionId'] ?? null;
-        if (!is_string($versionId)) {
-            throw new \InvalidArgumentException('versionId is required');
+        $expectedContentHash = $request['expectedContentHash'] ?? null;
+        if (!is_string($versionId) || !is_string($expectedContentHash)) {
+            throw new \InvalidArgumentException('versionId and expectedContentHash are required');
         }
         $context = $versionContext($presetId);
         $legacy = $context['legacy'];
         $state = $versionState($presetId, $versionId);
-        if (($state['row']['status'] ?? null) !== 'DRAFT') {
-            throw new \InvalidArgumentException('Опубликовать и активировать можно только черновик версии.');
-        }
         $document = $versionForms->ensure(
             $presetId,
             $versionId,
@@ -1598,17 +1706,30 @@ try {
         if (($preview['coverage']['valid'] ?? false) !== true
             || ($preview['compile']['valid'] ?? false) !== true
             || !is_string($preview['compile']['hash'] ?? null)) {
-            throw new \InvalidArgumentException('Черновик не прошёл проверку формы и связей. Перейдите к исправлению ошибок.');
+            throw new \InvalidArgumentException('Версия не прошла проверку формы и связей. Перейдите к исправлению ошибок.');
         }
-        // The draft already owns every component. Publication validates
+        // The version already owns every component. Activation validates
         // and seals that exact bundle; recapturing shared runtime here would
         // silently discard version-scoped storefront/mapping/product edits.
-        $storedBundle = $ensureVersionBundle(
+        $storedBundle = $versionRegistry->coordinateVersionMutation(
             $presetId,
-            $versionId,
-            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-            $legacy,
-            true
+            static function () use (
+                $presetId,
+                $versionId,
+                $versionState,
+                $ensureVersionBundle
+            ): array {
+                $lockedState = $versionState($presetId, $versionId);
+                return $ensureVersionBundle(
+                    $presetId,
+                    $versionId,
+                    is_string($lockedState['row']['basedOnVersionId'] ?? null)
+                        ? $lockedState['row']['basedOnVersionId']
+                        : null,
+                    $lockedState['context']['legacy'],
+                    true
+                );
+            }
         );
         $versionBundles->inspect($storedBundle['documents']);
         if (($storedBundle['readiness']['complete'] ?? false) !== true) {
@@ -1619,10 +1740,11 @@ try {
         }
         $respond(200, [
             'success' => true,
-            'data' => $versionRegistry->coordinatedPublishAndActivateDraft(
+            'data' => $versionRegistry->coordinatedActivateVersion(
                 $presetId,
                 $expectedRegistryRevision,
                 $versionId,
+                $expectedContentHash,
                 $context['presetName'],
                 $legacy,
                 $context['actor'],
@@ -1663,25 +1785,23 @@ try {
                         (string)$current['aggregateRevision'],
                         (string)$currentPreview['compile']['hash']
                     );
-                    $versionRuntimePublications->activate($presetId, $versionId);
-                    return $published;
+                    $runtime = $versionRuntimePublications->activate($presetId, $versionId);
+                    return ['published' => $published, 'runtime' => $runtime];
                 }
             ),
         ]);
     }
 
     if ($action === 'version_activate') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId']);
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'expectedRegistryRevision', 'versionId', 'expectedContentHash']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $expectedRegistryRevision = $parseAggregateRevision($request['expectedRegistryRevision'] ?? null, 'expectedRegistryRevision');
         $versionId = $request['versionId'] ?? null;
-        if (!is_string($versionId)) {
-            throw new \InvalidArgumentException('versionId is required');
+        $expectedContentHash = $request['expectedContentHash'] ?? null;
+        if (!is_string($versionId) || !is_string($expectedContentHash)) {
+            throw new \InvalidArgumentException('versionId and expectedContentHash are required');
         }
         $state = $versionState($presetId, $versionId);
-        if (($state['row']['status'] ?? null) !== 'PUBLISHED') {
-            throw new \InvalidArgumentException('Повторно активировать можно только опубликованную версию.');
-        }
         $context = $state['context'];
         $legacy = $context['legacy'];
         if (!$versionForms->has($presetId, $versionId)) {
@@ -1707,10 +1827,11 @@ try {
         }
         $respond(200, [
             'success' => true,
-            'data' => $versionRegistry->coordinatedActivatePublished(
+            'data' => $versionRegistry->coordinatedActivateVersion(
                 $presetId,
                 $expectedRegistryRevision,
                 $versionId,
+                $expectedContentHash,
                 $context['presetName'],
                 $legacy,
                 $context['actor'],
@@ -1747,8 +1868,8 @@ try {
                         (string)$current['aggregateRevision'],
                         (string)$currentPreview['compile']['hash']
                     );
-                    $versionRuntimePublications->activate($presetId, $versionId);
-                    return $published;
+                    $runtime = $versionRuntimePublications->activate($presetId, $versionId);
+                    return ['published' => $published, 'runtime' => $runtime];
                 }
             ),
         ]);

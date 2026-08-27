@@ -45,6 +45,7 @@ namespace {
     use Bitrix\Main\Application;
     use Bitrix\Main\DB\MysqliConnection;
     use Prospektweb\Calc\Services\BitrixTransactionStateAuthority;
+    use Prospektweb\Calc\Services\CalculatorVersionBundleDocumentService;
     use Prospektweb\Calc\Services\CalculatorVersionRegistryService;
 
     $assert = static function (bool $condition, string $message): void {
@@ -57,10 +58,14 @@ namespace {
     $actor = ['id' => 1, 'name' => 'admin'];
     $connection = new MysqliConnection();
     Application::setConnection($connection);
+    $registryStorage = [];
     $service = new CalculatorVersionRegistryService([
+        'get' => static fn(string $name): string => (string)($GLOBALS['transaction_registry_storage'][$name] ?? ''),
+        'set' => static function (string $name, string $value): void { $GLOBALS['transaction_registry_storage'][$name] = $value; },
         'id' => static fn(): string => 'v_1111111111111111',
         'now' => static fn(): string => '2026-08-27T12:00:00+05:00',
     ]);
+    $GLOBALS['transaction_registry_storage'] = &$registryStorage;
 
     $service->loadWorkspace(15576, 'Широкоформатная печать', $legacy, $actor);
     $assert(
@@ -68,6 +73,26 @@ namespace {
         'standalone version registry request must own exactly one transaction'
     );
     $assert(BitrixTransactionStateAuthority::level($connection) === 0, 'standalone transaction must close');
+
+    $bundleService = new CalculatorVersionBundleDocumentService();
+    foreach (['rawSet', 'rawDelete'] as $methodName) {
+        $method = new ReflectionMethod(CalculatorVersionBundleDocumentService::class, $methodName);
+        $method->setAccessible(true);
+        try {
+            $arguments = $methodName === 'rawSet'
+                ? ['CALC_VERSION_TEST', '{}']
+                : ['CALC_VERSION_TEST'];
+            $method->invokeArgs($bundleService, $arguments);
+            $assert(false, $methodName . ' must reject a bundle write outside the shared transaction');
+        } catch (ReflectionException $error) {
+            throw $error;
+        } catch (Throwable $error) {
+            $assert(
+                $error instanceof RuntimeException && $error->getCode() === 409,
+                $methodName . ' must fail closed outside the shared transaction'
+            );
+        }
+    }
 
     $connection->startTransaction();
     $connection->clearTransactionEvents();

@@ -98,21 +98,41 @@ $inputMappings = new CalculatorInputMappingService([
         ],
     ],
 ]);
+$formCompileHash = str_repeat('c', 64);
+$legacyFormPublication = [
+    'authoring' => [
+        'formDefinition' => $documents['form']['formDefinition'],
+        'bindingDefinition' => $documents['form']['bindingDefinition'],
+        'publication' => ['revision' => 1, 'compileHash' => $formCompileHash],
+    ],
+    'snapshot' => [
+        'version' => 2,
+        'fields' => [],
+        '_form_first' => ['publishedRevision' => 1, 'compileHash' => $formCompileHash],
+    ],
+];
 $service = new CalculatorVersionRuntimePublicationService($bundles, [
     'get' => static fn(string $name): string => (string)($GLOBALS['runtime_pointer_storage'][$name] ?? ''),
     'set' => static function (string $name, string $value): void { $GLOBALS['runtime_pointer_storage'][$name] = $value; },
+    'lock' => static fn(int $_presetId, callable $callback) => $callback(),
+    'legacy_form_publication' => static fn(int $_presetId): array => $GLOBALS['runtime_form_publication'],
     'now' => static fn(): string => '2026-08-27T09:01:00+05:00',
 ], $inputMappings);
 $GLOBALS['runtime_pointer_storage'] = &$pointerStorage;
+$GLOBALS['runtime_form_publication'] = &$legacyFormPublication;
 $active = $service->activate(12740, 'v_4444444444444444');
 $assert($active['calculatorName'] === 'Листовая печать', 'active pointer must use version metadata name');
 $assert(($active['readiness']['complete'] ?? false) === true, 'active pointer must expose only a complete bundle');
+$assert(preg_match('/^a_[a-f0-9]{32}$/D', (string)($active['activationId'] ?? '')) === 1, 'activation must identify an immutable snapshot');
+$assert(($active['sourceContentHash'] ?? null) !== ($active['contentHash'] ?? null), 'deployment hash must include embedded form runtime');
+$assert(($active['documents']['form']['runtimePublication']['snapshot']['_form_first']['compileHash'] ?? null) === $formCompileHash, 'immutable bundle must contain the exact form runtime');
 $readiness = $service->readiness(12740);
 $assert($readiness['ready'] === true && $readiness['versionId'] === 'v_4444444444444444', 'readiness must pin the exact version');
 
 $invalidPolicyDocuments = $documents;
 $invalidPolicyDocuments['commercialPolicy']['deadlinePolicy']['basic']['urgent']['effortPercent'] = -1;
 $bundles->save(12740, 'v_5555555555555555', $invalidPolicyDocuments);
+$pointerBeforeInvalidActivation = $pointerStorage['CALC_ACTIVE_BUNDLE_12740'];
 $invalidPolicyRejected = false;
 try {
     $service->activate(12740, 'v_5555555555555555');
@@ -121,6 +141,7 @@ try {
         && str_contains($error->getMessage(), 'Исправьте вкладку «Сроки»');
 }
 $assert($invalidPolicyRejected, 'activation must reject an invalid deadline policy with an actionable editor destination');
+$assert($pointerStorage['CALC_ACTIVE_BUNDLE_12740'] === $pointerBeforeInvalidActivation, 'failed activation must preserve the previous public pointer');
 
 $orphanMappingDocuments = $documents;
 $orphanMappingDocuments['inputMappings']['mappings'][] = [
@@ -157,6 +178,50 @@ $assert($invalidLogicRejected, 'activation must reject a logic snapshot that dep
 
 $documents['logic']['changed'] = true;
 $bundles->save(12740, 'v_4444444444444444', $documents);
-$assert($service->readiness(12740)['ready'] === false, 'a mutated bundle must invalidate the active pointer');
+$stillActive = $service->resolve(12740);
+$assert($service->readiness(12740)['ready'] === true, 'editing active work must not invalidate the deployed snapshot');
+$assert(!isset($stillActive['documents']['logic']['changed']), 'runtime must continue reading the immutable activated snapshot');
+
+$reactivated = $service->activate(12740, 'v_4444444444444444');
+$assert(isset($reactivated['documents']['logic']['changed']), 'reactivation must deploy the current working bundle');
+$assert($reactivated['activationId'] !== $active['activationId'], 'changed work must create a distinct activation');
+
+// A legacy v2 pointer remains readable and is upgraded before active work is edited.
+$legacyBundle = $bundles->load(12740, 'v_4444444444444444');
+$legacyPointer = [
+    'contract' => CalculatorVersionRuntimePublicationService::LEGACY_CONTRACT,
+    'presetId' => 12740,
+    'versionId' => 'v_4444444444444444',
+    'calculatorName' => 'Листовая печать',
+    'contentHash' => $legacyBundle['contentHash'],
+    'componentHashes' => $legacyBundle['componentHashes'],
+    'activatedAt' => '2026-08-27T08:59:00+05:00',
+];
+$replacementPointer = $pointerBeforeInvalidActivation;
+$pointerStorage['CALC_ACTIVE_BUNDLE_12740'] = json_encode($legacyPointer, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$interleavingService = new CalculatorVersionRuntimePublicationService($bundles, [
+    'get' => static fn(string $name): string => (string)($GLOBALS['runtime_pointer_storage'][$name] ?? ''),
+    'set' => static function (string $name, string $value): void { $GLOBALS['runtime_pointer_storage'][$name] = $value; },
+    'lock' => static function (int $_presetId, callable $callback) use ($replacementPointer) {
+        // Simulates another request committing pointer B after this request
+        // had already observed legacy pointer A but before it acquired locks.
+        $GLOBALS['runtime_pointer_storage']['CALC_ACTIVE_BUNDLE_12740'] = $replacementPointer;
+        return $callback();
+    },
+    'legacy_form_publication' => static fn(int $_presetId): array => $GLOBALS['runtime_form_publication'],
+    'now' => static fn(): string => '2026-08-27T09:01:00+05:00',
+], $inputMappings);
+$interleavingService->freezeLegacyActiveForEditing(12740, 'v_4444444444444444');
+$assert(
+    $pointerStorage['CALC_ACTIVE_BUNDLE_12740'] === $replacementPointer,
+    'legacy freeze must observe the pointer committed immediately before its lock and never overwrite it'
+);
+$pointerStorage['CALC_ACTIVE_BUNDLE_12740'] = json_encode($legacyPointer, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$service->freezeLegacyActiveForEditing(12740, 'v_4444444444444444');
+$upgraded = json_decode($pointerStorage['CALC_ACTIVE_BUNDLE_12740'], true);
+$assert(($upgraded['contract'] ?? null) === CalculatorVersionRuntimePublicationService::CONTRACT, 'legacy active pointer must upgrade to v3 before editing');
+$resolvedUpgrade = $service->resolve(12740);
+$assert($resolvedUpgrade['sourceContentHash'] === $legacyBundle['contentHash'], 'legacy upgrade must preserve the exact source content hash');
+$assert($resolvedUpgrade['contentHash'] !== $legacyBundle['contentHash'], 'legacy upgrade must enrich the immutable deployment snapshot');
 
 echo "Calculator version runtime publication service tests passed\n";

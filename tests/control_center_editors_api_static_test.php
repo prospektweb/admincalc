@@ -10,6 +10,9 @@ $calculator = (string)file_get_contents($root . '/admin/calculator.php');
 $integration = (string)file_get_contents($root . '/install/assets/js/integration.js');
 $autoload = (string)file_get_contents($root . '/include.php');
 $diagnostic = (string)file_get_contents($root . '/lib/Diagnostic/ModuleDiagnostic.php');
+$registryService = (string)file_get_contents($root . '/lib/Services/CalculatorVersionRegistryService.php');
+$runtimePublicationService = (string)file_get_contents($root . '/lib/Services/CalculatorVersionRuntimePublicationService.php');
+$bundleService = (string)file_get_contents($root . '/lib/Services/CalculatorVersionBundleDocumentService.php');
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) {
@@ -35,13 +38,16 @@ foreach ([
     'version_registry',
     'version_create',
     'version_rename',
+    'version_delete',
     'version_delete_draft',
     'version_archive',
     'version_restore',
     'version_form_load',
     'version_input_mapping_validate',
+    'version_form_save',
     'version_form_save_draft',
     'version_component_load',
+    'version_component_save',
     'version_component_save_draft',
     'version_logic_launch',
     'version_logic_init',
@@ -186,9 +192,65 @@ $assert(
 );
 $assert(
     str_contains($endpoint, "if (\$action === 'version_form_load')")
-        && str_contains($endpoint, "if (\$action === 'version_form_save_draft')")
+        && str_contains($endpoint, "if (\$action === 'version_form_save' || \$action === 'version_form_save_draft')")
         && str_contains($endpoint, 'CalculatorVersionFormDocumentService'),
-    'version drafts own isolated form documents instead of sharing the legacy preset draft'
+    'editable versions own isolated form documents instead of sharing the legacy preset workspace'
+);
+$assert(
+    str_contains($endpoint, '$versionRegistry->coordinateVersionMutation(')
+        && substr_count($endpoint, '$versionRegistry->coordinateVersionMutation(') >= 7
+        && str_contains($endpoint, '$assertVersionEditable($state);'),
+    'form, component and logic mutations must share the exact version transaction and archived guard'
+);
+$componentLoad = strpos($endpoint, "if (\$action === 'version_component_load')");
+$mappingValidate = strpos($endpoint, "if (\$action === 'version_input_mapping_validate')");
+$componentSave = strpos($endpoint, "if (\$action === 'version_component_save'", $mappingValidate ?: 0);
+$componentLoadSource = $componentLoad !== false && $mappingValidate !== false
+    ? substr($endpoint, $componentLoad, $mappingValidate - $componentLoad)
+    : '';
+$mappingValidateSource = $mappingValidate !== false && $componentSave !== false
+    ? substr($endpoint, $mappingValidate, $componentSave - $mappingValidate)
+    : '';
+$assert(
+    str_contains($componentLoadSource, '$versionRegistry->coordinateVersionMutation(')
+        && str_contains($componentLoadSource, '$ensureVersionBundle(')
+        && str_contains($mappingValidateSource, '$versionRegistry->coordinateVersionMutation(')
+        && str_contains($mappingValidateSource, '$ensureVersionBundle(')
+        && substr_count($publicationSource, '$versionRegistry->coordinateVersionMutation(') >= 1
+        && str_contains($publicationSource, '$ensureVersionBundle('),
+    'all endpoint paths that may materialize a version bundle must hold the shared version lock'
+);
+$assert(
+    str_contains($bundleService, 'Полный bundle версии можно менять только в общей транзакции версии.')
+        && str_contains($bundleService, 'Полный bundle версии можно удалять только в общей транзакции версии.')
+        && !str_contains($bundleService, 'Option::set(')
+        && !str_contains($bundleService, 'Option::delete('),
+    'live bundle storage must fail closed instead of mutating b_option outside the shared transaction'
+);
+$assert(
+    str_contains($endpoint, '$versionRegistry->deleteInactiveVersions(')
+        && !str_contains($endpoint, '$nextWorkspace = $versionRegistry->deleteDraft('),
+    'single version deletion must use the safe transactional registry/runtime authority'
+);
+$assert(
+    str_contains($publicationSource, "'expectedContentHash'")
+        && str_contains($publicationSource, '$expectedContentHash = $request[\'expectedContentHash\'] ?? null;')
+        && str_contains($publicationSource, '$expectedContentHash,'),
+    'legacy activation alias must carry the same exact work hash CAS as the current action'
+);
+$assert(
+    str_contains($runtimePublicationService, 'SELECT VALUE FROM b_option WHERE BINARY MODULE_ID=')
+        && str_contains($runtimePublicationService, "AND BINARY NAME='")
+        && str_contains($runtimePublicationService, "ORDER BY BINARY ID FOR UPDATE")
+        && str_contains($bundleService, 'SELECT VALUE FROM b_option WHERE BINARY MODULE_ID=')
+        && str_contains($registryService, 'SELECT VALUE FROM b_option WHERE BINARY MODULE_ID='),
+    'version registry, work bundle and active pointer CAS must bypass Bitrix request-local Option cache under exact SQL authority'
+);
+$assert(
+    str_contains($registryService, "'sourceContentHash' => (string)(\$runtime['sourceContentHash']")
+        && str_contains($registryService, "'deploymentReadiness' => [")
+        && str_contains($registryService, "'registry_runtime_mismatch'"),
+    'registry projection must distinguish immutable deployment hash from source work and fail closed on mismatch'
 );
 $assert(
     str_contains($endpoint, "'inputMappings', 'expectedInputMappingsHash'")
@@ -201,7 +263,7 @@ $assert(
     str_contains($calculator, "\$versionMode = in_array")
         && str_contains($integration, "this.config.versionMode === 'readonly'")
         && str_contains($integration, 'CALCULATOR_VERSION_READ_ONLY'),
-    'published calculation logic is fail-closed against editor mutations'
+    'explicit readonly calculation launches remain fail-closed against editor mutations'
 );
 $assert(
     str_contains($endpoint, 'prepareVersionEditorInitPayloadReadOnly(')
