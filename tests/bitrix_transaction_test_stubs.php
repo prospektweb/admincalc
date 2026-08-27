@@ -100,9 +100,11 @@ namespace Bitrix\Main\DB {
                         : [['ID' => 'prospektweb.calc']];
                 } elseif (str_contains($sql, 'FROM b_option')) {
                     [$moduleId, $name] = $this->optionIdentityFromSql($sql);
-                    $key = $this->optionKey($moduleId, $name, null);
-                    if (isset($this->optionRows[$key])) {
-                        $rows[] = ['VALUE' => $this->optionRows[$key]['VALUE']];
+                    foreach ([null, ''] as $siteId) {
+                        $key = $this->optionKey($moduleId, $name, $siteId);
+                        if (isset($this->optionRows[$key])) {
+                            $rows[] = ['VALUE' => $this->optionRows[$key]['VALUE']];
+                        }
                     }
                 }
                 return new class($rows) {
@@ -123,32 +125,36 @@ namespace Bitrix\Main\DB {
             {
                 $this->queries[] = $sql;
                 if (preg_match(
-                    "/^INSERT INTO b_option .* VALUES \\('((?:''|[^'])*)','((?:''|[^'])*)','((?:''|[^'])*)','',NULL\\)$/s",
+                    "/^INSERT INTO b_option .* VALUES \\('((?:''|[^'])*)','((?:''|[^'])*)','((?:''|[^'])*)',''\\)$/s",
                     $sql,
                     $match
                 ) === 1) {
-                    $this->seedOption($this->unescape($match[1]), $this->unescape($match[2]), $this->unescape($match[3]), null);
+                    $this->seedOption($this->unescape($match[1]), $this->unescape($match[2]), $this->unescape($match[3]), '');
                     return;
                 }
                 if (preg_match(
-                    "/^UPDATE b_option SET VALUE='((?:''|[^'])*)' WHERE BINARY MODULE_ID='((?:''|[^'])*)' AND BINARY NAME='((?:''|[^'])*)' AND SITE_ID IS NULL$/s",
+                    "/^UPDATE b_option SET VALUE='((?:''|[^'])*)' WHERE BINARY MODULE_ID='((?:''|[^'])*)' AND BINARY NAME='((?:''|[^'])*)' AND \\(SITE_ID IS NULL OR SITE_ID=''\\)$/s",
                     $sql,
                     $match
                 ) === 1) {
                     $moduleId = $this->unescape($match[2]);
                     $name = $this->unescape($match[3]);
-                    $key = $this->optionKey($moduleId, $name, null);
-                    if (isset($this->optionRows[$key])) {
-                        $this->optionRows[$key]['VALUE'] = $this->unescape($match[1]);
+                    foreach ([null, ''] as $siteId) {
+                        $key = $this->optionKey($moduleId, $name, $siteId);
+                        if (isset($this->optionRows[$key])) {
+                            $this->optionRows[$key]['VALUE'] = $this->unescape($match[1]);
+                        }
                     }
                     return;
                 }
                 if (preg_match(
-                    "/^DELETE FROM b_option WHERE BINARY MODULE_ID='((?:''|[^'])*)' AND BINARY NAME='((?:''|[^'])*)' AND SITE_ID IS NULL$/s",
+                    "/^DELETE FROM b_option WHERE BINARY MODULE_ID='((?:''|[^'])*)' AND BINARY NAME='((?:''|[^'])*)' AND \\(SITE_ID IS NULL OR SITE_ID=''\\)$/s",
                     $sql,
                     $match
                 ) === 1) {
-                    unset($this->optionRows[$this->optionKey($this->unescape($match[1]), $this->unescape($match[2]), null)]);
+                    foreach ([null, ''] as $siteId) {
+                        unset($this->optionRows[$this->optionKey($this->unescape($match[1]), $this->unescape($match[2]), $siteId)]);
+                    }
                     return;
                 }
                 throw new \RuntimeException('Unsupported test SQL: ' . $sql);

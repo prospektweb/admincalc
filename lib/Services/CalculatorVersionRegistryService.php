@@ -854,7 +854,7 @@ final class CalculatorVersionRegistryService
         $sql = "SELECT VALUE FROM b_option WHERE BINARY MODULE_ID='"
             . $helper->forSql(self::MODULE_ID)
             . "' AND BINARY NAME='" . $helper->forSql($this->optionName($presetId))
-            . "' AND SITE_ID IS NULL";
+            . "' AND (SITE_ID IS NULL OR SITE_ID='')";
         if (BitrixTransactionStateAuthority::isActive($connection)) {
             $sql .= ' FOR UPDATE';
         }
@@ -887,14 +887,14 @@ final class CalculatorVersionRegistryService
         $rawSql = $helper->forSql($raw);
         if ($this->getRaw($presetId) === '') {
             $connection->queryExecute(
-                "INSERT INTO b_option (MODULE_ID, NAME, VALUE, DESCRIPTION, SITE_ID) VALUES ('"
-                . $moduleSql . "','" . $nameSql . "','" . $rawSql . "','',NULL)"
+                "INSERT INTO b_option (MODULE_ID, NAME, VALUE, DESCRIPTION) VALUES ('"
+                . $moduleSql . "','" . $nameSql . "','" . $rawSql . "','')"
             );
         } else {
             $connection->queryExecute(
                 "UPDATE b_option SET VALUE='" . $rawSql
                 . "' WHERE BINARY MODULE_ID='" . $moduleSql
-                . "' AND BINARY NAME='" . $nameSql . "' AND SITE_ID IS NULL"
+                . "' AND BINARY NAME='" . $nameSql . "' AND (SITE_ID IS NULL OR SITE_ID='')"
             );
         }
         if (!hash_equals($raw, $this->getRaw($presetId))) {

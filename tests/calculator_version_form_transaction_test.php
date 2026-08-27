@@ -94,7 +94,7 @@ namespace {
     $connection->seedOption('prospektweb.calc', $formOptionName, 'site-specific-sentinel', 's1');
     $forms->delete($presetId, $versionId);
     $assert(
-        $connection->optionValue('prospektweb.calc', $formOptionName, null) === null,
+        $connection->optionValue('prospektweb.calc', $formOptionName, '') === null,
         'delete must remove the exact default-site form row'
     );
     $assert(
@@ -106,7 +106,7 @@ namespace {
     $assert(
         str_contains($queries, "BINARY MODULE_ID='prospektweb.calc'")
             && str_contains($queries, "BINARY NAME='" . $formOptionName . "'")
-            && str_contains($queries, 'SITE_ID IS NULL')
+            && str_contains($queries, "(SITE_ID IS NULL OR SITE_ID='')")
             && str_contains($queries, 'FOR UPDATE'),
         'form storage must use exact default-site SQL and row locks'
     );

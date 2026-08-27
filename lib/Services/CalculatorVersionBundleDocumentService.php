@@ -359,7 +359,7 @@ final class CalculatorVersionBundleDocumentService
         $sql = "SELECT VALUE FROM b_option WHERE BINARY MODULE_ID='"
             . $helper->forSql(self::MODULE_ID)
             . "' AND BINARY NAME='" . $helper->forSql($name)
-            . "' AND SITE_ID IS NULL";
+            . "' AND (SITE_ID IS NULL OR SITE_ID='')";
         if (BitrixTransactionStateAuthority::isActive($connection)) {
             $sql .= ' FOR UPDATE';
         }
@@ -395,14 +395,14 @@ final class CalculatorVersionBundleDocumentService
         $current = $this->rawGet($name);
         if ($current === '') {
             $connection->queryExecute(
-                "INSERT INTO b_option (MODULE_ID, NAME, VALUE, DESCRIPTION, SITE_ID) VALUES ('"
-                . $moduleSql . "','" . $nameSql . "','" . $valueSql . "','',NULL)"
+                "INSERT INTO b_option (MODULE_ID, NAME, VALUE, DESCRIPTION) VALUES ('"
+                . $moduleSql . "','" . $nameSql . "','" . $valueSql . "','')"
             );
         } else {
             $connection->queryExecute(
                 "UPDATE b_option SET VALUE='" . $valueSql
                 . "' WHERE BINARY MODULE_ID='" . $moduleSql
-                . "' AND BINARY NAME='" . $nameSql . "' AND SITE_ID IS NULL"
+                . "' AND BINARY NAME='" . $nameSql . "' AND (SITE_ID IS NULL OR SITE_ID='')"
             );
         }
         if (!hash_equals($value, $this->rawGet($name))) {
@@ -426,7 +426,7 @@ final class CalculatorVersionBundleDocumentService
         $helper = $connection->getSqlHelper();
         $connection->queryExecute(
             "DELETE FROM b_option WHERE BINARY MODULE_ID='" . $helper->forSql(self::MODULE_ID)
-            . "' AND BINARY NAME='" . $helper->forSql($name) . "' AND SITE_ID IS NULL"
+            . "' AND BINARY NAME='" . $helper->forSql($name) . "' AND (SITE_ID IS NULL OR SITE_ID='')"
         );
         if ($this->rawGet($name) !== '') {
             throw new \RuntimeException('Не удалось подтвердить удаление документа версии.', 409);
