@@ -368,8 +368,10 @@ $assert(
 $assert(
     str_contains($calculator, "\$versionMode === 'readonly'")
         && str_contains($calculator, '\\Prospektweb\\Calc\\Services\\PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX')
-        && str_contains($calculator, "str_starts_with((string)(\$validatedPreset['CODE'] ?? ''), \$expectedWorkingPrefix)"),
-    'the calculator host must allow only the original active preset for snapshots and the exact inactive marker for editing'
+        && str_contains($calculator, "str_starts_with((string)(\$validatedPreset['CODE'] ?? ''), \$expectedWorkingPrefix)")
+        && str_contains($calculator, "if (\$versionId === '' && \$presetIblockId > 0)")
+        && str_contains($calculator, "'Некорректный контекст пресета для редактора калькуляций'"),
+    'the calculator host must validate version identity without an offer/catalog startup dependency'
 );
 $assert(!str_contains($calculator, 'StandaloneCatalogSelectionMapper'), 'calculator launch has no preset/product allowlist');
 $assert(!str_contains($calculator, '=== 12740'), 'calculator launch has no pilot gate');

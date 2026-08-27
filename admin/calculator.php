@@ -109,13 +109,22 @@ $isValidLaunch = Loader::includeModule('iblock')
 
 if ($isValidLaunch && $isStandalonePresetLaunch) {
     $presetIblockId = (int)($configManager->getAllIblockIds()['CALC_PRESETS'] ?? 0);
-    $validatedPreset = $presetIblockId > 0
+    $presetFilter = ['ID' => $standalonePresetId];
+    // A version workspace is already bound by its inactive trusted marker,
+    // original calculator ID and immutable bundle hashes. Do not make editor
+    // startup depend on catalog/offer configuration or an admin-context site
+    // resolver. Ordinary standalone launches still require the configured
+    // presets iblock.
+    if ($versionId === '' && $presetIblockId > 0) {
+        $presetFilter['IBLOCK_ID'] = $presetIblockId;
+    }
+    $validatedPreset = ($versionId !== '' || $presetIblockId > 0)
         ? \CIBlockElement::GetList(
             [],
-            ['ID' => $standalonePresetId, 'IBLOCK_ID' => $presetIblockId],
+            $presetFilter,
             false,
             ['nTopCount' => 1],
-            ['ID', 'CODE', 'ACTIVE']
+            ['ID', 'IBLOCK_ID', 'CODE', 'ACTIVE']
         )->Fetch()
         : false;
     $isValidLaunch = is_array($validatedPreset);
@@ -242,7 +251,9 @@ if ($isValidLaunch && $controlCenterMode && !$isStandalonePresetLaunch) {
 
 if (!$isValidLaunch) {
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php');
-    ShowError('Некорректный набор торговых предложений для редактора калькуляций');
+    ShowError($isStandalonePresetLaunch
+        ? 'Некорректный контекст пресета для редактора калькуляций'
+        : 'Некорректный набор торговых предложений для редактора калькуляций');
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php');
     die();
 }
