@@ -245,8 +245,8 @@ final class CalculatorVersionWorkingGraphRehydrator
             }
             $derived = is_array($mutation['derived'] ?? null) ? $mutation['derived'] : [];
             if (array_key_exists('customFields', $derived)
-                && self::canonical($row['customFields'] ?? null)
-                    !== self::canonical($derived['customFields'])) {
+                && self::canonical(self::normalizeNumericRepresentations($row['customFields'] ?? null))
+                    !== self::canonical(self::normalizeNumericRepresentations($derived['customFields']))) {
                 throw new \RuntimeException(
                     'Rehydrated stage custom-field snapshot differs from the saved version.',
                     409
@@ -924,7 +924,7 @@ final class CalculatorVersionWorkingGraphRehydrator
     /** @return array<string,mixed> */
     private static function presetCatalogInvariant(array $row): array
     {
-        return self::normalizeCatalogInvariantNumbers([
+        return self::normalizeNumericRepresentations([
             'measure' => $row['measure'] ?? null,
             'attributes' => $row['attributes'] ?? null,
             'purchasingPrice' => $row['purchasingPrice'] ?? null,
@@ -935,7 +935,7 @@ final class CalculatorVersionWorkingGraphRehydrator
     }
 
     /** @return mixed */
-    private static function normalizeCatalogInvariantNumbers($value)
+    private static function normalizeNumericRepresentations($value)
     {
         if (is_int($value) || is_float($value)) {
             $number = (float)$value;
@@ -948,7 +948,7 @@ final class CalculatorVersionWorkingGraphRehydrator
             return $value;
         }
         foreach ($value as $key => $child) {
-            $value[$key] = self::normalizeCatalogInvariantNumbers($child);
+            $value[$key] = self::normalizeNumericRepresentations($child);
         }
         return $value;
     }

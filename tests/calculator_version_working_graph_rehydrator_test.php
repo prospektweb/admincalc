@@ -557,6 +557,8 @@ $propertySemanticsMethod = $rehydratorReflection->getMethod('propertySemantics')
 $propertySemanticsMethod->setAccessible(true);
 $normalizeSingleWriteMethod = $rehydratorReflection->getMethod('normalizeSinglePropertyWriteValue');
 $normalizeSingleWriteMethod->setAccessible(true);
+$normalizeNumbersMethod = $rehydratorReflection->getMethod('normalizeNumericRepresentations');
+$normalizeNumbersMethod->setAccessible(true);
 $legacyHtmlProperty = $property('S', 'N', ['TEXT' => '', 'TYPE' => 'TEXT'], 'HTML');
 $bitrixHtmlProperty = $property('S', 'N', ['TEXT' => '', 'TYPE' => 'HTML'], 'HTML');
 $assert(
@@ -576,6 +578,11 @@ $assert(
             ['TEXT' => '{"ok":true}', 'TYPE' => 'TEXT']
         ) !== false,
     'empty single HTML values must be cleared without dropping non-empty JSON'
+);
+$assert(
+    $normalizeNumbersMethod->invoke(null, [['min' => 0, 'max' => 10, 'default' => 2]])
+        === $normalizeNumbersMethod->invoke(null, [['min' => 0.0, 'max' => 10.0, 'default' => 2.0]]),
+    'custom-field numeric JSON and Bitrix double representations must compare semantically'
 );
 
 $catalogDrift = $working;
