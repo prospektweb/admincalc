@@ -36,6 +36,63 @@ namespace Bitrix\Main\DB {
 
         class MysqliConnection extends MysqlCommonConnection
         {
+            /** @var list<string> */
+            private array $transactionEvents = [];
+
+            public function startTransaction(): void
+            {
+                $this->transactionEvents[] = 'start';
+                parent::startTransaction();
+            }
+
+            public function commitTransaction(): void
+            {
+                $this->transactionEvents[] = 'commit';
+                parent::commitTransaction();
+            }
+
+            public function rollbackTransaction(): void
+            {
+                $this->transactionEvents[] = 'rollback';
+                parent::rollbackTransaction();
+            }
+
+            /** @return list<string> */
+            public function transactionEvents(): array
+            {
+                return $this->transactionEvents;
+            }
+
+            public function clearTransactionEvents(): void
+            {
+                $this->transactionEvents = [];
+            }
+
+            public function getSqlHelper(): object
+            {
+                return new class {
+                    public function forSql(string $value): string
+                    {
+                        return str_replace("'", "''", $value);
+                    }
+                };
+            }
+
+            public function query(string $sql): object
+            {
+                return new class($sql) {
+                    public function __construct(private string $sql)
+                    {
+                    }
+
+                    public function fetch(): ?array
+                    {
+                        return str_contains($this->sql, 'FROM b_module')
+                            ? ['ID' => 'prospektweb.calc']
+                            : null;
+                    }
+                };
+            }
         }
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Prospektweb\Calc\Services;
 
+require_once __DIR__ . '/BitrixTransactionStateAuthority.php';
+
 use Bitrix\Main\Application;
 
 /**
@@ -256,8 +258,11 @@ final class PresetMutationCoordinatorService
                 );
             }
 
-            $connection->startTransaction();
-            $transactionStarted = true;
+            $ownsTransaction = !BitrixTransactionStateAuthority::isActive($connection);
+            if ($ownsTransaction) {
+                $connection->startTransaction();
+                $transactionStarted = true;
+            }
             $calculatorAuthority = new CalculatorMutationAuthorityService();
             $envelope = $calculatorAuthority->withAuthorityInTransaction(
                 $connection,
@@ -309,8 +314,10 @@ final class PresetMutationCoordinatorService
                     return $envelope;
                 }
             );
-            $connection->commitTransaction();
-            $transactionStarted = false;
+            if ($ownsTransaction) {
+                $connection->commitTransaction();
+                $transactionStarted = false;
+            }
             return $this->unwrapEnvelope($envelope);
         } catch (\Throwable $error) {
             if ($transactionStarted) {

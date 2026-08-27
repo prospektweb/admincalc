@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Prospektweb\Calc\Services;
 
+require_once __DIR__ . '/BitrixTransactionStateAuthority.php';
+
 use Bitrix\Main\Application;
 use Bitrix\Main\Config\Option;
 
@@ -598,7 +600,10 @@ final class CalculatorVersionRegistryService
             return call_user_func($this->adapters['lock'], $presetId, $callback);
         }
         $connection = Application::getConnection();
-        $connection->startTransaction();
+        $ownsTransaction = !BitrixTransactionStateAuthority::isActive($connection);
+        if ($ownsTransaction) {
+            $connection->startTransaction();
+        }
         try {
             $helper = $connection->getSqlHelper();
             $module = $connection->query(
@@ -608,12 +613,16 @@ final class CalculatorVersionRegistryService
                 throw new \RuntimeException('Строка авторитета модуля калькулятора не найдена.', 409);
             }
             $result = $callback();
-            $connection->commitTransaction();
+            if ($ownsTransaction) {
+                $connection->commitTransaction();
+            }
             return $result;
         } catch (\Throwable $error) {
-            try {
-                $connection->rollbackTransaction();
-            } catch (\Throwable $ignored) {
+            if ($ownsTransaction) {
+                try {
+                    $connection->rollbackTransaction();
+                } catch (\Throwable $ignored) {
+                }
             }
             throw $error;
         }
