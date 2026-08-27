@@ -91,6 +91,14 @@ $assert(
         && !str_contains($publicationSource, '$versionSources->capture($presetId, $document)'),
     'publication must activate the exact edited version bundle instead of comparing or recapturing shared runtime'
 );
+$assert(
+    substr_count($endpoint, '$current = $service->loadFormFirstWorkspace($presetId);') === 2
+        && substr_count($endpoint, '$currentPreview = $service->previewFormFirst(') === 2
+        && substr_count($endpoint, "(string)\$current['aggregateRevision']") === 2
+        && substr_count($endpoint, "(string)\$currentPreview['compile']['hash']") === 2
+        && !str_contains($endpoint, "(string)\$saved['aggregateRevision']"),
+    'version publication and reactivation must refresh the composite form/dependency authority after legacy save'
+);
 
 $assert(
     str_contains($endpoint, 'assertStorefrontAuthoritativeReadback')

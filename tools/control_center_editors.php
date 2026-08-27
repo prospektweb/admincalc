@@ -1630,21 +1630,38 @@ try {
                     $service,
                     $presetId,
                     $legacy,
-                    $preview,
                     $document,
                     $versionRuntimePublications,
                     $versionId
                 ): array {
-                    $saved = $service->saveFormFirstDraft(
+                    $service->saveFormFirstDraft(
                         $presetId,
                         (string)$legacy['aggregateRevision'],
                         $document['formDefinition'],
                         $document['bindingDefinition']
                     );
+                    // Form/binding changes may legitimately advance the
+                    // dependency fingerprint (for example UI consumers). The
+                    // save result was compiled against the pre-write contract,
+                    // so reload the composite authority before publication.
+                    $current = $service->loadFormFirstWorkspace($presetId);
+                    $currentPreview = $service->previewFormFirst(
+                        $presetId,
+                        $document['formDefinition'],
+                        $document['bindingDefinition']
+                    );
+                    if (($currentPreview['coverage']['valid'] ?? false) !== true
+                        || ($currentPreview['compile']['valid'] ?? false) !== true
+                        || !is_string($currentPreview['compile']['hash'] ?? null)) {
+                        throw new \RuntimeException(
+                            'Публикация остановлена: форма больше не проходит проверку с актуальными зависимостями.',
+                            409
+                        );
+                    }
                     $published = $service->publishFormFirst(
                         $presetId,
-                        (string)$saved['aggregateRevision'],
-                        (string)$preview['compile']['hash']
+                        (string)$current['aggregateRevision'],
+                        (string)$currentPreview['compile']['hash']
                     );
                     $versionRuntimePublications->activate($presetId, $versionId);
                     return $published;
@@ -1701,21 +1718,34 @@ try {
                     $service,
                     $presetId,
                     $legacy,
-                    $preview,
                     $document,
                     $versionRuntimePublications,
                     $versionId
                 ): array {
-                    $saved = $service->saveFormFirstDraft(
+                    $service->saveFormFirstDraft(
                         $presetId,
                         (string)$legacy['aggregateRevision'],
                         $document['formDefinition'],
                         $document['bindingDefinition']
                     );
+                    $current = $service->loadFormFirstWorkspace($presetId);
+                    $currentPreview = $service->previewFormFirst(
+                        $presetId,
+                        $document['formDefinition'],
+                        $document['bindingDefinition']
+                    );
+                    if (($currentPreview['coverage']['valid'] ?? false) !== true
+                        || ($currentPreview['compile']['valid'] ?? false) !== true
+                        || !is_string($currentPreview['compile']['hash'] ?? null)) {
+                        throw new \RuntimeException(
+                            'Активация остановлена: форма больше не проходит проверку с актуальными зависимостями.',
+                            409
+                        );
+                    }
                     $published = $service->publishFormFirst(
                         $presetId,
-                        (string)$saved['aggregateRevision'],
-                        (string)$preview['compile']['hash']
+                        (string)$current['aggregateRevision'],
+                        (string)$currentPreview['compile']['hash']
                     );
                     $versionRuntimePublications->activate($presetId, $versionId);
                     return $published;
