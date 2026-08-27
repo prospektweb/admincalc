@@ -551,6 +551,33 @@ $numericTypeWorking['elements'][0]['data'][0]['prices'] = [[
 ]];
 CalculatorVersionWorkingGraphRehydrator::plan($numericTypeHistorical, $numericTypeWorking, 100);
 
+$rehydratorReflection = new ReflectionClass(CalculatorVersionWorkingGraphRehydrator::class);
+$rehydrator = $rehydratorReflection->newInstanceWithoutConstructor();
+$propertySemanticsMethod = $rehydratorReflection->getMethod('propertySemantics');
+$propertySemanticsMethod->setAccessible(true);
+$normalizeSingleWriteMethod = $rehydratorReflection->getMethod('normalizeSinglePropertyWriteValue');
+$normalizeSingleWriteMethod->setAccessible(true);
+$legacyHtmlProperty = $property('S', 'N', ['TEXT' => '', 'TYPE' => 'TEXT'], 'HTML');
+$bitrixHtmlProperty = $property('S', 'N', ['TEXT' => '', 'TYPE' => 'HTML'], 'HTML');
+$assert(
+    $propertySemanticsMethod->invoke(null, $legacyHtmlProperty)
+        === $propertySemanticsMethod->invoke(null, $bitrixHtmlProperty),
+    'HTML property semantics must ignore Bitrix TEXT-to-HTML storage marker normalization'
+);
+$assert(
+    $normalizeSingleWriteMethod->invoke(
+        $rehydrator,
+        $legacyHtmlProperty,
+        ['TEXT' => '', 'TYPE' => 'TEXT']
+    ) === false
+        && $normalizeSingleWriteMethod->invoke(
+            $rehydrator,
+            $legacyHtmlProperty,
+            ['TEXT' => '{"ok":true}', 'TYPE' => 'TEXT']
+        ) !== false,
+    'empty single HTML values must be cleared without dropping non-empty JSON'
+);
+
 $catalogDrift = $working;
 $catalogDrift['elements'][0]['data'][0]['catalog']['basePrice'] = 999.0;
 $catalogDriftRejected = false;

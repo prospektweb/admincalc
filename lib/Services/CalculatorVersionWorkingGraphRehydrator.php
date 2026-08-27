@@ -338,7 +338,9 @@ final class CalculatorVersionWorkingGraphRehydrator
                     \CIBlockElement::SetPropertyValuesEx($targetId, $iblockId, [$code => $prepared]);
                 }
             } else {
-                \CIBlockElement::SetPropertyValuesEx($targetId, $iblockId, [$code => $prepared]);
+                \CIBlockElement::SetPropertyValuesEx($targetId, $iblockId, [
+                    $code => $this->normalizeSinglePropertyWriteValue($property, $prepared),
+                ]);
             }
         }
         if ($kind === 'preset') {
@@ -498,6 +500,25 @@ final class CalculatorVersionWorkingGraphRehydrator
             return $prepared === [] ? false : $prepared;
         }
         return $prepared[0] ?? false;
+    }
+
+    /** @param mixed $prepared @return mixed */
+    private function normalizeSinglePropertyWriteValue(array $property, $prepared)
+    {
+        if ((string)($property['PROPERTY_TYPE'] ?? '') !== 'S'
+            || (string)($property['USER_TYPE'] ?? '') !== 'HTML') {
+            return $prepared;
+        }
+        $value = (string)($property['WITH_DESCRIPTION'] ?? 'N') === 'Y'
+            && is_array($prepared)
+            ? ($prepared['VALUE'] ?? null)
+            : $prepared;
+        if (is_array($value)
+            && array_key_exists('TEXT', $value)
+            && (string)$value['TEXT'] === '') {
+            return false;
+        }
+        return $prepared;
     }
 
     /** @param array<string,mixed> $logic @return array<string,mixed> */
@@ -1453,9 +1474,10 @@ final class CalculatorVersionWorkingGraphRehydrator
         } elseif ($type === 'S' && (string)($property['USER_TYPE'] ?? '') === 'HTML') {
             $values = array_map(static function ($value): array {
                 $value = is_array($value) ? $value : ['TEXT' => (string)($value ?? ''), 'TYPE' => 'HTML'];
+                $marker = strtoupper((string)($value['TYPE'] ?? 'HTML'));
                 return [
                     'TEXT' => (string)($value['TEXT'] ?? ''),
-                    'TYPE' => strtoupper((string)($value['TYPE'] ?? 'HTML')),
+                    'TYPE' => in_array($marker, ['TEXT', 'HTML'], true) ? 'HTML' : $marker,
                 ];
             }, $values);
         }
