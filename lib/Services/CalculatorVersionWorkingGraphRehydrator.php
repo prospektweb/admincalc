@@ -903,14 +903,33 @@ final class CalculatorVersionWorkingGraphRehydrator
     /** @return array<string,mixed> */
     private static function presetCatalogInvariant(array $row): array
     {
-        return [
+        return self::normalizeCatalogInvariantNumbers([
             'measure' => $row['measure'] ?? null,
             'attributes' => $row['attributes'] ?? null,
             'purchasingPrice' => $row['purchasingPrice'] ?? null,
             'purchasingCurrency' => $row['purchasingCurrency'] ?? null,
             'catalog' => $row['catalog'] ?? null,
             'prices' => is_array($row['prices'] ?? null) ? $row['prices'] : [],
-        ];
+        ]);
+    }
+
+    /** @return mixed */
+    private static function normalizeCatalogInvariantNumbers($value)
+    {
+        if (is_int($value) || is_float($value)) {
+            $number = (float)$value;
+            if (!is_finite($number)) {
+                throw new \RuntimeException('Preset catalog semantics contain a non-finite number.', 409);
+            }
+            return $number;
+        }
+        if (!is_array($value)) {
+            return $value;
+        }
+        foreach ($value as $key => $child) {
+            $value[$key] = self::normalizeCatalogInvariantNumbers($child);
+        }
+        return $value;
     }
 
     /** @return array<string,mixed> */

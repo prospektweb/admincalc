@@ -533,6 +533,24 @@ $assert(
     'stage-shaped external field codes outside the graph must remain byte-stable'
 );
 
+$numericTypeHistorical = $historical;
+$numericTypeWorking = $working;
+$numericTypeHistorical['elements'][0]['data'][0]['attributes'] = ['weight' => 0];
+$numericTypeWorking['elements'][0]['data'][0]['attributes'] = ['weight' => 0.0];
+$numericTypeHistorical['elements'][0]['data'][0]['catalog'] = ['basePrice' => 25];
+$numericTypeWorking['elements'][0]['data'][0]['catalog'] = ['basePrice' => 25.0];
+$numericTypeHistorical['elements'][0]['data'][0]['prices'] = [[
+    'typeId' => 1,
+    'price' => 25,
+    'currency' => 'MRG',
+]];
+$numericTypeWorking['elements'][0]['data'][0]['prices'] = [[
+    'typeId' => 1.0,
+    'price' => 25.0,
+    'currency' => 'MRG',
+]];
+CalculatorVersionWorkingGraphRehydrator::plan($numericTypeHistorical, $numericTypeWorking, 100);
+
 $catalogDrift = $working;
 $catalogDrift['elements'][0]['data'][0]['catalog']['basePrice'] = 999.0;
 $catalogDriftRejected = false;
