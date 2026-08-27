@@ -32,8 +32,19 @@ $versionId = 'v_3333333333333333';
 $documents = [
     'form' => [
         'contract' => CalculatorVersionFormDocumentService::CONTRACT,
-        'formDefinition' => ['contract' => 'prospektweb.frontcalc.form-definition/v1'],
-        'bindingDefinition' => ['contract' => 'prospektweb.frontcalc.binding-definition/v1'],
+        'formDefinition' => [
+            'contract' => 'prospektweb.frontcalc.form-definition/v1',
+            'fields' => [[
+                'fieldId' => 'format',
+                'type' => 'dimensions',
+                'options' => [],
+                'dimensionInputs' => [['id' => 'width'], ['id' => 'length']],
+            ]],
+        ],
+        'bindingDefinition' => [
+            'contract' => 'prospektweb.frontcalc.binding-definition/v1',
+            'bindings' => [['fieldId' => 'format', 'valueMode' => 'dimensions']],
+        ],
     ],
     'logic' => [
         'contract' => CalculatorVersionSnapshotSourceService::LOGIC_CONTRACT,
@@ -61,7 +72,8 @@ $documents = [
     ],
     'inputMappings' => [
         'contract' => CalculatorInputMappingService::CONTRACT,
-        'presetId' => $presetId,
+        'preset_id' => $presetId,
+        'revision' => 0,
         'mappings' => [],
     ],
     'outputMappings' => [
@@ -82,7 +94,68 @@ $documents = [
     'commercialPolicy' => CalculatorVersionSnapshotSourceService::defaultCommercialPolicy($presetId),
 ];
 $initial = $bundles->save($presetId, $versionId, $documents);
-$service = new CalculatorVersionComponentDocumentService($bundles);
+$inputMappings = new CalculatorInputMappingService([
+    'source_authority' => static fn(int $requestedPresetId): array => [
+        'product_iblock_id' => 14,
+        'offer_iblock_id' => 15,
+        'properties' => [
+            'product' => [],
+            'selected_offer' => [
+                15 => [
+                    902 => [
+                        'scope' => 'selected_offer',
+                        'code' => 'CALC_PROP_FORMAT',
+                        'active' => true,
+                        'property_type' => 'L',
+                        'multiple' => false,
+                        'enum_xml_ids' => ['210x297'],
+                    ],
+                ],
+            ],
+        ],
+    ],
+]);
+$service = new CalculatorVersionComponentDocumentService($bundles, $inputMappings);
+$inputLoaded = $service->load($presetId, $versionId, 'inputMappings');
+$inputCandidate = $inputLoaded['document'];
+$inputCandidate['mappings'][] = [
+    'target' => ['field_id' => 'format'],
+    'source' => [
+        'scope' => 'selected_offer',
+        'iblock_id' => 15,
+        'property_id' => 902,
+        'property_code' => 'CALC_PROP_FORMAT',
+    ],
+    'value_mode' => 'dimension_xml_id',
+    'source_value' => 'xml_id',
+];
+$inputSaved = $service->saveDraft(
+    $presetId,
+    $versionId,
+    'inputMappings',
+    $inputLoaded['contentHash'],
+    $inputLoaded['componentHash'],
+    $inputCandidate
+);
+$assert(count($inputSaved['document']['mappings']) === 1, 'version input mapping was not saved against its bundle form');
+$invalidInput = $inputSaved['document'];
+$invalidInput['mappings'][0]['target']['field_id'] = 'missing-field';
+$invalidInputRejected = false;
+try {
+    $service->saveDraft(
+        $presetId,
+        $versionId,
+        'inputMappings',
+        $inputSaved['contentHash'],
+        $inputSaved['componentHash'],
+        $invalidInput
+    );
+} catch (InvalidArgumentException $error) {
+    $invalidInputRejected = true;
+}
+$assert($invalidInputRejected, 'version input mapping must reject a target absent from the same bundle form');
+$componentBaseline = $bundles->load($presetId, $versionId);
+$assert(is_array($componentBaseline), 'component baseline disappeared');
 $loaded = $service->load($presetId, $versionId, 'storefronts');
 $assert($loaded['document'] == $documents['storefronts'], 'selected component readback mismatch');
 
@@ -102,7 +175,7 @@ $assert(is_array($after), 'bundle disappeared after component save');
 foreach (CalculatorVersionBundleDocumentService::COMPONENTS as $component) {
     if ($component === 'storefronts') continue;
     $assert(
-        $after['componentHashes'][$component] === $initial['componentHashes'][$component],
+        $after['componentHashes'][$component] === $componentBaseline['componentHashes'][$component],
         'saving one component changed ' . $component
     );
 }

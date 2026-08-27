@@ -25,10 +25,15 @@ final class CalculatorVersionComponentDocumentService
     ];
 
     private CalculatorVersionBundleDocumentService $bundles;
+    private CalculatorInputMappingService $inputMappings;
 
-    public function __construct(?CalculatorVersionBundleDocumentService $bundles = null)
+    public function __construct(
+        ?CalculatorVersionBundleDocumentService $bundles = null,
+        ?CalculatorInputMappingService $inputMappings = null
+    )
     {
         $this->bundles = $bundles ?? new CalculatorVersionBundleDocumentService();
+        $this->inputMappings = $inputMappings ?? new CalculatorInputMappingService();
     }
 
     /** @return array<string,mixed> */
@@ -65,11 +70,39 @@ final class CalculatorVersionComponentDocumentService
                 409
             );
         }
+        if ($component === 'inputMappings') {
+            $validation = $this->inputMappings->validateAgainstFormDocument(
+                $presetId,
+                $document,
+                is_array($bundle['documents']['form'] ?? null) ? $bundle['documents']['form'] : []
+            );
+            $document = $validation['mapping'];
+        }
         $this->assertDocument($presetId, $component, $document, $bundle['documents']);
         $components = $bundle['documents'];
         $components[$component] = $document;
         $saved = $this->bundles->save($presetId, $versionId, $components);
         return $this->response($saved, $component);
+    }
+
+    /** @param array<string,mixed> $document @return array<string,mixed> */
+    public function validateInputMappings(
+        int $presetId,
+        string $versionId,
+        array $document,
+        ?array $prospectiveFormDocument = null
+    ): array
+    {
+        $bundle = $this->bundles->load($presetId, $versionId);
+        if ($bundle === null) {
+            throw new \RuntimeException('Полный снимок выбранной версии отсутствует.', 409);
+        }
+        return $this->inputMappings->validateAgainstFormDocument(
+            $presetId,
+            $document,
+            $prospectiveFormDocument
+                ?? (is_array($bundle['documents']['form'] ?? null) ? $bundle['documents']['form'] : [])
+        );
     }
 
     /** @param array<string,mixed> $bundle @return array<string,mixed> */

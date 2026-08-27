@@ -39,6 +39,7 @@ foreach ([
     'version_archive',
     'version_restore',
     'version_form_load',
+    'version_input_mapping_validate',
     'version_form_save_draft',
     'version_component_load',
     'version_component_save_draft',
@@ -180,6 +181,13 @@ $assert(
         && str_contains($endpoint, "if (\$action === 'version_form_save_draft')")
         && str_contains($endpoint, 'CalculatorVersionFormDocumentService'),
     'version drafts own isolated form documents instead of sharing the legacy preset draft'
+);
+$assert(
+    str_contains($endpoint, "'inputMappings', 'expectedInputMappingsHash'")
+        && str_contains($endpoint, '$versionComponents->validateInputMappings(')
+        && str_contains($endpoint, '$components[\'inputMappings\'] = $mappingValidation[\'mapping\'];')
+        && str_contains($endpoint, 'Связи Bitrix изменены в другой вкладке'),
+    'version form save coordinates prospective form and input mappings under exact component CAS'
 );
 $assert(
     str_contains($calculator, "\$versionMode = in_array")

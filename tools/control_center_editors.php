@@ -1172,6 +1172,28 @@ try {
         ]);
     }
 
+    if ($action === 'version_input_mapping_validate') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId', 'mapping']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $versionId = $request['versionId'] ?? null;
+        $mapping = $request['mapping'] ?? null;
+        if (!is_string($versionId) || !is_array($mapping)) {
+            throw new \InvalidArgumentException('versionId and mapping are required');
+        }
+        $state = $versionState($presetId, $versionId);
+        $ensureVersionBundle(
+            $presetId,
+            $versionId,
+            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+            $state['context']['legacy'],
+            ($state['row']['status'] ?? null) === 'DRAFT'
+        );
+        $respond(200, [
+            'success' => true,
+            'data' => $versionComponents->validateInputMappings($presetId, $versionId, $mapping),
+        ]);
+    }
+
     if ($action === 'version_component_save_draft') {
         $assertAllowedRequestKeys([
             'action', 'sessid', 'presetId', 'versionId', 'component',
@@ -1432,7 +1454,10 @@ try {
     }
 
     if ($action === 'version_form_save_draft') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId', 'expectedAggregateRevision', 'formDefinition', 'bindingDefinition']);
+        $assertAllowedRequestKeys([
+            'action', 'sessid', 'presetId', 'versionId', 'expectedAggregateRevision',
+            'formDefinition', 'bindingDefinition', 'inputMappings', 'expectedInputMappingsHash',
+        ]);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $versionId = $request['versionId'] ?? null;
         $expectedVersionRevision = $parseAggregateRevision($request['expectedAggregateRevision'] ?? null, 'expectedAggregateRevision');
@@ -1450,7 +1475,7 @@ try {
             $request['formDefinition'],
             $request['bindingDefinition']
         );
-        $versionForms->ensure(
+        $currentFormDocument = $versionForms->ensure(
             $presetId,
             $versionId,
             is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
@@ -1474,7 +1499,39 @@ try {
         );
         $components = $existingBundle['documents'];
         $components['form'] = $prospectiveForm;
+        if (array_key_exists('inputMappings', $request)) {
+            if (!is_array($request['inputMappings'] ?? null)) {
+                throw new \InvalidArgumentException('inputMappings must be an object');
+            }
+            $expectedInputMappingsHash = $parseAggregateRevision(
+                $request['expectedInputMappingsHash'] ?? null,
+                'expectedInputMappingsHash'
+            );
+            $currentInputMappingsHash = (string)($existingBundle['componentHashes']['inputMappings'] ?? '');
+            if (!hash_equals($currentInputMappingsHash, $expectedInputMappingsHash)) {
+                throw new \RuntimeException(
+                    'Связи Bitrix изменены в другой вкладке. Перезагрузите редактор формы.',
+                    409
+                );
+            }
+            $mappingValidation = $versionComponents->validateInputMappings(
+                $presetId,
+                $versionId,
+                $request['inputMappings'],
+                $prospectiveForm
+            );
+            if (($mappingValidation['valid'] ?? false) !== true) {
+                $mappingIssues = is_array($mappingValidation['issues'] ?? null) ? $mappingValidation['issues'] : [];
+                $firstIssue = $mappingIssues[0]['message'] ?? 'Проверьте выбранное поле и свойство Bitrix.';
+                throw new \RuntimeException('Связь Bitrix не сохранена: ' . (string)$firstIssue, 409);
+            }
+            $components['inputMappings'] = $mappingValidation['mapping'];
+        }
         $versionBundles->inspect($components);
+        $previousForm = [
+            'formDefinition' => $currentFormDocument['formDefinition'],
+            'bindingDefinition' => $currentFormDocument['bindingDefinition'],
+        ];
         $savedForm = $versionForms->saveDraft(
             $presetId,
             $versionId,
@@ -1487,7 +1544,26 @@ try {
             'formDefinition' => $savedForm['formDefinition'],
             'bindingDefinition' => $savedForm['bindingDefinition'],
         ];
-        $versionBundles->save($presetId, $versionId, $components);
+        try {
+            $versionBundles->save($presetId, $versionId, $components);
+        } catch (\Throwable $bundleError) {
+            try {
+                $versionForms->saveDraft(
+                    $presetId,
+                    $versionId,
+                    (string)$savedForm['revision'],
+                    is_array($previousForm['formDefinition']) ? $previousForm['formDefinition'] : [],
+                    is_array($previousForm['bindingDefinition']) ? $previousForm['bindingDefinition'] : []
+                );
+            } catch (\Throwable $rollbackError) {
+                throw new \RuntimeException(
+                    'Не удалось сохранить полный снимок версии и автоматически восстановить форму. Перезагрузите редактор.',
+                    500,
+                    $bundleError
+                );
+            }
+            throw $bundleError;
+        }
         $respond(200, [
             'success' => true,
             'data' => $versionFormWorkspace($presetId, $versionId, 'save_draft'),

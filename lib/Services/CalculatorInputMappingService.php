@@ -78,6 +78,32 @@ final class CalculatorInputMappingService
     {
         $mapping = $this->normalizeDefinition($presetId, $definition);
         $issues = $this->assertSemanticAuthority($presetId, $mapping);
+        return $this->validationResponse($presetId, $mapping, $issues);
+    }
+
+    /**
+     * Validate a version-owned mapping against the form document from the same
+     * immutable bundle. The live FormFirstAuthoringStore is deliberately not
+     * consulted here: doing so would mix version and runtime authority.
+     *
+     * @param array<string,mixed> $definition
+     * @param array<string,mixed> $formDocument
+     * @return array<string,mixed>
+     */
+    public function validateAgainstFormDocument(int $presetId, array $definition, array $formDocument): array
+    {
+        $mapping = $this->normalizeDefinition($presetId, $definition);
+        $issues = $this->assertSemanticAuthority(
+            $presetId,
+            $mapping,
+            $this->semanticContextFromFormDocument($presetId, $formDocument)
+        );
+        return $this->validationResponse($presetId, $mapping, $issues);
+    }
+
+    /** @param array<int,array{severity:string,code:string,path:string,message:string}> $issues */
+    private function validationResponse(int $presetId, array $mapping, array $issues): array
+    {
         return [
             'contract' => self::CONTRACT,
             'preset_id' => $presetId,
@@ -153,16 +179,19 @@ final class CalculatorInputMappingService
      * @param array<string,mixed> $definition
      * @return array<int,array{severity:string,code:string,path:string,message:string}>
      */
-    private function assertSemanticAuthority(int $presetId, array $definition): array
+    private function assertSemanticAuthority(int $presetId, array $definition, ?array $context = null): array
     {
-        $context = $this->semanticContext($presetId);
+        $context = $context ?? $this->semanticContext($presetId);
         $fields = is_array($context['fields'] ?? null) ? $context['fields'] : [];
         $productIblockId = (int)($context['product_iblock_id'] ?? 0);
         $offerIblockId = (int)($context['offer_iblock_id'] ?? 0);
         $properties = is_array($context['properties'] ?? null) ? $context['properties'] : [];
         $bindingModes = is_array($context['binding_modes'] ?? null) ? $context['binding_modes'] : [];
         if ($productIblockId <= 0 || $offerIblockId <= 0 || $fields === []) {
-            throw new \RuntimeException('Form or catalog authority for input mappings is unavailable.', 409);
+            throw new \RuntimeException(
+                'Не удалось проверить связь: сохранённая форма калькулятора или каталог свойств недоступны.',
+                409
+            );
         }
 
         $issues = [];
@@ -422,10 +451,15 @@ final class CalculatorInputMappingService
         if (!class_exists($storeClass)) {
             throw new \RuntimeException('FrontCalc form-first store is unavailable.', 409);
         }
-        $aggregate = (new $storeClass())->load($presetId);
-        $form = is_array($aggregate['formDefinition'] ?? null) ? $aggregate['formDefinition'] : [];
-        $bindingDefinition = is_array($aggregate['bindingDefinition'] ?? null)
-            ? $aggregate['bindingDefinition']
+        return $this->semanticContextFromFormDocument($presetId, (new $storeClass())->load($presetId));
+    }
+
+    /** @param array<string,mixed> $formDocument @return array<string,mixed> */
+    private function semanticContextFromFormDocument(int $presetId, array $formDocument): array
+    {
+        $form = is_array($formDocument['formDefinition'] ?? null) ? $formDocument['formDefinition'] : [];
+        $bindingDefinition = is_array($formDocument['bindingDefinition'] ?? null)
+            ? $formDocument['bindingDefinition']
             : [];
         $fields = [];
         foreach (is_array($form['fields'] ?? null) ? $form['fields'] : [] as $field) {
@@ -442,7 +476,7 @@ final class CalculatorInputMappingService
                 $bindingModes[$fieldId] = $valueMode;
             }
         }
-        $sourceAuthority = (new CalculatorInputSourceCatalogService())->validationAuthority($presetId);
+        $sourceAuthority = $this->sourceAuthority($presetId);
         return [
             'fields' => $fields,
             'binding_modes' => $bindingModes,
@@ -450,6 +484,19 @@ final class CalculatorInputMappingService
             'offer_iblock_id' => (int)$sourceAuthority['offer_iblock_id'],
             'properties' => $sourceAuthority['properties'],
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function sourceAuthority(int $presetId): array
+    {
+        if (isset($this->adapters['source_authority'])) {
+            $authority = call_user_func($this->adapters['source_authority'], $presetId);
+            if (!is_array($authority)) {
+                throw new \RuntimeException('Input mapping source authority adapter returned invalid data.');
+            }
+            return $authority;
+        }
+        return (new CalculatorInputSourceCatalogService())->validationAuthority($presetId);
     }
 
     /**

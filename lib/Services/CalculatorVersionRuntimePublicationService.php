@@ -23,16 +23,19 @@ final class CalculatorVersionRuntimePublicationService
     private const MAX_BYTES = 65536;
 
     private CalculatorVersionBundleDocumentService $bundles;
+    private CalculatorInputMappingService $inputMappings;
 
     /** @var array<string,callable> */
     private array $adapters;
 
     public function __construct(
         ?CalculatorVersionBundleDocumentService $bundles = null,
-        array $adapters = []
+        array $adapters = [],
+        ?CalculatorInputMappingService $inputMappings = null
     ) {
         $this->bundles = $bundles ?? new CalculatorVersionBundleDocumentService();
         $this->adapters = $adapters;
+        $this->inputMappings = $inputMappings ?? new CalculatorInputMappingService();
     }
 
     /** @return array<string,mixed> */
@@ -71,6 +74,24 @@ final class CalculatorVersionRuntimePublicationService
             throw new \RuntimeException(
                 'Логика полного bundle не готова к публикации: ' . $error->getMessage()
                 . ' Откройте вкладку «Логика» черновика и сохраните её повторно.',
+                409,
+                $error
+            );
+        }
+        try {
+            $mappingValidation = $this->inputMappings->validateAgainstFormDocument(
+                $presetId,
+                is_array($bundle['documents']['inputMappings'] ?? null) ? $bundle['documents']['inputMappings'] : [],
+                is_array($bundle['documents']['form'] ?? null) ? $bundle['documents']['form'] : []
+            );
+            if (($mappingValidation['valid'] ?? false) !== true) {
+                $issues = is_array($mappingValidation['issues'] ?? null) ? $mappingValidation['issues'] : [];
+                throw new \InvalidArgumentException((string)($issues[0]['message'] ?? 'неизвестная ошибка связи'));
+            }
+        } catch (\InvalidArgumentException | \RuntimeException $error) {
+            throw new \RuntimeException(
+                'Связи Bitrix полного bundle не готовы к публикации: ' . $error->getMessage()
+                . ' Исправьте поле формы или вкладку «Сопоставления».',
                 409,
                 $error
             );

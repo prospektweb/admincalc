@@ -152,6 +152,35 @@ $assert(
     array_keys($validation['mapping']['mappings'][0]['option_map']) === ['MEL', 'OFFSET'],
     'option_map is canonicalized as a strict string map'
 );
+
+$versionService = new CalculatorInputMappingService([
+    'semantic_context' => static fn(int $presetId): array => [],
+    'source_authority' => static fn(int $presetId): array => [
+        'product_iblock_id' => $semanticContext['product_iblock_id'],
+        'offer_iblock_id' => $semanticContext['offer_iblock_id'],
+        'properties' => $semanticContext['properties'],
+    ],
+]);
+$versionForm = [
+    'formDefinition' => ['fields' => array_values($semanticContext['fields'])],
+    'bindingDefinition' => ['bindings' => array_map(
+        static fn(string $fieldId, string $valueMode): array => [
+            'fieldId' => $fieldId,
+            'valueMode' => $valueMode,
+        ],
+        array_keys($semanticContext['binding_modes']),
+        array_values($semanticContext['binding_modes'])
+    )],
+];
+$versionValidation = $versionService->validateAgainstFormDocument(41, $candidate, $versionForm);
+$assert($versionValidation['valid'] === true, 'version mapping must use the exact bundle form instead of live form authority');
+$missingVersionField = $versionForm;
+$missingVersionField['formDefinition']['fields'] = [];
+$expectFailure(
+    static fn() => $versionService->validateAgainstFormDocument(41, $candidate, $missingVersionField),
+    'version mapping must reject a target absent from the exact bundle form',
+    409
+);
 $assert(
     $validation['mapping']['mappings'][1]['input_map'] === ['LENGTH' => 'length', 'WIDTH' => 'width'],
     'dimension input_map is canonicalized'
