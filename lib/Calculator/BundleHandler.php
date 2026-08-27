@@ -785,20 +785,57 @@ class BundleHandler
 
         if (is_array($rawValue)) {
             $text = $rawValue['TEXT'] ?? '';
+            $type = $rawValue['TYPE'] ?? $property['VALUE_TYPE'] ?? 'text';
         } elseif (is_array($fallbackValue)) {
             $text = $fallbackValue['TEXT'] ?? '';
+            $type = $fallbackValue['TYPE'] ?? $property['VALUE_TYPE'] ?? 'text';
         } else {
             $text = $rawValue;
+            $type = $property['VALUE_TYPE'] ?? 'text';
         }
 
         return [
             'TEXT' => (string)$text,
-            // USER_TYPE=HTML is the schema authority. Historical rows can
-            // still expose TEXT/text here, while SetPropertyValuesEx writes
-            // them back as HTML. Canonicalize that storage-only difference so
-            // clone read-back remains strict about the actual payload.
-            'TYPE' => 'HTML',
+            'TYPE' => (string)$type,
         ];
+    }
+
+    /**
+     * Bitrix rewrites the storage marker of USER_TYPE=HTML values from
+     * TEXT/text to HTML even when their payload is byte-identical. Keep the
+     * write representation untouched, but ignore this schema-owned marker in
+     * authoritative read-back comparisons.
+     */
+    private function normalizeHtmlPropertyMarkersForComparison($value)
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        $normalized = [];
+        foreach ($value as $key => $item) {
+            $normalized[$key] = $this->normalizeHtmlPropertyMarkersForComparison($item);
+        }
+        if (array_key_exists('TEXT', $normalized) && array_key_exists('TYPE', $normalized)) {
+            $type = strtolower((string)$normalized['TYPE']);
+            if ($type === 'text' || $type === 'html') {
+                $normalized['TYPE'] = 'HTML';
+            }
+        }
+
+        return $normalized;
+    }
+
+    /** @return array<string,mixed> */
+    private function collectChangedPropertyValues(array $before, array $after): array
+    {
+        $changed = [];
+        foreach ($after as $code => $value) {
+            if (!array_key_exists($code, $before) || $before[$code] !== $value) {
+                $changed[$code] = $value;
+            }
+        }
+        return $changed;
     }
 
     private function normalizeToIntArray($value): array
@@ -935,8 +972,9 @@ class BundleHandler
         foreach ($settingsMap as $newSettingsId) {
             $properties = $this->getElementPropertyValuesForClone((int)$newSettingsId, $settingsIblockId);
             $mapped = $this->replaceStageTokensRecursive($properties, $stageMap);
-            if ($mapped !== $properties) {
-                \CIBlockElement::SetPropertyValuesEx((int)$newSettingsId, $settingsIblockId, $mapped);
+            $changed = $this->collectChangedPropertyValues($properties, $mapped);
+            if ($changed !== []) {
+                \CIBlockElement::SetPropertyValuesEx((int)$newSettingsId, $settingsIblockId, $changed);
             }
         }
     }
@@ -999,6 +1037,8 @@ class BundleHandler
                 (int)$targetSettingsId,
                 $settingsIblockId
             );
+            $expectedProperties = $this->normalizeHtmlPropertyMarkersForComparison($expectedProperties);
+            $actualProperties = $this->normalizeHtmlPropertyMarkersForComparison($actualProperties);
             if (!hash_equals(
                 \Prospektweb\Calc\Services\PresetMutationCoordinatorService::hashCanonical($expectedProperties),
                 \Prospektweb\Calc\Services\PresetMutationCoordinatorService::hashCanonical($actualProperties)

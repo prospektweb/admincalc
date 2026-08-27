@@ -56,6 +56,10 @@ $reflection = new ReflectionClass(\Prospektweb\Calc\Calculator\BundleHandler::cl
 $handler = $reflection->newInstanceWithoutConstructor();
 $htmlPropertyMethod = $reflection->getMethod('extractHtmlPropertyValueForClone');
 $htmlPropertyMethod->setAccessible(true);
+$normalizeHtmlMarkersMethod = $reflection->getMethod('normalizeHtmlPropertyMarkersForComparison');
+$normalizeHtmlMarkersMethod->setAccessible(true);
+$collectChangedPropertiesMethod = $reflection->getMethod('collectChangedPropertyValues');
+$collectChangedPropertiesMethod->setAccessible(true);
 $method = $reflection->getMethod('remapPresetStageReferences');
 $method->setAccessible(true);
 
@@ -82,8 +86,33 @@ if (($valueWrapped['TEXT'] ?? null) !== $jsonFixture
     || ($rawValueWrapped['TEXT'] ?? null) !== $jsonFixture
     || ($rawValueWrapped['TYPE'] ?? null) !== 'HTML'
     || ($legacyTextWrapped['TEXT'] ?? null) !== $jsonFixture
-    || ($legacyTextWrapped['TYPE'] ?? null) !== 'HTML') {
-    throw new RuntimeException('Bitrix HTML property wrappers must preserve JSON and canonicalize legacy TEXT markers');
+    || ($legacyTextWrapped['TYPE'] ?? null) !== 'text') {
+    throw new RuntimeException('Bitrix HTML property wrappers must preserve their exact write representation');
+}
+
+$legacyProperties = [
+    'AI_CONTEXT_JSON' => ['TEXT' => '', 'TYPE' => 'text'],
+    'LOGIC_JSON' => ['TEXT' => '{"formula":"stage_10"}', 'TYPE' => 'TEXT'],
+];
+$bitrixReadBack = [
+    'AI_CONTEXT_JSON' => ['TEXT' => '', 'TYPE' => 'HTML'],
+    'LOGIC_JSON' => ['TEXT' => '{"formula":"stage_10"}', 'TYPE' => 'HTML'],
+];
+$corruptReadBack = $bitrixReadBack;
+$corruptReadBack['AI_CONTEXT_JSON']['TEXT'] = 'HTML';
+if ($normalizeHtmlMarkersMethod->invoke($handler, $legacyProperties)
+        !== $normalizeHtmlMarkersMethod->invoke($handler, $bitrixReadBack)
+    || $normalizeHtmlMarkersMethod->invoke($handler, $legacyProperties)
+        === $normalizeHtmlMarkersMethod->invoke($handler, $corruptReadBack)) {
+    throw new RuntimeException('HTML marker normalization must ignore only TYPE storage drift, never payload drift');
+}
+
+$mappedProperties = $legacyProperties;
+$mappedProperties['LOGIC_JSON']['TEXT'] = '{"formula":"stage_110"}';
+$changedProperties = $collectChangedPropertiesMethod->invoke($handler, $legacyProperties, $mappedProperties);
+if (array_keys($changedProperties) !== ['LOGIC_JSON']
+    || ($changedProperties['LOGIC_JSON']['TEXT'] ?? null) !== '{"formula":"stage_110"}') {
+    throw new RuntimeException('Settings remap must write only properties whose stage references changed');
 }
 
 $groups = [
