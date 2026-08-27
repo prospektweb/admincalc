@@ -78,6 +78,44 @@ final class CalculatorVersionBundleDocumentService
         ];
     }
 
+    /**
+     * Return the bundle-owned form only when the editable form document is the
+     * exact same component. Activation must never compile one form and seal a
+     * different form into the immutable bundle snapshot.
+     *
+     * @param array<string,mixed> $bundle
+     * @param array<string,mixed> $formDocument
+     * @return array<string,mixed>
+     */
+    public function formForActivation(array $bundle, array $formDocument): array
+    {
+        $documents = is_array($bundle['documents'] ?? null) ? $bundle['documents'] : [];
+        $bundleForm = is_array($documents['form'] ?? null) ? $documents['form'] : [];
+        $expectedHash = (string)($bundle['componentHashes']['form'] ?? '');
+        if ($bundleForm === []
+            || !is_array($bundleForm['formDefinition'] ?? null)
+            || !is_array($bundleForm['bindingDefinition'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $expectedHash) !== 1
+            || !is_array($formDocument['formDefinition'] ?? null)
+            || !is_array($formDocument['bindingDefinition'] ?? null)) {
+            throw new \RuntimeException('Полный bundle версии не содержит точный документ формы.', 409);
+        }
+        $comparison = $documents;
+        $comparison['form'] = [
+            'contract' => (string)($bundleForm['contract'] ?? ''),
+            'formDefinition' => $formDocument['formDefinition'],
+            'bindingDefinition' => $formDocument['bindingDefinition'],
+        ];
+        $actualHash = (string)($this->inspect($comparison)['componentHashes']['form'] ?? '');
+        if (!hash_equals($expectedHash, $actualHash)) {
+            throw new \RuntimeException(
+                'Публикация остановлена: документ формы расходится с полным bundle версии. Сохраните форму версии повторно или пересоберите версию.',
+                409
+            );
+        }
+        return $bundleForm;
+    }
+
     /** @param array<string,mixed> $components @return array<string,mixed> */
     public function save(int $presetId, string $versionId, array $components): array
     {

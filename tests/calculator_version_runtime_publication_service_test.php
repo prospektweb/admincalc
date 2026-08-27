@@ -111,21 +111,45 @@ $legacyFormPublication = [
         '_form_first' => ['publishedRevision' => 1, 'compileHash' => $formCompileHash],
     ],
 ];
+$GLOBALS['runtime_pointer_storage'] = &$pointerStorage;
+$GLOBALS['runtime_form_publication'] = &$legacyFormPublication;
+$GLOBALS['runtime_legacy_form_reads'] = 0;
 $service = new CalculatorVersionRuntimePublicationService($bundles, [
     'get' => static fn(string $name): string => (string)($GLOBALS['runtime_pointer_storage'][$name] ?? ''),
     'set' => static function (string $name, string $value): void { $GLOBALS['runtime_pointer_storage'][$name] = $value; },
     'lock' => static fn(int $_presetId, callable $callback) => $callback(),
-    'legacy_form_publication' => static fn(int $_presetId): array => $GLOBALS['runtime_form_publication'],
+    'legacy_form_publication' => static function (int $_presetId): array {
+        $GLOBALS['runtime_legacy_form_reads']++;
+        return $GLOBALS['runtime_form_publication'];
+    },
     'now' => static fn(): string => '2026-08-27T09:01:00+05:00',
 ], $inputMappings);
-$GLOBALS['runtime_pointer_storage'] = &$pointerStorage;
-$GLOBALS['runtime_form_publication'] = &$legacyFormPublication;
 $active = $service->activate(12740, 'v_4444444444444444');
 $assert($active['calculatorName'] === 'Листовая печать', 'active pointer must use version metadata name');
 $assert(($active['readiness']['complete'] ?? false) === true, 'active pointer must expose only a complete bundle');
 $assert(preg_match('/^a_[a-f0-9]{32}$/D', (string)($active['activationId'] ?? '')) === 1, 'activation must identify an immutable snapshot');
 $assert(($active['sourceContentHash'] ?? null) !== ($active['contentHash'] ?? null), 'deployment hash must include embedded form runtime');
 $assert(($active['documents']['form']['runtimePublication']['snapshot']['_form_first']['compileHash'] ?? null) === $formCompileHash, 'immutable bundle must contain the exact form runtime');
+$exactCompileHash = str_repeat('e', 64);
+$exactSnapshot = [
+    'version' => 2,
+    'fields' => [['property_code' => 'CALC_PROP_VOLUME']],
+    '_form_first' => ['publishedRevision' => 1, 'compileHash' => $exactCompileHash],
+];
+$bundles->save(12740, 'v_8888888888888888', $documents);
+$legacyReadsBeforeExactActivation = $GLOBALS['runtime_legacy_form_reads'];
+$exactActive = $service->activate(12740, 'v_8888888888888888', [
+    'contract' => CalculatorVersionRuntimePublicationService::FORM_RUNTIME_CONTRACT,
+    'publication' => ['revision' => 1, 'compileHash' => $exactCompileHash],
+    'snapshot' => $exactSnapshot,
+]);
+$assert(
+    $GLOBALS['runtime_legacy_form_reads'] === $legacyReadsBeforeExactActivation
+        && ($exactActive['documents']['form']['runtimePublication']['snapshot']['fields'][0]['property_code'] ?? '') === 'CALC_PROP_VOLUME'
+        && ($exactActive['documents']['form']['runtimePublication']['snapshot']['_form_first']['compileHash'] ?? '') === $exactCompileHash,
+    'exact version activation must materialize its supplied form runtime without reading the legacy active form'
+);
+$active = $service->activate(12740, 'v_4444444444444444');
 $readiness = $service->readiness(12740);
 $assert($readiness['ready'] === true && $readiness['versionId'] === 'v_4444444444444444', 'readiness must pin the exact version');
 

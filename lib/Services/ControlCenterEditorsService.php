@@ -1511,12 +1511,18 @@ final class ControlCenterEditorsService
     public function previewVersionFormFirst(
         int $presetId,
         array $formDefinition,
-        array $bindingDefinition
+        array $bindingDefinition,
+        array $versionDocuments = []
     ): array {
         $this->assertPresetFormAuthority($presetId);
         $this->assertEditorDocument($formDefinition, 'formDefinition');
         $this->assertEditorDocument($bindingDefinition, 'bindingDefinition');
-        $dependencyContract = $this->versionDependencyContract($presetId);
+        $dependencyContract = $this->versionDependencyContract(
+            $presetId,
+            $formDefinition,
+            $bindingDefinition,
+            $versionDocuments
+        );
 
         return $this->assertFormFirstEditorResult(
             $this->requireFormFirstAuthoring()->previewVersionFormFirst(
@@ -2423,10 +2429,14 @@ final class ControlCenterEditorsService
     }
 
     /** @return array<string,mixed> */
-    private function versionDependencyContract(int $presetId): array
+    private function versionDependencyContract(
+        int $presetId,
+        array $formDefinition,
+        array $bindingDefinition,
+        array $versionDocuments
+    ): array
     {
-        $categoryStatus = [];
-        foreach ([
+        $categories = [
             'ui',
             'catalog_input_mapping',
             'stage_inputs',
@@ -2434,18 +2444,130 @@ final class ControlCenterEditorsService
             'options_mappings',
             'basket',
             'storefront_presentation',
-        ] as $category) {
+        ];
+        $consumers = [];
+        $propertyByField = [];
+        $append = static function (
+            string $propertyCode,
+            string $category,
+            string $source,
+            string $path
+        ) use (&$consumers, $categories): void {
+            $propertyCode = strtoupper(trim($propertyCode));
+            if (preg_match('/^CALC_PROP_[A-Z0-9_]+$/D', $propertyCode) !== 1
+                || !in_array($category, $categories, true)) {
+                return;
+            }
+            $consumer = [
+                'propertyCode' => $propertyCode,
+                'category' => $category,
+                'source' => $source,
+                'path' => $path,
+                'provenance' => 'declared',
+            ];
+            $key = implode('|', array_values($consumer));
+            $consumers[$key] = $consumer;
+        };
+        foreach ((array)($bindingDefinition['bindings'] ?? []) as $index => $binding) {
+            if (!is_array($binding)
+                || (string)($binding['target']['kind'] ?? '') !== 'property') {
+                continue;
+            }
+            $fieldId = trim((string)($binding['fieldId'] ?? ''));
+            $propertyCode = strtoupper(trim((string)($binding['target']['propertyCode'] ?? '')));
+            if ($fieldId === '' || preg_match('/^CALC_PROP_[A-Z0-9_]+$/D', $propertyCode) !== 1) {
+                continue;
+            }
+            $propertyByField[$fieldId] = $propertyCode;
+            $append($propertyCode, 'ui', 'prospektweb.frontcalc.form-definition/v1', 'bindingDefinition.bindings.' . $index);
+            $append($propertyCode, 'basket', 'prospektweb.frontcalc.calculation-session/v1', 'selection.' . $fieldId);
+        }
+        foreach ((array)($versionDocuments['inputMappings']['mappings'] ?? []) as $index => $mapping) {
+            $fieldId = is_array($mapping) ? trim((string)($mapping['target']['field_id'] ?? '')) : '';
+            if (isset($propertyByField[$fieldId])) {
+                $append(
+                    $propertyByField[$fieldId],
+                    'catalog_input_mapping',
+                    'prospektweb.calc.calculator-input-mapping/v1',
+                    'inputMappings.mappings.' . $index . '.target.field_id'
+                );
+            }
+        }
+        $storefrontRows = [];
+        if (is_array($versionDocuments['storefronts']['base'] ?? null)) {
+            $storefrontRows[] = ['id' => 'base', 'row' => $versionDocuments['storefronts']['base']];
+        }
+        foreach ((array)($versionDocuments['storefronts']['items'] ?? []) as $index => $storefront) {
+            if (is_array($storefront)) {
+                $storefrontRows[] = [
+                    'id' => trim((string)($storefront['id'] ?? '')) ?: (string)$index,
+                    'row' => $storefront,
+                ];
+            }
+        }
+        foreach ($storefrontRows as $storefront) {
+            $patches = $storefront['row']['presentation']['field_patches'] ?? [];
+            if ($patches instanceof \stdClass) {
+                $patches = get_object_vars($patches);
+            }
+            foreach (is_array($patches) ? array_keys($patches) : [] as $fieldId) {
+                if (is_string($fieldId) && isset($propertyByField[$fieldId])) {
+                    $append(
+                        $propertyByField[$fieldId],
+                        'storefront_presentation',
+                        'prospektweb.frontcalc.storefront-definition/v2',
+                        'storefronts.' . $storefront['id'] . '.presentation.field_patches.' . $fieldId
+                    );
+                }
+            }
+        }
+        $scanLogic = static function ($value, string $path = 'logic') use (&$scanLogic, $append): void {
+            if (is_array($value)) {
+                foreach ($value as $key => $child) {
+                    $scanLogic($child, $path . '.' . (string)$key);
+                }
+                return;
+            }
+            if (!is_scalar($value)
+                || preg_match_all('/\bCALC_PROP_[A-Z0-9_]+\b/', (string)$value, $matches) < 1) {
+                return;
+            }
+            $lowerPath = strtolower($path);
+            $category = str_contains($lowerPath, 'global')
+                ? 'globals'
+                : (str_contains($lowerPath, 'option') ? 'options_mappings' : 'stage_inputs');
+            foreach (array_unique($matches[0]) as $propertyCode) {
+                $append($propertyCode, $category, 'prospektweb.calc.version-logic-snapshot/v1', $path);
+            }
+        };
+        $scanLogic(is_array($versionDocuments['logic'] ?? null) ? $versionDocuments['logic'] : []);
+        ksort($consumers, SORT_STRING);
+        $consumers = array_values($consumers);
+        $requiredPropertyCodes = [];
+        foreach ($consumers as $consumer) {
+            if (in_array($consumer['category'], ['stage_inputs', 'globals', 'options_mappings'], true)) {
+                $requiredPropertyCodes[$consumer['propertyCode']] = true;
+            }
+        }
+        $requiredPropertyCodes = array_keys($requiredPropertyCodes);
+        sort($requiredPropertyCodes, SORT_STRING);
+        $categoryStatus = [];
+        foreach ($categories as $category) {
+            $count = count(array_filter(
+                $consumers,
+                static fn(array $consumer): bool => $consumer['category'] === $category
+            ));
             $categoryStatus[$category] = [
                 'scanned' => true,
-                'count' => 0,
+                'count' => $count,
                 'sourceMode' => 'declared',
             ];
         }
         $contract = [
             'contract' => 'prospektweb.calc.preset-public-inputs/v1',
             'presetId' => $presetId,
-            'requiredPropertyCodes' => [],
-            'consumers' => [],
+            'requiredPropertyCodes' => $requiredPropertyCodes,
+            'consumers' => $consumers,
             'categoryStatus' => $categoryStatus,
         ];
         $contract['fingerprint'] = $this->canonicalHash($contract);

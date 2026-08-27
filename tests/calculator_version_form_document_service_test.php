@@ -37,9 +37,9 @@ $emptyLegacy = [
     'bindingDefinition' => ['contract' => 'binding/v1', 'bindings' => []],
 ];
 $empty = $service->ensure(12740, 'v_3333333333333333', null, $emptyLegacy);
-$seededDraft = $service->ensure(12740, 'v_3333333333333333', null, $legacy, true);
-if (($seededDraft['formDefinition']['fields'][0]['fieldId'] ?? '') !== 'volume') throw new RuntimeException('empty draft system seed failed');
-if ($seededDraft['revision'] === $empty['revision']) throw new RuntimeException('empty draft seed did not advance revision');
+$emptyReadback = $service->ensure(12740, 'v_3333333333333333', null, $legacy);
+if (($emptyReadback['formDefinition']['fields'] ?? null) !== []) throw new RuntimeException('stored empty version form must not inherit the live active form');
+if ($emptyReadback['revision'] !== $empty['revision']) throw new RuntimeException('read-only ensure must not rewrite an existing version document');
 
 $conflict = false;
 try {

@@ -94,17 +94,21 @@ $publicationSource = $publication !== false && $activation !== false
     : '';
 $assert(
     str_contains($publicationSource, '$versionBundles->inspect($storedBundle[\'documents\']);')
-        && str_contains($publicationSource, '$versionRuntimePublications->activate($presetId, $versionId)')
+        && str_contains($publicationSource, '$bundleForm = $versionBundles->formForActivation($storedBundle, $document);')
+        && str_contains($publicationSource, '$bundleForm[\'formDefinition\']')
+        && str_contains($publicationSource, '$bundleForm[\'bindingDefinition\']')
+        && str_contains($publicationSource, '$formPublication = $versionFormPublication($preview);')
+        && str_contains($publicationSource, '$formPublication[\'runtimePublication\']')
         && !str_contains($publicationSource, '$versionSources->capture($presetId, $document)'),
     'publication must activate the exact edited version bundle instead of comparing or recapturing shared runtime'
 );
 $assert(
-    substr_count($endpoint, '$current = $service->loadFormFirstWorkspace($presetId);') === 2
-        && substr_count($endpoint, '$currentPreview = $service->previewFormFirst(') === 2
-        && substr_count($endpoint, "(string)\$current['aggregateRevision']") === 2
-        && substr_count($endpoint, "(string)\$currentPreview['compile']['hash']") === 2
-        && !str_contains($endpoint, "(string)\$saved['aggregateRevision']"),
-    'version publication and reactivation must refresh the composite form/dependency authority after legacy save'
+    !str_contains($publicationSource, '$service->saveFormFirstDraft(')
+        && !str_contains($publicationSource, '$service->previewFormFirst(')
+        && !str_contains($publicationSource, '$service->publishFormFirst(')
+        && str_contains($publicationSource, '$storedBundle[\'documents\']')
+        && str_contains($publicationSource, '$formPublication[\'runtimePublication\']'),
+    'version publication must compile and materialize the selected bundle without the legacy active form authority'
 );
 $versionCreate = strpos($endpoint, "if (\$action === 'version_create')");
 $versionRename = strpos($endpoint, "if (\$action === 'version_rename')", $versionCreate ?: 0);

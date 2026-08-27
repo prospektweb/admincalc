@@ -239,39 +239,91 @@ $versionFormWorkspace = static function (
     int $presetId,
     string $versionId,
     string $operation
-) use ($service, $versionForms, $versionState): array {
-    $state = $versionState($presetId, $versionId);
-    $legacy = $state['context']['legacy'];
-    $isEditable = ($state['row']['status'] ?? null) !== 'ARCHIVED';
-    if (!$versionForms->has($presetId, $versionId)
-        && (array)($legacy['compile']['diff'] ?? []) !== []) {
-        throw new \RuntimeException('У перенесённой версии сохранился исполняемый снимок, но её исходная форма недоступна для точного редактирования. Создайте версию на основе версии с полным bundle.', 409);
-    }
-    if (!$isEditable && !$versionForms->has($presetId, $versionId)) {
-        throw new \RuntimeException('У скрытой версии нет точного документа формы для просмотра.', 409);
-    }
-    $document = $versionForms->ensure(
+) use ($service, $versionForms, $versionState, $versionBundles, $versionRegistry): array {
+    return $versionRegistry->coordinateVersionMutation(
         $presetId,
-        $versionId,
-        is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-        $legacy,
-        $isEditable
+        static function () use (
+            $presetId,
+            $versionId,
+            $operation,
+            $service,
+            $versionForms,
+            $versionState,
+            $versionBundles
+        ): array {
+            $state = $versionState($presetId, $versionId);
+            $legacy = $state['context']['legacy'];
+            $isEditable = ($state['row']['status'] ?? null) !== 'ARCHIVED';
+            if (!$versionForms->has($presetId, $versionId)
+                && (array)($legacy['compile']['diff'] ?? []) !== []) {
+                throw new \RuntimeException('У перенесённой версии сохранился исполняемый снимок, но её исходная форма недоступна для точного редактирования. Создайте версию на основе версии с полным bundle.', 409);
+            }
+            if (!$isEditable && !$versionForms->has($presetId, $versionId)) {
+                throw new \RuntimeException('У скрытой версии нет точного документа формы для просмотра.', 409);
+            }
+            $document = $versionForms->ensure(
+                $presetId,
+                $versionId,
+                is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+                $legacy
+            );
+            $bundle = $versionBundles->load($presetId, $versionId);
+            $versionDocuments = is_array($bundle['documents'] ?? null) ? $bundle['documents'] : [];
+            $preview = $service->previewVersionFormFirst(
+                $presetId,
+                $document['formDefinition'],
+                $document['bindingDefinition'],
+                $versionDocuments
+            );
+            $legacy['operation'] = $operation;
+            $legacy['versionId'] = $versionId;
+            $legacy['aggregateRevision'] = $document['revision'];
+            $legacy['formDefinition'] = $document['formDefinition'];
+            $legacy['bindingDefinition'] = $document['bindingDefinition'];
+            $legacy['published'] = null;
+            $legacy['history'] = [];
+            $legacy['dependencyFingerprint'] = $preview['dependencyFingerprint'];
+            $legacy['coverage'] = $preview['coverage'];
+            $legacy['compile'] = $preview['compile'];
+            return $legacy;
+        }
     );
-    $preview = $service->previewVersionFormFirst(
-        $presetId,
-        $document['formDefinition'],
-        $document['bindingDefinition']
-    );
-    $legacy['operation'] = $operation;
-    $legacy['aggregateRevision'] = $document['revision'];
-    $legacy['formDefinition'] = $document['formDefinition'];
-    $legacy['bindingDefinition'] = $document['bindingDefinition'];
-    $legacy['published'] = null;
-    $legacy['history'] = [];
-    $legacy['dependencyFingerprint'] = $preview['dependencyFingerprint'];
-    $legacy['coverage'] = $preview['coverage'];
-    $legacy['compile'] = $preview['compile'];
-    return $legacy;
+};
+$versionFormPublication = static function (array $preview): array {
+    $compile = is_array($preview['compile'] ?? null) ? $preview['compile'] : [];
+    $snapshot = is_array($compile['runtimeSchema'] ?? null) ? $compile['runtimeSchema'] : null;
+    $compileHash = (string)($compile['hash'] ?? '');
+    $dependencyFingerprint = (string)($preview['dependencyFingerprint'] ?? '');
+    if (($preview['coverage']['valid'] ?? false) !== true
+        || ($compile['valid'] ?? false) !== true
+        || $snapshot === null
+        || preg_match('/^[a-f0-9]{64}$/D', $compileHash) !== 1
+        || preg_match('/^[a-f0-9]{64}$/D', $dependencyFingerprint) !== 1) {
+        throw new \InvalidArgumentException('Версия не прошла проверку формы и связей. Перейдите к исправлению ошибок.');
+    }
+    $revision = 1;
+    $snapshot['_form_first'] = [
+        'contract' => ControlCenterEditorsService::FORM_FIRST_AUTHORING_CONTRACT,
+        'formRevision' => $revision,
+        'bindingRevision' => $revision,
+        'publishedRevision' => $revision,
+        'compileHash' => $compileHash,
+        'dependencyFingerprint' => $dependencyFingerprint,
+    ];
+    $published = $preview;
+    $published['published'] = [
+        'revision' => $revision,
+        'snapshot' => $snapshot,
+        'compileHash' => $compileHash,
+    ];
+    return [
+        'published' => $published,
+        'runtimePublication' => [
+            'contract' => CalculatorVersionRuntimePublicationService::FORM_RUNTIME_CONTRACT,
+            'publication' => ['revision' => $revision, 'compileHash' => $compileHash],
+            'snapshot' => $snapshot,
+        ],
+    ];
 };
 $ensureVersionBundle = static function (
     int $presetId,
@@ -1257,15 +1309,6 @@ try {
         if (!is_string($versionId)) {
             throw new \InvalidArgumentException('versionId is required');
         }
-        $state = $versionState($presetId, $versionId);
-        $assertVersionEditable($state);
-        $document = $versionForms->ensure(
-            $presetId,
-            $versionId,
-            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-            $state['context']['legacy'],
-            true
-        );
         $formDefinition = $parseEditorDocument(
             $requestWithJsonNodeKinds['formDefinition'] ?? $request['formDefinition'] ?? null,
             'formDefinition'
@@ -1274,13 +1317,54 @@ try {
             $requestWithJsonNodeKinds['bindingDefinition'] ?? $request['bindingDefinition'] ?? null,
             'bindingDefinition'
         );
-        $preview = $service->previewVersionFormFirst($presetId, $formDefinition, $bindingDefinition);
+        $previewResult = $versionRegistry->coordinateVersionMutation(
+            $presetId,
+            static function () use (
+                $presetId,
+                $versionId,
+                $formDefinition,
+                $bindingDefinition,
+                $versionState,
+                $assertVersionEditable,
+                $versionForms,
+                $versionBundles,
+                $service
+            ): array {
+                $state = $versionState($presetId, $versionId);
+                $assertVersionEditable($state);
+                $document = $versionForms->ensure(
+                    $presetId,
+                    $versionId,
+                    is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+                    $state['context']['legacy']
+                );
+                $bundle = $versionBundles->load($presetId, $versionId);
+                $documents = is_array($bundle['documents'] ?? null) ? $bundle['documents'] : [];
+                $documents['form'] = [
+                    'contract' => CalculatorVersionFormDocumentService::CONTRACT,
+                    'formDefinition' => $formDefinition,
+                    'bindingDefinition' => $bindingDefinition,
+                ];
+                return [
+                    'document' => $document,
+                    'preview' => $service->previewVersionFormFirst(
+                        $presetId,
+                        $formDefinition,
+                        $bindingDefinition,
+                        $documents
+                    ),
+                ];
+            }
+        );
+        $document = $previewResult['document'];
+        $preview = $previewResult['preview'];
         $respond(200, [
             'success' => true,
             'data' => [
                 'contract' => $preview['contract'],
                 'operation' => 'preview',
                 'presetId' => $presetId,
+                'versionId' => $versionId,
                 'aggregateRevision' => $document['revision'],
                 'coverage' => $preview['coverage'],
                 'compile' => $preview['compile'],
@@ -1610,7 +1694,8 @@ try {
         $preview = $service->previewVersionFormFirst(
             $presetId,
             $form['formDefinition'],
-            $form['bindingDefinition']
+            $form['bindingDefinition'],
+            $bundle['documents']
         );
         $compile = is_array($preview['compile'] ?? null) ? $preview['compile'] : [];
         $compileHash = (string)($compile['hash'] ?? '');
@@ -1735,17 +1820,11 @@ try {
         $state = $versionState($presetId, $versionId);
         $assertVersionEditable($state);
         $versionRuntimePublications->freezeLegacyActiveForEditing($presetId, $versionId);
-        $service->previewVersionFormFirst(
-            $presetId,
-            $request['formDefinition'],
-            $request['bindingDefinition']
-        );
         $versionForms->ensure(
             $presetId,
             $versionId,
             is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-            $state['context']['legacy'],
-            true
+            $state['context']['legacy']
         );
         // Assemble and validate the exact complete bundle before advancing
         // the form CAS revision. A source/capture failure must not leave the UI
@@ -1792,6 +1871,12 @@ try {
             }
             $components['inputMappings'] = $mappingValidation['mapping'];
         }
+        $service->previewVersionFormFirst(
+            $presetId,
+            $request['formDefinition'],
+            $request['bindingDefinition'],
+            $components
+        );
         $versionBundles->inspect($components);
         $savedForm = $versionForms->saveDraft(
             $presetId,
@@ -1835,16 +1920,6 @@ try {
             is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
             $legacy
         );
-        $preview = $service->previewVersionFormFirst(
-            $presetId,
-            $document['formDefinition'],
-            $document['bindingDefinition']
-        );
-        if (($preview['coverage']['valid'] ?? false) !== true
-            || ($preview['compile']['valid'] ?? false) !== true
-            || !is_string($preview['compile']['hash'] ?? null)) {
-            throw new \InvalidArgumentException('Версия не прошла проверку формы и связей. Перейдите к исправлению ошибок.');
-        }
         // The version already owns every component. Activation validates
         // and seals that exact bundle; recapturing shared runtime here would
         // silently discard version-scoped storefront/mapping/product edits.
@@ -1875,6 +1950,14 @@ try {
                 409
             );
         }
+        $bundleForm = $versionBundles->formForActivation($storedBundle, $document);
+        $preview = $service->previewVersionFormFirst(
+            $presetId,
+            $bundleForm['formDefinition'],
+            $bundleForm['bindingDefinition'],
+            $storedBundle['documents']
+        );
+        $formPublication = $versionFormPublication($preview);
         $respond(200, [
             'success' => true,
             'data' => $versionRegistry->coordinatedActivateVersion(
@@ -1886,44 +1969,17 @@ try {
                 $legacy,
                 $context['actor'],
                 static function () use (
-                    $service,
                     $presetId,
-                    $legacy,
-                    $document,
                     $versionRuntimePublications,
-                    $versionId
+                    $versionId,
+                    $formPublication
                 ): array {
-                    $service->saveFormFirstDraft(
+                    $runtime = $versionRuntimePublications->activate(
                         $presetId,
-                        (string)$legacy['aggregateRevision'],
-                        $document['formDefinition'],
-                        $document['bindingDefinition']
+                        $versionId,
+                        $formPublication['runtimePublication']
                     );
-                    // Form/binding changes may legitimately advance the
-                    // dependency fingerprint (for example UI consumers). The
-                    // save result was compiled against the pre-write contract,
-                    // so reload the composite authority before publication.
-                    $current = $service->loadFormFirstWorkspace($presetId);
-                    $currentPreview = $service->previewFormFirst(
-                        $presetId,
-                        $document['formDefinition'],
-                        $document['bindingDefinition']
-                    );
-                    if (($currentPreview['coverage']['valid'] ?? false) !== true
-                        || ($currentPreview['compile']['valid'] ?? false) !== true
-                        || !is_string($currentPreview['compile']['hash'] ?? null)) {
-                        throw new \RuntimeException(
-                            'Публикация остановлена: форма больше не проходит проверку с актуальными зависимостями.',
-                            409
-                        );
-                    }
-                    $published = $service->publishFormFirst(
-                        $presetId,
-                        (string)$current['aggregateRevision'],
-                        (string)$currentPreview['compile']['hash']
-                    );
-                    $runtime = $versionRuntimePublications->activate($presetId, $versionId);
-                    return ['published' => $published, 'runtime' => $runtime];
+                    return ['published' => $formPublication['published'], 'runtime' => $runtime];
                 }
             ),
         ]);
@@ -1956,12 +2012,14 @@ try {
                 409
             );
         }
-        $preview = $service->previewVersionFormFirst($presetId, $document['formDefinition'], $document['bindingDefinition']);
-        if (($preview['coverage']['valid'] ?? false) !== true
-            || ($preview['compile']['valid'] ?? false) !== true
-            || !is_string($preview['compile']['hash'] ?? null)) {
-            throw new \InvalidArgumentException('Версия больше не проходит проверку с текущими зависимостями калькулятора.');
-        }
+        $bundleForm = $versionBundles->formForActivation($storedBundle, $document);
+        $preview = $service->previewVersionFormFirst(
+            $presetId,
+            $bundleForm['formDefinition'],
+            $bundleForm['bindingDefinition'],
+            $storedBundle['documents']
+        );
+        $formPublication = $versionFormPublication($preview);
         $respond(200, [
             'success' => true,
             'data' => $versionRegistry->coordinatedActivateVersion(
@@ -1973,40 +2031,17 @@ try {
                 $legacy,
                 $context['actor'],
                 static function () use (
-                    $service,
                     $presetId,
-                    $legacy,
-                    $document,
                     $versionRuntimePublications,
-                    $versionId
+                    $versionId,
+                    $formPublication
                 ): array {
-                    $service->saveFormFirstDraft(
+                    $runtime = $versionRuntimePublications->activate(
                         $presetId,
-                        (string)$legacy['aggregateRevision'],
-                        $document['formDefinition'],
-                        $document['bindingDefinition']
+                        $versionId,
+                        $formPublication['runtimePublication']
                     );
-                    $current = $service->loadFormFirstWorkspace($presetId);
-                    $currentPreview = $service->previewFormFirst(
-                        $presetId,
-                        $document['formDefinition'],
-                        $document['bindingDefinition']
-                    );
-                    if (($currentPreview['coverage']['valid'] ?? false) !== true
-                        || ($currentPreview['compile']['valid'] ?? false) !== true
-                        || !is_string($currentPreview['compile']['hash'] ?? null)) {
-                        throw new \RuntimeException(
-                            'Активация остановлена: форма больше не проходит проверку с актуальными зависимостями.',
-                            409
-                        );
-                    }
-                    $published = $service->publishFormFirst(
-                        $presetId,
-                        (string)$current['aggregateRevision'],
-                        (string)$currentPreview['compile']['hash']
-                    );
-                    $runtime = $versionRuntimePublications->activate($presetId, $versionId);
-                    return ['published' => $published, 'runtime' => $runtime];
+                    return ['published' => $formPublication['published'], 'runtime' => $runtime];
                 }
             ),
         ]);

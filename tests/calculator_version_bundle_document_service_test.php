@@ -21,6 +21,11 @@ $components = [];
 foreach (CalculatorVersionBundleDocumentService::COMPONENTS as $component) {
     $components[$component] = ['contract' => 'test/' . $component, 'value' => $component];
 }
+$components['form'] = [
+    'contract' => 'prospektweb.calc.calculator-version-form/v1',
+    'formDefinition' => ['contract' => 'prospektweb.frontcalc.form-definition/v1', 'sections' => [], 'fields' => []],
+    'bindingDefinition' => ['contract' => 'prospektweb.frontcalc.binding-definition/v1', 'bindings' => []],
+];
 $components['logic'] = [
     'contract' => 'prospektweb.calc.version-logic-snapshot/v1',
     'presetId' => 12740,
@@ -44,6 +49,23 @@ $assert($saved['documents'] == $components, 'complete bundle readback mismatch')
 $assert(count($saved['componentHashes']) === 8, 'all component hashes are required');
 $assert(($saved['readiness']['complete'] ?? false) === true, 'v2 bundle must be publication-ready');
 $assert(preg_match('/^[a-f0-9]{64}$/D', $saved['contentHash']) === 1, 'aggregate content hash is invalid');
+$formDocument = [
+    'formDefinition' => $components['form']['formDefinition'],
+    'bindingDefinition' => $components['form']['bindingDefinition'],
+];
+$assert(
+    $service->formForActivation($saved, $formDocument) == $components['form'],
+    'activation must return the exact bundle-owned form'
+);
+$mismatchRejected = false;
+try {
+    $differentForm = $formDocument;
+    $differentForm['formDefinition']['fields'][] = ['fieldId' => 'foreign'];
+    $service->formForActivation($saved, $differentForm);
+} catch (RuntimeException $error) {
+    $mismatchRejected = $error->getCode() === 409 && str_contains($error->getMessage(), 'расходится');
+}
+$assert($mismatchRejected, 'activation must fail closed when the standalone form differs from the bundle form');
 
 $objectComponents = $components;
 $objectComponents['form']['emptyObject'] = (object)[];

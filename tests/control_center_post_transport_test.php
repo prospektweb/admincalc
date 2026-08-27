@@ -180,7 +180,14 @@ namespace Prospektweb\Calc\Services {
     class CalculatorVersionBundleDocumentService
     {
         public function __construct(array $adapters = []) {}
-        public function load(int $presetId, string $versionId): ?array { return null; }
+        public function load(int $presetId, string $versionId): ?array
+        {
+            return ['documents' => [
+                'logic' => ['initializationMode' => 'blank'],
+                'inputMappings' => ['mappings' => []],
+                'storefronts' => ['base' => ['presentation' => ['field_patches' => []]], 'items' => []],
+            ]];
+        }
     }
 
     class CalculatorVersionSnapshotSourceService
@@ -198,6 +205,15 @@ namespace Prospektweb\Calc\Services {
     class CalculatorVersionRegistryService
     {
         public function __construct(array $adapters = []) {}
+        public function coordinateVersionMutation(int $presetId, callable $callback) { return $callback(); }
+        public function loadWorkspace(int $presetId, string $name, array $legacy, array $actor): array
+        {
+            return ['versions' => [[
+                'versionId' => 'v_1111111111111111',
+                'status' => 'PUBLISHED',
+                'basedOnVersionId' => null,
+            ]]];
+        }
     }
 
     class CalculatorVersionRuntimePublicationService
@@ -207,7 +223,16 @@ namespace Prospektweb\Calc\Services {
 
     class CalculatorVersionFormDocumentService
     {
+        public const CONTRACT = 'prospektweb.calc.calculator-version-form/v1';
         public function __construct(array $adapters = []) {}
+        public function ensure(int $presetId, string $versionId, ?string $sourceVersionId, array $legacy): array
+        {
+            return [
+                'revision' => str_repeat('b', 64),
+                'formDefinition' => ['contract' => 'prospektweb.frontcalc.form-definition/v1', 'fields' => []],
+                'bindingDefinition' => ['contract' => 'prospektweb.frontcalc.binding-definition/v1', 'bindings' => []],
+            ];
+        }
     }
 
     class CalcServerRequestDeadline
@@ -338,6 +363,11 @@ namespace Prospektweb\Calc\Services {
             return $this->formFirstResult('form_first_load', compact('presetId'));
         }
 
+        public function validatePresetLaunch(int $presetId): array
+        {
+            return ['presetName' => 'Transport preset'];
+        }
+
         public function inspectFormFirstFieldDeletion(
             int $presetId,
             string $fieldId,
@@ -397,9 +427,22 @@ namespace Prospektweb\Calc\Services {
             int $presetId,
             array $formDefinition,
             array $bindingDefinition,
-            array $dependencyContract
+            array $dependencyContract,
+            array $versionDocuments = []
         ): array {
-            return $this->previewFormFirst($presetId, $formDefinition, $bindingDefinition, $dependencyContract);
+            return [
+                'contract' => 'prospektweb.frontcalc.form-first-authoring/v1',
+                'operation' => 'preview',
+                'dependencyFingerprint' => str_repeat('d', 64),
+                'coverage' => ['valid' => true],
+                'compile' => [
+                    'valid' => true,
+                    'hash' => str_repeat('c', 64),
+                    'runtimeSchema' => ['version' => 2, 'fields' => []],
+                    'diff' => [],
+                    'issues' => [],
+                ],
+            ];
         }
 
         public function publishFormFirst(
@@ -456,6 +499,16 @@ namespace {
         public function GetID(): int
         {
             return 1;
+        }
+
+        public function GetFullName(): string
+        {
+            return 'Transport Admin';
+        }
+
+        public function GetLogin(): string
+        {
+            return 'admin';
         }
     }
 
@@ -850,6 +903,24 @@ PHP;
     $assert($formFirstPreview['status'] === 200
         && ($formFirstPreview['body']['data']['operation'] ?? '') === 'form_first_preview',
         'Form-first preview must preserve both typed documents without a CAS write token');
+
+    $versionFormPreview = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'version_form_preview',
+        'presetId' => 41,
+        'versionId' => 'v_1111111111111111',
+        'formDefinition' => $formDefinition,
+        'bindingDefinition' => $bindingDefinition,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert(
+        $versionFormPreview['status'] === 200
+            && ($versionFormPreview['body']['data']['operation'] ?? '') === 'preview'
+            && ($versionFormPreview['body']['data']['versionId'] ?? '') === 'v_1111111111111111'
+            && ($versionFormPreview['body']['data']['aggregateRevision'] ?? '') === str_repeat('b', 64)
+            && ($versionFormPreview['body']['data']['compile']['hash'] ?? '') === str_repeat('c', 64),
+        'Version form preview must preserve exact version identity and return isolated compile data without a write: '
+            . json_encode($versionFormPreview, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    );
 
     $formFirstPublish = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',

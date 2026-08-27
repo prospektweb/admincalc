@@ -1045,12 +1045,40 @@ $assert(
     )['operation'] ?? '') === 'preview',
     'The service must delegate form-first compile preview'
 );
-$versionPreview = $formFirstService->previewVersionFormFirst(41, $formDefinition, $bindingDefinition);
+$versionPreview = $formFirstService->previewVersionFormFirst(
+    41,
+    $formDefinition,
+    [
+        'version' => 1,
+        'bindings' => [[
+            'fieldId' => 'quantity',
+            'target' => ['kind' => 'property', 'propertyCode' => 'CALC_PROP_VOLUME'],
+        ]],
+    ],
+    [
+        'logic' => [
+            'runtimePayload' => [
+                'stageFormula' => 'CALC_PROP_METHOD + 1',
+                'globalSymbols' => [['propertyCode' => 'CALC_PROP_GLOBAL_RATE']],
+            ],
+        ],
+        'inputMappings' => [
+            'mappings' => [['target' => ['field_id' => 'quantity']]],
+        ],
+        'storefronts' => [
+            'base' => ['presentation' => ['field_patches' => ['quantity' => []]]],
+            'items' => [],
+        ],
+    ]
+);
+$versionDependency = $provider->calls[count($provider->calls) - 1][4] ?? [];
 $assert(
     ($versionPreview['operation'] ?? '') === 'preview'
         && ($provider->calls[count($provider->calls) - 1][0] ?? '') === 'previewVersionFormFirst'
-        && ($provider->calls[count($provider->calls) - 1][4]['requiredPropertyCodes'] ?? null) === [],
-    'Version form preview must use an isolated dependency authority instead of the active calculator.'
+        && ($versionDependency['requiredPropertyCodes'] ?? null) === ['CALC_PROP_GLOBAL_RATE', 'CALC_PROP_METHOD']
+        && in_array('catalog_input_mapping', array_column($versionDependency['consumers'] ?? [], 'category'), true)
+        && in_array('storefront_presentation', array_column($versionDependency['consumers'] ?? [], 'category'), true),
+    'Version form preview must derive its dependency authority from the exact version bundle.'
 );
 $assert(
     ($formFirstService->publishFormFirst(41, $aggregateRevision, $compileHash)['operation'] ?? '')

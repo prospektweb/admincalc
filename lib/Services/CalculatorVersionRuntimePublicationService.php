@@ -43,16 +43,16 @@ final class CalculatorVersionRuntimePublicationService
     }
 
     /** @return array<string,mixed> */
-    public function activate(int $presetId, string $versionId): array
+    public function activate(int $presetId, string $versionId, ?array $formRuntimePublication = null): array
     {
         return $this->withLock(
             $presetId,
-            fn(): array => $this->activateUnlocked($presetId, $versionId)
+            fn(): array => $this->activateUnlocked($presetId, $versionId, $formRuntimePublication)
         );
     }
 
     /** @return array<string,mixed> */
-    private function activateUnlocked(int $presetId, string $versionId): array
+    private function activateUnlocked(int $presetId, string $versionId, ?array $formRuntimePublication): array
     {
         if ($presetId <= 0
             || preg_match('/^v_[a-f0-9]{16,40}$/D', $versionId) !== 1) {
@@ -135,7 +135,7 @@ final class CalculatorVersionRuntimePublicationService
             );
         }
         $formRuntimePublication = $this->normalizeFormRuntimePublication(
-            $this->legacyFormPublication($presetId),
+            $formRuntimePublication ?? $this->legacyFormPublication($presetId),
             is_array($bundle['documents']['form'] ?? null) ? $bundle['documents']['form'] : []
         );
         $snapshot = $this->materializeSnapshot($presetId, $versionId, $bundle, $formRuntimePublication);
