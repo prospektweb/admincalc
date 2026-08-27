@@ -15,9 +15,21 @@ use Bitrix\Main\Config\Option;
  */
 final class CalculatorVersionBundleDocumentService
 {
-    public const CONTRACT = 'prospektweb.calc.calculator-version-bundle/v1';
+    public const CONTRACT = 'prospektweb.calc.calculator-version-bundle/v2';
+    public const LEGACY_CONTRACT = 'prospektweb.calc.calculator-version-bundle/v1';
 
     public const COMPONENTS = [
+        'form',
+        'logic',
+        'storefronts',
+        'inputMappings',
+        'outputMappings',
+        'productAssignments',
+        'publicationMetadata',
+        'commercialPolicy',
+    ];
+
+    public const LEGACY_COMPONENTS = [
         'form',
         'logic',
         'storefronts',
@@ -27,7 +39,8 @@ final class CalculatorVersionBundleDocumentService
     ];
 
     private const MODULE_ID = 'prospektweb.calc';
-    private const STORAGE_VERSION = 1;
+    private const STORAGE_VERSION = 2;
+    private const LEGACY_STORAGE_VERSION = 1;
     private const MAX_COMPONENT_BYTES = 8388608;
     private const MAX_BUNDLE_BYTES = 16777216;
 
@@ -119,10 +132,11 @@ final class CalculatorVersionBundleDocumentService
         $rawManifest = $this->rawGet($this->manifestName($presetId, $versionId));
         if ($rawManifest === '') return null;
         $manifest = json_decode($rawManifest, true);
-        $this->assertManifest(is_array($manifest) ? $manifest : [], $presetId, $versionId);
+        $manifest = is_array($manifest) ? $manifest : [];
+        $manifestComponents = $this->assertManifest($manifest, $presetId, $versionId);
         $documents = [];
         $totalBytes = 0;
-        foreach (self::COMPONENTS as $component) {
+        foreach ($manifestComponents as $component) {
             $raw = $this->rawGet($this->componentName($presetId, $versionId, $component));
             $expected = $manifest['components'][$component];
             if ($raw === ''
@@ -137,12 +151,15 @@ final class CalculatorVersionBundleDocumentService
             $documents[$component] = $decoded;
             $totalBytes += strlen($raw);
         }
+        $manifestContract = (string)$manifest['contract'];
         if ($totalBytes !== (int)$manifest['totalBytes']
-            || !hash_equals((string)$manifest['contentHash'], $this->contentHash($documents))) {
+            || !hash_equals((string)$manifest['contentHash'], $this->contentHash($documents, $manifestContract))) {
             throw new \RuntimeException('Агрегат полного снимка версии повреждён.');
         }
+        $complete = $manifestContract === self::CONTRACT
+            && $manifestComponents === self::COMPONENTS;
         return [
-            'contract' => self::CONTRACT,
+            'contract' => $manifestContract,
             'presetId' => $presetId,
             'versionId' => $versionId,
             'contentHash' => (string)$manifest['contentHash'],
@@ -153,6 +170,11 @@ final class CalculatorVersionBundleDocumentService
             'totalBytes' => $totalBytes,
             'updatedAt' => (string)$manifest['updatedAt'],
             'documents' => $documents,
+            'readiness' => [
+                'complete' => $complete,
+                'missingComponents' => array_values(array_diff(self::COMPONENTS, $manifestComponents)),
+                'requiresRebuild' => !$complete,
+            ],
         ];
     }
 
@@ -193,16 +215,23 @@ final class CalculatorVersionBundleDocumentService
         return $components;
     }
 
-    private function assertManifest(array $manifest, int $presetId, string $versionId): void
+    /** @return string[] */
+    private function assertManifest(array $manifest, int $presetId, string $versionId): array
     {
         $componentKeys = is_array($manifest['components'] ?? null)
             ? array_map('strval', array_keys($manifest['components']))
             : [];
-        $expectedComponentKeys = self::COMPONENTS;
+        $storageVersion = (int)($manifest['storageVersion'] ?? 0);
+        $contract = (string)($manifest['contract'] ?? '');
+        $expectedComponentKeys = $storageVersion === self::LEGACY_STORAGE_VERSION
+            && $contract === self::LEGACY_CONTRACT
+            ? self::LEGACY_COMPONENTS
+            : self::COMPONENTS;
         sort($componentKeys, SORT_STRING);
         sort($expectedComponentKeys, SORT_STRING);
-        if ((int)($manifest['storageVersion'] ?? 0) !== self::STORAGE_VERSION
-            || ($manifest['contract'] ?? null) !== self::CONTRACT
+        $supportedManifest = ($storageVersion === self::STORAGE_VERSION && $contract === self::CONTRACT)
+            || ($storageVersion === self::LEGACY_STORAGE_VERSION && $contract === self::LEGACY_CONTRACT);
+        if (!$supportedManifest
             || (int)($manifest['presetId'] ?? 0) !== $presetId
             || (string)($manifest['versionId'] ?? '') !== $versionId
             || preg_match('/^[a-f0-9]{64}$/D', (string)($manifest['contentHash'] ?? '')) !== 1
@@ -212,7 +241,10 @@ final class CalculatorVersionBundleDocumentService
             || !is_string($manifest['updatedAt'] ?? null)) {
             throw new \RuntimeException('Манифест полного снимка версии повреждён.');
         }
-        foreach (self::COMPONENTS as $component) {
+        $orderedComponents = $storageVersion === self::LEGACY_STORAGE_VERSION
+            ? self::LEGACY_COMPONENTS
+            : self::COMPONENTS;
+        foreach ($orderedComponents as $component) {
             $row = $manifest['components'][$component] ?? null;
             if (!is_array($row)
                 || preg_match('/^[a-f0-9]{64}$/D', (string)($row['sha256'] ?? '')) !== 1
@@ -221,6 +253,7 @@ final class CalculatorVersionBundleDocumentService
                 throw new \RuntimeException('Манифест компонента версии ' . $component . ' повреждён.');
             }
         }
+        return $orderedComponents;
     }
 
     private function assertIdentity(int $presetId, string $versionId): void
@@ -231,10 +264,10 @@ final class CalculatorVersionBundleDocumentService
     }
 
     /** @param array<string,mixed> $components */
-    private function contentHash(array $components): string
+    private function contentHash(array $components, string $contract = self::CONTRACT): string
     {
         return hash('sha256', $this->encodeCanonical([
-            'contract' => self::CONTRACT,
+            'contract' => $contract,
             'components' => $components,
         ]));
     }

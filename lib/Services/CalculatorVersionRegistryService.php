@@ -477,7 +477,13 @@ final class CalculatorVersionRegistryService
         foreach ($rows as &$row) {
             $row['active'] = ($row['versionId'] ?? null) === $activeId;
             $bundle = $this->bundleMeta((int)$state['presetId'], (string)$row['versionId'], false);
-            $row['snapshotComplete'] = $bundle !== null;
+            $row['snapshotComplete'] = $bundle !== null
+                && ($bundle['readiness']['complete'] ?? true) === true;
+            $row['snapshotReadiness'] = $bundle['readiness'] ?? [
+                'complete' => false,
+                'missingComponents' => CalculatorVersionBundleDocumentService::COMPONENTS,
+                'requiresRebuild' => true,
+            ];
             if ($bundle !== null) {
                 $row['contentHash'] = (string)$bundle['contentHash'];
                 $row['componentHashes'] = $bundle['componentHashes'];
@@ -715,6 +721,9 @@ final class CalculatorVersionRegistryService
                 || preg_match('/^[a-f0-9]{64}$/D', (string)($bundle['contentHash'] ?? '')) !== 1
                 || !is_array($bundle['componentHashes'] ?? null))) {
             throw new \RuntimeException('Манифест полного снимка версии повреждён.', 409);
+        }
+        if ($required && ($bundle['readiness']['complete'] ?? true) !== true) {
+            throw new \RuntimeException('Полный снимок версии требует пересборки перед публикацией.', 409);
         }
         return is_array($bundle) ? $bundle : null;
     }

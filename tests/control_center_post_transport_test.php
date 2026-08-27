@@ -63,12 +63,25 @@ namespace Bitrix\Main {
     {
         public static function includeModule(string $moduleId): bool
         {
-            return in_array($moduleId, ['prospektweb.calc', 'prospektweb.frontcalc'], true);
+            return in_array($moduleId, ['prospektweb.calc', 'prospektweb.frontcalc', 'iblock'], true);
         }
     }
 }
 
 namespace Prospektweb\Frontcalc\Service {
+    class PublicCalculatorCatalogService
+    {
+        public function settings(int $presetId): array
+        {
+            return ['preset_id' => $presetId, 'show_base' => true];
+        }
+
+        public function saveSettings(int $presetId, bool $showBase): array
+        {
+            return ['preset_id' => $presetId, 'show_base' => $showBase];
+        }
+    }
+
     class StorefrontRepository
     {
         public const CONTRACT = 'prospektweb.frontcalc.storefront-definition/v2';
@@ -173,6 +186,8 @@ namespace Prospektweb\Calc\Services {
     class CalculatorVersionSnapshotSourceService
     {
         public function __construct(array $adapters = []) {}
+        public function publicationMetadata(int $presetId): array { return []; }
+        public function commercialPolicy(int $presetId): array { return []; }
     }
 
     class CalculatorVersionComponentDocumentService
@@ -183,6 +198,11 @@ namespace Prospektweb\Calc\Services {
     class CalculatorVersionRegistryService
     {
         public function __construct(array $adapters = []) {}
+    }
+
+    class CalculatorVersionRuntimePublicationService
+    {
+        public function __construct(?CalculatorVersionBundleDocumentService $bundles = null, array $adapters = []) {}
     }
 
     class CalculatorVersionFormDocumentService
@@ -611,7 +631,8 @@ PHP;
         && ($editorsCatalog['body']['data']['storefront']['formFirstAuthoringContract'] ?? '')
             === 'prospektweb.frontcalc.form-first-authoring/v1'
         && ($editorsCatalog['body']['data']['transport'] ?? '') === 'ok',
-        'Editors catalog must expose only the active preset-owned form capability');
+        'Editors catalog must expose only the active preset-owned form capability: '
+            . json_encode($editorsCatalog, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
     $editorsCalculation = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',

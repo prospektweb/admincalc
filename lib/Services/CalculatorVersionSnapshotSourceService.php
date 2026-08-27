@@ -12,6 +12,8 @@ final class CalculatorVersionSnapshotSourceService
 {
     public const LOGIC_CONTRACT = 'prospektweb.calc.version-logic-snapshot/v1';
     public const PRODUCT_ASSIGNMENTS_CONTRACT = 'prospektweb.calc.version-product-assignments/v1';
+    public const PUBLICATION_METADATA_CONTRACT = 'prospektweb.calc.version-publication-metadata/v1';
+    public const COMMERCIAL_POLICY_CONTRACT = 'prospektweb.calc.commercial-policy/v1';
 
     /** @var array<string,callable> */
     private array $adapters;
@@ -44,6 +46,8 @@ final class CalculatorVersionSnapshotSourceService
             'inputMappings' => $this->inputMappings($presetId),
             'outputMappings' => $this->outputMappings($presetId),
             'productAssignments' => $this->productAssignments($presetId, $storefronts),
+            'publicationMetadata' => $this->publicationMetadata($presetId),
+            'commercialPolicy' => $this->commercialPolicy($presetId),
         ];
     }
 
@@ -185,6 +189,83 @@ final class CalculatorVersionSnapshotSourceService
             'presetId' => $presetId,
             'sourceRevision' => (string)($catalog['revision'] ?? ''),
             'assignments' => $assignments,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    public function publicationMetadata(int $presetId): array
+    {
+        if (isset($this->adapters['publicationMetadata'])) {
+            $value = call_user_func($this->adapters['publicationMetadata'], $presetId);
+            if (!is_array($value)) {
+                throw new \RuntimeException('Publication metadata snapshot adapter returned invalid data.');
+            }
+            return $value;
+        }
+        if (!Loader::includeModule('iblock')) {
+            throw new \RuntimeException('Инфоблоки недоступны для снимка публичных метаданных калькулятора.');
+        }
+        $config = new \Prospektweb\Calc\Config\ConfigManager();
+        $iblockId = (int)$config->getIblockId('CALC_PRESETS');
+        $cursor = $iblockId > 0 ? \CIBlockElement::GetList(
+            [],
+            ['ID' => $presetId, 'IBLOCK_ID' => $iblockId],
+            false,
+            ['nTopCount' => 2],
+            ['ID', 'IBLOCK_ID', 'NAME', 'SORT', 'ACTIVE', 'IBLOCK_SECTION_ID']
+        ) : null;
+        $row = $cursor ? $cursor->Fetch() : false;
+        $duplicate = $cursor ? $cursor->Fetch() : false;
+        if (!is_array($row) || $duplicate !== false || (int)($row['ID'] ?? 0) !== $presetId) {
+            throw new \RuntimeException('Не удалось получить однозначные публичные метаданные калькулятора.', 409);
+        }
+        $name = trim((string)($row['NAME'] ?? ''));
+        if ($name === '') {
+            throw new \RuntimeException('Название калькулятора не заполнено.', 409);
+        }
+        return [
+            'contract' => self::PUBLICATION_METADATA_CONTRACT,
+            'presetId' => $presetId,
+            'calculatorName' => $name,
+            'sectionId' => max(0, (int)($row['IBLOCK_SECTION_ID'] ?? 0)),
+            'sort' => (int)($row['SORT'] ?? 500),
+            'active' => (string)($row['ACTIVE'] ?? 'N') === 'Y',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    public function commercialPolicy(int $presetId): array
+    {
+        if (isset($this->adapters['commercialPolicy'])) {
+            $value = call_user_func($this->adapters['commercialPolicy'], $presetId);
+            if (!is_array($value)) {
+                throw new \RuntimeException('Commercial policy snapshot adapter returned invalid data.');
+            }
+            return $value;
+        }
+        return self::defaultCommercialPolicy($presetId);
+    }
+
+    /** @return array<string,mixed> */
+    public static function defaultCommercialPolicy(int $presetId): array
+    {
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Commercial policy presetId must be positive.');
+        }
+        return [
+            'contract' => self::COMMERCIAL_POLICY_CONTRACT,
+            'presetId' => $presetId,
+            'deadlinePolicy' => [
+                'mode' => 'basic',
+                'effortBasis' => 'productionMinutes',
+                'basic' => [
+                    'urgent' => ['effortPercent' => 0.0, 'markupPercent' => 0.0, 'discountPercent' => 0.0],
+                    'strict' => ['effortPercent' => 0.0, 'markupPercent' => 0.0, 'discountPercent' => 0.0],
+                    'flexible' => ['effortPercent' => 0.0, 'markupPercent' => 0.0, 'discountPercent' => 0.0],
+                ],
+                'ranges' => [],
+                'fallback' => 'basic',
+            ],
         ];
     }
 }

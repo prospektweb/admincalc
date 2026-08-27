@@ -51,6 +51,18 @@ namespace {
                 'assignments' => [['productId' => 11, 'storefrontId' => $storefronts['items'][0]['id']]],
             ];
         },
+        'publicationMetadata' => static function (int $presetId) use (&$calls): array {
+            $calls[] = 'publicationMetadata';
+            return [
+                'contract' => CalculatorVersionSnapshotSourceService::PUBLICATION_METADATA_CONTRACT,
+                'presetId' => $presetId,
+                'calculatorName' => 'Листовая печать',
+            ];
+        },
+        'commercialPolicy' => static function (int $presetId) use (&$calls): array {
+            $calls[] = 'commercialPolicy';
+            return CalculatorVersionSnapshotSourceService::defaultCommercialPolicy($presetId);
+        },
     ]);
 
     $snapshot = $source->capture(12740, [
@@ -58,14 +70,16 @@ namespace {
         'bindingDefinition' => ['contract' => 'prospektweb.calc.binding-definition/v1', 'mappings' => []],
     ]);
 
-    $assert(array_keys($snapshot) === CalculatorVersionBundleDocumentService::COMPONENTS, 'snapshot must contain exactly all six version components');
+    $assert(array_keys($snapshot) === CalculatorVersionBundleDocumentService::COMPONENTS, 'snapshot must contain exactly all version components');
     $assert(($snapshot['form']['contract'] ?? null) === CalculatorVersionFormDocumentService::CONTRACT, 'form envelope contract is missing');
     $assert(($snapshot['logic']['presetId'] ?? null) === 12740, 'logic snapshot is missing');
     $assert(($snapshot['storefronts']['items'][0]['id'] ?? null) === 'main', 'storefront snapshot is missing');
     $assert(($snapshot['inputMappings']['presetId'] ?? null) === 12740, 'input mappings snapshot is missing');
     $assert(($snapshot['outputMappings']['presetId'] ?? null) === 12740, 'output mappings snapshot is missing');
     $assert(($snapshot['productAssignments']['assignments'][0]['storefrontId'] ?? null) === 'main', 'product assignments snapshot is missing');
-    $assert($calls === ['storefronts', 'logic', 'inputMappings', 'outputMappings', 'productAssignments'], 'snapshot authorities were not read exactly once');
+    $assert(($snapshot['publicationMetadata']['calculatorName'] ?? null) === 'Листовая печать', 'publication metadata snapshot is missing');
+    $assert(($snapshot['commercialPolicy']['deadlinePolicy']['mode'] ?? null) === 'basic', 'commercial policy snapshot is missing');
+    $assert($calls === ['storefronts', 'logic', 'inputMappings', 'outputMappings', 'productAssignments', 'publicationMetadata', 'commercialPolicy'], 'snapshot authorities were not read exactly once');
 
     $isolatedLogic = $source->captureLogic(54321, 12740, 'v_4444444444444444');
     $assert(($isolatedLogic['presetId'] ?? null) === 12740, 'isolated logic must retain calculator identity');

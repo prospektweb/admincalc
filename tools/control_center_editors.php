@@ -88,6 +88,7 @@ use Prospektweb\Calc\Services\CalculatorVersionBundleDocumentService;
 use Prospektweb\Calc\Services\CalculatorVersionComponentDocumentService;
 use Prospektweb\Calc\Services\CalculatorVersionFormDocumentService;
 use Prospektweb\Calc\Services\CalculatorVersionRegistryService;
+use Prospektweb\Calc\Services\CalculatorVersionRuntimePublicationService;
 use Prospektweb\Calc\Services\CalculatorVersionSnapshotSourceService;
 use Prospektweb\Calc\Services\CatalogOutputMappingService;
 use Prospektweb\Calc\Services\ControlCenterEditorsService;
@@ -160,12 +161,14 @@ $service = new ControlCenterEditorsService();
 $versionBundles = new CalculatorVersionBundleDocumentService();
 $versionComponents = new CalculatorVersionComponentDocumentService($versionBundles);
 $versionSources = new CalculatorVersionSnapshotSourceService();
+$versionRuntimePublications = new CalculatorVersionRuntimePublicationService($versionBundles);
 $versionRegistry = new CalculatorVersionRegistryService([
     'bundle_meta' => static function (int $presetId, string $versionId) use ($versionBundles): ?array {
         $bundle = $versionBundles->load($presetId, $versionId);
         return $bundle === null ? null : [
             'contentHash' => $bundle['contentHash'],
             'componentHashes' => $bundle['componentHashes'],
+            'readiness' => $bundle['readiness'],
         ];
     },
 ]);
@@ -240,12 +243,33 @@ $ensureVersionBundle = static function (
     int $presetId,
     string $versionId,
     ?string $sourceVersionId,
-    array $legacy
+    array $legacy,
+    bool $allowRebuild = false
 ) use ($versionBundles, $versionForms, $versionSources): array {
     $existing = $versionBundles->load($presetId, $versionId);
-    if ($existing !== null) return $existing;
+    if ($existing !== null) {
+        if (($existing['readiness']['complete'] ?? false) === true || !$allowRebuild) {
+            return $existing;
+        }
+        $documents = $existing['documents'];
+        $documents['publicationMetadata'] = $versionSources->publicationMetadata($presetId);
+        $documents['commercialPolicy'] = $versionSources->commercialPolicy($presetId);
+        return $versionBundles->save($presetId, $versionId, $documents);
+    }
     if ($sourceVersionId !== null && $versionBundles->has($presetId, $sourceVersionId)) {
-        return $versionBundles->copy($presetId, $sourceVersionId, $versionId);
+        $source = $versionBundles->load($presetId, $sourceVersionId);
+        if ($source === null) {
+            throw new \RuntimeException('Полный снимок исходной версии отсутствует.', 409);
+        }
+        $documents = $source['documents'];
+        if (($source['readiness']['complete'] ?? false) !== true) {
+            if (!$allowRebuild) {
+                throw new \RuntimeException('Исходная версия требует пересборки полного bundle.', 409);
+            }
+            $documents['publicationMetadata'] = $versionSources->publicationMetadata($presetId);
+            $documents['commercialPolicy'] = $versionSources->commercialPolicy($presetId);
+        }
+        return $versionBundles->save($presetId, $versionId, $documents);
     }
     $formDocument = $versionForms->ensure($presetId, $versionId, $sourceVersionId, $legacy);
     return $versionBundles->save(
@@ -1010,7 +1034,8 @@ try {
             $presetId,
             (string)$createdRow['versionId'],
             is_string($createdRow['basedOnVersionId'] ?? null) ? $createdRow['basedOnVersionId'] : null,
-            $context['legacy']
+            $context['legacy'],
+            true
         );
         $createdWorkspace = $versionRegistry->loadWorkspace(
             $presetId,
@@ -1117,7 +1142,16 @@ try {
         if (!is_string($versionId) || !is_string($component)) {
             throw new \InvalidArgumentException('versionId and component are required');
         }
-        $versionState($presetId, $versionId);
+        $state = $versionState($presetId, $versionId);
+        if (($state['row']['status'] ?? null) === 'DRAFT') {
+            $ensureVersionBundle(
+                $presetId,
+                $versionId,
+                is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+                $state['context']['legacy'],
+                true
+            );
+        }
         $respond(200, [
             'success' => true,
             'data' => $versionComponents->load($presetId, $versionId, $component),
@@ -1146,6 +1180,13 @@ try {
         if (($state['row']['status'] ?? null) !== 'DRAFT') {
             throw new \InvalidArgumentException('Изменять можно только компонент черновика версии.');
         }
+        $ensureVersionBundle(
+            $presetId,
+            $versionId,
+            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+            $state['context']['legacy'],
+            true
+        );
         $respond(200, [
             'success' => true,
             'data' => $versionComponents->saveDraft(
@@ -1178,7 +1219,8 @@ try {
             $presetId,
             $versionId,
             is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-            $state['context']['legacy']
+            $state['context']['legacy'],
+            $isDraft
         );
         $logic = $bundle['documents']['logic'];
         $workingPresetId = (int)($logic['workingPresetId'] ?? 0);
@@ -1366,7 +1408,7 @@ try {
             is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
             $state['context']['legacy']
         );
-        // Assemble and validate the exact six-component bundle before advancing
+        // Assemble and validate the exact complete bundle before advancing
         // the form CAS revision. A source/capture failure must not leave the UI
         // with a successfully saved form followed by a stale-revision conflict.
         $prospectiveForm = [
@@ -1374,20 +1416,14 @@ try {
             'formDefinition' => $request['formDefinition'],
             'bindingDefinition' => $request['bindingDefinition'],
         ];
-        $existingBundle = $versionBundles->load($presetId, $versionId);
-        if ($existingBundle !== null) {
-            $components = $existingBundle['documents'];
-        } else {
-            $sourceVersionId = is_string($state['row']['basedOnVersionId'] ?? null)
-                ? $state['row']['basedOnVersionId']
-                : null;
-            $sourceBundle = $sourceVersionId !== null
-                ? $versionBundles->load($presetId, $sourceVersionId)
-                : null;
-            $components = $sourceBundle !== null
-                ? $sourceBundle['documents']
-                : $versionSources->capture($presetId, $prospectiveForm);
-        }
+        $existingBundle = $ensureVersionBundle(
+            $presetId,
+            $versionId,
+            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+            $state['context']['legacy'],
+            true
+        );
+        $components = $existingBundle['documents'];
         $components['form'] = $prospectiveForm;
         $versionBundles->inspect($components);
         $savedForm = $versionForms->saveDraft(
@@ -1439,32 +1475,20 @@ try {
             || !is_string($preview['compile']['hash'] ?? null)) {
             throw new \InvalidArgumentException('Черновик не прошёл проверку формы и связей. Перейдите к исправлению ошибок.');
         }
-        // The draft already owns all six components. Publication validates
+        // The draft already owns every component. Publication validates
         // and seals that exact bundle; recapturing shared runtime here would
         // silently discard version-scoped storefront/mapping/product edits.
         $storedBundle = $ensureVersionBundle(
             $presetId,
             $versionId,
             is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
-            $legacy
+            $legacy,
+            true
         );
         $versionBundles->inspect($storedBundle['documents']);
-        $effectiveNow = $versionBundles->inspect($versionSources->capture($presetId, $document));
-        $drifted = [];
-        foreach (CalculatorVersionBundleDocumentService::COMPONENTS as $component) {
-            if ($component === 'form') continue;
-            if (!hash_equals(
-                (string)$storedBundle['componentHashes'][$component],
-                (string)$effectiveNow['componentHashes'][$component]
-            )) {
-                $drifted[] = $component;
-            }
-        }
-        if ($drifted !== []) {
+        if (($storedBundle['readiness']['complete'] ?? false) !== true) {
             throw new \RuntimeException(
-                'Публикация остановлена: выбранный черновик отличается от рабочего runtime в компонентах '
-                . implode(', ', $drifted)
-                . '. Полная материализация bundle будет добавлена отдельным этапом; смешанная версия не будет активирована.',
+                'Публикация остановлена: полный bundle версии требует пересборки. Перейдите к версии и исправьте её компоненты.',
                 409
             );
         }
@@ -1477,18 +1501,28 @@ try {
                 $context['presetName'],
                 $legacy,
                 $context['actor'],
-                static function () use ($service, $presetId, $legacy, $preview, $document): array {
+                static function () use (
+                    $service,
+                    $presetId,
+                    $legacy,
+                    $preview,
+                    $document,
+                    $versionRuntimePublications,
+                    $versionId
+                ): array {
                     $saved = $service->saveFormFirstDraft(
                         $presetId,
                         (string)$legacy['aggregateRevision'],
                         $document['formDefinition'],
                         $document['bindingDefinition']
                     );
-                    return $service->publishFormFirst(
+                    $published = $service->publishFormFirst(
                         $presetId,
                         (string)$saved['aggregateRevision'],
                         (string)$preview['compile']['hash']
                     );
+                    $versionRuntimePublications->activate($presetId, $versionId);
+                    return $published;
                 }
             ),
         ]);
@@ -1517,22 +1551,9 @@ try {
             throw new \RuntimeException('У версии отсутствует полный снимок формы, логики, витрин, сопоставлений и товаров.', 409);
         }
         $versionBundles->inspect($storedBundle['documents']);
-        $effectiveNow = $versionBundles->inspect($versionSources->capture($presetId, $document));
-        $drifted = [];
-        foreach (CalculatorVersionBundleDocumentService::COMPONENTS as $component) {
-            if ($component === 'form') continue;
-            if (!hash_equals(
-                (string)$storedBundle['componentHashes'][$component],
-                (string)$effectiveNow['componentHashes'][$component]
-            )) {
-                $drifted[] = $component;
-            }
-        }
-        if ($drifted !== []) {
+        if (($storedBundle['readiness']['complete'] ?? false) !== true) {
             throw new \RuntimeException(
-                'Безопасная активация остановлена: runtime отличается от снимка версии в компонентах '
-                . implode(', ', $drifted)
-                . '. Материализация старого полного bundle ещё не выполнена; смешанная версия не будет опубликована.',
+                'Безопасная активация остановлена: версия создана до полного bundle v2 и требует пересборки.',
                 409
             );
         }
@@ -1551,18 +1572,28 @@ try {
                 $context['presetName'],
                 $legacy,
                 $context['actor'],
-                static function () use ($service, $presetId, $legacy, $preview, $document): array {
+                static function () use (
+                    $service,
+                    $presetId,
+                    $legacy,
+                    $preview,
+                    $document,
+                    $versionRuntimePublications,
+                    $versionId
+                ): array {
                     $saved = $service->saveFormFirstDraft(
                         $presetId,
                         (string)$legacy['aggregateRevision'],
                         $document['formDefinition'],
                         $document['bindingDefinition']
                     );
-                    return $service->publishFormFirst(
+                    $published = $service->publishFormFirst(
                         $presetId,
                         (string)$saved['aggregateRevision'],
                         (string)$preview['compile']['hash']
                     );
+                    $versionRuntimePublications->activate($presetId, $versionId);
+                    return $published;
                 }
             ),
         ]);

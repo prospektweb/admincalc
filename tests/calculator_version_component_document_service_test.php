@@ -62,6 +62,12 @@ $documents = [
         'presetId' => $presetId,
         'assignments' => [],
     ],
+    'publicationMetadata' => [
+        'contract' => CalculatorVersionSnapshotSourceService::PUBLICATION_METADATA_CONTRACT,
+        'presetId' => $presetId,
+        'calculatorName' => 'Листовая печать',
+    ],
+    'commercialPolicy' => CalculatorVersionSnapshotSourceService::defaultCommercialPolicy($presetId),
 ];
 $initial = $bundles->save($presetId, $versionId, $documents);
 $service = new CalculatorVersionComponentDocumentService($bundles);

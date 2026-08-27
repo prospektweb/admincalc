@@ -86,9 +86,9 @@ $publicationSource = $publication !== false && $activation !== false
     : '';
 $assert(
     str_contains($publicationSource, '$versionBundles->inspect($storedBundle[\'documents\']);')
-        && str_contains($publicationSource, '$versionSources->capture($presetId, $document)')
-        && !str_contains($publicationSource, '$versionBundles->save('),
-    'publication must preserve the edited version bundle and only compare shared runtime for the safety gate'
+        && str_contains($publicationSource, '$versionRuntimePublications->activate($presetId, $versionId)')
+        && !str_contains($publicationSource, '$versionSources->capture($presetId, $document)'),
+    'publication must activate the exact edited version bundle instead of comparing or recapturing shared runtime'
 );
 
 $assert(

@@ -21,6 +21,7 @@ final class CalculatorVersionComponentDocumentService
         'inputMappings',
         'outputMappings',
         'productAssignments',
+        'commercialPolicy',
     ];
 
     private CalculatorVersionBundleDocumentService $bundles;
@@ -104,6 +105,7 @@ final class CalculatorVersionComponentDocumentService
             'inputMappings' => CalculatorInputMappingService::CONTRACT,
             'outputMappings' => CatalogOutputMappingService::CONTRACT,
             'productAssignments' => CalculatorVersionSnapshotSourceService::PRODUCT_ASSIGNMENTS_CONTRACT,
+            'commercialPolicy' => CalculatorVersionSnapshotSourceService::COMMERCIAL_POLICY_CONTRACT,
         ][$component];
         if ($contract !== $expectedContract || $documentPresetId !== $presetId) {
             throw new \InvalidArgumentException('Документ компонента не соответствует выбранной версии калькулятора.');
@@ -138,6 +140,64 @@ final class CalculatorVersionComponentDocumentService
         if ($component === 'logic'
             && (!is_array($document['graph'] ?? null) || !is_array($document['elements'] ?? null))) {
             throw new \InvalidArgumentException('Снимок логики должен содержать graph и elements.');
+        }
+        if ($component === 'commercialPolicy') {
+            $this->assertCommercialPolicy($document);
+        }
+    }
+
+    /** @param array<string,mixed> $document */
+    private function assertCommercialPolicy(array $document): void
+    {
+        $policy = $document['deadlinePolicy'] ?? null;
+        if (!is_array($policy)
+            || !in_array($policy['mode'] ?? null, ['basic', 'advanced'], true)
+            || !in_array($policy['effortBasis'] ?? null, ['laborMinutes', 'productionMinutes'], true)
+            || !in_array($policy['fallback'] ?? null, ['basic', 'error'], true)
+            || !is_array($policy['basic'] ?? null)
+            || !is_array($policy['ranges'] ?? null)) {
+            throw new \InvalidArgumentException('Политика сроков имеет несовместимую структуру.');
+        }
+        $effort = [];
+        foreach (['urgent', 'strict', 'flexible'] as $deadline) {
+            $row = $policy['basic'][$deadline] ?? null;
+            if (!is_array($row)) {
+                throw new \InvalidArgumentException('Базовая политика сроков должна содержать все три режима.');
+            }
+            foreach (['effortPercent', 'markupPercent', 'discountPercent'] as $field) {
+                if (!is_int($row[$field] ?? null) && !is_float($row[$field] ?? null)) {
+                    throw new \InvalidArgumentException('Проценты политики сроков должны быть числами.');
+                }
+                $number = (float)$row[$field];
+                if (!is_finite($number) || $number < 0 || ($field === 'discountPercent' && $number >= 100)) {
+                    throw new \InvalidArgumentException('Проценты политики сроков выходят за допустимые границы.');
+                }
+            }
+            $effort[$deadline] = (float)$row['effortPercent'];
+        }
+        if ($effort['urgent'] < $effort['strict'] || $effort['strict'] < $effort['flexible']) {
+            throw new \InvalidArgumentException('Коэффициенты сроков должны соблюдать urgent >= strict >= flexible >= 0.');
+        }
+
+        $previousMax = null;
+        $rangeCount = count($policy['ranges']);
+        foreach ($policy['ranges'] as $rangeIndex => $range) {
+            if (!is_array($range)
+                || !is_int($range['minMinutes'] ?? null) && !is_float($range['minMinutes'] ?? null)
+                || (($range['maxMinutes'] ?? null) !== null
+                    && !is_int($range['maxMinutes']) && !is_float($range['maxMinutes']))) {
+                throw new \InvalidArgumentException('Диапазон политики сроков имеет несовместимую структуру.');
+            }
+            $min = (float)$range['minMinutes'];
+            $max = $range['maxMinutes'] === null ? null : (float)$range['maxMinutes'];
+            if (!is_finite($min) || $min < 0 || ($max !== null && (!is_finite($max) || $max <= $min))
+                || ($previousMax !== null && $min < $previousMax)) {
+                throw new \InvalidArgumentException('Диапазоны политики сроков должны быть непересекающимися и возрастающими.');
+            }
+            $previousMax = $max;
+            if ($max === null && (int)$rangeIndex !== $rangeCount - 1) {
+                throw new \InvalidArgumentException('Открытый диапазон политики сроков может быть только последним.');
+            }
         }
     }
 
