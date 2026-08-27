@@ -45,6 +45,16 @@ $assert(count($saved['componentHashes']) === 8, 'all component hashes are requir
 $assert(($saved['readiness']['complete'] ?? false) === true, 'v2 bundle must be publication-ready');
 $assert(preg_match('/^[a-f0-9]{64}$/D', $saved['contentHash']) === 1, 'aggregate content hash is invalid');
 
+$objectComponents = $components;
+$objectComponents['form']['emptyObject'] = (object)[];
+$objectComponents['storefronts']['nested'] = ['emptyObject' => (object)[]];
+$objectRoundTrip = $service->save(12740, 'v_6666666666666666', $objectComponents);
+$assert(
+    isset($objectRoundTrip['documents']['form']['emptyObject'])
+        && is_array($objectRoundTrip['documents']['form']['emptyObject']),
+    'JSON object/list transport normalization must not produce a false aggregate corruption report'
+);
+
 $incompleteComponents = $components;
 unset($incompleteComponents['logic']['runtimePayload']);
 $incomplete = $service->save(12740, 'v_7777777777777777', $incompleteComponents);

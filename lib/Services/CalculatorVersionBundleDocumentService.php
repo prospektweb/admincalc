@@ -135,6 +135,7 @@ final class CalculatorVersionBundleDocumentService
         $manifest = is_array($manifest) ? $manifest : [];
         $manifestComponents = $this->assertManifest($manifest, $presetId, $versionId);
         $documents = [];
+        $encodedDocuments = [];
         $totalBytes = 0;
         foreach ($manifestComponents as $component) {
             $raw = $this->rawGet($this->componentName($presetId, $versionId, $component));
@@ -149,11 +150,15 @@ final class CalculatorVersionBundleDocumentService
                 throw new \RuntimeException('Компонент версии ' . $component . ' имеет несовместимый JSON-контракт.');
             }
             $documents[$component] = $decoded;
+            $encodedDocuments[$component] = $raw;
             $totalBytes += strlen($raw);
         }
         $manifestContract = (string)$manifest['contract'];
         if ($totalBytes !== (int)$manifest['totalBytes']
-            || !hash_equals((string)$manifest['contentHash'], $this->contentHash($documents, $manifestContract))) {
+            || !hash_equals(
+                (string)$manifest['contentHash'],
+                $this->contentHashFromEncodedComponents($encodedDocuments, $manifestContract)
+            )) {
             throw new \RuntimeException('Агрегат полного снимка версии повреждён.');
         }
         $selfContainedLogic = $this->hasSelfContainedLogicRuntime(
@@ -300,6 +305,36 @@ final class CalculatorVersionBundleDocumentService
             'contract' => $contract,
             'components' => $components,
         ]));
+    }
+
+    /**
+     * Rebuild the aggregate hash from the exact component JSON that was
+     * covered by the per-component hashes. Decoding JSON with assoc=true
+     * cannot preserve the difference between an empty object and an empty
+     * list, so hashing decoded documents produced false corruption reports.
+     *
+     * @param array<string,string> $encodedComponents
+     */
+    private function contentHashFromEncodedComponents(array $encodedComponents, string $contract): string
+    {
+        $ordered = [];
+        foreach ($encodedComponents as $component => $raw) {
+            $ordered[(string)$component] = (string)$raw;
+        }
+        ksort($ordered, SORT_STRING);
+        $pairs = [];
+        foreach ($ordered as $component => $raw) {
+            $encodedKey = json_encode($component, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (!is_string($encodedKey)) {
+                throw new \RuntimeException('Не удалось сериализовать имя компонента версии.');
+            }
+            $pairs[] = $encodedKey . ':' . $raw;
+        }
+        $encodedContract = json_encode($contract, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($encodedContract)) {
+            throw new \RuntimeException('Не удалось сериализовать контракт полного снимка версии.');
+        }
+        return hash('sha256', '{"components":{' . implode(',', $pairs) . '},"contract":' . $encodedContract . '}');
     }
 
     private function manifestName(int $presetId, string $versionId): string
