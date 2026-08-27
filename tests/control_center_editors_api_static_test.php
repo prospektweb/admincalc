@@ -124,6 +124,7 @@ $assert(
 $assert(
     str_contains($endpoint, "(\$logic['initializationMode'] ?? null) === 'blank'")
         && str_contains($endpoint, "->createVersionWorkingPreset(\n                            'Рабочая логика")
+        && str_contains($endpoint, '->duplicateVersionWorkingPreset(')
         && str_contains($endpoint, '->markVersionWorkingPreset(')
         && str_contains($endpoint, "elseif (\$isEditable && \$workingPresetId !== \$presetId)")
         && str_contains($endpoint, "(\$marker['changed'] ?? false) === true")

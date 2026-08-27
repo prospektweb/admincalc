@@ -264,6 +264,51 @@ try {
 }
 $assert($foreignDeleteRejected, 'a version cannot delete a foreign working graph');
 
+$workingCloneRows = [
+    60 => [
+        'id' => 60,
+        'name' => 'Marked source',
+        'code' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX . '41-v-' . str_repeat('b', 20) . '-60',
+        'active' => 'N',
+    ],
+];
+$workingCloneAuthority = new PresetLifecycleFakeAuthority([
+    60 => ['presetId' => 60, 'detailIds' => [700], 'stageIds' => [], 'settingsIds' => [], 'revision' => str_repeat('6', 64)],
+]);
+$workingCloneService = new PresetLifecycleMutationService([
+    'with_source_authority' => static fn(int $_presetId, callable $criticalSection): array => $criticalSection(
+        $workingCloneAuthority,
+        ['CALC_PRESETS' => 11, 'CALC_DETAILS' => 12, 'CALC_STAGES' => 13, 'CALC_SETTINGS' => 14]
+    ),
+    'clone_locked' => static function (int $sourcePresetId) use (&$workingCloneRows, $workingCloneAuthority): int {
+        $workingCloneRows[61] = ['id' => 61, 'name' => 'Marked source copy', 'code' => 'ordinary-copy', 'active' => 'N'];
+        $workingCloneAuthority->graphs[61] = ['presetId' => 61, 'detailIds' => [701], 'stageIds' => [], 'settingsIds' => [], 'revision' => str_repeat('7', 64)];
+        return $sourcePresetId === 60 ? 61 : 0;
+    },
+    'mark_working_locked' => static function (int $presetId, string $code) use (&$workingCloneRows): bool {
+        $workingCloneRows[$presetId]['code'] = $code;
+        $workingCloneRows[$presetId]['active'] = 'N';
+        return true;
+    },
+    'working_identity_loader' => static function (int $presetId) use (&$workingCloneRows): array {
+        return $workingCloneRows[$presetId] ?? [];
+    },
+    'audit' => static fn(): int => 1,
+]);
+$workingCloneVersionId = 'v_' . str_repeat('c', 20);
+$workingCloneReceipt = $workingCloneService->duplicateVersionWorkingPreset(60, 41, $workingCloneVersionId);
+$assert(
+    ($workingCloneReceipt['newPresetId'] ?? 0) === 61
+        && ($workingCloneRows[60]['active'] ?? '') === 'N'
+        && ($workingCloneRows[60]['code'] ?? '') === PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX . '41-v-' . str_repeat('b', 20) . '-60'
+        && ($workingCloneRows[61]['active'] ?? '') === 'N'
+        && str_starts_with(
+            (string)($workingCloneRows[61]['code'] ?? ''),
+            PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX . '41-v-' . str_repeat('c', 20) . '-'
+        ),
+    'an inactive marked source is cloned and the trusted new graph is marked atomically without changing the source'
+);
+
 $deleteAuthority = new PresetLifecycleFakeAuthority([
     61 => [
         'presetId' => 61,

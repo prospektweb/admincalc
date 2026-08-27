@@ -1429,15 +1429,12 @@ try {
                         $sourcePresetId = $workingPresetId > 0 && !$historicalWorkingPresetMissing
                             ? $workingPresetId
                             : $presetId;
-                        $clone = (new PresetLifecycleMutationService())->duplicatePreset($sourcePresetId);
+                        $clone = (new PresetLifecycleMutationService())->duplicateVersionWorkingPreset(
+                            $sourcePresetId,
+                            $presetId,
+                            $versionId
+                        );
                         $workingPresetId = (int)($clone['newPresetId'] ?? 0);
-                        if ($workingPresetId > 0) {
-                            (new PresetLifecycleMutationService())->markVersionWorkingPreset(
-                                $workingPresetId,
-                                $presetId,
-                                $versionId
-                            );
-                        }
                     }
                     if ($workingPresetId <= 0) {
                         throw new \RuntimeException('Не удалось создать чистый изолированный граф логики версии.', 409);

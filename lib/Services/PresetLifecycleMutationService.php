@@ -112,6 +112,68 @@ final class PresetLifecycleMutationService
     }
 
     /** @return array<string,mixed> */
+    public function duplicateVersionWorkingPreset(
+        int $sourcePresetId,
+        int $calculatorPresetId,
+        string $versionId
+    ): array {
+        $this->assertPresetId($sourcePresetId);
+        $this->assertPresetId($calculatorPresetId);
+        $this->assertVersionId($versionId);
+        $criticalSection = function ($authority, array $pinnedIblockIds) use (
+            $sourcePresetId,
+            $calculatorPresetId,
+            $versionId
+        ): array {
+            $sourceBefore = $authority->readLockedPresetGraph($sourcePresetId);
+            $sourceBeforeHash = PresetMutationCoordinatorService::hashCanonical($sourceBefore);
+            $newPresetId = isset($this->adapters['clone_locked'])
+                ? (int)call_user_func($this->adapters['clone_locked'], $sourcePresetId, $pinnedIblockIds)
+                : (new BundleHandler())->clonePresetLocked($sourcePresetId, $pinnedIblockIds);
+            if ($newPresetId <= 0 || $newPresetId === $sourcePresetId) {
+                throw new \RuntimeException('Working preset clone returned an invalid identity.', 409);
+            }
+            $this->markTrustedWorkingPresetLocked(
+                $newPresetId,
+                $calculatorPresetId,
+                $versionId,
+                $pinnedIblockIds
+            );
+            $authority->refreshLockedState($sourcePresetId);
+            $sourceAfter = $authority->readLockedPresetGraph($sourcePresetId);
+            $cloneGraph = $authority->readLockedPresetGraph($newPresetId);
+            $sourceAfterHash = PresetMutationCoordinatorService::hashCanonical($sourceAfter);
+            if (!hash_equals($sourceBeforeHash, $sourceAfterHash)) {
+                throw new \RuntimeException('Source working graph changed while it was being duplicated.', 409);
+            }
+            $identity = $this->loadWorkingIdentity($newPresetId, $pinnedIblockIds);
+            $this->assertWorkingIdentity($identity, $calculatorPresetId, $versionId);
+            $this->writeAudit([
+                'contract' => self::CONTRACT,
+                'actorId' => $this->actorId(),
+                'action' => 'duplicate_version_working_preset',
+                'sourcePresetId' => $sourcePresetId,
+                'newPresetId' => $newPresetId,
+                'calculatorPresetId' => $calculatorPresetId,
+                'versionId' => $versionId,
+                'sourceBeforeSha256' => $sourceBeforeHash,
+                'sourceAfterSha256' => $sourceAfterHash,
+                'cloneSha256' => PresetMutationCoordinatorService::hashCanonical($cloneGraph),
+                'result' => 'success',
+            ]);
+            return [
+                'contract' => self::CONTRACT,
+                'presetId' => $sourcePresetId,
+                'newPresetId' => $newPresetId,
+                'presetName' => (string)$identity['name'],
+                'sourceRevision' => (string)($sourceBefore['revision'] ?? $sourceBeforeHash),
+                'cloneRevision' => (string)($cloneGraph['revision'] ?? ''),
+            ];
+        };
+        return $this->withSourceAuthority($sourcePresetId, $criticalSection);
+    }
+
+    /** @return array<string,mixed> */
     public function createPreset(string $name, int $sectionId = 0): array
     {
         $name = trim($name);
@@ -763,6 +825,31 @@ final class PresetLifecycleMutationService
             'code' => (string)($row['code'] ?? $row['CODE'] ?? ''),
             'active' => (string)($row['active'] ?? $row['ACTIVE'] ?? ''),
         ];
+    }
+
+    /** @param array<string,int> $pinnedIblockIds */
+    private function markTrustedWorkingPresetLocked(
+        int $workingPresetId,
+        int $calculatorPresetId,
+        string $versionId,
+        array $pinnedIblockIds
+    ): void {
+        $codeSeed = self::workingCodePrefix($calculatorPresetId, $versionId) . $workingPresetId;
+        $updated = isset($this->adapters['mark_working_locked'])
+            ? call_user_func(
+                $this->adapters['mark_working_locked'],
+                $workingPresetId,
+                $codeSeed,
+                $pinnedIblockIds
+            )
+            : (new \CIBlockElement())->Update($workingPresetId, [
+                'CODE' => $codeSeed,
+                'ACTIVE' => 'N',
+                'IBLOCK_SECTION_ID' => false,
+            ]);
+        if ($updated === false) {
+            throw new \RuntimeException('Не удалось изолировать клонированный рабочий граф версии.', 409);
+        }
     }
 
     /** @param array{id:int,name:string,code:string,active:string} $identity */
