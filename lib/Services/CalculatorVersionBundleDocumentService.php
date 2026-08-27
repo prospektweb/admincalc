@@ -354,6 +354,7 @@ final class CalculatorVersionBundleDocumentService
         if (isset($this->adapters['get'])) {
             return (string)call_user_func($this->adapters['get'], $name);
         }
+        $name = mb_strtolower($name);
         $connection = Application::getConnection();
         $helper = $connection->getSqlHelper();
         $sql = "SELECT VALUE FROM b_option WHERE BINARY MODULE_ID='"
@@ -381,6 +382,7 @@ final class CalculatorVersionBundleDocumentService
             call_user_func($this->adapters['set'], $name, $value);
             return;
         }
+        $name = mb_strtolower($name);
         $connection = Application::getConnection();
         if (!BitrixTransactionStateAuthority::isActive($connection)) {
             throw new \RuntimeException(
@@ -416,6 +418,7 @@ final class CalculatorVersionBundleDocumentService
             call_user_func($this->adapters['delete'], $name);
             return;
         }
+        $name = mb_strtolower($name);
         $connection = Application::getConnection();
         if (!BitrixTransactionStateAuthority::isActive($connection)) {
             throw new \RuntimeException(

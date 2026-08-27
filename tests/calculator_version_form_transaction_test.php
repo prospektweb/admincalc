@@ -41,6 +41,7 @@ namespace {
     $presetId = 15576;
     $versionId = 'v_1111111111111111';
     $formOptionName = 'CALC_VERSION_FORM_' . $presetId . '_' . $versionId;
+    $storedFormOptionName = mb_strtolower($formOptionName);
     $legacy = [
         'formDefinition' => ['contract' => 'form/v1', 'fields' => [['fieldId' => 'volume']]],
         'bindingDefinition' => ['contract' => 'binding/v1', 'bindings' => []],
@@ -91,21 +92,21 @@ namespace {
         'bundle document must roll back together with the form document'
     );
 
-    $connection->seedOption('prospektweb.calc', $formOptionName, 'site-specific-sentinel', 's1');
+    $connection->seedOption('prospektweb.calc', $storedFormOptionName, 'site-specific-sentinel', 's1');
     $forms->delete($presetId, $versionId);
     $assert(
-        $connection->optionValue('prospektweb.calc', $formOptionName, '') === null,
+        $connection->optionValue('prospektweb.calc', $storedFormOptionName, '') === null,
         'delete must remove the exact default-site form row'
     );
     $assert(
-        $connection->optionValue('prospektweb.calc', $formOptionName, 's1') === 'site-specific-sentinel',
+        $connection->optionValue('prospektweb.calc', $storedFormOptionName, 's1') === 'site-specific-sentinel',
         'delete must preserve same-name site-scoped rows'
     );
 
     $queries = implode("\n", $connection->queries());
     $assert(
         str_contains($queries, "BINARY MODULE_ID='prospektweb.calc'")
-            && str_contains($queries, "BINARY NAME='" . $formOptionName . "'")
+            && str_contains($queries, "BINARY NAME='" . $storedFormOptionName . "'")
             && str_contains($queries, "(SITE_ID IS NULL OR SITE_ID='')")
             && str_contains($queries, 'FOR UPDATE'),
         'form storage must use exact default-site SQL and row locks'

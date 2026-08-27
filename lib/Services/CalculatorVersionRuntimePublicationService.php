@@ -524,6 +524,7 @@ final class CalculatorVersionRuntimePublicationService
         if (isset($this->adapters['get'])) {
             return (string)call_user_func($this->adapters['get'], $name);
         }
+        $name = mb_strtolower($name);
         $connection = Application::getConnection();
         $helper = $connection->getSqlHelper();
         $sql = "SELECT VALUE FROM b_option WHERE BINARY MODULE_ID='"
@@ -552,6 +553,7 @@ final class CalculatorVersionRuntimePublicationService
             call_user_func($this->adapters['set'], $name, $raw);
             return;
         }
+        $name = mb_strtolower($name);
         $connection = Application::getConnection();
         if (!BitrixTransactionStateAuthority::isActive($connection)) {
             throw new \RuntimeException('Указатель активной версии можно менять только в транзакции.', 409);

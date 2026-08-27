@@ -849,11 +849,12 @@ final class CalculatorVersionRegistryService
         if (isset($this->adapters['get'])) {
             return (string)call_user_func($this->adapters['get'], $this->optionName($presetId));
         }
+        $name = mb_strtolower($this->optionName($presetId));
         $connection = Application::getConnection();
         $helper = $connection->getSqlHelper();
         $sql = "SELECT VALUE FROM b_option WHERE BINARY MODULE_ID='"
             . $helper->forSql(self::MODULE_ID)
-            . "' AND BINARY NAME='" . $helper->forSql($this->optionName($presetId))
+            . "' AND BINARY NAME='" . $helper->forSql($name)
             . "' AND (SITE_ID IS NULL OR SITE_ID='')";
         if (BitrixTransactionStateAuthority::isActive($connection)) {
             $sql .= ' FOR UPDATE';
@@ -876,6 +877,7 @@ final class CalculatorVersionRegistryService
             call_user_func($this->adapters['set'], $this->optionName($presetId), $raw);
             return;
         }
+        $name = mb_strtolower($this->optionName($presetId));
         $connection = Application::getConnection();
         if (!BitrixTransactionStateAuthority::isActive($connection)) {
             Option::set(self::MODULE_ID, $this->optionName($presetId), $raw);
@@ -883,7 +885,7 @@ final class CalculatorVersionRegistryService
         }
         $helper = $connection->getSqlHelper();
         $moduleSql = $helper->forSql(self::MODULE_ID);
-        $nameSql = $helper->forSql($this->optionName($presetId));
+        $nameSql = $helper->forSql($name);
         $rawSql = $helper->forSql($raw);
         if ($this->getRaw($presetId) === '') {
             $connection->queryExecute(
