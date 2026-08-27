@@ -838,6 +838,29 @@ class BundleHandler
         return $changed;
     }
 
+    /**
+     * SetPropertyValuesEx serializes an empty HTML wrapper as the literal text
+     * "HTML" on a new element. Omitting that one value preserves the schema's
+     * native empty value; non-empty payloads remain byte-for-byte writes.
+     *
+     * @return array<string,mixed>
+     */
+    private function omitEmptyHtmlPropertyValues(array $properties): array
+    {
+        foreach ($properties as $code => $value) {
+            if (!is_array($value)
+                || !array_key_exists('TEXT', $value)
+                || !array_key_exists('TYPE', $value)) {
+                continue;
+            }
+            $type = strtolower((string)$value['TYPE']);
+            if (($type === 'text' || $type === 'html') && (string)$value['TEXT'] === '') {
+                unset($properties[$code]);
+            }
+        }
+        return $properties;
+    }
+
     private function normalizeToIntArray($value): array
     {
         if (!is_array($value)) {
@@ -956,7 +979,9 @@ class BundleHandler
         if ($newId <= 0) {
             return null;
         }
-        $properties = $this->getElementPropertyValuesForClone($settingsId, $settingsIblockId);
+        $properties = $this->omitEmptyHtmlPropertyValues(
+            $this->getElementPropertyValuesForClone($settingsId, $settingsIblockId)
+        );
         if ($properties !== []) {
             \CIBlockElement::SetPropertyValuesEx($newId, $settingsIblockId, $properties);
         }

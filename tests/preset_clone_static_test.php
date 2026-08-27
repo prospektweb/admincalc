@@ -60,6 +60,8 @@ $normalizeHtmlMarkersMethod = $reflection->getMethod('normalizeHtmlPropertyMarke
 $normalizeHtmlMarkersMethod->setAccessible(true);
 $collectChangedPropertiesMethod = $reflection->getMethod('collectChangedPropertyValues');
 $collectChangedPropertiesMethod->setAccessible(true);
+$omitEmptyHtmlPropertiesMethod = $reflection->getMethod('omitEmptyHtmlPropertyValues');
+$omitEmptyHtmlPropertiesMethod->setAccessible(true);
 $method = $reflection->getMethod('remapPresetStageReferences');
 $method->setAccessible(true);
 
@@ -113,6 +115,12 @@ $changedProperties = $collectChangedPropertiesMethod->invoke($handler, $legacyPr
 if (array_keys($changedProperties) !== ['LOGIC_JSON']
     || ($changedProperties['LOGIC_JSON']['TEXT'] ?? null) !== '{"formula":"stage_110"}') {
     throw new RuntimeException('Settings remap must write only properties whose stage references changed');
+}
+
+$cloneWriteProperties = $omitEmptyHtmlPropertiesMethod->invoke($handler, $legacyProperties);
+if (array_keys($cloneWriteProperties) !== ['LOGIC_JSON']
+    || ($cloneWriteProperties['LOGIC_JSON']['TEXT'] ?? null) !== '{"formula":"stage_10"}') {
+    throw new RuntimeException('Settings clone must omit only empty HTML wrappers that Bitrix corrupts on write');
 }
 
 $groups = [
