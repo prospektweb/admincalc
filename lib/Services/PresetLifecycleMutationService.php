@@ -224,6 +224,14 @@ final class PresetLifecycleMutationService
             $versionId
         ): array {
             $codeSeed = self::workingCodePrefix($calculatorPresetId, $versionId) . $workingPresetId;
+            $before = $this->loadWorkingIdentity($workingPresetId, $pinnedIblockIds);
+            if ($this->workingIdentityMatches($before, $calculatorPresetId, $versionId)) {
+                return ['contract' => self::CONTRACT, 'presetId' => $workingPresetId, 'marked' => true, 'changed' => false];
+            }
+            if ($before['active'] !== 'Y'
+                || str_starts_with($before['code'], self::VERSION_WORKING_CODE_PREFIX)) {
+                throw new \RuntimeException('Рабочий граф уже принадлежит другой версии калькулятора.', 409);
+            }
             $updated = isset($this->adapters['mark_working_locked'])
                 ? call_user_func(
                     $this->adapters['mark_working_locked'],
@@ -241,7 +249,7 @@ final class PresetLifecycleMutationService
             }
             $identity = $this->loadWorkingIdentity($workingPresetId, $pinnedIblockIds);
             $this->assertWorkingIdentity($identity, $calculatorPresetId, $versionId);
-            return ['contract' => self::CONTRACT, 'presetId' => $workingPresetId, 'marked' => true];
+            return ['contract' => self::CONTRACT, 'presetId' => $workingPresetId, 'marked' => true, 'changed' => true];
         });
     }
 
@@ -760,13 +768,18 @@ final class PresetLifecycleMutationService
     /** @param array{id:int,name:string,code:string,active:string} $identity */
     private function assertWorkingIdentity(array $identity, int $calculatorPresetId, string $versionId): void
     {
-        $expectedPrefix = self::workingCodePrefix($calculatorPresetId, $versionId);
         if ($identity['id'] <= 0
             || $identity['name'] === ''
-            || $identity['active'] !== 'N'
-            || !str_starts_with($identity['code'], $expectedPrefix)) {
+            || !$this->workingIdentityMatches($identity, $calculatorPresetId, $versionId)) {
             throw new \RuntimeException('Рабочий граф не принадлежит указанной версии калькулятора.', 409);
         }
+    }
+
+    /** @param array{id:int,name:string,code:string,active:string} $identity */
+    private function workingIdentityMatches(array $identity, int $calculatorPresetId, string $versionId): bool
+    {
+        return $identity['active'] === 'N'
+            && str_starts_with($identity['code'], self::workingCodePrefix($calculatorPresetId, $versionId));
     }
 
     private static function workingCodePrefix(int $calculatorPresetId, string $versionId): string

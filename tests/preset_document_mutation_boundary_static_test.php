@@ -134,7 +134,8 @@ $assert(
 $assert(
     str_contains($editors, "'!%CODE' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX")
         && str_contains($catalog, "'!%CODE' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX")
-        && str_contains($initPayload, 'assertVersionWorkingPresetAvailableReadOnly('),
+        && str_contains($initPayload, 'assertVersionWorkingPresetAvailableReadOnly(')
+        && str_contains($initPayload, '$legacyUnmarked = $active === \'Y\''),
     'technical working graphs must be hidden from calculator catalogs while remaining available to their exact version editor'
 );
 

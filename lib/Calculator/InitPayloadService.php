@@ -696,8 +696,12 @@ class InitPayloadService
         $expectedPrefix = PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX
             . $calculatorPresetId . '-'
             . str_replace('_', '-', strtolower($versionId)) . '-';
-        if ((string)($row['ACTIVE'] ?? 'Y') !== 'N'
-            || !str_starts_with((string)($row['CODE'] ?? ''), $expectedPrefix)) {
+        $active = (string)($row['ACTIVE'] ?? 'N');
+        $code = (string)($row['CODE'] ?? '');
+        $legacyUnmarked = $active === 'Y'
+            && !str_starts_with($code, PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX);
+        if (!$legacyUnmarked
+            && ($active !== 'N' || !str_starts_with($code, $expectedPrefix))) {
             throw new \RuntimeException('Рабочий граф не принадлежит указанной версии калькулятора.', 409);
         }
     }

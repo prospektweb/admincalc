@@ -1481,6 +1481,25 @@ try {
                     $bundle['contentHash'] = $saved['contentHash'];
                     $bundle['componentHashes']['logic'] = $saved['componentHash'];
                     $workingVersionId = $versionId;
+                } elseif ($isEditable && $workingPresetId !== $presetId) {
+                    $marker = (new PresetLifecycleMutationService())->markVersionWorkingPreset(
+                        $workingPresetId,
+                        $presetId,
+                        $versionId
+                    );
+                    if (($marker['changed'] ?? false) === true) {
+                        $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
+                        $saved = $versionComponents->saveDraft(
+                            $presetId,
+                            $versionId,
+                            'logic',
+                            (string)$bundle['contentHash'],
+                            (string)$bundle['componentHashes']['logic'],
+                            $logic
+                        );
+                        $bundle['contentHash'] = $saved['contentHash'];
+                        $bundle['componentHashes']['logic'] = $saved['componentHash'];
+                    }
                 }
                 if ($workingPresetId <= 0 || ($workingVersionId !== $versionId && !$isEditable)) {
                     throw new \RuntimeException(

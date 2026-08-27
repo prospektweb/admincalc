@@ -231,7 +231,29 @@ $assert(
         ),
     'version working preset is inactive and carries its exact calculator/version marker'
 );
-$workingService->markVersionWorkingPreset(52, 41, $workingVersionId);
+$idempotentMarker = $workingService->markVersionWorkingPreset(52, 41, $workingVersionId);
+$assert(($idempotentMarker['changed'] ?? true) === false, 'an already marked working graph is not rewritten');
+$workingRows[53] = ['id' => 53, 'name' => 'Legacy graph', 'code' => 'legacy-graph', 'active' => 'Y'];
+$legacyMarker = $workingService->markVersionWorkingPreset(53, 41, $workingVersionId);
+$assert(
+    ($legacyMarker['changed'] ?? false) === true
+        && ($workingRows[53]['active'] ?? '') === 'N'
+        && str_starts_with((string)($workingRows[53]['code'] ?? ''), PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX),
+    'a legacy active working graph is migrated to the technical marker once'
+);
+$workingRows[54] = [
+    'id' => 54,
+    'name' => 'Foreign graph',
+    'code' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX . '42-v-' . str_repeat('b', 20) . '-54',
+    'active' => 'N',
+];
+$foreignMarkerRejected = false;
+try {
+    $workingService->markVersionWorkingPreset(54, 41, $workingVersionId);
+} catch (RuntimeException $error) {
+    $foreignMarkerRejected = str_contains($error->getMessage(), 'другой версии');
+}
+$assert($foreignMarkerRejected, 'an existing foreign technical marker cannot be reassigned');
 $workingService->deleteVersionWorkingPreset(52, 41, $workingVersionId);
 $assert($workingDeleted, 'the exact owned working graph can be cascade-deleted');
 $foreignDeleteRejected = false;
