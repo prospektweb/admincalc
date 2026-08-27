@@ -62,6 +62,21 @@ final class CalculatorVersionRuntimePublicationService
         if ($metadataName === '') {
             throw new \RuntimeException('Название калькулятора в bundle отсутствует.', 409);
         }
+        $commercialPolicy = $bundle['documents']['commercialPolicy'] ?? null;
+        try {
+            if (!is_array($commercialPolicy)
+                || (string)($commercialPolicy['contract'] ?? '') !== CalculatorVersionSnapshotSourceService::COMMERCIAL_POLICY_CONTRACT
+                || (int)($commercialPolicy['presetId'] ?? 0) !== $presetId) {
+                throw new \InvalidArgumentException('Документ коммерческой политики не принадлежит версии калькулятора.');
+            }
+            CalculatorVersionComponentDocumentService::validateCommercialPolicyDocument($commercialPolicy);
+        } catch (\InvalidArgumentException $error) {
+            throw new \RuntimeException(
+                'Политика сроков не готова к публикации: ' . $error->getMessage() . ' Исправьте вкладку «Сроки».',
+                409,
+                $error
+            );
+        }
         $record = [
             'contract' => self::CONTRACT,
             'presetId' => $presetId,

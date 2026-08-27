@@ -142,12 +142,12 @@ final class CalculatorVersionComponentDocumentService
             throw new \InvalidArgumentException('Снимок логики должен содержать graph и elements.');
         }
         if ($component === 'commercialPolicy') {
-            $this->assertCommercialPolicy($document);
+            self::validateCommercialPolicyDocument($document);
         }
     }
 
     /** @param array<string,mixed> $document */
-    private function assertCommercialPolicy(array $document): void
+    public static function validateCommercialPolicyDocument(array $document): void
     {
         $policy = $document['deadlinePolicy'] ?? null;
         if (!is_array($policy)
@@ -158,32 +158,13 @@ final class CalculatorVersionComponentDocumentService
             || !is_array($policy['ranges'] ?? null)) {
             throw new \InvalidArgumentException('Политика сроков имеет несовместимую структуру.');
         }
-        $effort = [];
-        foreach (['urgent', 'strict', 'flexible'] as $deadline) {
-            $row = $policy['basic'][$deadline] ?? null;
-            if (!is_array($row)) {
-                throw new \InvalidArgumentException('Базовая политика сроков должна содержать все три режима.');
-            }
-            foreach (['effortPercent', 'markupPercent', 'discountPercent'] as $field) {
-                if (!is_int($row[$field] ?? null) && !is_float($row[$field] ?? null)) {
-                    throw new \InvalidArgumentException('Проценты политики сроков должны быть числами.');
-                }
-                $number = (float)$row[$field];
-                if (!is_finite($number) || $number < 0 || ($field === 'discountPercent' && $number >= 100)) {
-                    throw new \InvalidArgumentException('Проценты политики сроков выходят за допустимые границы.');
-                }
-            }
-            $effort[$deadline] = (float)$row['effortPercent'];
-        }
-        if ($effort['urgent'] < $effort['strict'] || $effort['strict'] < $effort['flexible']) {
-            throw new \InvalidArgumentException('Коэффициенты сроков должны соблюдать urgent >= strict >= flexible >= 0.');
-        }
+        self::validateDeadlineRows($policy['basic'], 'Базовая политика сроков');
 
         $previousMax = null;
         $rangeCount = count($policy['ranges']);
         foreach ($policy['ranges'] as $rangeIndex => $range) {
             if (!is_array($range)
-                || !is_int($range['minMinutes'] ?? null) && !is_float($range['minMinutes'] ?? null)
+                || (!is_int($range['minMinutes'] ?? null) && !is_float($range['minMinutes'] ?? null))
                 || (($range['maxMinutes'] ?? null) !== null
                     && !is_int($range['maxMinutes']) && !is_float($range['maxMinutes']))) {
                 throw new \InvalidArgumentException('Диапазон политики сроков имеет несовместимую структуру.');
@@ -198,6 +179,35 @@ final class CalculatorVersionComponentDocumentService
             if ($max === null && (int)$rangeIndex !== $rangeCount - 1) {
                 throw new \InvalidArgumentException('Открытый диапазон политики сроков может быть только последним.');
             }
+            if (!is_array($range['deadlines'] ?? null)) {
+                throw new \InvalidArgumentException('Каждый диапазон должен содержать таблицу трёх типов срока.');
+            }
+            self::validateDeadlineRows($range['deadlines'], 'Диапазон #' . ((int)$rangeIndex + 1));
+        }
+    }
+
+    /** @param array<string,mixed> $rows */
+    private static function validateDeadlineRows(array $rows, string $label): void
+    {
+        $effort = [];
+        foreach (['urgent', 'strict', 'flexible'] as $deadline) {
+            $row = $rows[$deadline] ?? null;
+            if (!is_array($row)) {
+                throw new \InvalidArgumentException($label . ' должна содержать все три режима.');
+            }
+            foreach (['effortPercent', 'markupPercent', 'discountPercent'] as $field) {
+                if (!is_int($row[$field] ?? null) && !is_float($row[$field] ?? null)) {
+                    throw new \InvalidArgumentException('Проценты политики сроков должны быть числами.');
+                }
+                $number = (float)$row[$field];
+                if (!is_finite($number) || $number < 0 || ($field === 'discountPercent' && $number >= 100)) {
+                    throw new \InvalidArgumentException('Проценты политики сроков выходят за допустимые границы.');
+                }
+            }
+            $effort[$deadline] = (float)$row['effortPercent'];
+        }
+        if ($effort['urgent'] < $effort['strict'] || $effort['strict'] < $effort['flexible']) {
+            throw new \InvalidArgumentException('Коэффициенты сроков должны соблюдать urgent >= strict >= flexible >= 0.');
         }
     }
 

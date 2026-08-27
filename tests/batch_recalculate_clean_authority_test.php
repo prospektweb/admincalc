@@ -24,6 +24,16 @@ $assert(strpos($service, 'applyAuthoritativeBatch(') !== false
 $assert(strpos($service, 'public function recalculateOffer(') === false
     && strpos($service, 'public function recalculate(') === false,
     'Retired non-preview batch writer wrappers must not remain callable');
+$assert(strpos($service, 'new CalculatorVersionRuntimePublicationService()') !== false
+    && strpos($service, "['documents']['logic']") !== false
+    && strpos($service, "['documents']['commercialPolicy']") !== false,
+    'Batch calculation must use the active complete bundle logic and commercial policy');
+$assert(strpos($service, "'contract' => 'prospektweb.calc.execution-context/v1'") !== false
+    && strpos($service, "'deadlineType' => 'strict'") !== false
+    && strpos($service, "'unitCount' => max(1, (int)(\$scenario['quantity'] ?? 1))") !== false,
+    'Batch calculation must send an explicit effort basis context to calc-server');
+$assert(strpos($service, "\$versionContext['calculatorPresetId']") !== false,
+    'Catalog output mapping must retain the calculator identity when the active logic uses an isolated working preset');
 
 $assert(strpos($endpoint, 'getLegacyJobFilePaths') === false,
     'Private batch storage must not migrate or delete legacy upload jobs at request time');

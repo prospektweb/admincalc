@@ -205,7 +205,8 @@ class InitPayloadService
         array $pinnedAuthoring,
         array $pinnedRuntimeSnapshot,
         array $pinnedInputMapping,
-        array $pinnedOutputMapping
+        array $pinnedOutputMapping,
+        array $pinnedCommercialPolicy
     ): array {
         if ($calculatorPresetId <= 0 || $workingPresetId <= 0) {
             throw new \InvalidArgumentException('Calculator and working preset IDs must be positive.');
@@ -258,6 +259,7 @@ class InitPayloadService
             'globalSymbols' => array_values($globalSymbols),
             'editorRuntime' => $editorRuntime,
             'neutralInputRequired' => true,
+            'commercialPolicy' => $pinnedCommercialPolicy,
             'versionContext' => [
                 'calculatorPresetId' => $calculatorPresetId,
                 'workingPresetId' => $workingPresetId,

@@ -243,7 +243,7 @@ body {
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     var activeEditor = null;
     var launchPending = false;
-    var calculatorWorkspaceHashPattern = /^#\/presets(?:\/[1-9]\d*\/(?:overview|form|logic|storefront|usage|products|versions))?(?:\?.*)?$/;
+    var calculatorWorkspaceHashPattern = /^#\/presets(?:\/[1-9]\d*\/(?:overview|form|logic|storefront|mappings|usage|products|deadline|versions))?(?:\?.*)?$/;
 
     function normalizeCalculatorWorkspaceHash(hash) {
         if (typeof hash !== 'string' || hash.length === 0 || hash.length > 1200

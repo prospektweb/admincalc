@@ -1343,7 +1343,8 @@ try {
                 $authoring,
                 $runtimeSnapshot,
                 $bundle['documents']['inputMappings'],
-                $bundle['documents']['outputMappings']
+                $bundle['documents']['outputMappings'],
+                $bundle['documents']['commercialPolicy']
             ),
         ]);
     }

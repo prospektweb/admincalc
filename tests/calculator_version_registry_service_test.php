@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/lib/Services/CalculatorVersionBundleDocumentService.php';
 require_once dirname(__DIR__) . '/lib/Services/CalculatorVersionRegistryService.php';
 
 use Prospektweb\Calc\Services\CalculatorVersionRegistryService;

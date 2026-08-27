@@ -546,6 +546,36 @@ class BatchRecalculateService
         $catalogPayload = $this->initPayloadService->prepareCatalogWritePayload($offerIds, $siteId);
         $presetId = (int)($catalogPayload['presetId'] ?? 0);
         self::assertSupportedBatchPresetId($presetId);
+        $activeBundle = (new CalculatorVersionRuntimePublicationService())->resolve($presetId);
+        $runtimePresetId = $presetId;
+        $commercialPolicy = CalculatorVersionSnapshotSourceService::defaultCommercialPolicy($presetId);
+        $versionContext = [
+            'calculatorPresetId' => $presetId,
+            'workingPresetId' => $presetId,
+            'versionId' => null,
+            'contentHash' => null,
+        ];
+        if (is_array($activeBundle)) {
+            $logicDocument = is_array($activeBundle['documents']['logic'] ?? null)
+                ? $activeBundle['documents']['logic']
+                : [];
+            $runtimePresetId = (int)($logicDocument['workingPresetId'] ?? 0);
+            $commercialPolicy = is_array($activeBundle['documents']['commercialPolicy'] ?? null)
+                ? $activeBundle['documents']['commercialPolicy']
+                : [];
+            if ($runtimePresetId <= 0
+                || (int)($logicDocument['presetId'] ?? 0) !== $presetId
+                || (string)($logicDocument['workingVersionId'] ?? '') !== (string)($activeBundle['versionId'] ?? '')) {
+                throw new \RuntimeException('Активная версия не содержит однозначную исполняемую логику.', 409);
+            }
+            CalculatorVersionComponentDocumentService::validateCommercialPolicyDocument($commercialPolicy);
+            $versionContext = [
+                'calculatorPresetId' => $presetId,
+                'workingPresetId' => $runtimePresetId,
+                'versionId' => (string)$activeBundle['versionId'],
+                'contentHash' => (string)$activeBundle['contentHash'],
+            ];
+        }
         $catalog = (new CatalogCalculationWriteService())->captureCatalogWriteStateFingerprints(
             $presetId,
             $offerIds,
@@ -1380,6 +1410,13 @@ class BatchRecalculateService
             // calc-server execution strips it from the formula context.
             $virtualOffer['productId'] = $productId;
             $virtualOffer['iblockId'] = 0;
+            $virtualOffer['calculationExecution'] = [
+                'contract' => 'prospektweb.calc.execution-context/v1',
+                'deadlineType' => 'strict',
+                'runCount' => 1,
+                'layoutCount' => 1,
+                'unitCount' => max(1, (int)($scenario['quantity'] ?? 1)),
+            ];
             $virtualOffers[] = $virtualOffer;
         }
 
@@ -1424,7 +1461,7 @@ class BatchRecalculateService
             throw new \RuntimeException('Catalog payload does not pin ConfigManager option authority.');
         }
         $payload = (new InitPayloadService())->preparePresetCalculationPayloadReadOnlyPinned(
-            $presetId,
+            $runtimePresetId,
             $virtualOffers,
             $siteId,
             $globalSymbols,
@@ -1433,6 +1470,8 @@ class BatchRecalculateService
         $payload['globalSymbols'] = $globalSymbols;
         $payload['editorRuntime'] = $catalogPayload['editorRuntime'] ?? null;
         $payload['neutralInputRequired'] = $neutralInputRequired;
+        $payload['commercialPolicy'] = $commercialPolicy;
+        $payload['versionContext'] = $versionContext;
         $payload['_runtimeConfigSnapshot'] = $runtimeConfigSnapshot;
         $this->assertPayloadMatchesRuntimeConfig($catalogPayload, $payload);
         return $payload;
@@ -1551,7 +1590,10 @@ class BatchRecalculateService
      */
     private function projectCatalogOutputResults(array $offerResults, array $requestPayload): array
     {
-        $presetId = (int)($requestPayload['preset']['id'] ?? 0);
+        $versionContext = is_array($requestPayload['versionContext'] ?? null)
+            ? $requestPayload['versionContext']
+            : [];
+        $presetId = (int)($versionContext['calculatorPresetId'] ?? $requestPayload['preset']['id'] ?? 0);
         self::assertSupportedBatchPresetId($presetId);
         $editorRuntime = is_array($requestPayload['editorRuntime'] ?? null)
             ? $requestPayload['editorRuntime']
