@@ -77,7 +77,8 @@ $graphs = [
         'rootDetailIds' => [101],
         'detailIds' => [101, 102],
         'stageIds' => [201, 202],
-        'settingsIds' => [301, 302],
+        'settingsIds' => [301, 302, 303],
+        'directSettingsIds' => [303],
         'detailChildren' => [101 => [102], 102 => []],
         'detailStages' => [101 => [201], 102 => [202]],
         'stageSettings' => [201 => [301], 202 => [302]],
@@ -88,6 +89,7 @@ $graphs = [
         'detailIds' => [111],
         'stageIds' => [211],
         'settingsIds' => [311],
+        'directSettingsIds' => [],
         'detailChildren' => [111 => []],
         'detailStages' => [111 => [211]],
         'stageSettings' => [211 => [311]],
@@ -96,7 +98,7 @@ $graphs = [
 $known = [
     'detail' => [101, 102, 103, 111],
     'stage' => [201, 202, 211],
-    'settings' => [301, 302, 311, 399],
+    'settings' => [301, 302, 303, 311, 399],
 ];
 $connection = new CalculatorMutationAuthorityFakeConnection();
 $lockEvents = [];
@@ -178,6 +180,14 @@ $authority = new CalculatorMutationAuthorityService([
                     ];
                 }
             }
+            // CALC_PRESETS.CALC_SETTINGS is a complete search index. Only
+            // entries not linked by a stage are direct preset-owned settings.
+            foreach ($graph['settingsIds'] ?? [] as $settingsId) {
+                $references['settings'][(int)$settingsId][] = [
+                    'sourceKind' => 'preset',
+                    'sourceId' => (int)$presetId,
+                ];
+            }
         }
         foreach ($orphanReferences as $kind => $targets) {
             foreach ($targets as $targetId => $rows) {
@@ -249,6 +259,7 @@ $underLock(41, static function (bool $protected) use ($authority): void {
         'version' => 2,
         'vars' => [['name' => 'sheet_cost', 'formula' => 'volume * 2']],
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $protected);
+    $authority->assertSettingsLogicWrite(41, 303, '{"version":2,"vars":[]}', $protected);
     $authority->assertContractCloneAllowed(41, 201, 301);
 });
 
@@ -390,7 +401,7 @@ $assert(
 $assert(
     $deletePlan['deletionDetailIds'] === [101, 102]
         && $deletePlan['deletionStageIds'] === [201, 202]
-        && $deletePlan['deletionSettingsIds'] === [302],
+        && $deletePlan['deletionSettingsIds'] === [302, 303],
     'Cascade deletion removes the target-owned graph while retaining shared descendants'
 );
 $graphs[42]['settingsIds'] = [311];
@@ -429,6 +440,14 @@ $assert(str_contains($source, 'FROM b_option') && str_contains($source, 'BINARY 
 $assert(str_contains($source, 'withAuthorityInTransaction'), 'wider coordinators can join the same graph authority');
 $assert(str_contains($source, 'FROM b_iblock_element') && str_contains($source, 'FOR UPDATE'), 'production authority locks the requested preset row');
 $assert(str_contains($source, 'loadStructuralReferenceIndex'), 'production authority scans global reverse relationships');
+$assert(
+    str_contains($source, "readPropertyIds(\$presetIblockId, \$presetId, 'CALC_SETTINGS')")
+        && str_contains($source, "['preset', 'CALC_PRESETS', 'CALC_SETTINGS', 'settings']")
+        && str_contains($source, "'directSettingsIds' => \$directSettingsIds")
+        && str_contains($source, "'settings' => ['stage' => true, 'preset' => true]")
+        && str_contains($source, "\$kind === 'settings' && \$sourceKind === 'preset'"),
+    'preset-owned settings must participate in graph ownership, reverse references and cascade deletion'
+);
 foreach (['CALC_DETAILS', 'DETAILS', 'CALC_STAGES', 'CALC_SETTINGS'] as $relationshipCode) {
     $assert(
         str_contains($source, "'" . $relationshipCode . "'"),

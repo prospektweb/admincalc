@@ -130,12 +130,36 @@ $assert(
 $assert(
     str_contains($endpoint, "(\$logic['initializationMode'] ?? null) === 'blank'")
         && str_contains($endpoint, "->createVersionWorkingPreset(\n                            'Рабочая логика")
-        && str_contains($endpoint, '->duplicateVersionWorkingPreset(')
+        && str_contains($endpoint, '->duplicateAndRehydrateVersionWorkingPreset(')
         && str_contains($endpoint, '->markVersionWorkingPreset(')
+        && str_contains($endpoint, 'PresetLifecycleMutationService::shouldPrepareVersionWorkingPreset(')
+        && str_contains($endpoint, '$workingPresetExists = $workingPresetId > 0 && $presetElementExists($workingPresetId);')
         && str_contains($endpoint, "elseif (\$isEditable && \$workingPresetId !== \$presetId)")
         && str_contains($endpoint, "(\$marker['changed'] ?? false) === true")
-        && str_contains($endpoint, 'if ($historicalWorkingPresetMissing && !$blankInitialization)'),
+        && str_contains($endpoint, "\$sourcePresetId = \$workingPresetId > 0 && \$workingPresetExists")
+        && str_contains($endpoint, "\$bundle['documents']['logic']")
+        && str_contains($endpoint, "\$logic = is_array(\$clone['logic'] ?? null) ? \$clone['logic'] : []")
+        && !str_contains($endpoint, 'CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan('),
     'the first logic launch of a clean version must create an empty graph instead of duplicating the owning calculator'
+);
+$versionLogicLaunch = strpos($endpoint, "if (\$action === 'version_logic_launch')");
+$versionLogicInit = strpos($endpoint, "if (\$action === 'version_logic_init')", $versionLogicLaunch ?: 0);
+$versionLogicLaunchSource = $versionLogicLaunch !== false && $versionLogicInit !== false
+    ? substr($endpoint, $versionLogicLaunch, $versionLogicInit - $versionLogicLaunch)
+    : '';
+$readonlyLaunchStart = strpos($versionLogicLaunchSource, "if (\$mode === 'readonly')");
+$editLaunchStart = strpos($versionLogicLaunchSource, '$launch = $versionRegistry->coordinateVersionMutation(');
+$readonlyLaunchSource = $readonlyLaunchStart !== false && $editLaunchStart !== false
+    ? substr($versionLogicLaunchSource, $readonlyLaunchStart, $editLaunchStart - $readonlyLaunchStart)
+    : '';
+$assert(
+    str_contains($readonlyLaunchSource, "'focusPresetId' => \$presetId")
+        && str_contains($readonlyLaunchSource, 'CalculatorVersionSnapshotSourceService::LOGIC_RUNTIME_CONTRACT')
+        && str_contains($readonlyLaunchSource, '$versionBundles->load($presetId, $versionId)')
+        && !str_contains($readonlyLaunchSource, 'coordinateVersionMutation')
+        && !str_contains($readonlyLaunchSource, '$ensureVersionBundle(')
+        && !str_contains($readonlyLaunchSource, '$versionState('),
+    'testing a saved version must return its immutable runtime before any working-graph preparation'
 );
 $assert(
     str_contains($endpoint, "'delete_version_documents' => static function")
@@ -333,11 +357,19 @@ $assert(
 );
 $assert(
     str_contains($endpoint, 'prepareVersionEditorInitPayloadReadOnly(')
+        && str_contains($endpoint, 'prepareVersionSnapshotInitPayloadReadOnly(')
+        && str_contains($endpoint, "\$mode === 'readonly' && \$workingPresetId !== \$presetId")
         && str_contains($endpoint, "(int)(\$logic['workingPresetId'] ?? 0) !== \$workingPresetId")
         && str_contains($integration, "action: 'version_logic_init'")
         && str_contains($integration, 'endpoint = this.config.versionAjaxEndpoint')
         && str_contains($integration, 'const serverMessage = data && (data.message || data.error || data.details);'),
     'version logic INIT must load the isolated graph from its full version bundle and expose server conflicts'
+);
+$assert(
+    str_contains($calculator, "\$versionMode === 'readonly'")
+        && str_contains($calculator, '\\Prospektweb\\Calc\\Services\\PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX')
+        && str_contains($calculator, "str_starts_with((string)(\$validatedPreset['CODE'] ?? ''), \$expectedWorkingPrefix)"),
+    'the calculator host must allow only the original active preset for snapshots and the exact inactive marker for editing'
 );
 $assert(!str_contains($calculator, 'StandaloneCatalogSelectionMapper'), 'calculator launch has no preset/product allowlist');
 $assert(!str_contains($calculator, '=== 12740'), 'calculator launch has no pilot gate');

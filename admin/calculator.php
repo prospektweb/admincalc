@@ -112,13 +112,25 @@ if ($isValidLaunch && $isStandalonePresetLaunch) {
     $validatedPreset = $presetIblockId > 0
         ? \CIBlockElement::GetList(
             [],
-            ['ID' => $standalonePresetId, 'IBLOCK_ID' => $presetIblockId, 'ACTIVE' => 'Y'],
+            ['ID' => $standalonePresetId, 'IBLOCK_ID' => $presetIblockId],
             false,
             ['nTopCount' => 1],
-            ['ID']
+            ['ID', 'CODE', 'ACTIVE']
         )->Fetch()
         : false;
     $isValidLaunch = is_array($validatedPreset);
+    if ($isValidLaunch && $versionMode === 'readonly') {
+        $isValidLaunch = $standalonePresetId === $versionOriginalPresetId
+            && (string)($validatedPreset['ACTIVE'] ?? 'N') === 'Y';
+    } elseif ($isValidLaunch && $versionMode === 'edit') {
+        $expectedWorkingPrefix = \Prospektweb\Calc\Services\PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX
+            . $versionOriginalPresetId . '-'
+            . str_replace('_', '-', strtolower($versionId)) . '-';
+        $isValidLaunch = (string)($validatedPreset['ACTIVE'] ?? 'Y') === 'N'
+            && str_starts_with((string)($validatedPreset['CODE'] ?? ''), $expectedWorkingPrefix);
+    } elseif ($isValidLaunch) {
+        $isValidLaunch = (string)($validatedPreset['ACTIVE'] ?? 'N') === 'Y';
+    }
 }
 
 if ($isValidLaunch && !$isStandalonePresetLaunch) {

@@ -229,7 +229,13 @@ class InitPayloadService
         );
         $globalSymbolIblockId = $this->resolvePinnedGlobalSymbolIblockId($runtimeConfigSnapshot);
         $globalSymbols = (new \Prospektweb\Calc\Services\GlobalSymbolService())
-            ->listReadOnlyFromIblockId($globalSymbolIblockId, $calculatorPresetId);
+            ->listReadOnlyFromIblockId($globalSymbolIblockId, $workingPresetId);
+        foreach ($globalSymbols as &$globalSymbol) {
+            if (is_array($globalSymbol)) {
+                $globalSymbol['presetId'] = $calculatorPresetId;
+            }
+        }
+        unset($globalSymbol);
 
         $this->elementsStore = [];
         $preset = $this->loadPreset($workingPresetId);
@@ -271,6 +277,90 @@ class InitPayloadService
                 'calculatorPresetId' => $calculatorPresetId,
                 'workingPresetId' => $workingPresetId,
             ],
+        ];
+        $payload['semanticRevision'] = \Prospektweb\Calc\Services\CalculatorSemanticMutationService::revisionFromInitPayload(
+            $payload
+        );
+        $globalAuthority = (new \Prospektweb\Calc\Services\CalculatorGlobalMutationService())
+            ->currentAuthority();
+        $payload['globalMutationRevision'] = $globalAuthority['revision'];
+        $payload['globalMutationFingerprint'] = $globalAuthority['fingerprint'];
+        return $payload;
+    }
+
+    /**
+     * Build a read-only calculator INIT directly from the immutable runtime
+     * payload stored in a complete version bundle. No physical working graph
+     * is read or created, so testing a saved version cannot mutate it.
+     *
+     * @param array<string,mixed> $runtimePayload
+     * @param array<string,mixed> $pinnedAuthoring
+     * @param array<string,mixed> $pinnedRuntimeSnapshot
+     * @param array<string,mixed> $pinnedInputMapping
+     * @param array<string,mixed> $pinnedOutputMapping
+     * @param array<string,mixed> $pinnedCommercialPolicy
+     * @return array<string,mixed>
+     */
+    public function prepareVersionSnapshotInitPayloadReadOnly(
+        int $calculatorPresetId,
+        string $versionId,
+        string $contentHash,
+        string $logicHash,
+        string $siteId,
+        array $runtimePayload,
+        array $pinnedAuthoring,
+        array $pinnedRuntimeSnapshot,
+        array $pinnedInputMapping,
+        array $pinnedOutputMapping,
+        array $pinnedCommercialPolicy
+    ): array {
+        $preset = is_array($runtimePayload['preset'] ?? null) ? $runtimePayload['preset'] : [];
+        if ($calculatorPresetId <= 0
+            || preg_match('/^v_[a-f0-9]{16,40}$/D', $versionId) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $contentHash) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $logicHash) !== 1
+            || (string)($runtimePayload['contract'] ?? '') !== 'prospektweb.calc.version-runtime-payload/v1'
+            || (int)($preset['id'] ?? 0) !== $calculatorPresetId
+            || (int)($preset['runtimePresetId'] ?? 0) <= 0
+            || !is_array($runtimePayload['elementsStore'] ?? null)
+            || !is_array($runtimePayload['elementsSiblings'] ?? null)
+            || !is_array($runtimePayload['globalSymbols'] ?? null)) {
+            throw new \RuntimeException('Сохранённый runtime логики версии повреждён.', 409);
+        }
+
+        $this->ensureBitrixModulesLoaded();
+        $runtimeConfigSnapshot = is_array($runtimePayload['runtimeConfigSnapshot'] ?? null)
+            ? $runtimePayload['runtimeConfigSnapshot']
+            : [];
+        $this->pinnedRuntimeIblockIds = CatalogRuntimeConfigAuthorityService::runtimeIblockMap(
+            $runtimeConfigSnapshot
+        );
+        $editorRuntime = $this->buildEditorRuntime(
+            $calculatorPresetId,
+            [],
+            null,
+            'manual',
+            $pinnedAuthoring,
+            $pinnedRuntimeSnapshot,
+            $pinnedInputMapping,
+            $pinnedOutputMapping
+        );
+
+        $payload = $runtimePayload;
+        unset($payload['contract'], $payload['runtimeConfigSnapshot']);
+        $payload['context'] = $this->buildContext($siteId);
+        $payload['selectedOffers'] = [];
+        $payload['product'] = null;
+        $payload['neutralInputRequired'] = true;
+        $payload['editorRuntime'] = $editorRuntime;
+        $payload['commercialPolicy'] = $pinnedCommercialPolicy;
+        $payload['versionContext'] = [
+            'calculatorPresetId' => $calculatorPresetId,
+            'workingPresetId' => null,
+            'versionId' => $versionId,
+            'contentHash' => $contentHash,
+            'logicHash' => $logicHash,
+            'readOnlySnapshot' => true,
         ];
         $payload['semanticRevision'] = \Prospektweb\Calc\Services\CalculatorSemanticMutationService::revisionFromInitPayload(
             $payload

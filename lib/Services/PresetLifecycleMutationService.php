@@ -35,6 +35,20 @@ final class PresetLifecycleMutationService
         $this->adapters = $adapters;
     }
 
+    public static function shouldPrepareVersionWorkingPreset(
+        bool $isEditable,
+        int $workingPresetId,
+        string $workingVersionId,
+        string $versionId,
+        bool $workingPresetExists
+    ): bool {
+        return $isEditable && (
+            $workingPresetId <= 0
+            || $workingVersionId !== $versionId
+            || !$workingPresetExists
+        );
+    }
+
     /** @return array<string,mixed> */
     public function duplicatePreset(int $sourcePresetId): array
     {
@@ -170,6 +184,126 @@ final class PresetLifecycleMutationService
                 'cloneRevision' => (string)($cloneGraph['revision'] ?? ''),
             ];
         };
+        return $this->withSourceAuthority($sourcePresetId, $criticalSection);
+    }
+
+    /**
+     * Materialize the immutable saved logic document into a fresh isolated
+     * working graph. Clone, marker, exact semantic restoration and read-back
+     * are one transaction; the caller may persist the returned logic only
+     * after this method succeeds.
+     *
+     * @param array<string,mixed> $historicalLogic
+     * @return array<string,mixed>
+     */
+    public function duplicateAndRehydrateVersionWorkingPreset(
+        int $sourcePresetId,
+        int $calculatorPresetId,
+        string $versionId,
+        array $historicalLogic
+    ): array {
+        $this->assertPresetId($sourcePresetId);
+        $this->assertPresetId($calculatorPresetId);
+        $this->assertVersionId($versionId);
+        CalculatorVersionComponentDocumentService::validateLogicDocument(
+            $historicalLogic,
+            $calculatorPresetId
+        );
+
+        $criticalSection = function ($authority, array $pinnedIblockIds) use (
+            $sourcePresetId,
+            $calculatorPresetId,
+            $versionId,
+            $historicalLogic
+        ): array {
+            $sourceBefore = $authority->readLockedPresetGraph($sourcePresetId);
+            $sourceBeforeHash = PresetMutationCoordinatorService::hashCanonical($sourceBefore);
+            $newPresetId = isset($this->adapters['clone_locked'])
+                ? (int)call_user_func($this->adapters['clone_locked'], $sourcePresetId, $pinnedIblockIds)
+                : (new BundleHandler())->clonePresetLocked($sourcePresetId, $pinnedIblockIds);
+            if ($newPresetId <= 0
+                || $newPresetId === $sourcePresetId
+                || $newPresetId === $calculatorPresetId) {
+                throw new \RuntimeException('Working preset clone returned an invalid identity.', 409);
+            }
+
+            $this->markTrustedWorkingPresetLocked(
+                $newPresetId,
+                $calculatorPresetId,
+                $versionId,
+                $pinnedIblockIds
+            );
+            $authority->refreshLockedState($sourcePresetId);
+            $sourceAfter = $authority->readLockedPresetGraph($sourcePresetId);
+            $sourceAfterHash = PresetMutationCoordinatorService::hashCanonical($sourceAfter);
+            if (!hash_equals($sourceBeforeHash, $sourceAfterHash)) {
+                throw new \RuntimeException('Source graph changed while version logic was restored.', 409);
+            }
+            // Prove that the clone is visible under the same locked authority
+            // before restoring any saved semantic bytes into it.
+            $authority->readLockedPresetGraph($newPresetId);
+
+            $rehydration = isset($this->adapters['rehydrate_locked'])
+                ? call_user_func(
+                    $this->adapters['rehydrate_locked'],
+                    $newPresetId,
+                    $calculatorPresetId,
+                    $versionId,
+                    $historicalLogic,
+                    $authority,
+                    $pinnedIblockIds
+                )
+                : (new CalculatorVersionWorkingGraphRehydrator())->rehydrateLocked(
+                    $newPresetId,
+                    $calculatorPresetId,
+                    $versionId,
+                    $historicalLogic,
+                    $authority,
+                    $pinnedIblockIds
+                );
+            if (!is_array($rehydration)
+                || ($rehydration['contract'] ?? null) !== CalculatorVersionWorkingGraphRehydrator::CONTRACT
+                || !is_array($rehydration['logic'] ?? null)) {
+                throw new \RuntimeException('Version working graph restoration returned an invalid receipt.', 409);
+            }
+
+            $authority->refreshLockedState($sourcePresetId);
+            $sourceFinal = $authority->readLockedPresetGraph($sourcePresetId);
+            $sourceFinalHash = PresetMutationCoordinatorService::hashCanonical($sourceFinal);
+            if (!hash_equals($sourceBeforeHash, $sourceFinalHash)) {
+                throw new \RuntimeException('Source graph changed while version logic was restored.', 409);
+            }
+            $cloneGraph = $authority->readLockedPresetGraph($newPresetId);
+            $identity = $this->loadWorkingIdentity($newPresetId, $pinnedIblockIds);
+            $this->assertWorkingIdentity($identity, $calculatorPresetId, $versionId);
+            $this->writeAudit([
+                'contract' => self::CONTRACT,
+                'actorId' => $this->actorId(),
+                'action' => 'duplicate_and_rehydrate_version_working_preset',
+                'sourcePresetId' => $sourcePresetId,
+                'newPresetId' => $newPresetId,
+                'calculatorPresetId' => $calculatorPresetId,
+                'versionId' => $versionId,
+                'sourceBeforeSha256' => $sourceBeforeHash,
+                'sourceAfterSha256' => $sourceFinalHash,
+                'cloneSha256' => PresetMutationCoordinatorService::hashCanonical($cloneGraph),
+                'rehydrationContract' => CalculatorVersionWorkingGraphRehydrator::CONTRACT,
+                'result' => 'success',
+            ]);
+
+            return [
+                'contract' => self::CONTRACT,
+                'presetId' => $sourcePresetId,
+                'newPresetId' => $newPresetId,
+                'presetName' => (string)$identity['name'],
+                'sourceRevision' => (string)($sourceBefore['revision'] ?? $sourceBeforeHash),
+                'cloneRevision' => (string)($cloneGraph['revision'] ?? ''),
+                'rehydrationContract' => CalculatorVersionWorkingGraphRehydrator::CONTRACT,
+                'logic' => $rehydration['logic'],
+                'maps' => is_array($rehydration['maps'] ?? null) ? $rehydration['maps'] : [],
+            ];
+        };
+
         return $this->withSourceAuthority($sourcePresetId, $criticalSection);
     }
 

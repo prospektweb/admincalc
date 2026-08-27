@@ -253,7 +253,7 @@
                 if (!readOnlyAllowed.has(message.type)) {
                     this.sendPwrtMessage('ERROR', {
                         code: 'CALCULATOR_VERSION_READ_ONLY',
-                        message: 'Опубликованная версия открыта только для просмотра. Создайте черновик, чтобы изменить расчётную логику.',
+                        message: 'Режим тестирования не изменяет сохранённую версию. Откройте версию для редактирования логики.',
                         requestType: message.type,
                     }, message.requestId, origin);
                     return;

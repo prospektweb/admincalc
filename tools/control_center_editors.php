@@ -1511,6 +1511,49 @@ try {
         if (!is_string($versionId) || !is_string($mode) || !in_array($mode, ['edit', 'readonly'], true)) {
             throw new \InvalidArgumentException('Version logic launch context is invalid');
         }
+        if ($mode === 'readonly') {
+            $bundle = $versionBundles->load($presetId, $versionId);
+            if ($bundle === null || ($bundle['readiness']['complete'] ?? false) !== true) {
+                throw new \RuntimeException('Полный bundle версии требует пересборки перед тестированием.', 409);
+            }
+            $logic = $bundle['documents']['logic'];
+            CalculatorVersionComponentDocumentService::validateLogicDocument($logic, $presetId);
+            CalculatorVersionComponentDocumentService::validateCommercialPolicyDocument(
+                $bundle['documents']['commercialPolicy']
+            );
+            $runtimePayload = is_array($logic['runtimePayload'] ?? null)
+                ? $logic['runtimePayload']
+                : [];
+            if ((string)($runtimePayload['contract'] ?? '') !== CalculatorVersionSnapshotSourceService::LOGIC_RUNTIME_CONTRACT
+                || (int)($runtimePayload['preset']['id'] ?? 0) !== $presetId) {
+                throw new \RuntimeException(
+                    'Сохранённый runtime логики версии повреждён. Пересоберите полный bundle.',
+                    409
+                );
+            }
+            $presetRow = \CIBlockElement::GetList(
+                [],
+                ['ID' => $presetId],
+                false,
+                ['nTopCount' => 1],
+                ['ID', 'NAME']
+            )->Fetch();
+            if (!is_array($presetRow) || trim((string)($presetRow['NAME'] ?? '')) === '') {
+                throw new \RuntimeException('Калькулятор сохранённой версии не найден.', 409);
+            }
+            $respond(200, [
+                'success' => true,
+                'data' => [
+                    'presetId' => $presetId,
+                    'focusPresetId' => $presetId,
+                    'presetName' => trim((string)$presetRow['NAME']),
+                    'versionId' => $versionId,
+                    'mode' => $mode,
+                    'contentHash' => (string)$bundle['contentHash'],
+                    'logicHash' => (string)$bundle['componentHashes']['logic'],
+                ],
+            ]);
+        }
         $launch = $versionRegistry->coordinateVersionMutation(
             $presetId,
             static function () use (
@@ -1526,25 +1569,29 @@ try {
             ): array {
                 $state = $versionState($presetId, $versionId);
                 $isEditable = ($state['row']['status'] ?? null) !== 'ARCHIVED';
-                if ($mode !== ($isEditable ? 'edit' : 'readonly')) {
-                    throw new \InvalidArgumentException($isEditable
-                        ? 'Версия логики должна открываться в режиме редактирования.'
-                        : 'Скрытая версия логики доступна только для просмотра.');
+                if (!$isEditable) {
+                    throw new \InvalidArgumentException('Скрытая версия логики доступна только для просмотра.');
                 }
                 $bundle = $ensureVersionBundle(
                     $presetId,
                     $versionId,
                     is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
                     $state['context']['legacy'],
-                    $isEditable
+                    true
                 );
                 $logic = $bundle['documents']['logic'];
                 $workingPresetId = (int)($logic['workingPresetId'] ?? 0);
                 $workingVersionId = (string)($logic['workingVersionId'] ?? '');
-                if ($isEditable && ($workingPresetId <= 0 || $workingVersionId !== $versionId)) {
+                $workingPresetExists = $workingPresetId > 0 && $presetElementExists($workingPresetId);
+                if (PresetLifecycleMutationService::shouldPrepareVersionWorkingPreset(
+                    $isEditable,
+                    $workingPresetId,
+                    $workingVersionId,
+                    $versionId,
+                    $workingPresetExists
+                )) {
                     $versionRuntimePublications->freezeLegacyActiveForEditing($presetId, $versionId);
                     $blankInitialization = ($logic['initializationMode'] ?? null) === 'blank';
-                    $historicalWorkingPresetMissing = $workingPresetId > 0 && !$presetElementExists($workingPresetId);
                     if ($blankInitialization) {
                         $created = (new PresetLifecycleMutationService())->createVersionWorkingPreset(
                             'Рабочая логика «' . (string)$state['context']['presetName'] . '»',
@@ -1552,47 +1599,32 @@ try {
                             $versionId
                         );
                         $workingPresetId = (int)($created['presetId'] ?? 0);
+                        $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
                     } else {
-                        $sourcePresetId = $workingPresetId > 0 && !$historicalWorkingPresetMissing
+                        $sourcePresetId = $workingPresetId > 0 && $workingPresetExists
                             ? $workingPresetId
                             : $presetId;
-                        $clone = (new PresetLifecycleMutationService())->duplicateVersionWorkingPreset(
-                            $sourcePresetId,
-                            $presetId,
-                            $versionId
-                        );
-                        $workingPresetId = (int)($clone['newPresetId'] ?? 0);
-                    }
-                    if ($workingPresetId <= 0) {
-                        throw new \RuntimeException('Не удалось создать чистый изолированный граф логики версии.', 409);
-                    }
-                    $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
-                    if ($historicalWorkingPresetMissing && !$blankInitialization) {
-                        $stageOrderPlan = CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan(
-                            $bundle['documents']['logic'],
-                            $logic
-                        );
-                        $detailHandler = new \Prospektweb\Calc\Services\DetailHandler();
-                        foreach ($stageOrderPlan as $order) {
-                            if (($order['alreadyOrdered'] ?? false) === true) continue;
-                            $result = $detailHandler->changeSortStage((int)$order['detailId'], (array)$order['stageIds']);
-                            if (($result['status'] ?? null) !== 'ok') {
-                                throw new \RuntimeException(
-                                    'Не удалось восстановить исторический порядок этапов: '
-                                    . (string)($result['message'] ?? 'неизвестная ошибка'),
-                                    409
+                        try {
+                            $clone = (new PresetLifecycleMutationService())
+                                ->duplicateAndRehydrateVersionWorkingPreset(
+                                    $sourcePresetId,
+                                    $presetId,
+                                    $versionId,
+                                    $bundle['documents']['logic']
                                 );
-                            }
+                        } catch (\Throwable $error) {
+                            throw new \RuntimeException(
+                                'Не удалось точно восстановить рабочий граф из полного bundle версии: '
+                                . $error->getMessage(),
+                                409,
+                                $error
+                            );
                         }
-                        $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
-                        foreach (CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan(
-                            $bundle['documents']['logic'],
-                            $logic
-                        ) as $verifiedOrder) {
-                            if (($verifiedOrder['alreadyOrdered'] ?? false) !== true) {
-                                throw new \RuntimeException('Исторический порядок этапов не подтверждён после сохранения.', 409);
-                            }
-                        }
+                        $workingPresetId = (int)($clone['newPresetId'] ?? 0);
+                        $logic = is_array($clone['logic'] ?? null) ? $clone['logic'] : [];
+                    }
+                    if ($workingPresetId <= 0 || !is_array($logic) || $logic === []) {
+                        throw new \RuntimeException('Не удалось создать чистый изолированный граф логики версии.', 409);
                     }
                     $saved = $versionComponents->saveDraft(
                         $presetId,
@@ -1671,12 +1703,11 @@ try {
             throw new \InvalidArgumentException('Version logic INIT context is invalid');
         }
 
-        $state = $versionState($presetId, $versionId);
-        $isEditable = ($state['row']['status'] ?? null) !== 'ARCHIVED';
-        if ($mode !== ($isEditable ? 'edit' : 'readonly')) {
-            throw new \InvalidArgumentException($isEditable
-                ? 'Версия логики должна открываться в режиме редактирования.'
-                : 'Скрытая версия логики доступна только для просмотра.');
+        if ($mode === 'edit') {
+            $state = $versionState($presetId, $versionId);
+            if (($state['row']['status'] ?? null) === 'ARCHIVED') {
+                throw new \InvalidArgumentException('Скрытая версия логики доступна только для просмотра.');
+            }
         }
         $bundle = $versionBundles->load($presetId, $versionId);
         if ($bundle === null
@@ -1685,9 +1716,22 @@ try {
             throw new \RuntimeException('Снимок выбранной версии изменился. Откройте редактор повторно.', 409);
         }
         $logic = $bundle['documents']['logic'];
-        if ((int)($logic['workingPresetId'] ?? 0) !== $workingPresetId
-            || (string)($logic['workingVersionId'] ?? '') !== $versionId) {
+        if ($mode === 'readonly') {
+            if (($bundle['readiness']['complete'] ?? false) !== true) {
+                throw new \RuntimeException('Полный bundle версии требует пересборки перед тестированием.', 409);
+            }
+            CalculatorVersionComponentDocumentService::validateLogicDocument($logic, $presetId);
+            CalculatorVersionComponentDocumentService::validateCommercialPolicyDocument(
+                $bundle['documents']['commercialPolicy']
+            );
+        }
+        if ($mode === 'edit'
+            && ((int)($logic['workingPresetId'] ?? 0) !== $workingPresetId
+                || (string)($logic['workingVersionId'] ?? '') !== $versionId)) {
             throw new \RuntimeException('Изолированный граф не принадлежит выбранной версии.', 409);
+        }
+        if ($mode === 'readonly' && $workingPresetId !== $presetId) {
+            throw new \RuntimeException('Тест версии должен использовать исходный калькулятор.', 409);
         }
 
         $form = $bundle['documents']['form'];
@@ -1719,9 +1763,22 @@ try {
             ],
         ];
 
-        $respond(200, [
-            'success' => true,
-            'data' => (new InitPayloadService())->prepareVersionEditorInitPayloadReadOnly(
+        $initPayloads = new InitPayloadService();
+        $initPayload = $mode === 'readonly'
+            ? $initPayloads->prepareVersionSnapshotInitPayloadReadOnly(
+                $presetId,
+                $versionId,
+                (string)$bundle['contentHash'],
+                (string)$bundle['componentHashes']['logic'],
+                $siteId,
+                is_array($logic['runtimePayload'] ?? null) ? $logic['runtimePayload'] : [],
+                $authoring,
+                $runtimeSnapshot,
+                $bundle['documents']['inputMappings'],
+                $bundle['documents']['outputMappings'],
+                $bundle['documents']['commercialPolicy']
+            )
+            : $initPayloads->prepareVersionEditorInitPayloadReadOnly(
                 $presetId,
                 $workingPresetId,
                 $versionId,
@@ -1731,7 +1788,10 @@ try {
                 $bundle['documents']['inputMappings'],
                 $bundle['documents']['outputMappings'],
                 $bundle['documents']['commercialPolicy']
-            ),
+            );
+        $respond(200, [
+            'success' => true,
+            'data' => $initPayload,
         ]);
     }
 

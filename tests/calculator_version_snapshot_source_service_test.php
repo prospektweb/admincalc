@@ -164,7 +164,11 @@ namespace {
     $assert(is_string($logicSource), 'snapshot source implementation must be readable');
     $assert(
         str_contains($logicSource, 'array $_lockedAuthority')
-        && str_contains($logicSource, 'use ($sourcePresetId, $calculatorPresetId, $authority)'),
+        && str_contains($logicSource, 'use ($sourcePresetId, $calculatorPresetId, $workingVersionId, $authority)')
+        && str_contains($logicSource, '$globalOwnerPresetId = $workingVersionId !== null')
+        && str_contains($logicSource, 'listReadOnlyFromIblockId($globalSymbolIblockId, $globalOwnerPresetId)')
+        && str_contains($logicSource, "foreach (\$runtimePayload['globalSymbols'] as &\$symbol)")
+        && !str_contains($logicSource, "foreach ((array)(\$runtimePayload['globalSymbols'] ?? []) as &\$symbol)"),
         'authority lock callback must consume the authority snapshot as an array and use the captured service for graph readback'
     );
     $assert(

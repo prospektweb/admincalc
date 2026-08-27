@@ -991,6 +991,7 @@ final class CalculatorMutationAuthorityService
 
         $rootDetailIds = $this->readPropertyIds($presetIblockId, $presetId, 'CALC_DETAILS');
         $directStageIds = $this->readPropertyIds($presetIblockId, $presetId, 'CALC_STAGES');
+        $presetSettingsIds = $this->readPropertyIds($presetIblockId, $presetId, 'CALC_SETTINGS');
         $detailIds = [];
         $stageIds = [];
         $settingsIds = [];
@@ -1025,6 +1026,10 @@ final class CalculatorMutationAuthorityService
         foreach ($directStageIds as $stageId) {
             $stageIds[$stageId] = true;
         }
+        foreach ($presetSettingsIds as $settingsId) {
+            $this->assertElementExists($settingsId, $settingsIblockId, 'settings');
+            $settingsIds[$settingsId] = true;
+        }
         if (count($stageIds) > self::MAX_GRAPH_NODES) {
             throw new \RuntimeException('Calculator stage graph exceeds its safe node limit.', 409);
         }
@@ -1038,12 +1043,24 @@ final class CalculatorMutationAuthorityService
             }
         }
 
+        $stageLinkedSettingsIds = [];
+        foreach ($stageSettings as $settings) {
+            foreach ($settings as $settingsId) {
+                $stageLinkedSettingsIds[(int)$settingsId] = true;
+            }
+        }
+        $directSettingsIds = array_values(array_filter(
+            $presetSettingsIds,
+            static fn(int $settingsId): bool => !isset($stageLinkedSettingsIds[$settingsId])
+        ));
+
         return $this->normalizeGraph($presetId, [
             'presetId' => $presetId,
             'rootDetailIds' => $rootDetailIds,
             'detailIds' => array_keys($detailIds),
             'stageIds' => array_keys($stageIds),
             'settingsIds' => array_keys($settingsIds),
+            'directSettingsIds' => $directSettingsIds,
             'detailChildren' => $detailChildren,
             'detailStages' => $detailStages,
             'stageSettings' => $stageSettings,
@@ -1059,6 +1076,7 @@ final class CalculatorMutationAuthorityService
             'detailIds' => $this->sortedPositiveIds($raw['detailIds'] ?? []),
             'stageIds' => $this->sortedPositiveIds($raw['stageIds'] ?? []),
             'settingsIds' => $this->sortedPositiveIds($raw['settingsIds'] ?? []),
+            'directSettingsIds' => $this->sortedPositiveIds($raw['directSettingsIds'] ?? []),
             'detailChildren' => $this->normalizeAdjacency($raw['detailChildren'] ?? []),
             'detailStages' => $this->normalizeAdjacency($raw['detailStages'] ?? []),
             'stageSettings' => $this->normalizeAdjacency($raw['stageSettings'] ?? []),
@@ -1096,6 +1114,11 @@ final class CalculatorMutationAuthorityService
                 if (!in_array($settingsId, $graph['settingsIds'], true)) {
                     throw new \RuntimeException('Calculator stage references unknown settings.', 409);
                 }
+            }
+        }
+        foreach ($graph['directSettingsIds'] as $settingsId) {
+            if (!in_array($settingsId, $graph['settingsIds'], true)) {
+                throw new \RuntimeException('Calculator preset references unknown settings.', 409);
             }
         }
         $graph['revision'] = hash('sha256', self::canonicalJson($graph));
@@ -1216,7 +1239,7 @@ final class CalculatorMutationAuthorityService
         $primarySourceKind = [
             'detail' => ['preset' => true, 'detail' => true],
             'stage' => ['detail' => true],
-            'settings' => ['stage' => true],
+            'settings' => ['stage' => true, 'preset' => true],
         ][$kind] ?? null;
         if ($primarySourceKind === null) {
             throw new \LogicException('Unknown calculator graph entity kind.');
@@ -1225,6 +1248,28 @@ final class CalculatorMutationAuthorityService
             $references,
             static fn(array $reference): bool => isset($primarySourceKind[$reference['sourceKind']])
         ));
+        if ($kind === 'settings') {
+            $stageReferences = array_values(array_filter(
+                $primary,
+                static fn(array $reference): bool => $reference['sourceKind'] === 'stage'
+            ));
+            $presetReferences = array_values(array_filter(
+                $primary,
+                static fn(array $reference): bool => $reference['sourceKind'] === 'preset'
+            ));
+            if ($stageReferences !== []) {
+                $primary = $stageReferences;
+                if (count($presetReferences) > 1
+                    || ($presetReferences !== [] && (int)$presetReferences[0]['sourceId'] !== $presetId)) {
+                    throw new \RuntimeException(
+                        'Settings #' . $entityId . ' has a foreign or duplicated preset index reference.',
+                        409
+                    );
+                }
+            } else {
+                $primary = $presetReferences;
+            }
+        }
         if (count($primary) !== 1) {
             throw new \RuntimeException(
                 ucfirst($kind) . ' #' . $entityId . ' has ' . count($primary)
@@ -1249,6 +1294,9 @@ final class CalculatorMutationAuthorityService
         } elseif ($kind === 'settings' && $sourceKind === 'stage') {
             $reachable = in_array($sourceId, $requestedGraph['stageIds'] ?? [], true)
                 && in_array($entityId, $requestedGraph['stageSettings'][$sourceId] ?? [], true);
+        } elseif ($kind === 'settings' && $sourceKind === 'preset') {
+            $reachable = $sourceId === $presetId
+                && in_array($entityId, $requestedGraph['directSettingsIds'] ?? [], true);
         }
         if (!$reachable) {
             throw new \RuntimeException(
@@ -1294,7 +1342,7 @@ final class CalculatorMutationAuthorityService
         $allowedSources = [
             'detail' => ['preset' => true, 'detail' => true],
             'stage' => ['preset' => true, 'detail' => true],
-            'settings' => ['stage' => true],
+            'settings' => ['stage' => true, 'preset' => true],
         ];
         foreach ($normalized as $kind => $_unused) {
             $targets = $raw[$kind] ?? [];
@@ -1349,6 +1397,7 @@ final class CalculatorMutationAuthorityService
         foreach ([
             ['preset', 'CALC_PRESETS', 'CALC_DETAILS', 'detail'],
             ['preset', 'CALC_PRESETS', 'CALC_STAGES', 'stage'],
+            ['preset', 'CALC_PRESETS', 'CALC_SETTINGS', 'settings'],
             ['detail', 'CALC_DETAILS', 'DETAILS', 'detail'],
             ['detail', 'CALC_DETAILS', 'CALC_STAGES', 'stage'],
             ['stage', 'CALC_STAGES', 'CALC_SETTINGS', 'settings'],

@@ -3,9 +3,14 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/lib/Services/PresetMutationCoordinatorService.php';
+require_once dirname(__DIR__) . '/lib/Services/CalculatorVersionSnapshotSourceService.php';
+require_once dirname(__DIR__) . '/lib/Services/CalculatorVersionComponentDocumentService.php';
+require_once dirname(__DIR__) . '/lib/Services/CalculatorVersionWorkingGraphRehydrator.php';
 require_once dirname(__DIR__) . '/lib/Services/PresetLifecycleMutationService.php';
 
 use Prospektweb\Calc\Services\PresetLifecycleMutationService;
+use Prospektweb\Calc\Services\CalculatorVersionSnapshotSourceService;
+use Prospektweb\Calc\Services\CalculatorVersionWorkingGraphRehydrator;
 
 final class PresetLifecycleFakeAuthority
 {
@@ -49,6 +54,24 @@ $assert = static function (bool $condition, string $message): void {
         throw new RuntimeException($message);
     }
 };
+
+$versionId = 'v_' . str_repeat('a', 20);
+$assert(
+    PresetLifecycleMutationService::shouldPrepareVersionWorkingPreset(true, 15577, $versionId, $versionId, false),
+    'an editable version must rebuild a missing working graph even when its stored version marker still matches'
+);
+$assert(
+    !PresetLifecycleMutationService::shouldPrepareVersionWorkingPreset(true, 15577, $versionId, $versionId, true),
+    'an existing working graph with the exact version marker must be reused'
+);
+$assert(
+    PresetLifecycleMutationService::shouldPrepareVersionWorkingPreset(true, 15577, 'v_' . str_repeat('b', 20), $versionId, true),
+    'a working graph from another version must never be reused'
+);
+$assert(
+    !PresetLifecycleMutationService::shouldPrepareVersionWorkingPreset(false, 15577, $versionId, $versionId, false),
+    'a read-only historical version must not be mutated while it is being opened'
+);
 
 $authority = new PresetLifecycleFakeAuthority([
     41 => ['presetId' => 41, 'rootDetailIds' => [101], 'revision' => str_repeat('a', 64)],
@@ -307,6 +330,97 @@ $assert(
             PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX . '41-v-' . str_repeat('c', 20) . '-'
         ),
     'an inactive marked source is cloned and the trusted new graph is marked atomically without changing the source'
+);
+
+$rehydrationRows = [
+    70 => ['id' => 70, 'name' => 'Calculator source', 'code' => 'calculator-source', 'active' => 'Y'],
+];
+$rehydrationAuthority = new PresetLifecycleFakeAuthority([
+    70 => ['presetId' => 70, 'detailIds' => [], 'stageIds' => [], 'settingsIds' => [], 'revision' => str_repeat('8', 64)],
+]);
+$rehydrationEvents = [];
+$historicalLogic = [
+    'contract' => CalculatorVersionSnapshotSourceService::LOGIC_CONTRACT,
+    'presetId' => 70,
+    'graph' => ['presetId' => 70],
+    'elements' => [],
+    'runtimePayload' => [
+        'contract' => CalculatorVersionSnapshotSourceService::LOGIC_RUNTIME_CONTRACT,
+        'preset' => ['id' => 70, 'runtimePresetId' => 70],
+        'elementsStore' => [],
+        'elementsSiblings' => [],
+        'globalSymbols' => [],
+        'priceTypes' => [],
+        'selectedOffers' => [],
+        'product' => null,
+        'neutralInputRequired' => true,
+        'runtimeConfigSnapshot' => ['contract' => 'test-runtime-config/v1'],
+    ],
+];
+$rehydrationVersionId = 'v_' . str_repeat('d', 20);
+$rehydrationService = new PresetLifecycleMutationService([
+    'with_source_authority' => static function (int $presetId, callable $criticalSection) use ($rehydrationAuthority, &$rehydrationEvents): array {
+        $rehydrationEvents[] = 'begin:' . $presetId;
+        try {
+            $result = $criticalSection($rehydrationAuthority, [
+                'CALC_PRESETS' => 11,
+                'CALC_DETAILS' => 12,
+                'CALC_STAGES' => 13,
+                'CALC_SETTINGS' => 14,
+                'CALC_GLOBAL_VALUES' => 15,
+            ]);
+            $rehydrationEvents[] = 'commit';
+            return $result;
+        } catch (Throwable $error) {
+            $rehydrationEvents[] = 'rollback';
+            throw $error;
+        }
+    },
+    'clone_locked' => static function (int $sourcePresetId) use (&$rehydrationRows, $rehydrationAuthority): int {
+        $rehydrationRows[71] = ['id' => 71, 'name' => 'Calculator source copy', 'code' => 'copy', 'active' => 'Y'];
+        $rehydrationAuthority->graphs[71] = ['presetId' => 71, 'detailIds' => [], 'stageIds' => [], 'settingsIds' => [], 'revision' => str_repeat('9', 64)];
+        return $sourcePresetId === 70 ? 71 : 0;
+    },
+    'mark_working_locked' => static function (int $presetId, string $code) use (&$rehydrationRows): bool {
+        $rehydrationRows[$presetId]['code'] = $code;
+        $rehydrationRows[$presetId]['active'] = 'N';
+        return true;
+    },
+    'working_identity_loader' => static function (int $presetId) use (&$rehydrationRows): array {
+        return $rehydrationRows[$presetId] ?? [];
+    },
+    'rehydrate_locked' => static function (
+        int $workingPresetId,
+        int $calculatorPresetId,
+        string $versionId,
+        array $logic
+    ) use (&$rehydrationEvents): array {
+        $rehydrationEvents[] = 'rehydrate:' . $workingPresetId;
+        $logic['workingPresetId'] = $workingPresetId;
+        $logic['workingVersionId'] = $versionId;
+        $logic['runtimePayload']['preset']['runtimePresetId'] = $workingPresetId;
+        return [
+            'contract' => CalculatorVersionWorkingGraphRehydrator::CONTRACT,
+            'logic' => $logic,
+            'maps' => ['preset' => [$calculatorPresetId => $workingPresetId]],
+        ];
+    },
+    'audit' => static fn(): int => 1,
+]);
+$rehydrationReceipt = $rehydrationService->duplicateAndRehydrateVersionWorkingPreset(
+    70,
+    70,
+    $rehydrationVersionId,
+    $historicalLogic
+);
+$assert(
+    ($rehydrationReceipt['newPresetId'] ?? 0) === 71
+        && ($rehydrationReceipt['rehydrationContract'] ?? '') === CalculatorVersionWorkingGraphRehydrator::CONTRACT
+        && ($rehydrationReceipt['logic']['workingPresetId'] ?? 0) === 71
+        && $rehydrationEvents[0] === 'begin:70'
+        && in_array('rehydrate:71', $rehydrationEvents, true)
+        && end($rehydrationEvents) === 'commit',
+    'missing version graph recovery must clone, restore and prove exact logic in one authority transaction'
 );
 
 $deleteAuthority = new PresetLifecycleFakeAuthority([

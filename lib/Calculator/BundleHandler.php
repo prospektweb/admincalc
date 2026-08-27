@@ -163,9 +163,30 @@ class BundleHandler
 
             $stageIdsToClone = $this->expandStageIdsForClone($stageIdsToClone, $stagesIblockId);
 
+            // Settings contain the actual formulas. Sharing them between a
+            // source calculator and a version workspace would make an edit in
+            // one graph mutate every other graph that references the same row.
+            $settingsIdsToClone = $this->normalizeToIntArray($propertyValues['CALC_SETTINGS'] ?? []);
+            foreach ($stageIdsToClone as $stageId) {
+                $stageProperties = $this->getElementPropertyValuesForClone($stageId, $stagesIblockId);
+                foreach ($this->normalizeToIntArray($stageProperties['CALC_SETTINGS'] ?? []) as $settingsId) {
+                    if (!in_array($settingsId, $settingsIdsToClone, true)) {
+                        $settingsIdsToClone[] = $settingsId;
+                    }
+                }
+            }
+            $settingsMap = [];
+            foreach ($settingsIdsToClone as $settingsId) {
+                $newSettingsId = $this->cloneSettingsElement($settingsId, $settingsIblockId);
+                if (!$newSettingsId) {
+                    throw new \Exception('Не удалось клонировать настройки ID=' . $settingsId);
+                }
+                $settingsMap[$settingsId] = (int)$newSettingsId;
+            }
+
             $stageMap = [];
             foreach ($stageIdsToClone as $stageId) {
-                $newStageId = $this->cloneStageElement($stageId, $stagesIblockId);
+                $newStageId = $this->cloneStageElement($stageId, $stagesIblockId, $settingsMap);
                 if (!$newStageId) {
                     throw new \Exception('Не удалось клонировать этап ID=' . $stageId);
                 }
@@ -173,6 +194,8 @@ class BundleHandler
             }
 
             $this->remapStageInputDescriptions($stageMap, $stagesIblockId);
+            $this->remapSettingsStageReferences($settingsMap, $settingsIblockId, $stageMap);
+            $this->assertSettingsCloneReadBack($settingsMap, $settingsIblockId, $stageMap);
 
             // Шаг 2: клонируем все детали/скрепления 1:1 без замены связей.
             $detailMap = [];
@@ -194,6 +217,11 @@ class BundleHandler
 
             $propertyValues['CALC_DETAILS'] = !empty($mappedRootDetailIds) ? $mappedRootDetailIds : false;
             $propertyValues['CALC_STAGES'] = !empty($mappedPresetStageIds) ? $mappedPresetStageIds : false;
+            $propertyValues['CALC_SETTINGS'] = $this->mapIdListOrFail(
+                $this->normalizeToIntArray($propertyValues['CALC_SETTINGS'] ?? []),
+                $settingsMap,
+                'настроек пресета'
+            ) ?: false;
             $propertyValues = $this->remapPresetStageReferences($propertyValues, $stageMap);
             
             \CIBlockElement::SetPropertyValuesEx($newPresetId, $presetsIblockId, $propertyValues);
@@ -798,7 +826,7 @@ class BundleHandler
      * @param int $stagesIblockId pinned ID инфоблока этапов
      * @return int|null ID нового этапа или null при ошибке
      */
-    private function cloneStageElement(int $stageId, int $stagesIblockId): ?int
+    private function cloneStageElement(int $stageId, int $stagesIblockId, array $settingsMap = []): ?int
     {
         if ($stagesIblockId <= 0) {
             return null;
@@ -846,11 +874,137 @@ class BundleHandler
 
         // Копируем все свойства этапа
         $propValues = $this->getElementPropertyValuesForClone($stageId, $stagesIblockId);
+        if (array_key_exists('CALC_SETTINGS', $propValues)) {
+            $propValues['CALC_SETTINGS'] = $this->mapIdListOrFail(
+                $this->normalizeToIntArray($propValues['CALC_SETTINGS']),
+                $settingsMap,
+                'настроек этапа ID=' . $stageId
+            ) ?: false;
+        }
         if (!empty($propValues)) {
             \CIBlockElement::SetPropertyValuesEx($newId, $stagesIblockId, $propValues);
         }
 
         return $newId;
+    }
+
+    private function cloneSettingsElement(int $settingsId, int $settingsIblockId): ?int
+    {
+        if ($settingsId <= 0 || $settingsIblockId <= 0) {
+            return null;
+        }
+        $element = \CIBlockElement::GetList(
+            [],
+            ['ID' => $settingsId, 'IBLOCK_ID' => $settingsIblockId],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'NAME', 'ACTIVE', 'SORT', 'PREVIEW_TEXT', 'PREVIEW_TEXT_TYPE', 'DETAIL_TEXT', 'DETAIL_TEXT_TYPE']
+        )->GetNextElement();
+        if (!$element) {
+            return null;
+        }
+        $fields = $element->GetFields();
+        $newId = (int)(new \CIBlockElement())->Add([
+            'IBLOCK_ID' => $settingsIblockId,
+            'NAME' => (string)$fields['NAME'],
+            'CODE' => $this->generateUniqueElementCode($settingsIblockId, (string)$fields['NAME']),
+            'ACTIVE' => (string)($fields['ACTIVE'] ?? 'Y'),
+            'SORT' => (int)($fields['SORT'] ?? 500),
+            'PREVIEW_TEXT' => (string)($fields['PREVIEW_TEXT'] ?? ''),
+            'PREVIEW_TEXT_TYPE' => (string)($fields['PREVIEW_TEXT_TYPE'] ?? 'text'),
+            'DETAIL_TEXT' => (string)($fields['DETAIL_TEXT'] ?? ''),
+            'DETAIL_TEXT_TYPE' => (string)($fields['DETAIL_TEXT_TYPE'] ?? 'text'),
+        ]);
+        if ($newId <= 0) {
+            return null;
+        }
+        $properties = $this->getElementPropertyValuesForClone($settingsId, $settingsIblockId);
+        if ($properties !== []) {
+            \CIBlockElement::SetPropertyValuesEx($newId, $settingsIblockId, $properties);
+        }
+        return $newId;
+    }
+
+    /** @param array<int,int> $settingsMap @param array<int,int> $stageMap */
+    private function remapSettingsStageReferences(
+        array $settingsMap,
+        int $settingsIblockId,
+        array $stageMap
+    ): void {
+        foreach ($settingsMap as $newSettingsId) {
+            $properties = $this->getElementPropertyValuesForClone((int)$newSettingsId, $settingsIblockId);
+            $mapped = $this->replaceStageTokensRecursive($properties, $stageMap);
+            if ($mapped !== $properties) {
+                \CIBlockElement::SetPropertyValuesEx((int)$newSettingsId, $settingsIblockId, $mapped);
+            }
+        }
+    }
+
+    /**
+     * Formula/settings rows are the executable body of a calculator. Prove
+     * every cloned field and property after ID remapping while the caller's
+     * transaction is still open; any partial Bitrix write must roll back the
+     * whole clone.
+     *
+     * @param array<int,int> $settingsMap
+     * @param array<int,int> $stageMap
+     */
+    private function assertSettingsCloneReadBack(
+        array $settingsMap,
+        int $settingsIblockId,
+        array $stageMap
+    ): void {
+        foreach ($settingsMap as $sourceSettingsId => $targetSettingsId) {
+            $loadFields = static function (int $elementId) use ($settingsIblockId): array {
+                $element = \CIBlockElement::GetList(
+                    [],
+                    ['ID' => $elementId, 'IBLOCK_ID' => $settingsIblockId],
+                    false,
+                    ['nTopCount' => 1],
+                    [
+                        'ID', 'NAME', 'ACTIVE', 'SORT', 'PREVIEW_TEXT', 'PREVIEW_TEXT_TYPE',
+                        'DETAIL_TEXT', 'DETAIL_TEXT_TYPE',
+                    ]
+                )->GetNextElement();
+                if (!$element) {
+                    throw new \RuntimeException('Cloned calculator settings read-back is missing.', 409);
+                }
+                $fields = $element->GetFields();
+                return [
+                    'NAME' => (string)($fields['NAME'] ?? ''),
+                    'ACTIVE' => (string)($fields['ACTIVE'] ?? 'N'),
+                    'SORT' => (int)($fields['SORT'] ?? 0),
+                    'PREVIEW_TEXT' => (string)($fields['PREVIEW_TEXT'] ?? ''),
+                    'PREVIEW_TEXT_TYPE' => (string)($fields['PREVIEW_TEXT_TYPE'] ?? 'text'),
+                    'DETAIL_TEXT' => (string)($fields['DETAIL_TEXT'] ?? ''),
+                    'DETAIL_TEXT_TYPE' => (string)($fields['DETAIL_TEXT_TYPE'] ?? 'text'),
+                ];
+            };
+
+            $sourceFields = $loadFields((int)$sourceSettingsId);
+            $targetFields = $loadFields((int)$targetSettingsId);
+            if (!hash_equals(
+                \Prospektweb\Calc\Services\PresetMutationCoordinatorService::hashCanonical($sourceFields),
+                \Prospektweb\Calc\Services\PresetMutationCoordinatorService::hashCanonical($targetFields)
+            )) {
+                throw new \RuntimeException('Cloned calculator settings fields differ from the source.', 409);
+            }
+
+            $expectedProperties = $this->replaceStageTokensRecursive(
+                $this->getElementPropertyValuesForClone((int)$sourceSettingsId, $settingsIblockId),
+                $stageMap
+            );
+            $actualProperties = $this->getElementPropertyValuesForClone(
+                (int)$targetSettingsId,
+                $settingsIblockId
+            );
+            if (!hash_equals(
+                \Prospektweb\Calc\Services\PresetMutationCoordinatorService::hashCanonical($expectedProperties),
+                \Prospektweb\Calc\Services\PresetMutationCoordinatorService::hashCanonical($actualProperties)
+            )) {
+                throw new \RuntimeException('Cloned calculator settings properties differ from the source.', 409);
+            }
+        }
     }
 
     /**

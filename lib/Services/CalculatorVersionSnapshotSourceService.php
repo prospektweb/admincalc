@@ -141,7 +141,7 @@ final class CalculatorVersionSnapshotSourceService
             $authority = new CalculatorMutationAuthorityService();
             $value = $authority->withAuthorityLock(
                 $sourcePresetId,
-                static function (bool $_protection, array $iblockIds, array $_lockedAuthority) use ($sourcePresetId, $calculatorPresetId, $authority): array {
+                static function (bool $_protection, array $iblockIds, array $_lockedAuthority) use ($sourcePresetId, $calculatorPresetId, $workingVersionId, $authority): array {
                     $graph = $authority->readLockedPresetGraph($sourcePresetId);
                     $loader = new ElementDataService($iblockIds);
                     $requests = [[
@@ -170,8 +170,14 @@ final class CalculatorVersionSnapshotSourceService
                         $runtimeConfigSnapshot,
                         'CALC_GLOBAL_VALUES'
                     );
+                    // A version working graph owns its mutable globals. They are
+                    // projected back to the calculator identity only in the
+                    // immutable document envelope.
+                    $globalOwnerPresetId = $workingVersionId !== null
+                        ? $sourcePresetId
+                        : $calculatorPresetId;
                     $globalSymbols = (new GlobalSymbolService())
-                        ->listReadOnlyFromIblockId($globalSymbolIblockId, $calculatorPresetId);
+                        ->listReadOnlyFromIblockId($globalSymbolIblockId, $globalOwnerPresetId);
                     $runtimePayload = (new InitPayloadService())
                         ->preparePresetCalculationPayloadReadOnlyPinned(
                             $sourcePresetId,
@@ -188,8 +194,14 @@ final class CalculatorVersionSnapshotSourceService
                     $runtimePayload['runtimeConfigSnapshot'] = $runtimeConfigSnapshot;
                     $runtimePayload['preset']['runtimePresetId'] = $sourcePresetId;
                     $runtimePayload['preset']['id'] = $calculatorPresetId;
-                    foreach ((array)($runtimePayload['globalSymbols'] ?? []) as &$symbol) {
-                        if (is_array($symbol)) $symbol['presetId'] = $calculatorPresetId;
+                    if (!is_array($runtimePayload['globalSymbols'] ?? null)) {
+                        throw new \RuntimeException('Logic runtime global-symbol projection is invalid.', 409);
+                    }
+                    foreach ($runtimePayload['globalSymbols'] as &$symbol) {
+                        if (!is_array($symbol)) {
+                            throw new \RuntimeException('Logic runtime global-symbol row is invalid.', 409);
+                        }
+                        $symbol['presetId'] = $calculatorPresetId;
                     }
                     unset($symbol);
                     return [
