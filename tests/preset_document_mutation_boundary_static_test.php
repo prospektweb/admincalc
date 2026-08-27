@@ -16,6 +16,9 @@ $inputMapping = (string)file_get_contents($adminRoot . '/lib/Services/Calculator
 $outputMapping = (string)file_get_contents($adminRoot . '/lib/Services/CatalogOutputMappingService.php');
 $coordinator = (string)file_get_contents($adminRoot . '/lib/Services/PresetMutationCoordinatorService.php');
 $lifecycle = (string)file_get_contents($adminRoot . '/lib/Services/PresetLifecycleMutationService.php');
+$mutationAuthority = (string)file_get_contents($adminRoot . '/lib/Services/CalculatorMutationAuthorityService.php');
+$catalog = (string)file_get_contents($adminRoot . '/lib/Services/CalculatorCatalogService.php');
+$initPayload = (string)file_get_contents($adminRoot . '/lib/Calculator/InitPayloadService.php');
 
 foreach ([
     "'action' => 'set_preset_products'",
@@ -121,6 +124,18 @@ $assert(
         && str_contains($lifecycle, 'if ($ownsTransaction)')
         && substr_count($lifecycle, 'if ($ownsTransaction)') >= 3,
     'clean-version logic initialization must preserve an outer version transaction instead of opening a nested rollback boundary'
+);
+$assert(
+    str_contains($mutationAuthority, 'BitrixTransactionStateAuthority::isActive($connection)')
+        && str_contains($lifecycle, "public const VERSION_WORKING_CODE_PREFIX = 'prospektweb-version-work-'")
+        && str_contains($lifecycle, 'deleteVersionWorkingPreset('),
+    'version working graphs must join the outer transaction and have guarded lifecycle cleanup'
+);
+$assert(
+    str_contains($editors, "'!%CODE' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX")
+        && str_contains($catalog, "'!%CODE' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX")
+        && str_contains($initPayload, 'assertVersionWorkingPresetAvailableReadOnly('),
+    'technical working graphs must be hidden from calculator catalogs while remaining available to their exact version editor'
 );
 
 fwrite(STDOUT, "Preset document mutation boundary static tests passed\n");

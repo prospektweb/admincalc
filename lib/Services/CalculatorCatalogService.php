@@ -350,7 +350,10 @@ final class CalculatorCatalogService
         $rows = [];
         $cursor = \CIBlockElement::GetList(
             ['ID' => 'ASC'],
-            ['IBLOCK_ID' => $iblockId],
+            [
+                'IBLOCK_ID' => $iblockId,
+                '!%CODE' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX,
+            ],
             false,
             false,
             ['ID', 'IBLOCK_ID', 'IBLOCK_SECTION_ID']

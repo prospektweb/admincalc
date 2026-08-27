@@ -123,9 +123,16 @@ $assert(
 );
 $assert(
     str_contains($endpoint, "(\$logic['initializationMode'] ?? null) === 'blank'")
-        && str_contains($endpoint, "->createPreset(\n                            'Рабочая логика")
+        && str_contains($endpoint, "->createVersionWorkingPreset(\n                            'Рабочая логика")
+        && str_contains($endpoint, '->markVersionWorkingPreset(')
         && str_contains($endpoint, 'if ($historicalWorkingPresetMissing && !$blankInitialization)'),
     'the first logic launch of a clean version must create an empty graph instead of duplicating the owning calculator'
+);
+$assert(
+    str_contains($endpoint, "'delete_version_documents' => static function")
+        && str_contains($endpoint, '->deleteVersionWorkingPreset(')
+        && str_contains($endpoint, 'hash_equals($versionId, $workingVersionId)'),
+    'version deletion must cascade only into the exact working graph owned by that version'
 );
 $assert(
     substr_count($endpoint, "if (!is_array(\$documents['publicationMetadata'] ?? null))") === 2

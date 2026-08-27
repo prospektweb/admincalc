@@ -165,6 +165,83 @@ try {
 }
 $assert($createFailed && $created === [], 'create audit failure leaves no preset artifact');
 
+$workingVersionId = 'v_' . str_repeat('a', 20);
+$workingRows = [];
+$workingDeleted = false;
+$workingAuthority = new PresetLifecycleFakeAuthority([
+    52 => [
+        'presetId' => 52,
+        'detailIds' => [],
+        'stageIds' => [],
+        'settingsIds' => [],
+        'revision' => str_repeat('e', 64),
+    ],
+]);
+$workingService = new PresetLifecycleMutationService([
+    'with_global_authority' => static fn(callable $criticalSection): array => $criticalSection([
+        'CALC_PRESETS' => 11,
+        'CALC_DETAILS' => 12,
+        'CALC_STAGES' => 13,
+        'CALC_SETTINGS' => 14,
+    ]),
+    'with_source_authority' => static fn(int $_presetId, callable $criticalSection): array => $criticalSection(
+        $workingAuthority,
+        [
+            'CALC_PRESETS' => 11,
+            'CALC_DETAILS' => 12,
+            'CALC_STAGES' => 13,
+            'CALC_SETTINGS' => 14,
+            'CALC_GLOBAL_VALUES' => 15,
+        ]
+    ),
+    'create_working_locked' => static function (string $name, string $code) use (&$workingRows): int {
+        $workingRows[52] = ['id' => 52, 'name' => $name, 'code' => $code, 'active' => 'N'];
+        return 52;
+    },
+    'mark_working_locked' => static function (int $presetId, string $code) use (&$workingRows): bool {
+        $workingRows[$presetId]['code'] = $code;
+        $workingRows[$presetId]['active'] = 'N';
+        return true;
+    },
+    'working_identity_loader' => static function (int $presetId) use (&$workingRows): array {
+        return $workingRows[$presetId] ?? [];
+    },
+    'deletion_dependencies' => static fn(): array => [
+        'productIblockId' => 20,
+        'productPropertyId' => 21,
+        'productIds' => [],
+        'storefronts' => [],
+        'globalIds' => [],
+        'optionRows' => [],
+        'versionCount' => 0,
+    ],
+    'delete_locked' => static function () use (&$workingDeleted): array {
+        $workingDeleted = true;
+        return ['deleted' => true];
+    },
+    'audit' => static fn(): int => 1,
+]);
+$workingReceipt = $workingService->createVersionWorkingPreset('Working graph', 41, $workingVersionId);
+$assert(
+    ($workingReceipt['presetId'] ?? 0) === 52
+        && ($workingRows[52]['active'] ?? '') === 'N'
+        && str_starts_with(
+            (string)($workingRows[52]['code'] ?? ''),
+            PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX . '41-v-' . str_repeat('a', 20) . '-'
+        ),
+    'version working preset is inactive and carries its exact calculator/version marker'
+);
+$workingService->markVersionWorkingPreset(52, 41, $workingVersionId);
+$workingService->deleteVersionWorkingPreset(52, 41, $workingVersionId);
+$assert($workingDeleted, 'the exact owned working graph can be cascade-deleted');
+$foreignDeleteRejected = false;
+try {
+    $workingService->deleteVersionWorkingPreset(52, 42, $workingVersionId);
+} catch (RuntimeException $error) {
+    $foreignDeleteRejected = str_contains($error->getMessage(), 'не принадлежит');
+}
+$assert($foreignDeleteRejected, 'a version cannot delete a foreign working graph');
+
 $deleteAuthority = new PresetLifecycleFakeAuthority([
     61 => [
         'presetId' => 61,

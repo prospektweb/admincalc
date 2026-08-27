@@ -162,6 +162,7 @@ $versionBundles = new CalculatorVersionBundleDocumentService();
 $versionComponents = new CalculatorVersionComponentDocumentService($versionBundles);
 $versionSources = new CalculatorVersionSnapshotSourceService();
 $versionRuntimePublications = new CalculatorVersionRuntimePublicationService($versionBundles);
+$versionForms = new CalculatorVersionFormDocumentService();
 $versionRegistry = new CalculatorVersionRegistryService([
     'bundle_meta' => static function (int $presetId, string $versionId) use ($versionBundles): ?array {
         $bundle = $versionBundles->load($presetId, $versionId);
@@ -171,8 +172,29 @@ $versionRegistry = new CalculatorVersionRegistryService([
             'readiness' => $bundle['readiness'],
         ];
     },
+    'delete_version_documents' => static function (
+        int $presetId,
+        string $versionId
+    ) use ($versionBundles, $versionForms): void {
+        $bundle = $versionBundles->load($presetId, $versionId);
+        $logic = is_array($bundle['documents']['logic'] ?? null)
+            ? $bundle['documents']['logic']
+            : [];
+        $workingPresetId = (int)($logic['workingPresetId'] ?? 0);
+        $workingVersionId = (string)($logic['workingVersionId'] ?? '');
+        if ($workingPresetId > 0
+            && $workingPresetId !== $presetId
+            && hash_equals($versionId, $workingVersionId)) {
+            (new PresetLifecycleMutationService())->deleteVersionWorkingPreset(
+                $workingPresetId,
+                $presetId,
+                $versionId
+            );
+        }
+        $versionForms->delete($presetId, $versionId);
+        $versionBundles->delete($presetId, $versionId);
+    },
 ]);
-$versionForms = new CalculatorVersionFormDocumentService();
 $currentActor = static function () use ($USER): array {
     $id = (int)$USER->GetID();
     $name = trim((string)$USER->GetFullName());
@@ -1397,8 +1419,10 @@ try {
                     $blankInitialization = ($logic['initializationMode'] ?? null) === 'blank';
                     $historicalWorkingPresetMissing = $workingPresetId > 0 && !$presetElementExists($workingPresetId);
                     if ($blankInitialization) {
-                        $created = (new PresetLifecycleMutationService())->createPreset(
-                            'Рабочая логика «' . (string)$state['context']['presetName'] . '»'
+                        $created = (new PresetLifecycleMutationService())->createVersionWorkingPreset(
+                            'Рабочая логика «' . (string)$state['context']['presetName'] . '»',
+                            $presetId,
+                            $versionId
                         );
                         $workingPresetId = (int)($created['presetId'] ?? 0);
                     } else {
@@ -1407,6 +1431,13 @@ try {
                             : $presetId;
                         $clone = (new PresetLifecycleMutationService())->duplicatePreset($sourcePresetId);
                         $workingPresetId = (int)($clone['newPresetId'] ?? 0);
+                        if ($workingPresetId > 0) {
+                            (new PresetLifecycleMutationService())->markVersionWorkingPreset(
+                                $workingPresetId,
+                                $presetId,
+                                $versionId
+                            );
+                        }
                     }
                     if ($workingPresetId <= 0) {
                         throw new \RuntimeException('Не удалось создать чистый изолированный граф логики версии.', 409);
@@ -1549,6 +1580,7 @@ try {
             'data' => (new InitPayloadService())->prepareVersionEditorInitPayloadReadOnly(
                 $presetId,
                 $workingPresetId,
+                $versionId,
                 $siteId,
                 $authoring,
                 $runtimeSnapshot,

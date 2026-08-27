@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Prospektweb\Calc\Services;
 
+require_once __DIR__ . '/BitrixTransactionStateAuthority.php';
+
 use Bitrix\Main\Application;
 use Bitrix\Main\Config\Option;
 
@@ -510,13 +512,25 @@ final class CalculatorMutationAuthorityService
         $connection = isset($this->adapters['connection_provider'])
             ? call_user_func($this->adapters['connection_provider'])
             : Application::getConnection();
-        $connection->startTransaction();
+        $transactionActive = isset($this->adapters['transaction_active'])
+            ? (bool)call_user_func($this->adapters['transaction_active'], $connection)
+            : (isset($this->adapters['connection_provider'])
+                ? false
+                : BitrixTransactionStateAuthority::isActive($connection));
+        $ownsTransaction = !$transactionActive;
+        if ($ownsTransaction) {
+            $connection->startTransaction();
+        }
         try {
             $result = $this->withAuthorityInTransaction($connection, $presetId, $mutation);
-            $connection->commitTransaction();
+            if ($ownsTransaction) {
+                $connection->commitTransaction();
+            }
             return $result;
         } catch (\Throwable $error) {
-            $connection->rollbackTransaction();
+            if ($ownsTransaction) {
+                $connection->rollbackTransaction();
+            }
             throw $error;
         }
     }

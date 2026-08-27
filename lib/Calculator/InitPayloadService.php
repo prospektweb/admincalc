@@ -3,12 +3,14 @@
 namespace Prospektweb\Calc\Calculator;
 
 require_once dirname(__DIR__) . '/Services/CatalogRuntimeConfigAuthorityService.php';
+require_once dirname(__DIR__) . '/Services/PresetLifecycleMutationService.php';
 
 use Bitrix\Main\Application;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Config\ConfigManager;
 use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
+use Prospektweb\Calc\Services\PresetLifecycleMutationService;
 use Prospektweb\Calc\Services\PresetProductAssignmentPropertyAuthorityService;
 
 /**
@@ -201,6 +203,7 @@ class InitPayloadService
     public function prepareVersionEditorInitPayloadReadOnly(
         int $calculatorPresetId,
         int $workingPresetId,
+        string $versionId,
         string $siteId,
         array $pinnedAuthoring,
         array $pinnedRuntimeSnapshot,
@@ -219,7 +222,11 @@ class InitPayloadService
             $runtimeConfigSnapshot
         );
 
-        $this->assertNeutralPresetAvailableReadOnly($workingPresetId);
+        $this->assertVersionWorkingPresetAvailableReadOnly(
+            $calculatorPresetId,
+            $workingPresetId,
+            $versionId
+        );
         $globalSymbolIblockId = $this->resolvePinnedGlobalSymbolIblockId($runtimeConfigSnapshot);
         $globalSymbols = (new \Prospektweb\Calc\Services\GlobalSymbolService())
             ->listReadOnlyFromIblockId($globalSymbolIblockId, $calculatorPresetId);
@@ -662,6 +669,36 @@ class InitPayloadService
         )->Fetch();
         if (!is_array($row) || (int)($row['ID'] ?? 0) !== $presetId) {
             throw new \RuntimeException('Активный пресет не найден в настроенном инфоблоке.', 409);
+        }
+    }
+
+    private function assertVersionWorkingPresetAvailableReadOnly(
+        int $calculatorPresetId,
+        int $workingPresetId,
+        string $versionId
+    ): void {
+        if (preg_match('/^v_[a-f0-9]{16,40}$/D', $versionId) !== 1) {
+            throw new \InvalidArgumentException('Version ID is invalid.', 422);
+        }
+        $row = \CIBlockElement::GetList(
+            [],
+            ['ID' => $workingPresetId, 'IBLOCK_ID' => $this->runtimeIblockId('CALC_PRESETS')],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'IBLOCK_ID', 'CODE', 'ACTIVE']
+        )->Fetch();
+        if (!is_array($row) || (int)($row['ID'] ?? 0) !== $workingPresetId) {
+            throw new \RuntimeException('Изолированный граф версии не найден.', 409);
+        }
+        if ($workingPresetId === $calculatorPresetId && (string)($row['ACTIVE'] ?? 'N') === 'Y') {
+            return;
+        }
+        $expectedPrefix = PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX
+            . $calculatorPresetId . '-'
+            . str_replace('_', '-', strtolower($versionId)) . '-';
+        if ((string)($row['ACTIVE'] ?? 'Y') !== 'N'
+            || !str_starts_with((string)($row['CODE'] ?? ''), $expectedPrefix)) {
+            throw new \RuntimeException('Рабочий граф не принадлежит указанной версии калькулятора.', 409);
         }
     }
 

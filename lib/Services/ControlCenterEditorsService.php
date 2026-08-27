@@ -176,7 +176,10 @@ final class ControlCenterEditorsService
                 if ($iblockId <= 0) {
                     throw new \RuntimeException('The CALC_PRESETS iblock is not configured');
                 }
-                $filter = ['IBLOCK_ID' => $iblockId];
+                $filter = [
+                    'IBLOCK_ID' => $iblockId,
+                    '!%CODE' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX,
+                ];
                 if ($status === 'active') {
                     $filter['ACTIVE'] = 'Y';
                 } elseif ($status === 'archived') {

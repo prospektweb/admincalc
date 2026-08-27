@@ -22,7 +22,13 @@ class BundleHandler
      * Create an independent preset. Products and
      * offers may be connected later; they are not part of preset identity.
      */
-    public function createStandalonePreset(string $name, int $pinnedPresetsIblockId, int $sectionId = 0): int
+    public function createStandalonePreset(
+        string $name,
+        int $pinnedPresetsIblockId,
+        int $sectionId = 0,
+        ?string $codeSeed = null,
+        bool $active = true
+    ): int
     {
         $name = trim($name);
         $nameLength = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
@@ -49,8 +55,8 @@ class BundleHandler
             'IBLOCK_ID' => $pinnedPresetsIblockId,
             'IBLOCK_SECTION_ID' => $sectionId > 0 ? $sectionId : false,
             'NAME' => $name,
-            'CODE' => $this->generateUniqueElementCode($pinnedPresetsIblockId, $name),
-            'ACTIVE' => 'Y',
+            'CODE' => $this->generateUniqueElementCode($pinnedPresetsIblockId, $codeSeed ?? $name),
+            'ACTIVE' => $active ? 'Y' : 'N',
             'PROPERTY_VALUES' => [
                 'JSON' => ['VALUE' => ['TEXT' => '{}', 'TYPE' => 'HTML']],
             ],
@@ -69,7 +75,7 @@ class BundleHandler
         if (!is_array($readBack)
             || (int)($readBack['ID'] ?? 0) !== $presetId
             || trim((string)($readBack['NAME'] ?? '')) !== $name
-            || (string)($readBack['ACTIVE'] ?? 'N') !== 'Y'
+            || (string)($readBack['ACTIVE'] ?? 'N') !== ($active ? 'Y' : 'N')
             || (int)($readBack['IBLOCK_SECTION_ID'] ?? 0) !== $sectionId) {
             throw new \RuntimeException('Preset creation readback mismatch.', 409);
         }

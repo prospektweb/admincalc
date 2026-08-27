@@ -19,6 +19,8 @@ use Prospektweb\Calc\Calculator\BundleHandler;
  */
 final class PresetLifecycleMutationService
 {
+    public const VERSION_WORKING_CODE_PREFIX = 'prospektweb-version-work-';
+
     public const CONTRACT = 'prospektweb.calc.preset-lifecycle-mutation/v1';
     public const AUDIT_TYPE_ID = 'PROSPEKTWEB_PRESET_LIFECYCLE_V1';
 
@@ -151,6 +153,155 @@ final class PresetLifecycleMutationService
                 'identityRevision' => $identityHash,
             ];
         });
+    }
+
+    /** @return array<string,mixed> */
+    public function createVersionWorkingPreset(
+        string $name,
+        int $calculatorPresetId,
+        string $versionId
+    ): array {
+        $this->assertPresetId($calculatorPresetId);
+        $this->assertVersionId($versionId);
+        $name = trim($name);
+        if ($name === '' || (function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name)) > 200) {
+            throw new \InvalidArgumentException('Working preset name must contain 1 to 200 characters.', 422);
+        }
+        return $this->withGlobalAuthority(function (array $pinnedIblockIds) use (
+            $name,
+            $calculatorPresetId,
+            $versionId
+        ): array {
+            $codeSeed = self::workingCodePrefix($calculatorPresetId, $versionId) . 'graph';
+            $workingPresetId = isset($this->adapters['create_working_locked'])
+                ? (int)call_user_func(
+                    $this->adapters['create_working_locked'],
+                    $name,
+                    $codeSeed,
+                    $pinnedIblockIds
+                )
+                : (new BundleHandler())->createStandalonePreset(
+                    $name,
+                    (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0),
+                    0,
+                    $codeSeed,
+                    false
+                );
+            $identity = $this->loadWorkingIdentity($workingPresetId, $pinnedIblockIds);
+            $this->assertWorkingIdentity($identity, $calculatorPresetId, $versionId);
+            $this->writeAudit([
+                'contract' => self::CONTRACT,
+                'actorId' => $this->actorId(),
+                'action' => 'create_version_working_preset',
+                'sourcePresetId' => $calculatorPresetId,
+                'newPresetId' => $workingPresetId,
+                'versionId' => $versionId,
+                'result' => 'success',
+            ]);
+            return [
+                'contract' => self::CONTRACT,
+                'presetId' => $workingPresetId,
+                'presetName' => (string)$identity['name'],
+            ];
+        });
+    }
+
+    /** @return array<string,mixed> */
+    public function markVersionWorkingPreset(
+        int $workingPresetId,
+        int $calculatorPresetId,
+        string $versionId
+    ): array {
+        $this->assertPresetId($workingPresetId);
+        $this->assertPresetId($calculatorPresetId);
+        $this->assertVersionId($versionId);
+        if ($workingPresetId === $calculatorPresetId) {
+            throw new \InvalidArgumentException('Calculator identity cannot become its own working preset.', 422);
+        }
+        return $this->withGlobalAuthority(function (array $pinnedIblockIds) use (
+            $workingPresetId,
+            $calculatorPresetId,
+            $versionId
+        ): array {
+            $codeSeed = self::workingCodePrefix($calculatorPresetId, $versionId) . $workingPresetId;
+            $updated = isset($this->adapters['mark_working_locked'])
+                ? call_user_func(
+                    $this->adapters['mark_working_locked'],
+                    $workingPresetId,
+                    $codeSeed,
+                    $pinnedIblockIds
+                )
+                : (new \CIBlockElement())->Update($workingPresetId, [
+                    'CODE' => $codeSeed,
+                    'ACTIVE' => 'N',
+                    'IBLOCK_SECTION_ID' => false,
+                ]);
+            if ($updated === false) {
+                throw new \RuntimeException('Не удалось изолировать рабочий граф версии.', 409);
+            }
+            $identity = $this->loadWorkingIdentity($workingPresetId, $pinnedIblockIds);
+            $this->assertWorkingIdentity($identity, $calculatorPresetId, $versionId);
+            return ['contract' => self::CONTRACT, 'presetId' => $workingPresetId, 'marked' => true];
+        });
+    }
+
+    /** @return array<string,mixed> */
+    public function deleteVersionWorkingPreset(
+        int $workingPresetId,
+        int $calculatorPresetId,
+        string $versionId
+    ): array {
+        $this->assertPresetId($workingPresetId);
+        $this->assertPresetId($calculatorPresetId);
+        $this->assertVersionId($versionId);
+        if ($workingPresetId === $calculatorPresetId) {
+            throw new \InvalidArgumentException('Calculator identity cannot be deleted as a working preset.', 422);
+        }
+        $criticalSection = function ($authority, array $pinnedIblockIds) use (
+            $workingPresetId,
+            $calculatorPresetId,
+            $versionId
+        ): array {
+            $identity = $this->loadWorkingIdentity($workingPresetId, $pinnedIblockIds);
+            $this->assertWorkingIdentity($identity, $calculatorPresetId, $versionId);
+            $graph = $authority->assertLockedPresetGraphDeletable($workingPresetId);
+            $dependencies = $this->loadDeletionDependencies($workingPresetId, $pinnedIblockIds);
+            if ($dependencies['productIds'] !== []
+                || $dependencies['storefronts'] !== []
+                || $dependencies['globalIds'] !== []) {
+                throw new \RuntimeException('Рабочий граф версии получил внешние связи; автоматическое удаление остановлено.', 409);
+            }
+            $deleted = isset($this->adapters['delete_locked'])
+                ? call_user_func(
+                    $this->adapters['delete_locked'],
+                    $workingPresetId,
+                    $pinnedIblockIds,
+                    $dependencies,
+                    $graph,
+                    $authority
+                )
+                : $this->deleteOwnedDependenciesLocked(
+                    $workingPresetId,
+                    $pinnedIblockIds,
+                    $dependencies,
+                    $graph,
+                    $authority
+                );
+            if (!is_array($deleted)) {
+                throw new \RuntimeException('Удаление рабочего графа не подтверждено.', 409);
+            }
+            $this->writeAudit([
+                'contract' => self::CONTRACT,
+                'actorId' => $this->actorId(),
+                'action' => 'delete_version_working_preset',
+                'sourcePresetId' => $calculatorPresetId,
+                'workingPresetId' => $workingPresetId,
+                'versionId' => $versionId,
+                'result' => 'success',
+            ]);
+            return ['contract' => self::CONTRACT, 'presetId' => $workingPresetId, 'deleted' => true];
+        };
+        return $this->withSourceAuthority($workingPresetId, $criticalSection);
     }
 
     /** @return array<string,mixed> */
@@ -578,6 +729,58 @@ final class PresetLifecycleMutationService
             'id' => $presetId,
             'name' => trim((string)($row['name'] ?? $row['NAME'])),
         ];
+    }
+
+    /** @param array<string,int> $pinnedIblockIds @return array{id:int,name:string,code:string,active:string} */
+    private function loadWorkingIdentity(int $presetId, array $pinnedIblockIds): array
+    {
+        if (isset($this->adapters['working_identity_loader'])) {
+            $row = call_user_func($this->adapters['working_identity_loader'], $presetId, $pinnedIblockIds);
+        } else {
+            $presetIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+            $row = \CIBlockElement::GetList(
+                [],
+                ['ID' => $presetId, 'IBLOCK_ID' => $presetIblockId],
+                false,
+                ['nTopCount' => 1],
+                ['ID', 'IBLOCK_ID', 'NAME', 'CODE', 'ACTIVE']
+            )->Fetch();
+        }
+        if (!is_array($row)) {
+            throw new \RuntimeException('Рабочий граф версии не найден.', 409);
+        }
+        return [
+            'id' => (int)($row['id'] ?? $row['ID'] ?? 0),
+            'name' => trim((string)($row['name'] ?? $row['NAME'] ?? '')),
+            'code' => (string)($row['code'] ?? $row['CODE'] ?? ''),
+            'active' => (string)($row['active'] ?? $row['ACTIVE'] ?? ''),
+        ];
+    }
+
+    /** @param array{id:int,name:string,code:string,active:string} $identity */
+    private function assertWorkingIdentity(array $identity, int $calculatorPresetId, string $versionId): void
+    {
+        $expectedPrefix = self::workingCodePrefix($calculatorPresetId, $versionId);
+        if ($identity['id'] <= 0
+            || $identity['name'] === ''
+            || $identity['active'] !== 'N'
+            || !str_starts_with($identity['code'], $expectedPrefix)) {
+            throw new \RuntimeException('Рабочий граф не принадлежит указанной версии калькулятора.', 409);
+        }
+    }
+
+    private static function workingCodePrefix(int $calculatorPresetId, string $versionId): string
+    {
+        return self::VERSION_WORKING_CODE_PREFIX
+            . $calculatorPresetId . '-'
+            . str_replace('_', '-', strtolower($versionId)) . '-';
+    }
+
+    private function assertVersionId(string $versionId): void
+    {
+        if (preg_match('/^v_[a-f0-9]{16,40}$/D', $versionId) !== 1) {
+            throw new \InvalidArgumentException('versionId must be a canonical calculator version identifier.', 422);
+        }
     }
 
     /** @param array<string,mixed> $audit */
