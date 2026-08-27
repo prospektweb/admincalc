@@ -27,6 +27,24 @@ $documents = [];
 foreach (CalculatorVersionBundleDocumentService::COMPONENTS as $component) {
     $documents[$component] = ['contract' => 'test/' . $component, 'presetId' => 12740];
 }
+$documents['logic'] = [
+    'contract' => CalculatorVersionSnapshotSourceService::LOGIC_CONTRACT,
+    'presetId' => 12740,
+    'graph' => [],
+    'elements' => [],
+    'runtimePayload' => [
+        'contract' => CalculatorVersionSnapshotSourceService::LOGIC_RUNTIME_CONTRACT,
+        'preset' => ['id' => 12740, 'runtimePresetId' => 54321],
+        'elementsStore' => [],
+        'elementsSiblings' => [],
+        'globalSymbols' => [],
+        'priceTypes' => [],
+        'selectedOffers' => [],
+        'product' => null,
+        'neutralInputRequired' => true,
+        'runtimeConfigSnapshot' => ['CALC_PRESETS' => '41'],
+    ],
+];
 $documents['publicationMetadata'] = [
     'contract' => CalculatorVersionSnapshotSourceService::PUBLICATION_METADATA_CONTRACT,
     'presetId' => 12740,
@@ -58,6 +76,18 @@ try {
         && str_contains($error->getMessage(), 'Исправьте вкладку «Сроки»');
 }
 $assert($invalidPolicyRejected, 'activation must reject an invalid deadline policy with an actionable editor destination');
+
+$invalidLogicDocuments = $documents;
+unset($invalidLogicDocuments['logic']['runtimePayload']);
+$bundles->save(12740, 'v_6666666666666666', $invalidLogicDocuments);
+$invalidLogicRejected = false;
+try {
+    $service->activate(12740, 'v_6666666666666666');
+} catch (RuntimeException $error) {
+    $invalidLogicRejected = $error->getCode() === 409
+        && str_contains($error->getMessage(), 'вкладку «Логика»');
+}
+$assert($invalidLogicRejected, 'activation must reject a logic snapshot that depends on a live working preset');
 
 $documents['logic']['changed'] = true;
 $bundles->save(12740, 'v_4444444444444444', $documents);

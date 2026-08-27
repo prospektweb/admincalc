@@ -156,8 +156,17 @@ final class CalculatorVersionBundleDocumentService
             || !hash_equals((string)$manifest['contentHash'], $this->contentHash($documents, $manifestContract))) {
             throw new \RuntimeException('Агрегат полного снимка версии повреждён.');
         }
+        $selfContainedLogic = $this->hasSelfContainedLogicRuntime(
+            is_array($documents['logic'] ?? null) ? $documents['logic'] : [],
+            $presetId
+        );
         $complete = $manifestContract === self::CONTRACT
-            && $manifestComponents === self::COMPONENTS;
+            && $manifestComponents === self::COMPONENTS
+            && $selfContainedLogic;
+        $missingComponents = array_values(array_diff(self::COMPONENTS, $manifestComponents));
+        if (!$selfContainedLogic && in_array('logic', $manifestComponents, true)) {
+            $missingComponents[] = 'logic.runtimePayload';
+        }
         return [
             'contract' => $manifestContract,
             'presetId' => $presetId,
@@ -172,7 +181,7 @@ final class CalculatorVersionBundleDocumentService
             'documents' => $documents,
             'readiness' => [
                 'complete' => $complete,
-                'missingComponents' => array_values(array_diff(self::COMPONENTS, $manifestComponents)),
+                'missingComponents' => $missingComponents,
                 'requiresRebuild' => !$complete,
             ],
         ];
@@ -261,6 +270,27 @@ final class CalculatorVersionBundleDocumentService
         if ($presetId <= 0 || preg_match('/^v_[a-f0-9]{16,40}$/D', $versionId) !== 1) {
             throw new \InvalidArgumentException('Некорректный идентификатор версии калькулятора.');
         }
+    }
+
+    /** @param array<string,mixed> $logic */
+    private function hasSelfContainedLogicRuntime(array $logic, int $presetId): bool
+    {
+        $runtime = is_array($logic['runtimePayload'] ?? null) ? $logic['runtimePayload'] : [];
+        $preset = is_array($runtime['preset'] ?? null) ? $runtime['preset'] : [];
+        return ($logic['contract'] ?? null) === 'prospektweb.calc.version-logic-snapshot/v1'
+            && (int)($logic['presetId'] ?? 0) === $presetId
+            && ($runtime['contract'] ?? null) === 'prospektweb.calc.version-runtime-payload/v1'
+            && (int)($preset['id'] ?? 0) === $presetId
+            && (int)($preset['runtimePresetId'] ?? 0) > 0
+            && is_array($runtime['elementsStore'] ?? null)
+            && is_array($runtime['elementsSiblings'] ?? null)
+            && is_array($runtime['globalSymbols'] ?? null)
+            && is_array($runtime['priceTypes'] ?? null)
+            && ($runtime['selectedOffers'] ?? null) === []
+            && ($runtime['product'] ?? null) === null
+            && ($runtime['neutralInputRequired'] ?? null) === true
+            && is_array($runtime['runtimeConfigSnapshot'] ?? null)
+            && $runtime['runtimeConfigSnapshot'] !== [];
     }
 
     /** @param array<string,mixed> $components */

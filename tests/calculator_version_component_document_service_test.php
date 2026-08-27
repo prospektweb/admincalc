@@ -40,6 +40,18 @@ $documents = [
         'presetId' => $presetId,
         'graph' => ['presetId' => $presetId],
         'elements' => [],
+        'runtimePayload' => [
+            'contract' => CalculatorVersionSnapshotSourceService::LOGIC_RUNTIME_CONTRACT,
+            'preset' => ['id' => $presetId, 'runtimePresetId' => 54321],
+            'elementsStore' => [],
+            'elementsSiblings' => [],
+            'globalSymbols' => [],
+            'priceTypes' => [],
+            'selectedOffers' => [],
+            'product' => null,
+            'neutralInputRequired' => true,
+            'runtimeConfigSnapshot' => ['CALC_PRESETS' => '41'],
+        ],
     ],
     'storefronts' => [
         'contract' => 'prospektweb.frontcalc.storefront-definition/v2',
@@ -136,5 +148,15 @@ try {
     $invalidRejected = true;
 }
 $assert($invalidRejected, 'component contract mismatch must be rejected');
+
+$logic = $documents['logic'];
+unset($logic['runtimePayload']);
+$invalidLogicRejected = false;
+try {
+    CalculatorVersionComponentDocumentService::validateLogicDocument($logic, $presetId);
+} catch (InvalidArgumentException $error) {
+    $invalidLogicRejected = str_contains($error->getMessage(), 'самодостаточный runtime payload');
+}
+$assert($invalidLogicRejected, 'logic without an immutable runtime payload must require rebuild');
 
 echo "Calculator version component document service tests passed\n";

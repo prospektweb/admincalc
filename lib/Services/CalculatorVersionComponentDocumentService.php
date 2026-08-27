@@ -137,12 +137,40 @@ final class CalculatorVersionComponentDocumentService
                 $seenProductIds[$productId] = true;
             }
         }
-        if ($component === 'logic'
-            && (!is_array($document['graph'] ?? null) || !is_array($document['elements'] ?? null))) {
-            throw new \InvalidArgumentException('Снимок логики должен содержать graph и elements.');
+        if ($component === 'logic') {
+            self::validateLogicDocument($document, $presetId);
         }
         if ($component === 'commercialPolicy') {
             self::validateCommercialPolicyDocument($document);
+        }
+    }
+
+    /** @param array<string,mixed> $document */
+    public static function validateLogicDocument(array $document, int $presetId): void
+    {
+        $runtime = is_array($document['runtimePayload'] ?? null) ? $document['runtimePayload'] : [];
+        $preset = is_array($runtime['preset'] ?? null) ? $runtime['preset'] : [];
+        if (($document['contract'] ?? null) !== CalculatorVersionSnapshotSourceService::LOGIC_CONTRACT
+            || (int)($document['presetId'] ?? 0) !== $presetId
+            || !is_array($document['graph'] ?? null)
+            || !is_array($document['elements'] ?? null)
+            || ($runtime['contract'] ?? null) !== CalculatorVersionSnapshotSourceService::LOGIC_RUNTIME_CONTRACT
+            || (int)($preset['id'] ?? 0) !== $presetId
+            || (int)($preset['runtimePresetId'] ?? 0) <= 0
+            || !is_array($runtime['elementsStore'] ?? null)
+            || !is_array($runtime['elementsSiblings'] ?? null)
+            || !is_array($runtime['globalSymbols'] ?? null)
+            || !array_is_list($runtime['globalSymbols'])
+            || !is_array($runtime['priceTypes'] ?? null)
+            || !array_is_list($runtime['priceTypes'])
+            || ($runtime['selectedOffers'] ?? null) !== []
+            || ($runtime['product'] ?? null) !== null
+            || ($runtime['neutralInputRequired'] ?? null) !== true
+            || !is_array($runtime['runtimeConfigSnapshot'] ?? null)
+            || $runtime['runtimeConfigSnapshot'] === []) {
+            throw new \InvalidArgumentException(
+                'Снимок логики не содержит самодостаточный runtime payload и требует пересборки.'
+            );
         }
     }
 

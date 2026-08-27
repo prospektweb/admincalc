@@ -6,11 +6,13 @@ namespace Prospektweb\Calc\Services;
 
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Calculator\ElementDataService;
+use Prospektweb\Calc\Calculator\InitPayloadService;
 
 /** Read-only assembler of the six authorities that make an executable calculator. */
 final class CalculatorVersionSnapshotSourceService
 {
     public const LOGIC_CONTRACT = 'prospektweb.calc.version-logic-snapshot/v1';
+    public const LOGIC_RUNTIME_CONTRACT = 'prospektweb.calc.version-runtime-payload/v1';
     public const PRODUCT_ASSIGNMENTS_CONTRACT = 'prospektweb.calc.version-product-assignments/v1';
     public const PUBLICATION_METADATA_CONTRACT = 'prospektweb.calc.version-publication-metadata/v1';
     public const COMMERCIAL_POLICY_CONTRACT = 'prospektweb.calc.commercial-policy/v1';
@@ -65,6 +67,7 @@ final class CalculatorVersionSnapshotSourceService
         ?string $workingVersionId = null
     ): array
     {
+        $calculatorPresetId = $calculatorPresetId ?? $sourcePresetId;
         if (isset($this->adapters['logic'])) {
             $value = call_user_func($this->adapters['logic'], $sourcePresetId);
             if (!is_array($value)) throw new \RuntimeException('Logic snapshot adapter returned invalid data.');
@@ -72,7 +75,7 @@ final class CalculatorVersionSnapshotSourceService
             $authority = new CalculatorMutationAuthorityService();
             $value = $authority->withAuthorityLock(
                 $sourcePresetId,
-                static function (bool $_protection, array $iblockIds, array $_lockedAuthority) use ($sourcePresetId, $authority): array {
+                static function (bool $_protection, array $iblockIds, array $_lockedAuthority) use ($sourcePresetId, $calculatorPresetId, $authority): array {
                     $graph = $authority->readLockedPresetGraph($sourcePresetId);
                     $loader = new ElementDataService($iblockIds);
                     $requests = [[
@@ -95,16 +98,44 @@ final class CalculatorVersionSnapshotSourceService
                         ];
                     }
                     $payload = $loader->prepareRefreshPayload($requests);
+                    $runtimeConfigSnapshot = (new CatalogRuntimeConfigAuthorityService())
+                        ->captureCalculatorSnapshot();
+                    $globalSymbolIblockId = CatalogRuntimeConfigAuthorityService::runtimeIblockId(
+                        $runtimeConfigSnapshot,
+                        'CALC_GLOBAL_VALUES'
+                    );
+                    $globalSymbols = (new GlobalSymbolService())
+                        ->listReadOnlyFromIblockId($globalSymbolIblockId, $calculatorPresetId);
+                    $runtimePayload = (new InitPayloadService())
+                        ->preparePresetCalculationPayloadReadOnlyPinned(
+                            $sourcePresetId,
+                            [],
+                            defined('SITE_ID') ? (string)SITE_ID : '',
+                            array_values($globalSymbols),
+                            $runtimeConfigSnapshot
+                        );
+                    unset($runtimePayload['context']);
+                    $runtimePayload['contract'] = self::LOGIC_RUNTIME_CONTRACT;
+                    $runtimePayload['selectedOffers'] = [];
+                    $runtimePayload['product'] = null;
+                    $runtimePayload['neutralInputRequired'] = true;
+                    $runtimePayload['runtimeConfigSnapshot'] = $runtimeConfigSnapshot;
+                    $runtimePayload['preset']['runtimePresetId'] = $sourcePresetId;
+                    $runtimePayload['preset']['id'] = $calculatorPresetId;
+                    foreach ((array)($runtimePayload['globalSymbols'] ?? []) as &$symbol) {
+                        if (is_array($symbol)) $symbol['presetId'] = $calculatorPresetId;
+                    }
+                    unset($symbol);
                     return [
                         'contract' => self::LOGIC_CONTRACT,
                         'presetId' => $sourcePresetId,
                         'graph' => $graph,
                         'elements' => array_values($payload),
+                        'runtimePayload' => $runtimePayload,
                     ];
                 }
             );
         }
-        $calculatorPresetId = $calculatorPresetId ?? $sourcePresetId;
         $value['presetId'] = $calculatorPresetId;
         if ($calculatorPresetId !== $sourcePresetId) {
             $value['workingPresetId'] = $sourcePresetId;
@@ -113,6 +144,110 @@ final class CalculatorVersionSnapshotSourceService
             unset($value['workingPresetId'], $value['workingVersionId']);
         }
         return $value;
+    }
+
+    /**
+     * Match a newly cloned graph to the exact stage order stored by an older
+     * version. Duplicate stage descriptors are consumed in their current
+     * order, so equivalent repeated stages remain deterministic.
+     *
+     * @return list<array{detailId:int,stageIds:list<int>,alreadyOrdered:bool}>
+     */
+    public static function recoveryStageOrderPlan(array $historicalLogic, array $workingLogic): array
+    {
+        $historical = self::logicTopology($historicalLogic);
+        $working = self::logicTopology($workingLogic);
+        $workingDetails = [];
+        foreach ($working as $detail) {
+            $workingDetails[$detail['name']][] = $detail;
+        }
+
+        $plan = [];
+        foreach ($historical as $historicalDetail) {
+            $name = $historicalDetail['name'];
+            if (($workingDetails[$name] ?? []) === []) {
+                throw new \RuntimeException('Исторический порядок логики нельзя восстановить: состав деталей изменился.', 409);
+            }
+            $workingDetail = array_shift($workingDetails[$name]);
+            $stageBuckets = [];
+            foreach ($workingDetail['stages'] as $stage) {
+                $stageBuckets[$stage['descriptor']][] = $stage['id'];
+            }
+            $targetStageIds = [];
+            foreach ($historicalDetail['stages'] as $stage) {
+                $descriptor = $stage['descriptor'];
+                if (($stageBuckets[$descriptor] ?? []) === []) {
+                    throw new \RuntimeException('Исторический порядок логики нельзя восстановить: состав этапов изменился.', 409);
+                }
+                $targetStageIds[] = (int)array_shift($stageBuckets[$descriptor]);
+            }
+            foreach ($stageBuckets as $ids) {
+                if ($ids !== []) {
+                    throw new \RuntimeException('Исторический порядок логики нельзя восстановить: появились дополнительные этапы.', 409);
+                }
+            }
+            $currentStageIds = array_column($workingDetail['stages'], 'id');
+            $plan[] = [
+                'detailId' => (int)$workingDetail['id'],
+                'stageIds' => $targetStageIds,
+                'alreadyOrdered' => $currentStageIds === $targetStageIds,
+            ];
+        }
+        foreach ($workingDetails as $details) {
+            if ($details !== []) {
+                throw new \RuntimeException('Исторический порядок логики нельзя восстановить: появились дополнительные детали.', 409);
+            }
+        }
+        return $plan;
+    }
+
+    /** @return list<array{id:int,name:string,stages:list<array{id:int,descriptor:string}>}> */
+    private static function logicTopology(array $logic): array
+    {
+        $graph = is_array($logic['graph'] ?? null) ? $logic['graph'] : [];
+        $rows = [];
+        foreach ((array)($logic['elements'] ?? []) as $batch) {
+            foreach ((array)($batch['data'] ?? []) as $row) {
+                if (is_array($row) && (int)($row['id'] ?? 0) > 0) {
+                    $rows[(int)$row['id']] = $row;
+                }
+            }
+        }
+        $topology = [];
+        $seenStageIds = [];
+        foreach ((array)($graph['detailIds'] ?? []) as $detailId) {
+            $detailId = (int)$detailId;
+            if ($detailId <= 0 || !isset($rows[$detailId])) {
+                throw new \RuntimeException('Снимок логики не содержит данные одной из деталей.', 409);
+            }
+            $stages = [];
+            foreach ((array)($graph['detailStages'][$detailId] ?? []) as $stageId) {
+                $stageId = (int)$stageId;
+                if ($stageId <= 0 || !isset($rows[$stageId]) || isset($seenStageIds[$stageId])) {
+                    throw new \RuntimeException('Снимок логики содержит неоднозначную структуру этапов.', 409);
+                }
+                $seenStageIds[$stageId] = true;
+                $settingsIds = array_values(array_map('intval', (array)($graph['stageSettings'][$stageId] ?? [])));
+                $stageName = trim((string)($rows[$stageId]['name'] ?? ''));
+                $stages[] = [
+                    'id' => $stageId,
+                    'descriptor' => json_encode([$stageName, $settingsIds], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                ];
+            }
+            $topology[] = [
+                'id' => $detailId,
+                'name' => trim((string)($rows[$detailId]['name'] ?? '')),
+                'stages' => $stages,
+            ];
+        }
+        $expectedStageIds = array_values(array_unique(array_map('intval', (array)($graph['stageIds'] ?? []))));
+        sort($expectedStageIds, SORT_NUMERIC);
+        $actualStageIds = array_map('intval', array_keys($seenStageIds));
+        sort($actualStageIds, SORT_NUMERIC);
+        if ($expectedStageIds !== $actualStageIds) {
+            throw new \RuntimeException('Снимок логики содержит этапы вне структуры деталей.', 409);
+        }
+        return $topology;
     }
 
     /** @return array<string,mixed> */

@@ -44,12 +44,35 @@ final class CalculatorVersionRuntimePublicationService
         }
         $bundle = $this->bundles->load($presetId, $versionId);
         if ($bundle === null || ($bundle['readiness']['complete'] ?? false) !== true) {
-            $missing = is_array($bundle['readiness']['missingComponents'] ?? null)
-                ? implode(', ', $bundle['readiness']['missingComponents'])
+            $missingComponents = is_array($bundle['readiness']['missingComponents'] ?? null)
+                ? $bundle['readiness']['missingComponents']
+                : [];
+            if (in_array('logic.runtimePayload', $missingComponents, true)) {
+                throw new \RuntimeException(
+                    'Логика полного bundle не готова к публикации: отсутствует самодостаточный runtime payload. '
+                    . 'Откройте вкладку «Логика» черновика и сохраните её повторно.',
+                    409
+                );
+            }
+            $missing = $missingComponents !== []
+                ? implode(', ', $missingComponents)
                 : 'неизвестно';
             throw new \RuntimeException(
                 'Полный bundle версии не готов к публикации. Требуется пересборка компонентов: ' . $missing . '.',
                 409
+            );
+        }
+        try {
+            CalculatorVersionComponentDocumentService::validateLogicDocument(
+                is_array($bundle['documents']['logic'] ?? null) ? $bundle['documents']['logic'] : [],
+                $presetId
+            );
+        } catch (\InvalidArgumentException $error) {
+            throw new \RuntimeException(
+                'Логика полного bundle не готова к публикации: ' . $error->getMessage()
+                . ' Откройте вкладку «Логика» черновика и сохраните её повторно.',
+                409,
+                $error
             );
         }
         $metadata = $bundle['documents']['publicationMetadata'] ?? null;
@@ -126,6 +149,10 @@ final class CalculatorVersionRuntimePublicationService
             || $recordHashes !== $bundleHashes) {
             throw new \RuntimeException('Активный bundle калькулятора отсутствует, неполон или изменён.', 409);
         }
+        CalculatorVersionComponentDocumentService::validateLogicDocument(
+            is_array($bundle['documents']['logic'] ?? null) ? $bundle['documents']['logic'] : [],
+            $presetId
+        );
         return $record + [
             'readiness' => $bundle['readiness'],
             'updatedAt' => (string)$bundle['updatedAt'],

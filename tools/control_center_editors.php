@@ -316,6 +316,19 @@ $parseStrictNonNegativeInt = static function ($value, string $field): int {
 
     return $value;
 };
+$presetElementExists = static function (int $presetId): bool {
+    if ($presetId <= 0 || !Loader::includeModule('iblock')) {
+        return false;
+    }
+    $row = \CIBlockElement::GetList(
+        [],
+        ['ID' => $presetId],
+        false,
+        ['nTopCount' => 1],
+        ['ID']
+    )->Fetch();
+    return is_array($row) && (int)($row['ID'] ?? 0) === $presetId;
+};
 $parseAggregateRevision = static function ($value, string $field): string {
     if (!is_string($value) || preg_match('/^[a-f0-9]{64}$/D', $value) !== 1) {
         throw new \InvalidArgumentException($field . ' must be a lowercase SHA-256 revision');
@@ -1226,13 +1239,46 @@ try {
         $workingPresetId = (int)($logic['workingPresetId'] ?? 0);
         $workingVersionId = (string)($logic['workingVersionId'] ?? '');
         if ($isDraft && ($workingPresetId <= 0 || $workingVersionId !== $versionId)) {
-            $sourcePresetId = $workingPresetId > 0 ? $workingPresetId : $presetId;
+            $historicalWorkingPresetMissing = $workingPresetId > 0 && !$presetElementExists($workingPresetId);
+            $sourcePresetId = $workingPresetId > 0 && !$historicalWorkingPresetMissing
+                ? $workingPresetId
+                : $presetId;
             $clone = (new PresetLifecycleMutationService())->duplicatePreset($sourcePresetId);
             $workingPresetId = (int)($clone['newPresetId'] ?? 0);
             if ($workingPresetId <= 0) {
                 throw new \RuntimeException('Не удалось создать изолированный граф логики черновика.', 409);
             }
             $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
+            if ($historicalWorkingPresetMissing) {
+                $stageOrderPlan = CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan(
+                    $bundle['documents']['logic'],
+                    $logic
+                );
+                $detailHandler = new \Prospektweb\Calc\Services\DetailHandler();
+                foreach ($stageOrderPlan as $order) {
+                    if (($order['alreadyOrdered'] ?? false) === true) continue;
+                    $result = $detailHandler->changeSortStage(
+                        (int)$order['detailId'],
+                        (array)$order['stageIds']
+                    );
+                    if (($result['status'] ?? null) !== 'ok') {
+                        throw new \RuntimeException(
+                            'Не удалось восстановить исторический порядок этапов: '
+                            . (string)($result['message'] ?? 'неизвестная ошибка'),
+                            409
+                        );
+                    }
+                }
+                $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
+                foreach (CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan(
+                    $bundle['documents']['logic'],
+                    $logic
+                ) as $verifiedOrder) {
+                    if (($verifiedOrder['alreadyOrdered'] ?? false) !== true) {
+                        throw new \RuntimeException('Исторический порядок этапов не подтверждён после сохранения.', 409);
+                    }
+                }
+            }
             $saved = $versionComponents->saveDraft(
                 $presetId,
                 $versionId,

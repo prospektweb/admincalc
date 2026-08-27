@@ -21,11 +21,35 @@ $components = [];
 foreach (CalculatorVersionBundleDocumentService::COMPONENTS as $component) {
     $components[$component] = ['contract' => 'test/' . $component, 'value' => $component];
 }
+$components['logic'] = [
+    'contract' => 'prospektweb.calc.version-logic-snapshot/v1',
+    'presetId' => 12740,
+    'graph' => [],
+    'elements' => [],
+    'runtimePayload' => [
+        'contract' => 'prospektweb.calc.version-runtime-payload/v1',
+        'preset' => ['id' => 12740, 'runtimePresetId' => 54321],
+        'elementsStore' => [],
+        'elementsSiblings' => [],
+        'globalSymbols' => [],
+        'priceTypes' => [],
+        'selectedOffers' => [],
+        'product' => null,
+        'neutralInputRequired' => true,
+        'runtimeConfigSnapshot' => ['CALC_PRESETS' => '41'],
+    ],
+];
 $saved = $service->save(12740, 'v_1111111111111111', $components);
-$assert($saved['documents'] === $components, 'complete bundle readback mismatch');
+$assert($saved['documents'] == $components, 'complete bundle readback mismatch');
 $assert(count($saved['componentHashes']) === 8, 'all component hashes are required');
 $assert(($saved['readiness']['complete'] ?? false) === true, 'v2 bundle must be publication-ready');
 $assert(preg_match('/^[a-f0-9]{64}$/D', $saved['contentHash']) === 1, 'aggregate content hash is invalid');
+
+$incompleteComponents = $components;
+unset($incompleteComponents['logic']['runtimePayload']);
+$incomplete = $service->save(12740, 'v_7777777777777777', $incompleteComponents);
+$assert(($incomplete['readiness']['complete'] ?? true) === false, 'logic without an immutable runtime payload must require rebuild');
+$assert(in_array('logic.runtimePayload', $incomplete['readiness']['missingComponents'] ?? [], true), 'readiness must name the missing logic runtime payload');
 
 $copied = $service->copy(12740, 'v_1111111111111111', 'v_2222222222222222');
 $assert($copied['contentHash'] === $saved['contentHash'], 'copy must preserve exact content');
@@ -73,7 +97,10 @@ $legacyManifest = [
 $storage['CALC_VERSION_BUNDLE_12740_' . $legacyVersionId] = json_encode($legacyManifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 $legacy = $service->load(12740, $legacyVersionId);
 $assert(($legacy['readiness']['complete'] ?? true) === false, 'legacy six-component bundle must not look publication-ready');
-$assert(($legacy['readiness']['missingComponents'] ?? []) === ['publicationMetadata', 'commercialPolicy'], 'legacy readiness must name missing v2 components');
+$assert(
+    ($legacy['readiness']['missingComponents'] ?? []) === ['publicationMetadata', 'commercialPolicy', 'logic.runtimePayload'],
+    'legacy readiness must name missing v2 components and immutable logic runtime'
+);
 
 $service->delete(12740, 'v_1111111111111111');
 $assert(!$service->has(12740, 'v_1111111111111111'), 'draft bundle delete must remove its manifest');
