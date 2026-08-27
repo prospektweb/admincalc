@@ -559,13 +559,14 @@ class BatchRecalculateService
             $logicDocument = is_array($activeBundle['documents']['logic'] ?? null)
                 ? $activeBundle['documents']['logic']
                 : [];
-            $runtimePresetId = (int)($logicDocument['workingPresetId'] ?? 0);
+            CalculatorVersionComponentDocumentService::validateLogicDocument($logicDocument, $presetId);
+            $runtimePresetId = (int)($logicDocument['runtimePayload']['preset']['runtimePresetId'] ?? 0);
             $commercialPolicy = is_array($activeBundle['documents']['commercialPolicy'] ?? null)
                 ? $activeBundle['documents']['commercialPolicy']
                 : [];
             if ($runtimePresetId <= 0
                 || (int)($logicDocument['presetId'] ?? 0) !== $presetId
-                || (string)($logicDocument['workingVersionId'] ?? '') !== (string)($activeBundle['versionId'] ?? '')) {
+                || (int)($logicDocument['runtimePayload']['preset']['id'] ?? 0) !== $presetId) {
                 throw new \RuntimeException('Активная версия не содержит однозначную исполняемую логику.', 409);
             }
             CalculatorVersionComponentDocumentService::validateCommercialPolicyDocument($commercialPolicy);
@@ -1341,6 +1342,26 @@ class BatchRecalculateService
         }
         $presetId = (int)($catalogPayload['presetId'] ?? 0);
         self::assertSupportedBatchPresetId($presetId);
+        $activeBundle = (new CalculatorVersionRuntimePublicationService())->resolve($presetId);
+        if (!is_array($activeBundle)) {
+            throw new \RuntimeException('Для массового пересчёта требуется активный полный bundle калькулятора.', 409);
+        }
+        $logicDocument = is_array($activeBundle['documents']['logic'] ?? null)
+            ? $activeBundle['documents']['logic']
+            : [];
+        CalculatorVersionComponentDocumentService::validateLogicDocument($logicDocument, $presetId);
+        $versionRuntimePayload = $logicDocument['runtimePayload'];
+        $runtimePresetId = (int)($versionRuntimePayload['preset']['runtimePresetId'] ?? 0);
+        $commercialPolicy = is_array($activeBundle['documents']['commercialPolicy'] ?? null)
+            ? $activeBundle['documents']['commercialPolicy']
+            : [];
+        CalculatorVersionComponentDocumentService::validateCommercialPolicyDocument($commercialPolicy);
+        $versionContext = [
+            'calculatorPresetId' => $presetId,
+            'workingPresetId' => $runtimePresetId,
+            'versionId' => (string)$activeBundle['versionId'],
+            'contentHash' => (string)$activeBundle['contentHash'],
+        ];
 
         $expectedOfferIds = [];
         foreach ((array)($catalogPayload['selectedOffers'] ?? []) as $targetOffer) {
@@ -1448,27 +1469,29 @@ class BatchRecalculateService
                 'catalog-input-mapping'
             );
 
-        $globalSymbols = is_array($catalogPayload['_globalSymbols'] ?? null)
-            ? array_values($catalogPayload['_globalSymbols'])
+        $globalSymbols = is_array($versionRuntimePayload['globalSymbols'] ?? null)
+            ? array_values($versionRuntimePayload['globalSymbols'])
             : null;
         if ($globalSymbols === null) {
-            throw new \RuntimeException('Catalog payload does not pin the global symbol registry.');
+            throw new \RuntimeException('Active complete bundle does not pin the global symbol registry.');
         }
-        $runtimeConfigSnapshot = is_array($catalogPayload['_runtimeConfigSnapshot'] ?? null)
-            ? $catalogPayload['_runtimeConfigSnapshot']
+        $runtimeConfigSnapshot = is_array($versionRuntimePayload['runtimeConfigSnapshot'] ?? null)
+            ? $versionRuntimePayload['runtimeConfigSnapshot']
             : [];
         if ($runtimeConfigSnapshot === []) {
-            throw new \RuntimeException('Catalog payload does not pin ConfigManager option authority.');
+            throw new \RuntimeException('Active complete bundle does not pin ConfigManager option authority.');
         }
-        $payload = (new InitPayloadService())->preparePresetCalculationPayloadReadOnlyPinned(
-            $runtimePresetId,
-            $virtualOffers,
-            $siteId,
-            $globalSymbols,
-            $runtimeConfigSnapshot
-        );
+        $payload = $versionRuntimePayload;
+        unset($payload['contract'], $payload['runtimeConfigSnapshot']);
+        $payload['context'] = is_array($catalogPayload['context'] ?? null) ? $catalogPayload['context'] : [];
+        $payload['selectedOffers'] = $virtualOffers;
+        $payload['product'] = null;
         $payload['globalSymbols'] = $globalSymbols;
-        $payload['editorRuntime'] = $catalogPayload['editorRuntime'] ?? null;
+        $payload['editorRuntime'] = is_array($catalogPayload['editorRuntime'] ?? null)
+            ? $catalogPayload['editorRuntime']
+            : [];
+        $payload['editorRuntime']['calculatorInputMapping'] = $activeBundle['documents']['inputMappings'];
+        $payload['editorRuntime']['catalogOutputMapping'] = $activeBundle['documents']['outputMappings'];
         $payload['neutralInputRequired'] = $neutralInputRequired;
         $payload['commercialPolicy'] = $commercialPolicy;
         $payload['versionContext'] = $versionContext;

@@ -21,7 +21,7 @@ foreach ([
     'array_chunk($offerIds, self::PREVIEW_CHUNK_SIZE)',
     'captureOfferStateFingerprints',
     'replayAuthoritativeBatch(',
-    'preparePresetCalculationPayloadReadOnlyPinned(',
+    '$payload = $versionRuntimePayload',
     "'catalog-input-mapping'",
     "['catalogInputMapping']",
     "['catalogOutputMapping']",
@@ -31,6 +31,8 @@ foreach ([
 ] as $needle) {
     $assert(str_contains($service . $signer, $needle), 'Missing batch invariant: ' . $needle);
 }
+$assert(!str_contains($service, 'preparePresetCalculationPayloadReadOnlyPinned('),
+    'Batch calculation must not re-read a mutable working preset after publication');
 
 foreach ([
     "header('Cache-Control: no-store, private')",
