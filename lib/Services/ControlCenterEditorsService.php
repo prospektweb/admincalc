@@ -29,6 +29,7 @@ final class ControlCenterEditorsService
         'newVersionFormTemplate',
         'saveFormFirstDraft',
         'previewFormFirst',
+        'previewVersionFormFirst',
         'publishFormFirst',
         'rollbackFormFirst',
     ];
@@ -1507,6 +1508,29 @@ final class ControlCenterEditorsService
         );
     }
 
+    public function previewVersionFormFirst(
+        int $presetId,
+        array $formDefinition,
+        array $bindingDefinition
+    ): array {
+        $this->assertPresetFormAuthority($presetId);
+        $this->assertEditorDocument($formDefinition, 'formDefinition');
+        $this->assertEditorDocument($bindingDefinition, 'bindingDefinition');
+        $dependencyContract = $this->versionDependencyContract($presetId);
+
+        return $this->assertFormFirstEditorResult(
+            $this->requireFormFirstAuthoring()->previewVersionFormFirst(
+                $presetId,
+                $formDefinition,
+                $bindingDefinition,
+                $dependencyContract
+            ),
+            $presetId,
+            'preview',
+            $dependencyContract['fingerprint']
+        );
+    }
+
     public function publishFormFirst(
         int $presetId,
         string $expectedAggregateRevision,
@@ -2396,6 +2420,36 @@ final class ControlCenterEditorsService
         }
         ksort($normalized, SORT_NUMERIC);
         return array_values($normalized);
+    }
+
+    /** @return array<string,mixed> */
+    private function versionDependencyContract(int $presetId): array
+    {
+        $categoryStatus = [];
+        foreach ([
+            'ui',
+            'catalog_input_mapping',
+            'stage_inputs',
+            'globals',
+            'options_mappings',
+            'basket',
+            'storefront_presentation',
+        ] as $category) {
+            $categoryStatus[$category] = [
+                'scanned' => true,
+                'count' => 0,
+                'sourceMode' => 'declared',
+            ];
+        }
+        $contract = [
+            'contract' => 'prospektweb.calc.preset-public-inputs/v1',
+            'presetId' => $presetId,
+            'requiredPropertyCodes' => [],
+            'consumers' => [],
+            'categoryStatus' => $categoryStatus,
+        ];
+        $contract['fingerprint'] = $this->canonicalHash($contract);
+        return $contract;
     }
 
     /** @return array<string,mixed> */

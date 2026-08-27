@@ -75,6 +75,22 @@ class TestFormFirstAuthoringProvider
         return $this->formFirstResult('preview', $dependencyContract, $presetId);
     }
 
+    public function previewVersionFormFirst(
+        int $presetId,
+        array $formDefinition,
+        array $bindingDefinition,
+        array $dependencyContract = []
+    ): array {
+        $this->calls[] = [
+            'previewVersionFormFirst',
+            $presetId,
+            $formDefinition,
+            $bindingDefinition,
+            $dependencyContract,
+        ];
+        return $this->formFirstResult('preview', $dependencyContract, $presetId);
+    }
+
     public function publishFormFirst(
         int $presetId,
         string $expectedAggregateRevision,
@@ -1029,6 +1045,13 @@ $assert(
     )['operation'] ?? '') === 'preview',
     'The service must delegate form-first compile preview'
 );
+$versionPreview = $formFirstService->previewVersionFormFirst(41, $formDefinition, $bindingDefinition);
+$assert(
+    ($versionPreview['operation'] ?? '') === 'preview'
+        && ($provider->calls[count($provider->calls) - 1][0] ?? '') === 'previewVersionFormFirst'
+        && ($provider->calls[count($provider->calls) - 1][4]['requiredPropertyCodes'] ?? null) === [],
+    'Version form preview must use an isolated dependency authority instead of the active calculator.'
+);
 $assert(
     ($formFirstService->publishFormFirst(41, $aggregateRevision, $compileHash)['operation'] ?? '')
         === 'publish',
@@ -1054,11 +1077,12 @@ $formFirstCalls = array_values(array_filter($provider->calls, static function (a
         'newVersionFormTemplate',
         'saveFormFirstDraft',
         'previewFormFirst',
+        'previewVersionFormFirst',
         'publishFormFirst',
         'rollbackFormFirst',
     ], true);
 }));
-$assert(count($formFirstCalls) === 12, 'Form mutations must include authoritative before/after workspace readbacks');
+$assert(count($formFirstCalls) === 13, 'Form mutations must include authoritative before/after workspace readbacks and isolated version preview');
 foreach ($formFirstCalls as $formFirstCall) {
     $passedContract = $formFirstCall[count($formFirstCall) - 1] ?? null;
     $assert(

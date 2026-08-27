@@ -257,7 +257,7 @@ $versionFormWorkspace = static function (
         $legacy,
         $isEditable
     );
-    $preview = $service->previewFormFirst(
+    $preview = $service->previewVersionFormFirst(
         $presetId,
         $document['formDefinition'],
         $document['bindingDefinition']
@@ -266,6 +266,9 @@ $versionFormWorkspace = static function (
     $legacy['aggregateRevision'] = $document['revision'];
     $legacy['formDefinition'] = $document['formDefinition'];
     $legacy['bindingDefinition'] = $document['bindingDefinition'];
+    $legacy['published'] = null;
+    $legacy['history'] = [];
+    $legacy['dependencyFingerprint'] = $preview['dependencyFingerprint'];
     $legacy['coverage'] = $preview['coverage'];
     $legacy['compile'] = $preview['compile'];
     return $legacy;
@@ -1245,6 +1248,46 @@ try {
         ]);
     }
 
+    if ($action === 'version_form_preview') {
+        $assertAllowedRequestKeys([
+            'action', 'sessid', 'presetId', 'versionId', 'formDefinition', 'bindingDefinition',
+        ]);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $versionId = $request['versionId'] ?? null;
+        if (!is_string($versionId)) {
+            throw new \InvalidArgumentException('versionId is required');
+        }
+        $state = $versionState($presetId, $versionId);
+        $assertVersionEditable($state);
+        $document = $versionForms->ensure(
+            $presetId,
+            $versionId,
+            is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+            $state['context']['legacy'],
+            true
+        );
+        $formDefinition = $parseEditorDocument(
+            $requestWithJsonNodeKinds['formDefinition'] ?? $request['formDefinition'] ?? null,
+            'formDefinition'
+        );
+        $bindingDefinition = $parseEditorDocument(
+            $requestWithJsonNodeKinds['bindingDefinition'] ?? $request['bindingDefinition'] ?? null,
+            'bindingDefinition'
+        );
+        $preview = $service->previewVersionFormFirst($presetId, $formDefinition, $bindingDefinition);
+        $respond(200, [
+            'success' => true,
+            'data' => [
+                'contract' => $preview['contract'],
+                'operation' => 'preview',
+                'presetId' => $presetId,
+                'aggregateRevision' => $document['revision'],
+                'coverage' => $preview['coverage'],
+                'compile' => $preview['compile'],
+            ],
+        ]);
+    }
+
     if ($action === 'version_component_load') {
         $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId', 'component']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
@@ -1564,7 +1607,7 @@ try {
         }
 
         $form = $bundle['documents']['form'];
-        $preview = $service->previewFormFirst(
+        $preview = $service->previewVersionFormFirst(
             $presetId,
             $form['formDefinition'],
             $form['bindingDefinition']
@@ -1692,7 +1735,7 @@ try {
         $state = $versionState($presetId, $versionId);
         $assertVersionEditable($state);
         $versionRuntimePublications->freezeLegacyActiveForEditing($presetId, $versionId);
-        $service->previewFormFirst(
+        $service->previewVersionFormFirst(
             $presetId,
             $request['formDefinition'],
             $request['bindingDefinition']
@@ -1792,7 +1835,7 @@ try {
             is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
             $legacy
         );
-        $preview = $service->previewFormFirst(
+        $preview = $service->previewVersionFormFirst(
             $presetId,
             $document['formDefinition'],
             $document['bindingDefinition']
@@ -1913,7 +1956,7 @@ try {
                 409
             );
         }
-        $preview = $service->previewFormFirst($presetId, $document['formDefinition'], $document['bindingDefinition']);
+        $preview = $service->previewVersionFormFirst($presetId, $document['formDefinition'], $document['bindingDefinition']);
         if (($preview['coverage']['valid'] ?? false) !== true
             || ($preview['compile']['valid'] ?? false) !== true
             || !is_string($preview['compile']['hash'] ?? null)) {

@@ -393,6 +393,15 @@ namespace Prospektweb\Calc\Services {
             ));
         }
 
+        public function previewVersionFormFirst(
+            int $presetId,
+            array $formDefinition,
+            array $bindingDefinition,
+            array $dependencyContract
+        ): array {
+            return $this->previewFormFirst($presetId, $formDefinition, $bindingDefinition, $dependencyContract);
+        }
+
         public function publishFormFirst(
             int $presetId,
             string $expectedAggregateRevision,

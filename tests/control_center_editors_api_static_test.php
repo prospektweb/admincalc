@@ -43,6 +43,7 @@ foreach ([
     'version_archive',
     'version_restore',
     'version_form_load',
+    'version_form_preview',
     'version_input_mapping_validate',
     'version_form_save',
     'version_form_save_draft',
@@ -229,9 +230,13 @@ $assert(
 );
 $assert(
     str_contains($endpoint, "if (\$action === 'version_form_load')")
+        && str_contains($endpoint, "if (\$action === 'version_form_preview')")
         && str_contains($endpoint, "if (\$action === 'version_form_save' || \$action === 'version_form_save_draft')")
+        && substr_count($endpoint, '$service->previewVersionFormFirst(') >= 5
+        && str_contains($endpoint, "\$legacy['published'] = null;")
+        && str_contains($endpoint, "\$legacy['history'] = [];")
         && str_contains($endpoint, 'CalculatorVersionFormDocumentService'),
-    'editable versions own isolated form documents instead of sharing the legacy preset workspace'
+    'editable versions own isolated form documents, previews and publication metadata instead of sharing the active workspace'
 );
 $assert(
     str_contains($endpoint, '$versionRegistry->coordinateVersionMutation(')
