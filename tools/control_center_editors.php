@@ -108,6 +108,56 @@ $respond = static function (int $statusCode, array $payload): void {
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     die();
 };
+$classifyRuntimeError = static function (\RuntimeException $exception): string {
+    if ($exception->getCode() !== 409) {
+        return 'EDITOR_UNAVAILABLE';
+    }
+
+    $message = $exception->getMessage();
+    $asciiMessage = strtolower($message);
+    $hasRevisionConflict = strpos($asciiMessage, 'revision_conflict') !== false
+        || strpos($asciiMessage, 'revision conflict') !== false
+        || strpos($asciiMessage, 'expected_revision') !== false
+        || strpos($asciiMessage, 'aggregate changed') !== false
+        || strpos($asciiMessage, 'changed in another session') !== false
+        || strpos($asciiMessage, 'changed in another tab') !== false
+        || strpos($asciiMessage, 'changed during') !== false
+        || strpos($asciiMessage, 'changed after') !== false
+        || strpos($asciiMessage, 'changed before') !== false
+        || strpos($message, 'Снимок выбранной версии изменился') !== false
+        || (strpos($message, 'измен') !== false
+            && (strpos($message, 'другой вклад') !== false
+                || strpos($message, 'другой сесс') !== false
+                || strpos($message, 'во время') !== false
+                || strpos($message, 'после ') !== false
+                || strpos($message, 'до блокировки') !== false));
+    if ($hasRevisionConflict) {
+        return 'REVISION_CONFLICT';
+    }
+
+    $publicationNotReadySignals = [
+        'требует пересборки',
+        'Пересоберите полный bundle',
+        'не содержит точный документ формы',
+        'полный снимок версии не сформирован',
+        'Полный снимок версии не сформирован',
+        'отсутствует полный снимок',
+        'Полный снимок исходной версии отсутствует',
+        'Полный снимок выбранной версии отсутствует',
+        'отсутствует полный bundle',
+        'отсутствует полный снимок формы, логики, витрин, сопоставлений и товаров',
+        'повторная активация недоступна',
+        'publication is not ready',
+        'publication readiness',
+    ];
+    foreach ($publicationNotReadySignals as $signal) {
+        if (strpos($message, $signal) !== false || strpos($asciiMessage, $signal) !== false) {
+            return 'PUBLICATION_NOT_READY';
+        }
+    }
+
+    return 'CONFIGURATION_INVALID';
+};
 
 if ($requestMethod !== 'POST') {
     header('Allow: POST');
@@ -2519,7 +2569,7 @@ try {
 } catch (\RuntimeException $exception) {
     $respond(409, [
         'success' => false,
-        'errorCode' => $exception->getCode() === 409 ? 'REVISION_CONFLICT' : 'EDITOR_UNAVAILABLE',
+        'errorCode' => $classifyRuntimeError($exception),
         'error' => $exception->getMessage(),
     ]);
 } catch (\Throwable $exception) {

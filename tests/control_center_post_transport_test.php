@@ -399,7 +399,16 @@ namespace Prospektweb\Calc\Services {
             array $bindingDefinition
         ): array {
             if ($expectedAggregateRevision === str_repeat('f', 64)) {
-                throw new \RuntimeException('Aggregate changed', 409);
+                throw new \RuntimeException(
+                    'Состояние формы изменено в другой сессии. Перезагрузите редактор.',
+                    409
+                );
+            }
+            if ($expectedAggregateRevision === str_repeat('e', 64)) {
+                throw new \RuntimeException('Полный bundle версии требует пересборки перед публикацией.', 409);
+            }
+            if ($expectedAggregateRevision === str_repeat('d', 64)) {
+                throw new \RuntimeException('Сохранённый runtime логики версии повреждён.', 409);
             }
             $field = $formDefinition['fields'][0] ?? null;
             $nodeKinds = null;
@@ -992,6 +1001,30 @@ PHP;
     $assert($formFirstConflict['status'] === 409
         && ($formFirstConflict['body']['errorCode'] ?? '') === 'REVISION_CONFLICT',
         'Form-first CAS conflicts must retain the stable HTTP 409 mapping');
+
+    $formFirstPublicationNotReady = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_save_draft',
+        'presetId' => 41,
+        'expectedAggregateRevision' => str_repeat('e', 64),
+        'formDefinition' => $formDefinition,
+        'bindingDefinition' => $bindingDefinition,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstPublicationNotReady['status'] === 409
+        && ($formFirstPublicationNotReady['body']['errorCode'] ?? '') === 'PUBLICATION_NOT_READY',
+        'Incomplete publication readiness must not be reported as a revision conflict');
+
+    $formFirstConfigurationInvalid = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_save_draft',
+        'presetId' => 41,
+        'expectedAggregateRevision' => str_repeat('d', 64),
+        'formDefinition' => $formDefinition,
+        'bindingDefinition' => $bindingDefinition,
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstConfigurationInvalid['status'] === 409
+        && ($formFirstConfigurationInvalid['body']['errorCode'] ?? '') === 'CONFIGURATION_INVALID',
+        'Invalid saved logic must expose a configuration error instead of a revision conflict');
 
     $editorsStorefrontExtraField = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
