@@ -99,6 +99,64 @@ final class CalculatorVersionRegistryService
         return $this->withLock($presetId, $callback);
     }
 
+    /**
+     * Initialize an independently-created calculator without consulting the
+     * legacy form/publication workspace. This is intentionally create-only:
+     * an existing registry means the lifecycle request is ambiguous and must
+     * roll back together with the new Bitrix preset.
+     *
+     * @return array<string,mixed>
+     */
+    public function initializeNewPreset(
+        int $presetId,
+        string $presetName,
+        array $actor
+    ): array {
+        $this->assertPresetId($presetId);
+        $presetName = $this->normalizeName($presetName, 'Калькулятор #' . $presetId);
+        $actor = $this->normalizeActor($actor);
+
+        return $this->withLock($presetId, function () use ($presetId, $presetName, $actor): array {
+            if ($this->loadState($presetId) !== null) {
+                throw new \RuntimeException(
+                    'Список версий нового калькулятора уже существует.',
+                    409
+                );
+            }
+            $now = $this->now();
+            $versionId = $this->newVersionId();
+            $state = [
+                'storageVersion' => self::STORAGE_VERSION,
+                'presetId' => $presetId,
+                'calculatorName' => $presetName,
+                'activeVersionId' => null,
+                'versions' => [[
+                    'versionId' => $versionId,
+                    'versionNo' => 1,
+                    'status' => self::STATUS_PUBLISHED,
+                    'name' => 'Версия 1',
+                    'basedOnVersionId' => null,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                    'publishedAt' => null,
+                    'createdBy' => $actor,
+                    'updatedBy' => $actor,
+                    'publishedBy' => null,
+                    'legacyFormRevision' => null,
+                    'legacyCompileHash' => null,
+                    'contentHash' => null,
+                    'componentHashes' => null,
+                ]],
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ];
+            $this->saveState($presetId, $state);
+            $workspace = $this->publicWorkspace($state);
+            $workspace['createdVersionId'] = $versionId;
+            return $workspace;
+        });
+    }
+
     /** @return array<string,mixed> */
     public function createVersion(
         int $presetId,

@@ -16,6 +16,7 @@ $inputMapping = (string)file_get_contents($adminRoot . '/lib/Services/Calculator
 $outputMapping = (string)file_get_contents($adminRoot . '/lib/Services/CatalogOutputMappingService.php');
 $coordinator = (string)file_get_contents($adminRoot . '/lib/Services/PresetMutationCoordinatorService.php');
 $lifecycle = (string)file_get_contents($adminRoot . '/lib/Services/PresetLifecycleMutationService.php');
+$presetCreation = (string)file_get_contents($adminRoot . '/lib/Services/CalculatorPresetCreationService.php');
 $mutationAuthority = (string)file_get_contents($adminRoot . '/lib/Services/CalculatorMutationAuthorityService.php');
 $catalog = (string)file_get_contents($adminRoot . '/lib/Services/CalculatorCatalogService.php');
 $initPayload = (string)file_get_contents($adminRoot . '/lib/Calculator/InitPayloadService.php');
@@ -124,6 +125,15 @@ $assert(
         && str_contains($lifecycle, 'if ($ownsTransaction)')
         && substr_count($lifecycle, 'if ($ownsTransaction)') >= 3,
     'clean-version logic initialization must preserve an outer version transaction instead of opening a nested rollback boundary'
+);
+$assert(
+    str_contains($lifecycle, 'createPresetWithVersionWorkspace(')
+        && str_contains($lifecycle, '$workspaceInitializer($newPresetId')
+        && str_contains($lifecycle, '$this->lockCalculatorModuleRows($connection);')
+        && str_contains($presetCreation, '$this->registry->initializeNewPreset(')
+        && str_contains($presetCreation, '$this->forms->create(')
+        && str_contains($presetCreation, '$this->bundles->save('),
+    'new preset identity and Version 1 documents must share the module-first lifecycle transaction'
 );
 $assert(
     str_contains($mutationAuthority, 'BitrixTransactionStateAuthority::isActive($connection)')

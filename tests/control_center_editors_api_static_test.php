@@ -13,6 +13,7 @@ $diagnostic = (string)file_get_contents($root . '/lib/Diagnostic/ModuleDiagnosti
 $registryService = (string)file_get_contents($root . '/lib/Services/CalculatorVersionRegistryService.php');
 $runtimePublicationService = (string)file_get_contents($root . '/lib/Services/CalculatorVersionRuntimePublicationService.php');
 $bundleService = (string)file_get_contents($root . '/lib/Services/CalculatorVersionBundleDocumentService.php');
+$presetCreationService = (string)file_get_contents($root . '/lib/Services/CalculatorPresetCreationService.php');
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) {
@@ -261,6 +262,23 @@ $assert(
         && !str_contains($activationSource, 'presetIds'),
     'activation endpoint is single-preset exact CAS with no bulk presetIds payload'
 );
+$createBranch = strpos($endpoint, "if (\$action === 'create_preset')");
+$createEnd = strpos($endpoint, "if (\$action === 'validate_calculation_launch')", $createBranch ?: 0);
+$createSource = $createBranch !== false && $createEnd !== false
+    ? substr($endpoint, $createBranch, $createEnd - $createBranch)
+    : '';
+$assert(
+    str_contains($endpoint, 'new CalculatorPresetCreationService(')
+        && str_contains($createSource, '$presetCreation->create($name, $sectionId)')
+        && !str_contains($createSource, '$service->createStandalonePreset(')
+        && str_contains($presetCreationService, 'createPresetWithVersionWorkspace(')
+        && str_contains($presetCreationService, 'initializeNewPreset(')
+        && str_contains($presetCreationService, '$this->forms->create(')
+        && str_contains($presetCreationService, '$this->bundles->save(')
+        && str_contains($presetCreationService, '$this->sources->blankVersion(')
+        && !str_contains($presetCreationService, 'loadFormFirstWorkspace('),
+    'new calculator creation must atomically initialize Version 1 without legacy workspace bootstrap'
+);
 
 $assert(!str_contains($host, 'OPEN_STOREFRONT_EDITOR'), 'host has no separate storefront editor bridge');
 $assert(!str_contains($host, 'prospektweb_frontcalc_editor.php'), 'host does not launch the removed editor');
@@ -404,6 +422,7 @@ $assert(str_contains($autoload, 'CalculatorInputMappingService'), 'input mapping
 $assert(str_contains($autoload, 'CatalogOutputMappingService'), 'output mapping service is autoloaded');
 $assert(str_contains($autoload, 'PresetSectionSelectorService'), 'section selector is autoloaded');
 $assert(str_contains($autoload, 'CalculatorCatalogService'), 'calculator catalog authority is autoloaded');
+$assert(str_contains($autoload, 'CalculatorPresetCreationService'), 'atomic calculator creation authority is autoloaded');
 $assert(str_contains($diagnostic, 'CalculatorCatalogService.php'), 'calculator catalog authority is diagnosed');
 $assert(
     str_contains($endpoint, 'SystemFormFieldConfigResolver')

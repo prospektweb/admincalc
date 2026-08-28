@@ -84,6 +84,7 @@ use Prospektweb\Calc\Services\CalculatorCatalogService;
 use Prospektweb\Calc\Services\CalculatorInputMappingService;
 use Prospektweb\Calc\Services\CalculatorInputSourceCatalogService;
 use Prospektweb\Calc\Services\CalculatorMutationAuthorityService;
+use Prospektweb\Calc\Services\CalculatorPresetCreationService;
 use Prospektweb\Calc\Services\CalculatorVersionBundleDocumentService;
 use Prospektweb\Calc\Services\CalculatorVersionComponentDocumentService;
 use Prospektweb\Calc\Services\CalculatorVersionFormDocumentService;
@@ -1042,9 +1043,33 @@ try {
             throw new \InvalidArgumentException('name must be a string');
         }
         $sectionId = $parseStrictNonNegativeInt($request['sectionId'] ?? 0, 'sectionId');
+        $presetCreation = new CalculatorPresetCreationService(
+            new PresetLifecycleMutationService(),
+            $versionRegistry,
+            $versionForms,
+            $versionBundles,
+            $versionSources,
+            static fn(int $presetId): array => $service->newVersionFormTemplate($presetId),
+            $currentActor
+        );
+        $created = $presetCreation->create($name, $sectionId);
         $respond(200, [
             'success' => true,
-            'data' => $service->createStandalonePreset($name, $sectionId),
+            'data' => [
+                // Preserve the control-center response contract while exposing
+                // the exact initialized Version 1 receipt to newer clients.
+                'contract' => ControlCenterEditorsService::CONTRACT,
+                'creationContract' => (string)$created['contract'],
+                'presetId' => (int)$created['presetId'],
+                'presetName' => (string)$created['presetName'],
+                'revision' => (string)$created['identityRevision'],
+                'versionId' => (string)$created['versionId'],
+                'versionNo' => (int)$created['versionNo'],
+                'registryRevision' => (string)$created['registryRevision'],
+                'contentHash' => (string)$created['contentHash'],
+                'componentHashes' => $created['componentHashes'],
+                'snapshotReadiness' => $created['snapshotReadiness'],
+            ],
         ]);
     }
 

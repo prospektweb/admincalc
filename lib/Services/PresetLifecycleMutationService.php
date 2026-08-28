@@ -310,6 +310,33 @@ final class PresetLifecycleMutationService
     /** @return array<string,mixed> */
     public function createPreset(string $name, int $sectionId = 0): array
     {
+        return $this->createPresetInternal($name, $sectionId, null);
+    }
+
+    /**
+     * Create the Bitrix preset and its initial version workspace under one
+     * lifecycle transaction. The initializer runs after identity readback and
+     * before audit/commit, so any registry/form/bundle failure removes the
+     * freshly inserted preset together with every version document.
+     *
+     * @param callable(int,string):array<string,mixed> $workspaceInitializer
+     * @return array<string,mixed>
+     */
+    public function createPresetWithVersionWorkspace(
+        string $name,
+        int $sectionId,
+        callable $workspaceInitializer
+    ): array {
+        return $this->createPresetInternal($name, $sectionId, $workspaceInitializer);
+    }
+
+    /** @return array<string,mixed> */
+    private function createPresetInternal(
+        string $name,
+        int $sectionId,
+        ?callable $workspaceInitializer
+    ): array
+    {
         $name = trim($name);
         $nameLength = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
         if ($name === '' || $nameLength > 200) {
@@ -319,7 +346,11 @@ final class PresetLifecycleMutationService
             throw new \InvalidArgumentException('Calculator section ID must be a safe non-negative integer.', 422);
         }
 
-        return $this->withGlobalAuthority(function (array $pinnedIblockIds) use ($name, $sectionId): array {
+        return $this->withGlobalAuthority(function (array $pinnedIblockIds) use (
+            $name,
+            $sectionId,
+            $workspaceInitializer
+        ): array {
             $newPresetId = isset($this->adapters['create_locked'])
                 ? (int)call_user_func($this->adapters['create_locked'], $name, $pinnedIblockIds, $sectionId)
                 : (new BundleHandler())->createStandalonePreset(
@@ -332,6 +363,16 @@ final class PresetLifecycleMutationService
             }
             $identity = $this->loadIdentity($newPresetId, $pinnedIblockIds);
             $identityHash = PresetMutationCoordinatorService::hashCanonical($identity);
+            $workspace = null;
+            if ($workspaceInitializer !== null) {
+                $workspace = $workspaceInitializer($newPresetId, (string)$identity['name']);
+                if (!is_array($workspace)) {
+                    throw new \RuntimeException(
+                        'Initial calculator version workspace returned an invalid receipt.',
+                        409
+                    );
+                }
+            }
             $audit = [
                 'contract' => self::CONTRACT,
                 'actorId' => $this->actorId(),
@@ -339,6 +380,12 @@ final class PresetLifecycleMutationService
                 'newPresetId' => $newPresetId,
                 'sectionId' => $sectionId,
                 'identitySha256' => $identityHash,
+                'initialVersionId' => is_array($workspace)
+                    ? (string)($workspace['versionId'] ?? '')
+                    : '',
+                'initialBundleContentHash' => is_array($workspace)
+                    ? (string)($workspace['contentHash'] ?? '')
+                    : '',
                 'result' => 'success',
             ];
             $this->writeAudit($audit);
@@ -347,8 +394,9 @@ final class PresetLifecycleMutationService
                 'presetId' => $newPresetId,
                 'presetName' => (string)$identity['name'],
                 'identityRevision' => $identityHash,
+                'workspace' => $workspace,
             ];
-        });
+        }, $workspaceInitializer !== null);
     }
 
     /** @return array<string,mixed> */
@@ -993,7 +1041,10 @@ final class PresetLifecycleMutationService
     }
 
     /** @return mixed */
-    private function withGlobalAuthority(callable $criticalSection)
+    private function withGlobalAuthority(
+        callable $criticalSection,
+        bool $lockVersionModules = false
+    )
     {
         if (isset($this->adapters['with_global_authority'])) {
             return call_user_func($this->adapters['with_global_authority'], $criticalSection);
@@ -1008,6 +1059,9 @@ final class PresetLifecycleMutationService
             $connection->startTransaction();
         }
         try {
+            if ($lockVersionModules) {
+                $this->lockCalculatorModuleRows($connection);
+            }
             $locked = $authority->lockAllAuthority($connection);
             $pinnedIblockIds = is_array($locked['iblockIds'] ?? null) ? $locked['iblockIds'] : [];
             $result = $criticalSection($pinnedIblockIds);
@@ -1020,6 +1074,30 @@ final class PresetLifecycleMutationService
                 $connection->rollbackTransaction();
             }
             throw $error;
+        }
+    }
+
+    /** @param object $connection */
+    private function lockCalculatorModuleRows($connection): void
+    {
+        if (isset($this->adapters['lock_module_rows'])) {
+            call_user_func($this->adapters['lock_module_rows'], $connection);
+            return;
+        }
+        $helper = $connection->getSqlHelper();
+        $expectedModules = [self::MODULE_ID, 'prospektweb.frontcalc'];
+        $result = $connection->query(
+            "SELECT ID FROM b_module WHERE BINARY ID IN ('"
+            . implode("','", array_map([$helper, 'forSql'], $expectedModules))
+            . "') ORDER BY BINARY ID FOR UPDATE"
+        );
+        $lockedModules = [];
+        while (is_object($result) && method_exists($result, 'fetch') && is_array($row = $result->fetch())) {
+            $lockedModules[] = (string)($row['ID'] ?? '');
+        }
+        sort($expectedModules, SORT_STRING);
+        if ($lockedModules !== $expectedModules) {
+            throw new \RuntimeException('Строки авторитета модулей калькулятора не найдены точно.', 409);
         }
     }
 
