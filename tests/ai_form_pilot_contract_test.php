@@ -63,7 +63,7 @@ $withOmittedOptionalKeys['sections'][0]['fields'][] = [
     'type' => 'dimensions',
     'label' => 'Произвольный размер',
     'dimensionInputs' => [
-        ['id' => 'width', 'label' => 'Ширина'],
+        ['fieldId' => 'width', 'name' => 'Ширина', 'defaultValue' => 210],
         ['id' => 'height', 'label' => 'Высота', 'unit' => 'мм'],
     ],
 ];
@@ -71,6 +71,9 @@ $normalizedOptional = $service->validateProposal($withOmittedOptionalKeys, 'prof
 $sizeField = $normalizedOptional['sections'][0]['fields'][2] ?? null;
 if (($sizeField['publicVisible'] ?? null) !== true || ($sizeField['dimensionInputs'][0]['unit'] ?? null) !== '') {
     aiFormPilotFail('omitted optional model keys were not normalized safely');
+}
+if (($sizeField['dimensionInputs'][0]['id'] ?? null) !== 'width' || ($sizeField['dimensionInputs'][0]['label'] ?? null) !== 'Ширина') {
+    aiFormPilotFail('safe dimension aliases were not normalized');
 }
 
 $unknown = aiFormPilotProposal();

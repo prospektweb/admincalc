@@ -78,6 +78,7 @@ final class AiFormPilotProposalService
             . "Не добавляй Bitrix ID, названия или коды свойств Bitrix, товарные ID, presetId, versionId, sourcePath, формулы, цены, публикационные действия и команды сохранения. Все новые поля будут созданы без связи с Bitrix.\n"
             . "Предложи реалистичный отсортированный список востребованных положительных целых тиражей и один default из этого списка.\n"
             . "Поля должны иметь уникальные семантические ASCII-коды. Для select дай варианты и осмысленный default. Для number можно дать presetValues — числовые чипсы. Для dimensions дай минимум два dimensionInputs.\n"
+            . "В каждом dimensionInputs используй только ключи id, label, unit, min, max, step: не используй fieldId и не дублируй там defaultValue. Начальные размеры задавай объектом defaultValue у самого поля dimensions.\n"
             . "Условия ссылаются на fieldId других предложенных полей и используют только операторы: " . implode(', ', self::OPERATORS) . ".\n"
             . "dependentFieldIds означает каскадную деактивацию: когда исходное поле не показывается или не используется, перечисленные зависимые поля тоже деактивируются. Не создавай циклы.\n"
             . "required=true используй только для действительно обязательного ввода. Для условной обязательности используй requiredWhen. Подсказки пиши по-русски и без внутренних терминов.\n"
@@ -278,6 +279,18 @@ final class AiFormPilotProposalService
         $result = []; $ids = [];
         foreach ($value as $index => $row) {
             if (!is_array($row)) throw new \RuntimeException($label . ' содержит не объект');
+            // Models often reuse the outer field shape for a dimension row.
+            // Accept only the two harmless, unambiguous aliases and discard the
+            // redundant per-axis default; all other unknown keys still fail.
+            if (!array_key_exists('id', $row) && array_key_exists('fieldId', $row)) {
+                $row['id'] = $row['fieldId'];
+                unset($row['fieldId']);
+            }
+            if (!array_key_exists('label', $row) && array_key_exists('name', $row)) {
+                $row['label'] = $row['name'];
+                unset($row['name']);
+            }
+            unset($row['defaultValue']);
             $row = $this->normalizeKeys($row, ['id', 'label'], ['unit' => '', 'min' => null, 'max' => null, 'step' => null], $label . '[' . $index . ']');
             $id = $this->semanticId($row['id'] ?? null, $label . '.id');
             if (isset($ids[$id])) throw new \RuntimeException($label . ' содержит повторный id');
