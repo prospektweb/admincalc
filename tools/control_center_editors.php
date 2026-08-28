@@ -299,14 +299,16 @@ $versionFormPublication = static function (array $preview): array {
         throw new \InvalidArgumentException('Версия не прошла проверку формы и связей. Перейдите к исправлению ошибок.');
     }
     $revision = 1;
-    $snapshot['_form_first'] = [
+    $compiledFormFirst = is_array($snapshot['_form_first'] ?? null)
+        ? $snapshot['_form_first'] : [];
+    $snapshot['_form_first'] = array_merge($compiledFormFirst, [
         'contract' => ControlCenterEditorsService::FORM_FIRST_AUTHORING_CONTRACT,
         'formRevision' => $revision,
         'bindingRevision' => $revision,
         'publishedRevision' => $revision,
         'compileHash' => $compileHash,
         'dependencyFingerprint' => $dependencyFingerprint,
-    ];
+    ]);
     $published = $preview;
     $published['published'] = [
         'revision' => $revision,
@@ -1797,10 +1799,13 @@ try {
             throw new \RuntimeException('Не удалось собрать форму выбранной версии для редактора логики.', 409);
         }
         $publicationRevision = 1;
-        $runtimeSnapshot['_form_first'] = [
+        $runtimeSnapshot['_form_first'] = array_merge(
+            is_array($runtimeSnapshot['_form_first'] ?? null) ? $runtimeSnapshot['_form_first'] : [],
+            [
             'publishedRevision' => $publicationRevision,
             'compileHash' => $compileHash,
-        ];
+            ]
+        );
         $authoring = [
             'formDefinition' => $form['formDefinition'],
             'bindingDefinition' => $form['bindingDefinition'],

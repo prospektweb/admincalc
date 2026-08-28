@@ -111,6 +111,12 @@ $assert(
         && str_contains($publicationSource, '$formPublication[\'runtimePublication\']'),
     'version publication must compile and materialize the selected bundle without the legacy active form authority'
 );
+$assert(
+    str_contains($endpoint, '$compiledFormFirst = is_array($snapshot[\'_form_first\'] ?? null)')
+        && str_contains($endpoint, '$snapshot[\'_form_first\'] = array_merge($compiledFormFirst, [')
+        && str_contains($endpoint, '$runtimeSnapshot[\'_form_first\'] = array_merge('),
+    'activation and logic initialization must preserve compiled form section metadata'
+);
 $versionCreate = strpos($endpoint, "if (\$action === 'version_create')");
 $versionRename = strpos($endpoint, "if (\$action === 'version_rename')", $versionCreate ?: 0);
 $versionCreateSource = $versionCreate !== false && $versionRename !== false
