@@ -504,9 +504,11 @@ $validateStorefrontPresentation = static function (int $presetId, array $definit
     }
     $storeClass = '\\Prospektweb\\Frontcalc\\Service\\FormFirstAuthoringStore';
     $projectorClass = '\\Prospektweb\\Frontcalc\\Service\\StorefrontPresentationProjector';
+    $systemResolverClass = '\\Prospektweb\\Frontcalc\\Service\\SystemFormFieldConfigResolver';
     if (!class_exists($storeClass)
         || !is_callable([$storeClass, 'publishedBundleForPreset'])
-        || !class_exists($projectorClass)) {
+        || !class_exists($projectorClass)
+        || !class_exists($systemResolverClass)) {
         throw new \RuntimeException('Published form storefront validation is unavailable');
     }
     $publishedBundle = $storeClass::publishedBundleForPreset($presetId);
@@ -526,6 +528,9 @@ $validateStorefrontPresentation = static function (int $presetId, array $definit
     // The projector is the runtime authority for unknown fields, absent
     // bindings and required/conditionally-required fields hidden by a patch.
     $projected = (new $projectorClass())->apply($snapshot, $authoring, $definition);
+    // Display-only system fields do not exist in the catalog runtime, so their
+    // effective range/default/deadline choices need a separate fail-closed check.
+    (new $systemResolverClass())->resolve($authoring, $definition);
     // An active storefront may intentionally reuse the base presentation and
     // exist only as an explicit product assignment target.
 };

@@ -174,6 +174,14 @@ namespace Prospektweb\Frontcalc\Service {
             return $snapshot;
         }
     }
+
+    class SystemFormFieldConfigResolver
+    {
+        public function resolve(array $authoring, ?array $storefront = null): array
+        {
+            return [];
+        }
+    }
 }
 
 namespace Prospektweb\Calc\Services {

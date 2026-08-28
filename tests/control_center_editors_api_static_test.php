@@ -405,5 +405,10 @@ $assert(str_contains($autoload, 'CatalogOutputMappingService'), 'output mapping 
 $assert(str_contains($autoload, 'PresetSectionSelectorService'), 'section selector is autoloaded');
 $assert(str_contains($autoload, 'CalculatorCatalogService'), 'calculator catalog authority is autoloaded');
 $assert(str_contains($diagnostic, 'CalculatorCatalogService.php'), 'calculator catalog authority is diagnosed');
+$assert(
+    str_contains($endpoint, 'SystemFormFieldConfigResolver')
+        && str_contains($endpoint, '(new $systemResolverClass())->resolve($authoring, $definition);'),
+    'storefront save must fail closed on conflicting display-only system field limits and choices'
+);
 
 echo "Control center editors API static tests passed\n";
