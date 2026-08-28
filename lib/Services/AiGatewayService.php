@@ -288,6 +288,47 @@ final class AiGatewayService
         ];
     }
 
+    public function generateFormPilot(array $request): array
+    {
+        $this->assertAdmin();
+        $contract = new AiFormPilotProposalService();
+        $cleanRequest = $contract->sanitizeRequest($request);
+        $template = null;
+        foreach ($this->getTemplates() as $candidate) {
+            if ((string)($candidate['zone'] ?? '') === 'logic_stage') {
+                $template = $candidate;
+                break;
+            }
+        }
+        $model = trim((string)($template['model'] ?? '')) ?: self::DEFAULT_MODEL;
+        $startedAt = microtime(true);
+        $response = $this->request('POST', '/chat/completions', [
+            'model' => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => $contract->buildSystemPrompt($cleanRequest)],
+                ['role' => 'user', 'content' => json_encode([
+                    'calculatorName' => $cleanRequest['calculatorName'],
+                    'pilotLevel' => $cleanRequest['level'],
+                    'wishes' => $cleanRequest['wishes'],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
+            ],
+        ]);
+        $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
+        if ($content === '') throw new \RuntimeException('AI Gateway вернул пустой вариант формы');
+        $proposal = $contract->parseProposal($content, $cleanRequest['level']);
+        $usage = is_array($response['usage'] ?? null) ? $response['usage'] : [];
+        return [
+            'status' => 'ok',
+            'proposal' => $proposal,
+            'usage' => [
+                'model' => $model,
+                'inputTokens' => (int)($usage['prompt_tokens'] ?? $usage['input_tokens'] ?? 0),
+                'outputTokens' => (int)($usage['completion_tokens'] ?? $usage['output_tokens'] ?? 0),
+                'latencyMs' => (int)round((microtime(true) - $startedAt) * 1000),
+            ],
+        ];
+    }
+
     public function generateLogicAudit(array $request): array
     {
         $this->assertAdmin();

@@ -44,6 +44,7 @@ foreach ([
     'version_archive',
     'version_restore',
     'version_form_load',
+    'version_form_ai_pilot',
     'version_form_preview',
     'version_input_mapping_validate',
     'version_form_save',

@@ -91,6 +91,7 @@ use Prospektweb\Calc\Services\CalculatorVersionFormDocumentService;
 use Prospektweb\Calc\Services\CalculatorVersionRegistryService;
 use Prospektweb\Calc\Services\CalculatorVersionRuntimePublicationService;
 use Prospektweb\Calc\Services\CalculatorVersionSnapshotSourceService;
+use Prospektweb\Calc\Services\AiGatewayService;
 use Prospektweb\Calc\Services\CatalogOutputMappingService;
 use Prospektweb\Calc\Services\ControlCenterEditorsService;
 use Prospektweb\Calc\Services\PresetSectionSelectorService;
@@ -1326,6 +1327,25 @@ try {
         $respond(200, [
             'success' => true,
             'data' => $versionFormWorkspace($presetId, $versionId, 'load'),
+        ]);
+    }
+
+    if ($action === 'version_form_ai_pilot') {
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId', 'level', 'wishes']);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $versionId = $request['versionId'] ?? null;
+        if (!is_string($versionId)) {
+            throw new \InvalidArgumentException('versionId is required');
+        }
+        $state = $versionState($presetId, $versionId);
+        $assertVersionEditable($state);
+        $respond(200, [
+            'success' => true,
+            'data' => (new AiGatewayService())->generateFormPilot([
+                'level' => $request['level'] ?? null,
+                'wishes' => $request['wishes'] ?? null,
+                'calculatorName' => (string)$state['context']['presetName'],
+            ]),
         ]);
     }
 

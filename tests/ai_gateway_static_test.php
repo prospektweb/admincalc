@@ -47,6 +47,7 @@ $checks = [
     'HTTP error body is surfaced to UI' => strpos($integration, 'await response.text()') !== false
         && strpos($integration, 'data.message || data.error || data.details') !== false,
     'AI service is registered' => strpos($include, 'AiGatewayService') !== false,
+    'AI form pilot contract is registered' => strpos($include, 'AiFormPilotProposalService') !== false,
     'catalog metadata service is registered' => strpos($include, 'CatalogMetaService') !== false,
 ];
 
