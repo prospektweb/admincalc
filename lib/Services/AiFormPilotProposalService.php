@@ -162,16 +162,26 @@ final class AiFormPilotProposalService
                 'fields' => $fields,
             ];
         }
-        foreach ($sections as $section) {
+        $optionAliasesByField = [];
+        foreach ($sections as $section) foreach ($section['fields'] as $field) {
+            $optionAliasesByField[$field['fieldId']] = $field['_optionAliases'] ?? [];
+        }
+        foreach ($sections as &$section) {
+            $section['visibleWhen'] = $this->rewriteConditionValues($section['visibleWhen'], $optionAliasesByField);
             $this->assertConditionReferences($section['visibleWhen'], $fieldIds, 'section ' . $section['id']);
-            foreach ($section['fields'] as $field) {
+            foreach ($section['fields'] as &$field) {
+                $field['visibleWhen'] = $this->rewriteConditionValues($field['visibleWhen'], $optionAliasesByField);
+                $field['requiredWhen'] = $this->rewriteConditionValues($field['requiredWhen'], $optionAliasesByField);
                 $this->assertConditionReferences($field['visibleWhen'], $fieldIds, 'field ' . $field['fieldId']);
                 $this->assertConditionReferences($field['requiredWhen'], $fieldIds, 'field ' . $field['fieldId']);
                 foreach ($field['dependentFieldIds'] as $dependentId) {
                     if (!isset($fieldIds[$dependentId]) || $dependentId === $field['fieldId']) throw new \RuntimeException('AI вернул неверную каскадную связь поля ' . $field['fieldId']);
                 }
+                unset($field['_optionAliases']);
             }
+            unset($field);
         }
+        unset($section);
         $this->assertAcyclicDependencies($sections);
         return ['schema' => self::PROPOSAL_SCHEMA, 'level' => $expectedLevel, 'summary' => $summary, 'assumptions' => $assumptions, 'volumePresets' => $volumePresets, 'volumeDefault' => $volumeDefault, 'sections' => $sections];
     }
@@ -212,14 +222,23 @@ final class AiFormPilotProposalService
         $step = $this->numberOrNull($field['step'] ?? null, $label . '.step');
         if ($min !== null && $max !== null && $min > $max) throw new \RuntimeException($label . ': минимум больше максимума');
         if ($step !== null && $step <= 0) throw new \RuntimeException($label . ': шаг должен быть положительным');
-        $options = $this->validateOptions($field['options'] ?? null, $label . '.options');
+        $optionAliases = [];
+        $options = $this->validateOptions($field['options'] ?? null, $label . '.options', $optionAliases);
         $dimensions = $this->validateDimensions($field['dimensionInputs'] ?? null, $label . '.dimensionInputs');
         $presets = $this->validatePresetValues($field['presetValues'] ?? null, $label . '.presetValues');
         if (($type === 'select') !== ($options !== [])) throw new \RuntimeException($label . ': варианты должны быть только у select и не могут быть пустыми');
         if (($type === 'dimensions' && count($dimensions) < 2) || ($type !== 'dimensions' && $dimensions !== [])) throw new \RuntimeException($label . ': неверные dimensionInputs');
         if ($type !== 'number' && $presets !== []) throw new \RuntimeException($label . ': числовые чипсы допустимы только для number');
         foreach ($presets as $preset) if (($min !== null && $preset['value'] < $min) || ($max !== null && $preset['value'] > $max)) throw new \RuntimeException($label . ': числовая чипса вне диапазона');
-        $defaultValue = $this->validateDefaultValue($field['defaultValue'] ?? null, $type, (bool)$field['multiple'], $options, $dimensions, $min, $max, $label . '.defaultValue');
+        $rawDefaultValue = $field['defaultValue'] ?? null;
+        if ($type === 'select') {
+            if ((bool)$field['multiple'] && is_array($rawDefaultValue)) {
+                $rawDefaultValue = array_map(static fn($item) => is_string($item) && isset($optionAliases[$item]) ? $optionAliases[$item] : $item, $rawDefaultValue);
+            } elseif (is_string($rawDefaultValue) && isset($optionAliases[$rawDefaultValue])) {
+                $rawDefaultValue = $optionAliases[$rawDefaultValue];
+            }
+        }
+        $defaultValue = $this->validateDefaultValue($rawDefaultValue, $type, (bool)$field['multiple'], $options, $dimensions, $min, $max, $label . '.defaultValue');
         $dependents = $field['dependentFieldIds'] ?? null;
         if (!is_array($dependents) || count($dependents) > 30) throw new \RuntimeException($label . ': неверные dependentFieldIds');
         $cleanDependents = [];
@@ -243,6 +262,7 @@ final class AiFormPilotProposalService
             'options' => $options,
             'dimensionInputs' => $dimensions,
             'presetValues' => $presets,
+            '_optionAliases' => $optionAliases,
         ];
     }
 
@@ -274,16 +294,19 @@ final class AiFormPilotProposalService
         return ['mode' => (string)$value['mode'], 'conditions' => $conditions];
     }
 
-    private function validateOptions($value, string $label): array
+    private function validateOptions($value, string $label, array &$aliases = []): array
     {
         if (!is_array($value) || count($value) > 100) throw new \RuntimeException($label . ' должен быть массивом');
         $result = []; $ids = [];
         foreach ($value as $index => $row) {
             if (!is_array($row)) throw new \RuntimeException($label . ' содержит не объект');
             $row = $this->normalizeKeys($row, ['id', 'label'], ['help' => ''], $label . '[' . $index . ']');
-            $id = $this->semanticId($row['id'] ?? null, $label . '[' . $index . '].id');
+            $rawId = trim((string)($row['id'] ?? ''));
+            if ($rawId === '') throw new \RuntimeException($label . '[' . $index . '].id не заполнен');
+            $id = $this->canonicalSemanticId($rawId, (string)($row['label'] ?? ''), 'option', $ids);
             if (isset($ids[$id])) throw new \RuntimeException($label . ' содержит повторный id');
             $ids[$id] = true;
+            $aliases[$rawId] = $id;
             $result[] = ['id' => $id, 'label' => $this->text($row['label'] ?? '', $label . '.label', 200, true), 'help' => $this->text($row['help'] ?? '', $label . '.help', 1000)];
         }
         return $result;
@@ -308,7 +331,9 @@ final class AiFormPilotProposalService
             }
             unset($row['defaultValue']);
             $row = $this->normalizeKeys($row, ['id', 'label'], ['unit' => '', 'min' => null, 'max' => null, 'step' => null], $label . '[' . $index . ']');
-            $id = $this->semanticId($row['id'] ?? null, $label . '.id');
+            $rawId = trim((string)($row['id'] ?? ''));
+            if ($rawId === '') throw new \RuntimeException($label . '.id не заполнен');
+            $id = $this->canonicalSemanticId($rawId, (string)($row['label'] ?? ''), 'dimension', $ids);
             if (isset($ids[$id])) throw new \RuntimeException($label . ' содержит повторный id');
             $ids[$id] = true;
             $result[] = ['id' => $id, 'label' => $this->text($row['label'] ?? '', $label . '.label', 100, true), 'unit' => $this->text($row['unit'] ?? '', $label . '.unit', 30), 'min' => $this->numberOrNull($row['min'] ?? null, $label . '.min'), 'max' => $this->numberOrNull($row['max'] ?? null, $label . '.max'), 'step' => $this->numberOrNull($row['step'] ?? null, $label . '.step')];
@@ -324,7 +349,9 @@ final class AiFormPilotProposalService
             if (!is_array($row)) throw new \RuntimeException($label . ' содержит не объект');
             $defaultLabel = is_int($row['value'] ?? null) || is_float($row['value'] ?? null) ? (string)$row['value'] : '';
             $row = $this->normalizeKeys($row, ['id', 'value'], ['label' => $defaultLabel], $label . '[' . $index . ']');
-            $id = $this->semanticId($row['id'] ?? null, $label . '.id');
+            $rawId = trim((string)($row['id'] ?? ''));
+            if ($rawId === '') throw new \RuntimeException($label . '.id не заполнен');
+            $id = $this->canonicalSemanticId($rawId, (string)($row['label'] ?? ''), 'preset', $ids);
             if (isset($ids[$id]) || !is_int($row['value'] ?? null) && !is_float($row['value'] ?? null)) throw new \RuntimeException($label . ' содержит неверную чипсу');
             $ids[$id] = true;
             $result[] = ['id' => $id, 'label' => $this->text($row['label'] ?? '', $label . '.label', 100, true), 'value' => (float)$row['value']];
@@ -382,6 +409,35 @@ final class AiFormPilotProposalService
             unset($visiting[$id]); $visited[$id] = true;
         };
         foreach (array_keys($graph) as $id) $walk($id);
+    }
+
+    private function rewriteConditionValues(?array $group, array $optionAliasesByField): ?array
+    {
+        if ($group === null) return null;
+        foreach ($group['conditions'] as &$condition) {
+            $aliases = $optionAliasesByField[$condition['fieldId']] ?? [];
+            if ($aliases !== []) {
+                $condition['values'] = array_map(static fn($value) => is_string($value) && isset($aliases[$value]) ? $aliases[$value] : $value, $condition['values']);
+            }
+        }
+        unset($condition);
+        return $group;
+    }
+
+    private function canonicalSemanticId(string $rawId, string $label, string $prefix, array $used): string
+    {
+        if (preg_match('/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/', $rawId)
+            && !preg_match('/(?:^|[._-])(?:__proto__|prototype|constructor)(?:$|[._-])/', $rawId)) {
+            return $rawId;
+        }
+        $ascii = strtolower((string)preg_replace('/[^a-z0-9]+/', '-', strtolower($rawId)));
+        $ascii = trim($ascii, '-');
+        if ($ascii === '' || !preg_match('/^[a-z]/', $ascii)) $ascii = $prefix . ($ascii !== '' ? '-' . $ascii : '');
+        $ascii = substr($ascii, 0, 80);
+        if ($ascii === $prefix || isset($used[$ascii])) {
+            $ascii = substr($ascii, 0, 80) . '-' . substr(hash('sha256', $rawId . '|' . $label), 0, 12);
+        }
+        return $this->semanticId($ascii, $prefix . '.id');
     }
 
     private function assertExactKeys(array $value, array $allowed, string $label): void

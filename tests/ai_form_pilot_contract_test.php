@@ -23,15 +23,15 @@ function aiFormPilotProposal(): array
     };
     $method = $field('print-method', 'select');
     $method['required'] = true;
-    $method['defaultValue'] = 'digital';
+    $method['defaultValue'] = '4+0';
     $method['options'] = [
-        ['id' => 'digital', 'label' => 'Цифровая печать', 'help' => ''],
+        ['id' => '4+0', 'label' => 'Полноцветная односторонняя печать', 'help' => ''],
         ['id' => 'offset', 'label' => 'Офсетная печать', 'help' => ''],
     ];
     $method['dependentFieldIds'] = ['ink-coverage'];
     $coverage = $field('ink-coverage', 'number');
     $coverage['unit'] = '%'; $coverage['min'] = 0; $coverage['max'] = 100; $coverage['step'] = 1; $coverage['defaultValue'] = 20;
-$coverage['visibleWhen'] = ['fieldId' => 'print-method', 'operator' => 'equals', 'value' => 'digital'];
+$coverage['visibleWhen'] = ['fieldId' => 'print-method', 'operator' => 'equals', 'value' => '4+0'];
     $coverage['presetValues'] = [['id' => 'coverage-20', 'label' => '20%', 'value' => 20]];
     return [
         'schema' => AiFormPilotProposalService::PROPOSAL_SCHEMA,
@@ -56,6 +56,11 @@ foreach (['без связи с Bitrix', 'dependentFieldIds', 'процент з
 }
 $parsed = $service->validateProposal(aiFormPilotProposal(), 'professional');
 if ($parsed['volumePresets'] !== [10, 100, 500, 1000]) aiFormPilotFail('volumes were not normalized');
+if (($parsed['sections'][0]['fields'][0]['options'][0]['id'] ?? null) !== 'option-4-0'
+    || ($parsed['sections'][0]['fields'][0]['defaultValue'] ?? null) !== 'option-4-0'
+    || ($parsed['sections'][0]['fields'][1]['visibleWhen']['conditions'][0]['values'][0] ?? null) !== 'option-4-0') {
+    aiFormPilotFail('option id aliases were not propagated to defaults and conditions');
+}
 
 $withOmittedOptionalKeys = aiFormPilotProposal();
 $withOmittedOptionalKeys['sections'][0]['fields'][] = [
