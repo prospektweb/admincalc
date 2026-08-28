@@ -57,6 +57,22 @@ foreach (['без связи с Bitrix', 'dependentFieldIds', 'процент з
 $parsed = $service->validateProposal(aiFormPilotProposal(), 'professional');
 if ($parsed['volumePresets'] !== [10, 100, 500, 1000]) aiFormPilotFail('volumes were not normalized');
 
+$withOmittedOptionalKeys = aiFormPilotProposal();
+$withOmittedOptionalKeys['sections'][0]['fields'][] = [
+    'fieldId' => 'custom-size',
+    'type' => 'dimensions',
+    'label' => 'Произвольный размер',
+    'dimensionInputs' => [
+        ['id' => 'width', 'label' => 'Ширина'],
+        ['id' => 'height', 'label' => 'Высота', 'unit' => 'мм'],
+    ],
+];
+$normalizedOptional = $service->validateProposal($withOmittedOptionalKeys, 'professional');
+$sizeField = $normalizedOptional['sections'][0]['fields'][2] ?? null;
+if (($sizeField['publicVisible'] ?? null) !== true || ($sizeField['dimensionInputs'][0]['unit'] ?? null) !== '') {
+    aiFormPilotFail('omitted optional model keys were not normalized safely');
+}
+
 $unknown = aiFormPilotProposal();
 $unknown['bitrixPropertyId'] = 42;
 try {

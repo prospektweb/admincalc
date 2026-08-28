@@ -123,7 +123,12 @@ final class AiFormPilotProposalService
         $fieldIds = [];
         foreach ($rawSections as $sectionIndex => $section) {
             if (!is_array($section)) throw new \RuntimeException('AI вернул некорректный раздел');
-            $this->assertExactKeys($section, ['id', 'title', 'description', 'displayMode', 'initiallyOpen', 'showTitle', 'visibleWhen', 'fields'], 'sections[' . $sectionIndex . ']');
+            $section = $this->normalizeKeys(
+                $section,
+                ['id', 'title', 'fields'],
+                ['description' => '', 'displayMode' => 'block', 'initiallyOpen' => true, 'showTitle' => true, 'visibleWhen' => null],
+                'sections[' . $sectionIndex . ']'
+            );
             $sectionId = $this->semanticId($section['id'] ?? null, 'sections[' . $sectionIndex . '].id');
             if ($sectionId === 'system' || isset($sectionIds[$sectionId])) throw new \RuntimeException('AI вернул повторный или системный код раздела');
             $sectionIds[$sectionId] = true;
@@ -166,8 +171,28 @@ final class AiFormPilotProposalService
     private function validateField($field, string $label): array
     {
         if (!is_array($field)) throw new \RuntimeException($label . ' не является объектом');
-        $keys = ['fieldId', 'type', 'multiple', 'label', 'help', 'publicVisible', 'unit', 'min', 'max', 'step', 'required', 'defaultValue', 'visibleWhen', 'requiredWhen', 'dependentFieldIds', 'options', 'dimensionInputs', 'presetValues'];
-        $this->assertExactKeys($field, $keys, $label);
+        $field = $this->normalizeKeys(
+            $field,
+            ['fieldId', 'type', 'label'],
+            [
+                'multiple' => false,
+                'help' => '',
+                'publicVisible' => true,
+                'unit' => null,
+                'min' => null,
+                'max' => null,
+                'step' => null,
+                'required' => false,
+                'defaultValue' => null,
+                'visibleWhen' => null,
+                'requiredWhen' => null,
+                'dependentFieldIds' => [],
+                'options' => [],
+                'dimensionInputs' => [],
+                'presetValues' => [],
+            ],
+            $label
+        );
         $fieldId = $this->semanticId($field['fieldId'] ?? null, $label . '.fieldId');
         $type = (string)($field['type'] ?? '');
         if (!in_array($type, self::FIELD_TYPES, true) || !is_bool($field['multiple'] ?? null) || ($type !== 'select' && $field['multiple'])) throw new \RuntimeException($label . ': неверный тип или multiple');
@@ -217,12 +242,12 @@ final class AiFormPilotProposalService
     {
         if ($value === null) return null;
         if (!is_array($value)) throw new \RuntimeException($label . ' должен быть объектом или null');
-        $this->assertExactKeys($value, ['mode', 'conditions'], $label);
+        $value = $this->normalizeKeys($value, ['conditions'], ['mode' => 'all'], $label);
         if (!in_array($value['mode'] ?? null, ['all', 'any'], true) || !is_array($value['conditions'] ?? null) || count($value['conditions']) > 12) throw new \RuntimeException($label . ' содержит неверную группу');
         $conditions = [];
         foreach ($value['conditions'] as $index => $condition) {
             if (!is_array($condition)) throw new \RuntimeException($label . '.conditions содержит не объект');
-            $this->assertExactKeys($condition, ['fieldId', 'operator', 'values'], $label . '.conditions[' . $index . ']');
+            $condition = $this->normalizeKeys($condition, ['fieldId', 'operator'], ['values' => []], $label . '.conditions[' . $index . ']');
             $operator = (string)($condition['operator'] ?? '');
             if (!in_array($operator, self::OPERATORS, true) || !is_array($condition['values'] ?? null) || count($condition['values']) > 50) throw new \RuntimeException($label . ' содержит неверный оператор или значения');
             $values = [];
@@ -238,7 +263,7 @@ final class AiFormPilotProposalService
         $result = []; $ids = [];
         foreach ($value as $index => $row) {
             if (!is_array($row)) throw new \RuntimeException($label . ' содержит не объект');
-            $this->assertExactKeys($row, ['id', 'label', 'help'], $label . '[' . $index . ']');
+            $row = $this->normalizeKeys($row, ['id', 'label'], ['help' => ''], $label . '[' . $index . ']');
             $id = $this->semanticId($row['id'] ?? null, $label . '[' . $index . '].id');
             if (isset($ids[$id])) throw new \RuntimeException($label . ' содержит повторный id');
             $ids[$id] = true;
@@ -253,7 +278,7 @@ final class AiFormPilotProposalService
         $result = []; $ids = [];
         foreach ($value as $index => $row) {
             if (!is_array($row)) throw new \RuntimeException($label . ' содержит не объект');
-            $this->assertExactKeys($row, ['id', 'label', 'unit', 'min', 'max', 'step'], $label . '[' . $index . ']');
+            $row = $this->normalizeKeys($row, ['id', 'label'], ['unit' => '', 'min' => null, 'max' => null, 'step' => null], $label . '[' . $index . ']');
             $id = $this->semanticId($row['id'] ?? null, $label . '.id');
             if (isset($ids[$id])) throw new \RuntimeException($label . ' содержит повторный id');
             $ids[$id] = true;
@@ -268,7 +293,8 @@ final class AiFormPilotProposalService
         $result = []; $ids = [];
         foreach ($value as $index => $row) {
             if (!is_array($row)) throw new \RuntimeException($label . ' содержит не объект');
-            $this->assertExactKeys($row, ['id', 'label', 'value'], $label . '[' . $index . ']');
+            $defaultLabel = is_int($row['value'] ?? null) || is_float($row['value'] ?? null) ? (string)$row['value'] : '';
+            $row = $this->normalizeKeys($row, ['id', 'value'], ['label' => $defaultLabel], $label . '[' . $index . ']');
             $id = $this->semanticId($row['id'] ?? null, $label . '.id');
             if (isset($ids[$id]) || !is_int($row['value'] ?? null) && !is_float($row['value'] ?? null)) throw new \RuntimeException($label . ' содержит неверную чипсу');
             $ids[$id] = true;
@@ -334,6 +360,17 @@ final class AiFormPilotProposalService
         $keys = array_keys($value);
         sort($keys); $expected = $allowed; sort($expected);
         if ($keys !== $expected) throw new \RuntimeException($label . ' содержит неизвестные или отсутствующие поля');
+    }
+
+    private function normalizeKeys(array $value, array $required, array $defaults, string $label): array
+    {
+        $allowed = array_values(array_unique(array_merge($required, array_keys($defaults))));
+        $unknown = array_diff(array_keys($value), $allowed);
+        $missing = array_diff($required, array_keys($value));
+        if ($unknown !== [] || $missing !== []) {
+            throw new \RuntimeException($label . ' содержит неизвестные или отсутствующие обязательные поля');
+        }
+        return array_replace($defaults, $value);
     }
 
     private function semanticId($value, string $label): string
