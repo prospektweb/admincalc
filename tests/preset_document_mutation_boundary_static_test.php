@@ -128,8 +128,10 @@ $assert(
 $assert(
     str_contains($mutationAuthority, 'BitrixTransactionStateAuthority::isActive($connection)')
         && str_contains($lifecycle, "public const VERSION_WORKING_CODE_PREFIX = 'prospektweb-version-work-'")
+        && str_contains($lifecycle, 'deleteVersionWorkingGraphIfOwned(')
+        && str_contains($lifecycle, 'discoverVersionWorkingPresetIdsLocked(')
         && str_contains($lifecycle, 'deleteVersionWorkingPreset('),
-    'version working graphs must join the outer transaction and have guarded lifecycle cleanup'
+    'version working graphs must join the outer transaction and have exact-marker guarded lifecycle cleanup'
 );
 $assert(
     str_contains($editors, "'!%CODE' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX")

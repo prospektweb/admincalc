@@ -207,6 +207,30 @@ $legacySaved = $service->saveDraft(
 );
 $assert(!array_key_exists('base_public', $legacySaved['document']), 'legacy storefront document without base_public must remain writable');
 
+$aggregateBaseline = $bundles->load($presetId, $versionId);
+$aggregateStorefronts = $aggregateBaseline['documents']['storefronts'];
+$aggregateStorefronts['items'][] = ['id' => 'sf-a', 'active' => true, 'product_ids' => []];
+$aggregateAssignments = $aggregateBaseline['documents']['productAssignments'];
+$aggregateAssignments['assignments'] = [['productId' => 77, 'storefrontId' => 'sf-a']];
+$aggregateSaved = $service->saveStorefrontAggregate(
+    $presetId,
+    $versionId,
+    $aggregateBaseline['contentHash'],
+    $aggregateBaseline['componentHashes']['storefronts'],
+    $aggregateBaseline['componentHashes']['productAssignments'],
+    $aggregateStorefronts,
+    $aggregateAssignments
+);
+$aggregateReadback = $bundles->load($presetId, $versionId);
+$assert(
+    ($aggregateSaved['contract'] ?? '') === 'prospektweb.calc.storefront-aggregate/v1'
+        && ($aggregateReadback['documents']['storefronts']['items'][1]['id'] ?? '') === 'sf-a'
+        && ($aggregateReadback['documents']['productAssignments']['assignments'][0]['productId'] ?? 0) === 77
+        && ($aggregateReadback['documents']['productAssignments']['assignments'][0]['storefrontId'] ?? '') === 'sf-a',
+    'storefronts and product assignments must commit in one aggregate bundle mutation'
+);
+$legacySaved = $service->load($presetId, $versionId, 'storefronts');
+
 $invalidRejected = false;
 try {
     $service->saveDraft(

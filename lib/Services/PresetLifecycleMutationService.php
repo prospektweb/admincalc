@@ -449,6 +449,98 @@ final class PresetLifecycleMutationService
         });
     }
 
+    /**
+     * Delete the physical graph only when the version logic metadata and the
+     * exact technical marker agree. A version which has no exact marker is a
+     * legitimate blank/no-longer-materialized workspace and needs no graph
+     * mutation. Conversely, an exact marker without matching logic metadata is
+     * an owned orphan candidate and must stop document deletion fail-closed.
+     *
+     * @return array<string,mixed>
+     */
+    public function deleteVersionWorkingGraphIfOwned(
+        int $calculatorPresetId,
+        string $versionId,
+        int $declaredWorkingPresetId,
+        string $declaredWorkingVersionId
+    ): array {
+        $this->assertPresetId($calculatorPresetId);
+        $this->assertVersionId($versionId);
+
+        return $this->withGlobalAuthority(function (array $pinnedIblockIds) use (
+            $calculatorPresetId,
+            $versionId,
+            $declaredWorkingPresetId,
+            $declaredWorkingVersionId
+        ): array {
+            $markerPresetIds = $this->discoverVersionWorkingPresetIdsLocked(
+                $calculatorPresetId,
+                $versionId,
+                $pinnedIblockIds
+            );
+            if ($markerPresetIds === []) {
+                return [
+                    'contract' => self::CONTRACT,
+                    'calculatorPresetId' => $calculatorPresetId,
+                    'versionId' => $versionId,
+                    'workingPresetId' => null,
+                    'deleted' => false,
+                ];
+            }
+
+            $metadataMatches = $declaredWorkingPresetId > 0
+                && $declaredWorkingPresetId !== $calculatorPresetId
+                && hash_equals($versionId, $declaredWorkingVersionId);
+            if (!$metadataMatches || $markerPresetIds !== [$declaredWorkingPresetId]) {
+                throw new \RuntimeException(
+                    'Рабочий граф версии найден по техническому маркеру, но metadata logic не подтверждает его точное владение.',
+                    409
+                );
+            }
+
+            $this->deleteVersionWorkingPreset(
+                $declaredWorkingPresetId,
+                $calculatorPresetId,
+                $versionId
+            );
+            if ($this->discoverVersionWorkingPresetIdsLocked(
+                $calculatorPresetId,
+                $versionId,
+                $pinnedIblockIds
+            ) !== []) {
+                throw new \RuntimeException(
+                    'Не удалось подтвердить удаление рабочего графа версии по техническому маркеру.',
+                    409
+                );
+            }
+
+            return [
+                'contract' => self::CONTRACT,
+                'calculatorPresetId' => $calculatorPresetId,
+                'versionId' => $versionId,
+                'workingPresetId' => $declaredWorkingPresetId,
+                'deleted' => true,
+            ];
+        });
+    }
+
+    /** @return int[] */
+    public function discoverVersionWorkingPresetIds(int $calculatorPresetId, string $versionId): array
+    {
+        $this->assertPresetId($calculatorPresetId);
+        $this->assertVersionId($versionId);
+        return $this->withGlobalAuthority(function (array $pinnedIblockIds) use (
+            $calculatorPresetId,
+            $versionId
+        ): array {
+            return $this->discoverVersionWorkingPresetIdsLocked(
+                $calculatorPresetId,
+                $versionId,
+                $pinnedIblockIds
+            );
+        });
+    }
+
     /** @return array<string,mixed> */
     public function deleteVersionWorkingPreset(
         int $workingPresetId,
@@ -468,11 +560,23 @@ final class PresetLifecycleMutationService
         ): array {
             $identity = $this->loadWorkingIdentity($workingPresetId, $pinnedIblockIds);
             $this->assertWorkingIdentity($identity, $calculatorPresetId, $versionId);
+            if ($this->discoverVersionWorkingPresetIdsLocked(
+                $calculatorPresetId,
+                $versionId,
+                $pinnedIblockIds
+            ) !== [$workingPresetId]) {
+                throw new \RuntimeException(
+                    'Точное владение рабочим графом версии не подтверждено техническим маркером.',
+                    409
+                );
+            }
             $graph = $authority->assertLockedPresetGraphDeletable($workingPresetId);
             $dependencies = $this->loadDeletionDependencies($workingPresetId, $pinnedIblockIds);
+            // Products and live storefront records are external contamination and
+            // must stop the cascade. Globals discovered below belong to this
+            // locked version graph and are deleted transactionally with it.
             if ($dependencies['productIds'] !== []
-                || $dependencies['storefronts'] !== []
-                || $dependencies['globalIds'] !== []) {
+                || $dependencies['storefronts'] !== []) {
                 throw new \RuntimeException('Рабочий граф версии получил внешние связи; автоматическое удаление остановлено.', 409);
             }
             $deleted = isset($this->adapters['delete_locked'])
@@ -493,6 +597,16 @@ final class PresetLifecycleMutationService
                 );
             if (!is_array($deleted)) {
                 throw new \RuntimeException('Удаление рабочего графа не подтверждено.', 409);
+            }
+            if ($this->discoverVersionWorkingPresetIdsLocked(
+                $calculatorPresetId,
+                $versionId,
+                $pinnedIblockIds
+            ) !== []) {
+                throw new \RuntimeException(
+                    'Удалённый рабочий граф версии остаётся доступен по техническому маркеру.',
+                    409
+                );
             }
             $this->writeAudit([
                 'contract' => self::CONTRACT,
@@ -959,6 +1073,70 @@ final class PresetLifecycleMutationService
             'code' => (string)($row['code'] ?? $row['CODE'] ?? ''),
             'active' => (string)($row['active'] ?? $row['ACTIVE'] ?? ''),
         ];
+    }
+
+    /** @param array<string,int> $pinnedIblockIds @return int[] */
+    private function discoverVersionWorkingPresetIdsLocked(
+        int $calculatorPresetId,
+        string $versionId,
+        array $pinnedIblockIds
+    ): array {
+        $presetIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
+        if ($presetIblockId <= 0) {
+            throw new \RuntimeException('Pinned working-preset authority is incomplete.', 409);
+        }
+        $prefix = self::workingCodePrefix($calculatorPresetId, $versionId);
+        if (isset($this->adapters['version_working_marker_rows'])) {
+            $rows = call_user_func(
+                $this->adapters['version_working_marker_rows'],
+                $calculatorPresetId,
+                $versionId,
+                $pinnedIblockIds
+            );
+            if (!is_array($rows) || !array_is_list($rows)) {
+                throw new \RuntimeException('Version working-marker discovery returned an invalid list.', 409);
+            }
+        } else {
+            $cursor = \CIBlockElement::GetList(
+                ['ID' => 'ASC'],
+                [
+                    'IBLOCK_ID' => $presetIblockId,
+                    'ACTIVE' => 'N',
+                    '%CODE' => $prefix,
+                ],
+                false,
+                false,
+                ['ID', 'IBLOCK_ID', 'CODE', 'ACTIVE']
+            );
+            $rows = [];
+            while (is_array($row = $cursor->Fetch())) {
+                $rows[] = $row;
+            }
+        }
+        if (count($rows) > 100) {
+            throw new \RuntimeException('Version working-marker discovery exceeded the safe limit.', 409);
+        }
+
+        $presetIds = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                throw new \RuntimeException('Version working-marker discovery contains an invalid row.', 409);
+            }
+            $presetId = (int)($row['id'] ?? $row['ID'] ?? 0);
+            $code = (string)($row['code'] ?? $row['CODE'] ?? '');
+            $active = (string)($row['active'] ?? $row['ACTIVE'] ?? '');
+            $exactMarker = $presetId > 0
+                && (hash_equals($prefix . $presetId, $code) || hash_equals($prefix . 'graph', $code));
+            if (!$exactMarker || $active !== 'N') {
+                continue;
+            }
+            if (isset($presetIds[$presetId])) {
+                throw new \RuntimeException('Version working-marker discovery contains a duplicate preset.', 409);
+            }
+            $presetIds[$presetId] = $presetId;
+        }
+        ksort($presetIds, SORT_NUMERIC);
+        return array_values($presetIds);
     }
 
     /** @param array<string,int> $pinnedIblockIds */

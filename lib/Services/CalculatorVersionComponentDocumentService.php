@@ -85,6 +85,53 @@ final class CalculatorVersionComponentDocumentService
         return $this->response($saved, $component);
     }
 
+    /**
+     * Storefront presentation and product assignments are one aggregate and
+     * must never be persisted through two independently visible bundle states.
+     *
+     * @param array<string,mixed> $storefronts
+     * @param array<string,mixed> $productAssignments
+     * @return array<string,mixed>
+     */
+    public function saveStorefrontAggregate(
+        int $presetId,
+        string $versionId,
+        string $expectedContentHash,
+        string $expectedStorefrontHash,
+        string $expectedProductAssignmentsHash,
+        array $storefronts,
+        array $productAssignments
+    ): array {
+        foreach ([$expectedContentHash, $expectedStorefrontHash, $expectedProductAssignmentsHash] as $hash) {
+            $this->assertSha256($hash, 'aggregate expected hash');
+        }
+        $bundle = $this->bundles->load($presetId, $versionId);
+        if ($bundle === null) {
+            throw new \RuntimeException('Полный снимок выбранной версии отсутствует.', 409);
+        }
+        if (!hash_equals((string)$bundle['contentHash'], $expectedContentHash)
+            || !hash_equals((string)$bundle['componentHashes']['storefronts'], $expectedStorefrontHash)
+            || !hash_equals((string)$bundle['componentHashes']['productAssignments'], $expectedProductAssignmentsHash)) {
+            throw new \RuntimeException('Витрины или их товары изменены в другой вкладке. Обновите список.', 409);
+        }
+        $prospective = $bundle['documents'];
+        $prospective['storefronts'] = $storefronts;
+        $prospective['productAssignments'] = $productAssignments;
+        $this->assertDocument($presetId, 'storefronts', $storefronts, $prospective);
+        $this->assertDocument($presetId, 'productAssignments', $productAssignments, $prospective);
+        $saved = $this->bundles->save($presetId, $versionId, $prospective);
+        return [
+            'contract' => 'prospektweb.calc.storefront-aggregate/v1',
+            'presetId' => $presetId,
+            'versionId' => $versionId,
+            'contentHash' => (string)$saved['contentHash'],
+            'componentHashes' => [
+                'storefronts' => (string)$saved['componentHashes']['storefronts'],
+                'productAssignments' => (string)$saved['componentHashes']['productAssignments'],
+            ],
+        ];
+    }
+
     /** @param array<string,mixed> $document @return array<string,mixed> */
     public function validateInputMappings(
         int $presetId,

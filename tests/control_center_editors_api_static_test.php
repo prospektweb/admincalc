@@ -163,9 +163,17 @@ $assert(
 );
 $assert(
     str_contains($endpoint, "'delete_version_documents' => static function")
-        && str_contains($endpoint, '->deleteVersionWorkingPreset(')
-        && str_contains($endpoint, 'hash_equals($versionId, $workingVersionId)'),
-    'version deletion must cascade only into the exact working graph owned by that version'
+        && str_contains($endpoint, '->deleteVersionWorkingGraphIfOwned(')
+        && str_contains($endpoint, '$workingPresetId,')
+        && str_contains($endpoint, '$workingVersionId'),
+    'version deletion must discover an exact owned marker before cascading and preserve blank versions'
+);
+$assert(
+    str_contains($endpoint, "if (\$action === 'version_storefront_aggregate_save')")
+        && str_contains($endpoint, '->saveStorefrontAggregate(')
+        && str_contains($endpoint, "'expectedStorefrontHash'")
+        && str_contains($endpoint, "'expectedProductAssignmentsHash'"),
+    'storefront and product assignment edits must use one aggregate CAS mutation'
 );
 $assert(
     substr_count($endpoint, "if (!is_array(\$documents['publicationMetadata'] ?? null))") === 2

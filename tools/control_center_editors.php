@@ -182,15 +182,12 @@ $versionRegistry = new CalculatorVersionRegistryService([
             : [];
         $workingPresetId = (int)($logic['workingPresetId'] ?? 0);
         $workingVersionId = (string)($logic['workingVersionId'] ?? '');
-        if ($workingPresetId > 0
-            && $workingPresetId !== $presetId
-            && hash_equals($versionId, $workingVersionId)) {
-            (new PresetLifecycleMutationService())->deleteVersionWorkingPreset(
-                $workingPresetId,
-                $presetId,
-                $versionId
-            );
-        }
+        (new PresetLifecycleMutationService())->deleteVersionWorkingGraphIfOwned(
+            $presetId,
+            $versionId,
+            $workingPresetId,
+            $workingVersionId
+        );
         $versionForms->delete($presetId, $versionId);
         $versionBundles->delete($presetId, $versionId);
     },
@@ -1442,6 +1439,56 @@ try {
             'success' => true,
             'data' => $validation,
         ]);
+    }
+
+    if ($action === 'version_storefront_aggregate_save') {
+        $assertAllowedRequestKeys([
+            'action', 'sessid', 'presetId', 'versionId', 'expectedContentHash',
+            'expectedStorefrontHash', 'expectedProductAssignmentsHash',
+            'storefronts', 'productAssignments',
+        ]);
+        $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
+        $versionId = $request['versionId'] ?? null;
+        $expectedContentHash = $request['expectedContentHash'] ?? null;
+        $expectedStorefrontHash = $request['expectedStorefrontHash'] ?? null;
+        $expectedProductAssignmentsHash = $request['expectedProductAssignmentsHash'] ?? null;
+        $storefronts = $request['storefronts'] ?? null;
+        $productAssignments = $request['productAssignments'] ?? null;
+        if (!is_string($versionId) || !is_string($expectedContentHash)
+            || !is_string($expectedStorefrontHash) || !is_string($expectedProductAssignmentsHash)
+            || !is_array($storefronts) || !is_array($productAssignments)) {
+            throw new \InvalidArgumentException('Storefront aggregate save request is incomplete');
+        }
+        $savedAggregate = $versionRegistry->coordinateVersionMutation(
+            $presetId,
+            static function () use (
+                $presetId, $versionId, $expectedContentHash, $expectedStorefrontHash,
+                $expectedProductAssignmentsHash, $storefronts, $productAssignments,
+                $versionState, $assertVersionEditable, $versionRuntimePublications,
+                $ensureVersionBundle, $versionComponents
+            ): array {
+                $state = $versionState($presetId, $versionId);
+                $assertVersionEditable($state);
+                $versionRuntimePublications->freezeLegacyActiveForEditing($presetId, $versionId);
+                $ensureVersionBundle(
+                    $presetId,
+                    $versionId,
+                    is_string($state['row']['basedOnVersionId'] ?? null) ? $state['row']['basedOnVersionId'] : null,
+                    $state['context']['legacy'],
+                    true
+                );
+                return $versionComponents->saveStorefrontAggregate(
+                    $presetId,
+                    $versionId,
+                    $expectedContentHash,
+                    $expectedStorefrontHash,
+                    $expectedProductAssignmentsHash,
+                    $storefronts,
+                    $productAssignments
+                );
+            }
+        );
+        $respond(200, ['success' => true, 'data' => $savedAggregate]);
     }
 
     if ($action === 'version_component_save' || $action === 'version_component_save_draft') {

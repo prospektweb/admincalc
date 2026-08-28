@@ -191,6 +191,7 @@ $assert($createFailed && $created === [], 'create audit failure leaves no preset
 $workingVersionId = 'v_' . str_repeat('a', 20);
 $workingRows = [];
 $workingDeleted = false;
+$workingDeletedDependencies = null;
 $workingAuthority = new PresetLifecycleFakeAuthority([
     52 => [
         'presetId' => 52,
@@ -229,17 +230,28 @@ $workingService = new PresetLifecycleMutationService([
     'working_identity_loader' => static function (int $presetId) use (&$workingRows): array {
         return $workingRows[$presetId] ?? [];
     },
+    'version_working_marker_rows' => static function () use (&$workingRows): array {
+        return array_values($workingRows);
+    },
     'deletion_dependencies' => static fn(): array => [
         'productIblockId' => 20,
         'productPropertyId' => 21,
         'productIds' => [],
         'storefronts' => [],
-        'globalIds' => [],
+        'globalIds' => [401],
         'optionRows' => [],
         'versionCount' => 0,
     ],
-    'delete_locked' => static function () use (&$workingDeleted): array {
+    'delete_locked' => static function (
+        int $presetId,
+        array $_pinnedIblockIds,
+        array $dependencies,
+        array $_graph,
+        $_authority
+    ) use (&$workingRows, &$workingDeleted, &$workingDeletedDependencies): array {
         $workingDeleted = true;
+        $workingDeletedDependencies = $dependencies;
+        unset($workingRows[$presetId]);
         return ['deleted' => true];
     },
     'audit' => static fn(): int => 1,
@@ -270,6 +282,13 @@ $workingRows[54] = [
     'code' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX . '42-v-' . str_repeat('b', 20) . '-54',
     'active' => 'N',
 ];
+$workingRows[56] = [
+    'id' => 56,
+    'name' => 'Marker prefix lookalike',
+    'code' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX
+        . '41-v-' . str_repeat('a', 20) . '-56-shadow',
+    'active' => 'N',
+];
 $foreignMarkerRejected = false;
 try {
     $workingService->markVersionWorkingPreset(54, 41, $workingVersionId);
@@ -277,8 +296,19 @@ try {
     $foreignMarkerRejected = str_contains($error->getMessage(), 'другой версии');
 }
 $assert($foreignMarkerRejected, 'an existing foreign technical marker cannot be reassigned');
-$workingService->deleteVersionWorkingPreset(52, 41, $workingVersionId);
-$assert($workingDeleted, 'the exact owned working graph can be cascade-deleted');
+$ambiguousMarkerRejected = false;
+try {
+    $workingService->deleteVersionWorkingGraphIfOwned(41, $workingVersionId, 52, $workingVersionId);
+} catch (RuntimeException $error) {
+    $ambiguousMarkerRejected = $error->getCode() === 409
+        && str_contains($error->getMessage(), 'metadata logic');
+}
+$assert($ambiguousMarkerRejected && !$workingDeleted, 'multiple exact technical markers stop deletion before mutation');
+unset($workingRows[53]);
+$assert(
+    $workingService->discoverVersionWorkingPresetIds(41, $workingVersionId) === [52],
+    'marker discovery returns only the exact inactive calculator/version technical marker'
+);
 $foreignDeleteRejected = false;
 try {
     $workingService->deleteVersionWorkingPreset(52, 42, $workingVersionId);
@@ -286,6 +316,88 @@ try {
     $foreignDeleteRejected = str_contains($error->getMessage(), 'не принадлежит');
 }
 $assert($foreignDeleteRejected, 'a version cannot delete a foreign working graph');
+$missingMetadataRejected = false;
+try {
+    $workingService->deleteVersionWorkingGraphIfOwned(41, $workingVersionId, 0, '');
+} catch (RuntimeException $error) {
+    $missingMetadataRejected = $error->getCode() === 409
+        && str_contains($error->getMessage(), 'metadata logic');
+}
+$assert($missingMetadataRejected && !$workingDeleted, 'an owned marker with missing logic metadata fails closed');
+$deleteReceipt = $workingService->deleteVersionWorkingGraphIfOwned(41, $workingVersionId, 52, $workingVersionId);
+$assert(
+    $workingDeleted
+        && ($deleteReceipt['deleted'] ?? false) === true
+        && ($workingDeletedDependencies['globalIds'] ?? null) === [401]
+        && !isset($workingRows[52]),
+    'the exact owned working graph and its version-owned globals can be cascade-deleted with marker readback'
+);
+$blankReceipt = $workingService->deleteVersionWorkingGraphIfOwned(41, $workingVersionId, 999, 'v_' . str_repeat('f', 20));
+$assert(
+    ($blankReceipt['deleted'] ?? true) === false
+        && array_key_exists('workingPresetId', $blankReceipt)
+        && $blankReceipt['workingPresetId'] === null,
+    'a blank version with no exact technical marker needs no graph mutation even when stale metadata is present'
+);
+
+$readbackVersionId = 'v_' . str_repeat('c', 20);
+$readbackRows = [
+    55 => [
+        'id' => 55,
+        'name' => 'Readback graph',
+        'code' => PresetLifecycleMutationService::VERSION_WORKING_CODE_PREFIX
+            . '41-v-' . str_repeat('c', 20) . '-55',
+        'active' => 'N',
+    ],
+];
+$readbackAuthority = new PresetLifecycleFakeAuthority([
+    55 => [
+        'presetId' => 55,
+        'detailIds' => [],
+        'stageIds' => [],
+        'settingsIds' => [],
+        'revision' => str_repeat('f', 64),
+    ],
+]);
+$readbackService = new PresetLifecycleMutationService([
+    'with_global_authority' => static fn(callable $criticalSection): array => $criticalSection([
+        'CALC_PRESETS' => 11,
+        'CALC_DETAILS' => 12,
+        'CALC_STAGES' => 13,
+        'CALC_SETTINGS' => 14,
+    ]),
+    'with_source_authority' => static fn(int $_presetId, callable $criticalSection): array => $criticalSection(
+        $readbackAuthority,
+        [
+            'CALC_PRESETS' => 11,
+            'CALC_DETAILS' => 12,
+            'CALC_STAGES' => 13,
+            'CALC_SETTINGS' => 14,
+            'CALC_GLOBAL_VALUES' => 15,
+        ]
+    ),
+    'working_identity_loader' => static fn(int $presetId): array => $readbackRows[$presetId] ?? [],
+    'version_working_marker_rows' => static fn(): array => array_values($readbackRows),
+    'deletion_dependencies' => static fn(): array => [
+        'productIblockId' => 20,
+        'productPropertyId' => 21,
+        'productIds' => [],
+        'storefronts' => [],
+        'globalIds' => [],
+        'optionRows' => [],
+        'versionCount' => 0,
+    ],
+    'delete_locked' => static fn(): array => ['deleted' => true],
+    'audit' => static fn(): int => 1,
+]);
+$markerReadbackRejected = false;
+try {
+    $readbackService->deleteVersionWorkingGraphIfOwned(41, $readbackVersionId, 55, $readbackVersionId);
+} catch (RuntimeException $error) {
+    $markerReadbackRejected = $error->getCode() === 409
+        && str_contains($error->getMessage(), 'остаётся доступен');
+}
+$assert($markerReadbackRejected, 'cascade deletion fails closed when exact marker readback survives mutation');
 
 $workingCloneRows = [
     60 => [
