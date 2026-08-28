@@ -32,6 +32,7 @@ function aiFormPilotProposal(): array
     $coverage = $field('ink-coverage', 'number');
     $coverage['unit'] = '%'; $coverage['min'] = 0; $coverage['max'] = 100; $coverage['step'] = 1; $coverage['defaultValue'] = 20;
 $coverage['visibleWhen'] = ['fieldId' => 'print-method', 'operator' => 'equals', 'value' => '4+0'];
+$coverage['requiredWhen'] = ['fieldId' => 'print-method', 'operator' => 'equals', 'value' => true];
     $coverage['presetValues'] = [['id' => 'coverage-20', 'label' => '20%', 'value' => 20]];
     return [
         'schema' => AiFormPilotProposalService::PROPOSAL_SCHEMA,
@@ -60,6 +61,9 @@ if (($parsed['sections'][0]['fields'][0]['options'][0]['id'] ?? null) !== 'optio
     || ($parsed['sections'][0]['fields'][0]['defaultValue'] ?? null) !== 'option-4-0'
     || ($parsed['sections'][0]['fields'][1]['visibleWhen']['conditions'][0]['values'][0] ?? null) !== 'option-4-0') {
     aiFormPilotFail('option id aliases were not propagated to defaults and conditions');
+}
+if (($parsed['sections'][0]['fields'][1]['requiredWhen']['conditions'][0]['values'][0] ?? null) !== 'Y') {
+    aiFormPilotFail('boolean condition values were not normalized to Y/N');
 }
 
 $withOmittedOptionalKeys = aiFormPilotProposal();

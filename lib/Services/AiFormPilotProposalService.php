@@ -288,7 +288,16 @@ final class AiFormPilotProposalService
             $operator = (string)($condition['operator'] ?? '');
             if (!in_array($operator, self::OPERATORS, true) || !is_array($condition['values'] ?? null) || count($condition['values']) > 50) throw new \RuntimeException($label . ' содержит неверный оператор или значения');
             $values = [];
-            foreach ($condition['values'] as $item) $values[] = $this->text($item, $label . '.value', 200);
+            foreach ($condition['values'] as $item) {
+                if (is_bool($item)) {
+                    $values[] = $item ? 'Y' : 'N';
+                } elseif (is_int($item) || is_float($item)) {
+                    if (!is_finite((float)$item)) throw new \RuntimeException($label . '.value должен быть конечным числом');
+                    $values[] = (string)$item;
+                } else {
+                    $values[] = $this->text($item, $label . '.value', 200);
+                }
+            }
             $conditions[] = ['fieldId' => $this->semanticId($condition['fieldId'] ?? null, $label . '.fieldId'), 'operator' => $operator, 'values' => $values];
         }
         return ['mode' => (string)$value['mode'], 'conditions' => $conditions];
