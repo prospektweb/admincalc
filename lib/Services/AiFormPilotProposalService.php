@@ -49,7 +49,14 @@ final class AiFormPilotProposalService
                 'displayMode' => 'block | accordion',
                 'initiallyOpen' => true,
                 'showTitle' => true,
-                'visibleWhen' => null,
+                'visibleWhen' => [
+                    'mode' => 'all',
+                    'conditions' => [[
+                        'fieldId' => 'format',
+                        'operator' => 'equals',
+                        'values' => ['a4'],
+                    ]],
+                ],
                 'fields' => [[
                     'fieldId' => 'format',
                     'type' => 'number | select | checkbox | dimensions | datetime',
@@ -243,11 +250,20 @@ final class AiFormPilotProposalService
     {
         if ($value === null) return null;
         if (!is_array($value)) throw new \RuntimeException($label . ' должен быть объектом или null');
+        if (!array_key_exists('conditions', $value) && array_key_exists('fieldId', $value) && array_key_exists('operator', $value)) {
+            $value = ['mode' => 'all', 'conditions' => [$value]];
+        }
+        if (($value['mode'] ?? null) === 'and') $value['mode'] = 'all';
+        if (($value['mode'] ?? null) === 'or') $value['mode'] = 'any';
         $value = $this->normalizeKeys($value, ['conditions'], ['mode' => 'all'], $label);
         if (!in_array($value['mode'] ?? null, ['all', 'any'], true) || !is_array($value['conditions'] ?? null) || count($value['conditions']) > 12) throw new \RuntimeException($label . ' содержит неверную группу');
         $conditions = [];
         foreach ($value['conditions'] as $index => $condition) {
             if (!is_array($condition)) throw new \RuntimeException($label . '.conditions содержит не объект');
+            if (!array_key_exists('values', $condition) && array_key_exists('value', $condition)) {
+                $condition['values'] = is_array($condition['value']) ? $condition['value'] : [$condition['value']];
+                unset($condition['value']);
+            }
             $condition = $this->normalizeKeys($condition, ['fieldId', 'operator'], ['values' => []], $label . '.conditions[' . $index . ']');
             $operator = (string)($condition['operator'] ?? '');
             if (!in_array($operator, self::OPERATORS, true) || !is_array($condition['values'] ?? null) || count($condition['values']) > 50) throw new \RuntimeException($label . ' содержит неверный оператор или значения');

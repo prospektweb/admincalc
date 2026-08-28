@@ -31,7 +31,7 @@ function aiFormPilotProposal(): array
     $method['dependentFieldIds'] = ['ink-coverage'];
     $coverage = $field('ink-coverage', 'number');
     $coverage['unit'] = '%'; $coverage['min'] = 0; $coverage['max'] = 100; $coverage['step'] = 1; $coverage['defaultValue'] = 20;
-    $coverage['visibleWhen'] = ['mode' => 'all', 'conditions' => [['fieldId' => 'print-method', 'operator' => 'equals', 'values' => ['digital']]]];
+$coverage['visibleWhen'] = ['fieldId' => 'print-method', 'operator' => 'equals', 'value' => 'digital'];
     $coverage['presetValues'] = [['id' => 'coverage-20', 'label' => '20%', 'value' => 20]];
     return [
         'schema' => AiFormPilotProposalService::PROPOSAL_SCHEMA,
