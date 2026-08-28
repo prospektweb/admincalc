@@ -33,7 +33,7 @@ function aiFormPilotProposal(): array
     $coverage['unit'] = '%'; $coverage['min'] = 0; $coverage['max'] = 100; $coverage['step'] = 1; $coverage['defaultValue'] = 20;
 $coverage['visibleWhen'] = ['fieldId' => 'print-method', 'operator' => 'equals', 'value' => '4+0'];
 $coverage['requiredWhen'] = ['fieldId' => 'print-method', 'operator' => 'equals', 'value' => true];
-    $coverage['presetValues'] = [['id' => 'coverage-20', 'label' => '20%', 'value' => 20]];
+$coverage['presetValues'] = [20, ['id' => 'coverage-50', 'label' => '50%', 'value' => 50]];
     return [
         'schema' => AiFormPilotProposalService::PROPOSAL_SCHEMA,
         'level' => 'professional',
@@ -64,6 +64,10 @@ if (($parsed['sections'][0]['fields'][0]['options'][0]['id'] ?? null) !== 'optio
 }
 if (($parsed['sections'][0]['fields'][1]['requiredWhen']['conditions'][0]['values'][0] ?? null) !== 'Y') {
     aiFormPilotFail('boolean condition values were not normalized to Y/N');
+}
+if (($parsed['sections'][0]['fields'][1]['presetValues'][0]['id'] ?? null) !== 'preset-20'
+    || ($parsed['sections'][0]['fields'][1]['presetValues'][0]['value'] ?? null) !== 20.0) {
+    aiFormPilotFail('scalar numeric chips were not normalized');
 }
 
 $withOmittedOptionalKeys = aiFormPilotProposal();

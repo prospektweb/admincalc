@@ -355,6 +355,14 @@ final class AiFormPilotProposalService
         if (!is_array($value) || count($value) > 100) throw new \RuntimeException($label . ' должен быть массивом');
         $result = []; $ids = [];
         foreach ($value as $index => $row) {
+            if (is_int($row) || is_float($row) || is_string($row) && is_numeric($row)) {
+                $numericValue = (float)$row;
+                $row = [
+                    'id' => 'preset-' . str_replace(['.', '-'], ['-', 'minus-'], (string)$row),
+                    'label' => (string)$row,
+                    'value' => $numericValue,
+                ];
+            }
             if (!is_array($row)) throw new \RuntimeException($label . ' содержит не объект');
             $defaultLabel = is_int($row['value'] ?? null) || is_float($row['value'] ?? null) ? (string)$row['value'] : '';
             $row = $this->normalizeKeys($row, ['id', 'value'], ['label' => $defaultLabel], $label . '[' . $index . ']');
