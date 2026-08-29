@@ -34,6 +34,7 @@ namespace Bitrix\Main {
             'prospektweb.calc' => '1.4.0',
             'prospektweb.frontcalc' => '2.0.0',
             'prospektweb.propvalmanager' => '1.0.0',
+            'prospektweb.storefrontui' => '1.0.0',
             'prospektweb.companyrequisites' => '1.0.0',
             'prospektweb.layoutfiles' => '1.1.5',
             'prospektweb.partnermanager' => '1.0.0',
@@ -121,13 +122,14 @@ namespace {
     $assert($initial['contract'] === 'prospektweb.control-plane/catalog/v1', 'Catalog contract must be versioned');
     $assert(strlen((string)$initial['revision']) === 64, 'Catalog revision must be SHA-256');
     $assert($repeat['revision'] === $initial['revision'], 'Unchanged catalogs must have a stable revision');
-    $assert(count($initial['modules']) === 7, 'Catalog must expose exactly seven canonical modules');
-    $assert($initial['summary']['capabilities'] === 16, 'Catalog capability summary must match the allowlist');
-    $assert($initial['summary']['mutableCapabilities'] === 9, 'Provider-owned feature guards must be mutable');
+    $assert(count($initial['modules']) === 8, 'Catalog must expose exactly eight canonical modules');
+    $assert($initial['summary']['capabilities'] === 22, 'Catalog capability summary must match the allowlist');
+    $assert($initial['summary']['mutableCapabilities'] === 15, 'Provider-owned feature guards must be mutable');
 
     $moduleIds = array_column($initial['modules'], 'id');
     $assert(in_array('prospektweb.layoutfiles', $moduleIds, true), 'Canonical layoutfiles module ID must be used');
     $assert(in_array('prospektweb.partnermanager', $moduleIds, true), 'Canonical partner manager module ID must be used');
+    $assert(in_array('prospektweb.storefrontui', $moduleIds, true), 'Dedicated public UI module must be exposed');
     $assert(!in_array('prospekt.layoutfiles', $moduleIds, true), 'Deprecated layoutfiles module ID must not be exposed');
 
     $propertyDescriptions = $findCapability($initial, 'storefront.property_descriptions');
@@ -140,6 +142,7 @@ namespace {
     $assert($companySuggestions['enabled'] === true && $companySuggestions['mutable'] === true, 'Company suggestions must default to enabled and be mutable');
     $assert($calculator['mutable'] === false && $calculator['state'] === 'managed-later', 'Ungarded calculator capability must be honestly marked for later management');
     $assert($mobileDescription['group'] === 'Мобильная версия' && strpos($mobileDescription['tooltip'], 'SEO-описания') !== false, 'Mobile description switch must expose its dedicated group and exact help');
+    $assert($mobileDescription['mutable'] === true && $mobileDescription['enabled'] === true, 'Mobile section arrow must be provider-owned and enabled by default');
     $assert($massProperties['mutable'] === true && $massProperties['enabled'] === true, 'Mass offer property editor must be guarded and enabled by default');
     $assert($contactsGallery['mutable'] === true && $contactsGallery['enabled'] === false, 'Contacts gallery must be manageable and disabled by default');
 
