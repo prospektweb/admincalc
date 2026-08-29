@@ -148,7 +148,7 @@ $assert(
         && str_contains($endpoint, "\$bundle['documents']['logic']")
         && str_contains($endpoint, "\$logic = is_array(\$clone['logic'] ?? null) ? \$clone['logic'] : []")
         && !str_contains($endpoint, 'CalculatorVersionSnapshotSourceService::recoveryStageOrderPlan('),
-    'the first logic launch of a clean version must create an empty graph instead of duplicating the owning calculator'
+    'the first logic launch of a clean version must create an isolated graph instead of duplicating the owning calculator'
 );
 $versionLogicLaunch = strpos($endpoint, "if (\$action === 'version_logic_launch')");
 $versionLogicInit = strpos($endpoint, "if (\$action === 'version_logic_init')", $versionLogicLaunch ?: 0);
@@ -168,6 +168,15 @@ $assert(
         && !str_contains($readonlyLaunchSource, '$ensureVersionBundle(')
         && !str_contains($readonlyLaunchSource, '$versionState('),
     'testing a saved version must return its immutable runtime before any working-graph preparation'
+);
+$assert(
+    str_contains($versionLogicLaunchSource, "in_array(\$foundationMode, ['', 'simple', 'complex'], true)")
+        && str_contains($versionLogicLaunchSource, "\$foundationNames = \$foundationMode === 'complex'")
+        && str_contains($versionLogicLaunchSource, "? ['Основная деталь', 'Деталь 1']")
+        && str_contains($versionLogicLaunchSource, ": ['Расчёт']")
+        && str_contains($versionLogicLaunchSource, "\$detailHandler->addDetail([")
+        && str_contains($versionLogicLaunchSource, "\$logic = \$versionSources->captureLogic(\$workingPresetId, \$presetId, \$versionId);"),
+    'foundation selection must materialize simple or complex graph before opening the editor'
 );
 $assert(
     str_contains($endpoint, "'delete_version_documents' => static function")

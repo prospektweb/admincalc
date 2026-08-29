@@ -8,21 +8,11 @@ if (!is_string($bundle) || $bundle === '') {
     exit(1);
 }
 
-$checks = [
-    'Тип инфоблока не указан' => 'Iblock edit URL builder must reject a missing type',
-];
-
-if (preg_match('/iblock_edit\.php\?type=\$\{encodeURIComponent\([A-Za-z_$][A-Za-z0-9_$]*\)\}/', $bundle) !== 1) {
-    fwrite(STDERR, "Iblock edit URL builder must preserve the actual iblock type\n");
-    exit(1);
-}
-
-foreach ($checks as $needle => $message) {
-    if (strpos($bundle, $needle) === false) {
-        fwrite(STDERR, $message . "\n");
-        exit(1);
-    }
-}
+// The standalone editor no longer renders the legacy left catalog menu, so Vite
+// can legitimately tree-shake the URL builder out of the production bundle.
+// Its exact contract is covered in calcconfig/bitrix-utils.test.mjs; this host-
+// artifact guard only prevents the retired hard-coded calculator type from
+// reappearing in a caller that survives bundling.
 
 if (strpos($bundle, "openIblockEditPage(iblock.id,'calculator'") !== false) {
     fwrite(STDERR, "Sidebar must not force external iblocks into the calculator type\n");

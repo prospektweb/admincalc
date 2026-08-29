@@ -403,7 +403,9 @@ body {
         var catalogLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'offerIds', 'presetId']);
         var versionLaunch = hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'mode', 'presetId', 'returnRoute', 'versionId'])
             || (payload.openCalculationPanel === true
-                && hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'mode', 'openCalculationPanel', 'presetId', 'returnRoute', 'versionId']));
+                && hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'mode', 'openCalculationPanel', 'presetId', 'returnRoute', 'versionId']))
+            || ((payload.foundationMode === 'simple' || payload.foundationMode === 'complex')
+                && hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'foundationMode', 'mode', 'presetId', 'returnRoute', 'versionId']));
         if (!standaloneLaunch && !catalogLaunch && !versionLaunch) {
             return;
         }
@@ -412,6 +414,9 @@ body {
         var editorMode = versionLaunch && (payload.mode === 'edit' || payload.mode === 'readonly') ? payload.mode : '';
         var returnRoute = versionLaunch && typeof payload.returnRoute === 'string' ? payload.returnRoute : '';
         var openCalculationPanel = versionLaunch && payload.openCalculationPanel === true;
+        var foundationMode = versionLaunch && (payload.foundationMode === 'simple' || payload.foundationMode === 'complex')
+            ? payload.foundationMode
+            : '';
         var offerIds = catalogLaunch && Array.isArray(payload.offerIds)
             ? payload.offerIds.slice()
             : [];
@@ -433,7 +438,8 @@ body {
             ? postEditorAction('version_logic_launch', {
                 presetId: presetId,
                 versionId: versionId,
-                mode: editorMode
+                mode: editorMode,
+                foundationMode: foundationMode
             })
             : catalogLaunch
             ? postEditorAction('validate_calculation_launch', {

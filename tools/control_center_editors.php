@@ -1653,12 +1653,19 @@ try {
     }
 
     if ($action === 'version_logic_launch') {
-        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId', 'mode']);
+        $assertAllowedRequestKeys(['action', 'sessid', 'presetId', 'versionId', 'mode', 'foundationMode']);
         $presetId = $parseStrictPositiveInt($request['presetId'] ?? null, 'presetId');
         $versionId = $request['versionId'] ?? null;
         $mode = $request['mode'] ?? null;
+        $foundationMode = $request['foundationMode'] ?? '';
         if (!is_string($versionId) || !is_string($mode) || !in_array($mode, ['edit', 'readonly'], true)) {
             throw new \InvalidArgumentException('Version logic launch context is invalid');
+        }
+        if (!is_string($foundationMode) || !in_array($foundationMode, ['', 'simple', 'complex'], true)) {
+            throw new \InvalidArgumentException('Version logic foundation mode is invalid');
+        }
+        if ($mode === 'readonly' && $foundationMode !== '') {
+            throw new \InvalidArgumentException('Readonly logic cannot prepare a foundation.');
         }
         if ($mode === 'readonly') {
             $bundle = $versionBundles->load($presetId, $versionId);
@@ -1714,7 +1721,8 @@ try {
                 $versionRuntimePublications,
                 $presetElementExists,
                 $versionSources,
-                $versionComponents
+                $versionComponents,
+                $foundationMode
             ): array {
                 $state = $versionState($presetId, $versionId);
                 $isEditable = ($state['row']['status'] ?? null) !== 'ARCHIVED';
@@ -1805,6 +1813,40 @@ try {
                         $bundle['contentHash'] = $saved['contentHash'];
                         $bundle['componentHashes']['logic'] = $saved['componentHash'];
                     }
+                }
+                $detailIds = is_array($logic['graph']['detailIds'] ?? null)
+                    ? array_values(array_filter(array_map('intval', $logic['graph']['detailIds']), static fn (int $id): bool => $id > 0))
+                    : [];
+                if ($foundationMode !== '' && $detailIds === []) {
+                    $foundationNames = $foundationMode === 'complex'
+                        ? ['Основная деталь', 'Деталь 1']
+                        : ['Расчёт'];
+                    $detailHandler = new \Prospektweb\Calc\Services\DetailHandler();
+                    foreach ($foundationNames as $foundationName) {
+                        $createdDetail = $detailHandler->addDetail([
+                            'presetId' => $workingPresetId,
+                            'name' => $foundationName,
+                        ]);
+                        if (($createdDetail['status'] ?? '') !== 'ok'
+                            || (int)($createdDetail['detail']['id'] ?? 0) <= 0) {
+                            throw new \RuntimeException(
+                                'Не удалось подготовить основание расчётной схемы: '
+                                . (string)($createdDetail['message'] ?? 'деталь не создана'),
+                                409
+                            );
+                        }
+                    }
+                    $logic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
+                    $saved = $versionComponents->saveDraft(
+                        $presetId,
+                        $versionId,
+                        'logic',
+                        (string)$bundle['contentHash'],
+                        (string)$bundle['componentHashes']['logic'],
+                        $logic
+                    );
+                    $bundle['contentHash'] = $saved['contentHash'];
+                    $bundle['componentHashes']['logic'] = $saved['componentHash'];
                 }
                 if ($workingPresetId <= 0 || ($workingVersionId !== $versionId && !$isEditable)) {
                     throw new \RuntimeException(
