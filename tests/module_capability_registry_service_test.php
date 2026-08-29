@@ -34,7 +34,7 @@ namespace Bitrix\Main {
             'prospektweb.calc' => '1.4.0',
             'prospektweb.frontcalc' => '2.0.0',
             'prospektweb.propvalmanager' => '1.0.0',
-            'prospektweb.storefrontui' => '1.0.0',
+            'prospektweb.storefrontui' => '1.1.0',
             'prospektweb.companyrequisites' => '1.0.0',
             'prospektweb.layoutfiles' => '1.1.5',
             'prospektweb.partnermanager' => '1.0.0',
@@ -123,8 +123,8 @@ namespace {
     $assert(strlen((string)$initial['revision']) === 64, 'Catalog revision must be SHA-256');
     $assert($repeat['revision'] === $initial['revision'], 'Unchanged catalogs must have a stable revision');
     $assert(count($initial['modules']) === 8, 'Catalog must expose exactly eight canonical modules');
-    $assert($initial['summary']['capabilities'] === 22, 'Catalog capability summary must match the allowlist');
-    $assert($initial['summary']['mutableCapabilities'] === 15, 'Provider-owned feature guards must be mutable');
+    $assert($initial['summary']['capabilities'] === 23, 'Catalog capability summary must match the allowlist');
+    $assert($initial['summary']['mutableCapabilities'] === 16, 'Provider-owned feature guards must be mutable');
 
     $moduleIds = array_column($initial['modules'], 'id');
     $assert(in_array('prospektweb.layoutfiles', $moduleIds, true), 'Canonical layoutfiles module ID must be used');
@@ -136,6 +136,7 @@ namespace {
     $companySuggestions = $findCapability($initial, 'storefront.checkout.company_suggestions');
     $calculator = $findCapability($initial, 'storefront.calculator');
     $mobileDescription = $findCapability($initial, 'mobile.catalog.section_description_expand');
+    $mobilePagination = $findCapability($initial, 'mobile.catalog.pagination_containment');
     $massProperties = $findCapability($initial, 'admin.offers.mass_property_editor');
     $contactsGallery = $findCapability($initial, 'storefront.contacts.gallery');
     $assert($propertyDescriptions['enabled'] === true && $propertyDescriptions['mutable'] === true, 'Property descriptions must default to enabled and be mutable');
@@ -143,6 +144,7 @@ namespace {
     $assert($calculator['mutable'] === false && $calculator['state'] === 'managed-later', 'Ungarded calculator capability must be honestly marked for later management');
     $assert($mobileDescription['group'] === 'Мобильная версия' && strpos($mobileDescription['tooltip'], 'SEO-описания') !== false, 'Mobile description switch must expose its dedicated group and exact help');
     $assert($mobileDescription['mutable'] === true && $mobileDescription['enabled'] === true, 'Mobile section arrow must be provider-owned and enabled by default');
+    $assert($mobilePagination['group'] === 'Мобильная версия' && $mobilePagination['mutable'] === true && $mobilePagination['enabled'] === true, 'Mobile pagination containment must be provider-owned and enabled by default');
     $assert($massProperties['mutable'] === true && $massProperties['enabled'] === true, 'Mass offer property editor must be guarded and enabled by default');
     $assert($contactsGallery['mutable'] === true && $contactsGallery['enabled'] === false, 'Contacts gallery must be manageable and disabled by default');
 
