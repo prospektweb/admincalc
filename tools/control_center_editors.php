@@ -218,10 +218,20 @@ $versionForms = new CalculatorVersionFormDocumentService();
 $versionRegistry = new CalculatorVersionRegistryService([
     'bundle_meta' => static function (int $presetId, string $versionId) use ($versionBundles): ?array {
         $bundle = $versionBundles->load($presetId, $versionId);
-        return $bundle === null ? null : [
+        if ($bundle === null) {
+            return null;
+        }
+        $detailIds = is_array($bundle['documents']['logic']['graph']['detailIds'] ?? null)
+            ? array_values(array_filter(
+                array_map('intval', $bundle['documents']['logic']['graph']['detailIds']),
+                static fn (int $id): bool => $id > 0
+            ))
+            : [];
+        return [
             'contentHash' => $bundle['contentHash'],
             'componentHashes' => $bundle['componentHashes'],
             'readiness' => $bundle['readiness'],
+            'logicFoundationRequired' => $detailIds === [],
         ];
     },
     'delete_version_documents' => static function (

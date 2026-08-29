@@ -724,6 +724,8 @@ final class CalculatorVersionRegistryService
                 'missingComponents' => CalculatorVersionBundleDocumentService::COMPONENTS,
                 'requiresRebuild' => true,
             ];
+            $row['logicFoundationRequired'] = $bundle === null
+                || ($bundle['logicFoundationRequired'] ?? true) === true;
             if ($bundle !== null) {
                 $row['workContentHash'] = (string)$bundle['contentHash'];
                 $row['workComponentHashes'] = $bundle['componentHashes'];

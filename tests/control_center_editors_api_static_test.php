@@ -179,6 +179,11 @@ $assert(
     'foundation selection must materialize simple or complex graph before opening the editor'
 );
 $assert(
+    str_contains($endpoint, "'logicFoundationRequired' => \$detailIds === []")
+        && str_contains($endpoint, "\$bundle['documents']['logic']['graph']['detailIds']"),
+    'version rows must distinguish an empty graph from a complete runtime document'
+);
+$assert(
     str_contains($endpoint, "'delete_version_documents' => static function")
         && str_contains($endpoint, '->deleteVersionWorkingGraphIfOwned(')
         && str_contains($endpoint, '$workingPresetId,')
