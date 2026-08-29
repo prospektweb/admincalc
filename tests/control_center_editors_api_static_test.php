@@ -180,8 +180,15 @@ $assert(
 );
 $assert(
     str_contains($endpoint, "'logicFoundationRequired' => \$detailIds === []")
-        && str_contains($endpoint, "\$bundle['documents']['logic']['graph']['detailIds']"),
+        && str_contains($endpoint, "\$bundle['documents']['logic']['graph']['detailIds']")
+        && str_contains($endpoint, "\$physicalLogic = \$versionSources->captureLogic(\$workingPresetId, \$presetId, \$versionId)"),
     'version rows must distinguish an empty graph from a complete runtime document'
+);
+$assert(
+    str_contains($versionLogicLaunchSource, "\$documentDetailIds === [] && \$workingPresetId > 0")
+        && str_contains($versionLogicLaunchSource, "if (\$physicalDetailIds !== [])")
+        && str_contains($versionLogicLaunchSource, "\$logic = \$physicalLogic;"),
+    'logic launch must repair a stale empty version document from its owned physical graph'
 );
 $assert(
     str_contains($endpoint, "'delete_version_documents' => static function")

@@ -216,7 +216,7 @@ $versionSources = new CalculatorVersionSnapshotSourceService();
 $versionRuntimePublications = new CalculatorVersionRuntimePublicationService($versionBundles);
 $versionForms = new CalculatorVersionFormDocumentService();
 $versionRegistry = new CalculatorVersionRegistryService([
-    'bundle_meta' => static function (int $presetId, string $versionId) use ($versionBundles): ?array {
+    'bundle_meta' => static function (int $presetId, string $versionId) use ($versionBundles, $versionSources): ?array {
         $bundle = $versionBundles->load($presetId, $versionId);
         if ($bundle === null) {
             return null;
@@ -227,6 +227,20 @@ $versionRegistry = new CalculatorVersionRegistryService([
                 static fn (int $id): bool => $id > 0
             ))
             : [];
+        $workingPresetId = (int)($bundle['documents']['logic']['workingPresetId'] ?? 0);
+        if ($detailIds === [] && $workingPresetId > 0) {
+            try {
+                $physicalLogic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
+                $detailIds = is_array($physicalLogic['graph']['detailIds'] ?? null)
+                    ? array_values(array_filter(
+                        array_map('intval', $physicalLogic['graph']['detailIds']),
+                        static fn (int $id): bool => $id > 0
+                    ))
+                    : [];
+            } catch (\Throwable $ignored) {
+                $detailIds = [];
+            }
+        }
         return [
             'contentHash' => $bundle['contentHash'],
             'componentHashes' => $bundle['componentHashes'],
@@ -1820,6 +1834,28 @@ try {
                             (string)$bundle['componentHashes']['logic'],
                             $logic
                         );
+                        $bundle['contentHash'] = $saved['contentHash'];
+                        $bundle['componentHashes']['logic'] = $saved['componentHash'];
+                    }
+                }
+                $documentDetailIds = is_array($logic['graph']['detailIds'] ?? null)
+                    ? array_values(array_filter(array_map('intval', $logic['graph']['detailIds']), static fn (int $id): bool => $id > 0))
+                    : [];
+                if ($documentDetailIds === [] && $workingPresetId > 0) {
+                    $physicalLogic = $versionSources->captureLogic($workingPresetId, $presetId, $versionId);
+                    $physicalDetailIds = is_array($physicalLogic['graph']['detailIds'] ?? null)
+                        ? array_values(array_filter(array_map('intval', $physicalLogic['graph']['detailIds']), static fn (int $id): bool => $id > 0))
+                        : [];
+                    if ($physicalDetailIds !== []) {
+                        $saved = $versionComponents->saveDraft(
+                            $presetId,
+                            $versionId,
+                            'logic',
+                            (string)$bundle['contentHash'],
+                            (string)$bundle['componentHashes']['logic'],
+                            $physicalLogic
+                        );
+                        $logic = $physicalLogic;
                         $bundle['contentHash'] = $saved['contentHash'];
                         $bundle['componentHashes']['logic'] = $saved['componentHash'];
                     }
