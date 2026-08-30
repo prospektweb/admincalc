@@ -279,6 +279,10 @@ $APPLICATION->SetTitle(Loc::getMessage('PROSPEKTWEB_CALC_PAGE_TITLE'));
 $appIndexPath = $_SERVER['DOCUMENT_ROOT'] . '/local/apps/prospektweb.calc/index.html';
 $appVersion = is_file($appIndexPath) ? (string)filemtime($appIndexPath) : '1';
 $appIframeQuery = ['v' => $appVersion];
+if ($versionId !== '' && $versionContentHash !== '') {
+    $appIframeQuery['version_id'] = $versionId;
+    $appIframeQuery['version_content_hash'] = $versionContentHash;
+}
 if (isset($_GET['open_calculation_panel']) && (string)$_GET['open_calculation_panel'] === 'Y') {
     $appIframeQuery['open_calculation_panel'] = 'Y';
 }

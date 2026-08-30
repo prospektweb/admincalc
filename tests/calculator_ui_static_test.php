@@ -42,6 +42,8 @@ $checks = [
     [$calculator, "index.html?v=baf65ff3d7a0", 'Embedded calculator must load the current frontend release without stale HTML cache'],
     [$calculatorPage, "\$appVersion = is_file(\$appIndexPath) ? (string)filemtime(\$appIndexPath) : '1';", 'Standalone calculator page must derive its cache key from the deployed app'],
     [$calculatorPage, "\$appIframeQuery['open_calculation_panel'] = 'Y';", 'A trusted direct calculation launch must reach the embedded app'],
+    [$calculatorPage, "\$appIframeQuery['version_id'] = \$versionId;", 'The embedded editor app must receive the exact version identity'],
+    [$calculatorPage, "\$appIframeQuery['version_content_hash'] = \$versionContentHash;", 'The embedded editor app must receive the full bundle content hash'],
     [$appIndex, "assets/index.js?v=baf65ff3d7a0", 'App HTML must load the current JavaScript bundle without stale asset cache'],
     [$appIndex, "assets/style.css?v=baf65ff3d7a0", 'App HTML must load the current stylesheet without stale asset cache'],
     [$calculatorPage, "overflow: hidden !important;", 'Standalone calculator page must not expose the taller Bitrix admin document scrollbar'],
