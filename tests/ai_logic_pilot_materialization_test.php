@@ -75,6 +75,11 @@ $assert($preview['groups']['equipment'][0]['action'] === 'replace', 'approved re
 $assert($preview['groups']['material'][0]['name'] === 'Баннер', 'legacy virtual prefix must not reach preview or created entity');
 $assert($preview['structure']['details'][0]['action'] === 'reuse' && $preview['structure']['details'][0]['realId'] === 777,
     'blank working graph foundation must be reused instead of duplicated');
+$codeMethod = new ReflectionMethod($service, 'elementCode');
+$materialCode = $codeMethod->invoke($service, 'material', 'draft_material');
+$assert(preg_match('/^ai_pilot_material_[a-f0-9]{16}$/', $materialCode) === 1
+    && $materialCode === $codeMethod->invoke($service, 'material', 'draft_material'),
+    'created catalog entities need a deterministic Bitrix symbolic code');
 
 $applyRequest = $request + ['explicitConfirm' => true, 'manifestHash' => $preview['manifestHash'], 'idempotencyKey' => 'pilot-16488-test-0001'];
 $first = $service->apply($applyRequest);

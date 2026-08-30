@@ -468,7 +468,14 @@ final class AiLogicPilotMaterializationService
                 foreach ($manifest['groups'][$kind] as $row) {
                     if ($row['action'] !== 'create') continue;
                     $iblockCode = self::IBLOCK_BY_KIND[$kind]; $iblockId = (int)($iblocks[$iblockCode] ?? 0);
-                    $fields = ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y', 'NAME' => $row['name'], 'PREVIEW_TEXT' => $row['description'], 'PREVIEW_TEXT_TYPE' => 'text'];
+                    $fields = [
+                        'IBLOCK_ID' => $iblockId,
+                        'ACTIVE' => 'Y',
+                        'NAME' => $row['name'],
+                        'CODE' => $this->elementCode($kind, (string)$row['draftId']),
+                        'PREVIEW_TEXT' => $row['description'],
+                        'PREVIEW_TEXT_TYPE' => 'text',
+                    ];
                     $folderDraftId = (string)($row['folderDraftId'] ?? '');
                     if ($folderDraftId !== '' && isset($ids[$folderDraftId])) $fields['IBLOCK_SECTION_ID'] = $ids[$folderDraftId];
                     $element = new \CIBlockElement(); $id = (int)$element->Add($fields);
@@ -613,6 +620,13 @@ final class AiLogicPilotMaterializationService
         $value = trim($value);
         if ($value === '' || mb_strlen($value) > $max) throw new \InvalidArgumentException($label . ' не заполнено или слишком длинное.');
         return $value;
+    }
+
+    private function elementCode(string $kind, string $draftId): string
+    {
+        $kind = strtolower((string)(preg_replace('/[^a-z0-9]+/i', '_', $kind) ?? 'entity'));
+        $kind = trim($kind, '_') ?: 'entity';
+        return 'ai_pilot_' . $kind . '_' . substr(hash('sha256', $draftId), 0, 16);
     }
 
     private function hash(array $value): string
