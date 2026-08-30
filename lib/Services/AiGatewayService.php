@@ -844,8 +844,37 @@ final class AiGatewayService
                 $id = trim((string)$stageDraftId);
                 if ($id !== '') $stagePlacementCounts[$id] = ($stagePlacementCounts[$id] ?? 0) + 1;
             }
-            foreach (is_array($group['branches'] ?? null) ? $group['branches'] : [] as $branch) {
+            foreach (is_array($group['branches'] ?? null) ? $group['branches'] : [] as $branchIndex => $branch) {
                 if (!is_array($branch)) continue;
+                $branchKeys = array_keys($branch);
+                sort($branchKeys);
+                $expectedBranchKeys = ['draftId', 'isElse', 'mode', 'operands', 'stageDraftIds', 'title'];
+                sort($expectedBranchKeys);
+                $validBranch = $branchKeys === $expectedBranchKeys
+                    && preg_match('/^draft_[A-Za-z0-9_-]+$/', (string)($branch['draftId'] ?? '')) === 1
+                    && is_string($branch['title'] ?? null) && mb_strlen((string)$branch['title']) <= 250
+                    && in_array((string)($branch['mode'] ?? ''), ['and', 'or'], true)
+                    && is_array($branch['operands'] ?? null)
+                    && is_array($branch['stageDraftIds'] ?? null)
+                    && is_bool($branch['isElse'] ?? null);
+                if ($validBranch) {
+                    foreach ($branch['operands'] as $operand) {
+                        if (!is_array($operand) || array_diff(array_keys($operand), ['kind', 'code']) !== []
+                            || array_diff(['kind', 'code'], array_keys($operand)) !== []
+                            || !in_array((string)($operand['kind'] ?? ''), ['variable', 'constant'], true)
+                            || preg_match('/^[A-Za-z_][A-Za-z0-9_.-]*$/', (string)($operand['code'] ?? '')) !== 1) {
+                            $validBranch = false;
+                            break;
+                        }
+                    }
+                    foreach ($branch['stageDraftIds'] as $stageDraftId) {
+                        if (preg_match('/^draft_[A-Za-z0-9_-]+$/', (string)$stageDraftId) !== 1) {
+                            $validBranch = false;
+                            break;
+                        }
+                    }
+                }
+                if (!$validBranch) $errors[] = 'Условие «' . (trim((string)($group['title'] ?? '')) ?: 'Без названия') . '» содержит некорректную ветку №' . ($branchIndex + 1) . '.';
                 foreach (is_array($branch['stageDraftIds'] ?? null) ? $branch['stageDraftIds'] : [] as $stageDraftId) {
                     $id = trim((string)$stageDraftId);
                     if ($id !== '') $stagePlacementCounts[$id] = ($stagePlacementCounts[$id] ?? 0) + 1;

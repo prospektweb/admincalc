@@ -41,6 +41,8 @@ $checks = [
     'pilot rejects stages hidden outside the kanban topology' => strpos($gateway, 'Каждый созданный этап размести ровно один раз') !== false
         && strpos($gateway, 'не размещён ни в группе, ни в ветке условия и поэтому не виден в канбане') !== false
         && strpos($gateway, 'размещён в нескольких маршрутах') !== false,
+    'pilot rejects malformed condition branches before the browser' => strpos($gateway, 'содержит некорректную ветку №') !== false
+        && strpos($gateway, "['draftId', 'isElse', 'mode', 'operands', 'stageDraftIds', 'title']") !== false,
     'detailed pilot requires conditions and rejects composite stage cards' => strpos($gateway, 'Для detailed и professional создай хотя бы одно condition') !== false
         && strpos($gateway, 'объединяет альтернативные или самостоятельные операции') !== false,
     'detailed pilot requires concrete candidates' => strpos($gateway, 'Для уровня detailed предлагай конкретные кандидаты каталога') !== false,
@@ -166,6 +168,21 @@ $orphaned = $quality->invoke($service, [
 ], 'simple');
 if (strpos(implode(' ', $orphaned), 'не размещён ни в группе, ни в ветке условия') === false) {
     fwrite(STDERR, "Failed: orphaned pilot stage topology gate\n");
+    exit(1);
+}
+$badBranch = $quality->invoke($service, [
+    'catalogObjects' => [],
+    'stages' => [],
+    'groups' => [[
+        'draftId' => 'draft_condition', 'kind' => 'condition', 'title' => 'Проверка', 'stageDraftIds' => [],
+        'branches' => [[
+            'draftId' => 'draft_branch', 'title' => 'Ветка', 'mode' => 'and', 'operands' => [],
+            'stageDraftIds' => [], 'isElse' => false, 'unexpected' => true,
+        ]],
+    ]],
+], 'simple');
+if (strpos(implode(' ', $badBranch), 'содержит некорректную ветку') === false) {
+    fwrite(STDERR, "Failed: malformed pilot branch quality gate\n");
     exit(1);
 }
 
