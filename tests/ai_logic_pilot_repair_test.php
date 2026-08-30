@@ -24,6 +24,8 @@ $draft = [
     'catalogObjects' => [
         ['draftId'=>'draft_calculator','kind'=>'calculator','title'=>'Расчёт площади','description'=>'CALC_SETTINGS','folderDraftId'=>'draft_folder_calculator'],
         ['draftId'=>'draft_real_calculator','kind'=>'calculator','title'=>'Реальный калькулятор','description'=>'Замена','folderDraftId'=>'draft_folder_calculator'],
+        ['draftId'=>'draft_material','kind'=>'material','title'=>'Баннер','description'=>'Материал','folderDraftId'=>null],
+        ['draftId'=>'draft_material_variant','kind'=>'materialVariant','title'=>'Баннер 440','description'=>'Вариант','parentDraftId'=>'draft_material'],
     ],
     'globals' => [['draftId'=>'draft_global','kind'=>'variable','code'=>'needs_cut','title'=>'Нужна резка','description'=>'Флаг']],
     'details' => [['draftId'=>'draft_detail','kind'=>'detail','title'=>'Изделие','description'=>'Корневая деталь','parentDraftId'=>null]],
@@ -38,11 +40,15 @@ $latestReceipt = ['presetId'=>16488,'versionId'=>$versionId,'manifestHash'=>str_
         'draft_calculator'=>['kind'=>'calculator','id'=>201],
         'draft_detail'=>['kind'=>'detail','id'=>401],
         'draft_stage'=>['kind'=>'stage','id'=>501],
+        'draft_material'=>['kind'=>'material','id'=>301],
+        'draft_material_variant'=>['kind'=>'materialVariant','id'=>302],
     ], 'reused'=>[], 'replaced'=>['draft_real_calculator'=>['kind'=>'calculator','id'=>202]]];
 $states = [
     101=>['name'=>'Старая папка','description'=>'','parentId'=>0,'properties'=>[]],
     201=>['code'=>'','name'=>'Расчёт площади','description'=>'CALC_SETTINGS','sectionId'=>0,'properties'=>[]],
     202=>['code'=>'real','name'=>'Существующий калькулятор','description'=>'Не изменять','sectionId'=>999,'properties'=>[]],
+    301=>['code'=>'ai_pilot_material_'.substr(hash('sha256','draft_material'),0,16),'name'=>'Баннер','description'=>'Материал','sectionId'=>0,'properties'=>[]],
+    302=>['code'=>'ai_pilot_materialvariant_'.substr(hash('sha256','draft_material_variant'),0,16),'name'=>'Баннер 440','description'=>'Вариант','sectionId'=>0,'properties'=>['CML2_LINK'=>0]],
     401=>['code'=>'','name'=>'Изделие','description'=>'Корневая деталь','sectionId'=>0,'properties'=>['CALC_STAGES'=>[]]],
     501=>['code'=>'','name'=>'Печать','description'=>'Этап','sectionId'=>0,'properties'=>[]],
     601=>['code'=>'needs_cut','name'=>'Нужна резка','description'=>'Флаг','sectionId'=>0,'properties'=>[]],
@@ -73,6 +79,7 @@ $assert($inspection['healthy']===false && $inspection['blockers']===[],'recovera
 $assert($inspection['receipt']['appliedAt']==='2026-08-30T12:00:00Z','latest receipt must win for preset/version');
 $types=array_values(array_unique(array_column($inspection['operations'],'type')));
 $assert(in_array('metadata',$types,true)&&in_array('section',$types,true)&&in_array('properties',$types,true)&&in_array('append_property',$types,true),'repair plan must cover codes, folders and graph links');
+$assert(in_array('variant_parent',$types,true),'repair plan must use the authoritative SKU parent operation for variants');
 $assert(count(array_filter($inspection['operations'],static fn(array $op):bool=>in_array($op['type'],['create','delete','activate'],true)))===0,'repair must never create, delete or activate');
 $assert(count(array_filter($inspection['operations'],static fn(array $op):bool=>(string)($op['spec']['draftId']??'')==='draft_real_calculator'))===0,'repair must not mutate a real Bitrix replacement');
 $first=$service->repair($request+['explicitConfirm'=>true]);

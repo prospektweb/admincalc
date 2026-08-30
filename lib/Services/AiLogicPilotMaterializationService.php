@@ -515,12 +515,23 @@ final class AiLogicPilotMaterializationService
                     $folderDraftId = in_array($kind, ['materialVariant','operationVariant'], true)
                         ? '' : (string)($row['folderDraftId'] ?? '');
                     if ($folderDraftId !== '' && isset($ids[$folderDraftId])) $fields['IBLOCK_SECTION_ID'] = $ids[$folderDraftId];
+                    $parentDraftId = (string)($row['parentDraftId'] ?? '');
+                    $skuPropertyId = 0;
+                    if ($parentDraftId !== '' && isset($ids[$parentDraftId]) && in_array($kind, ['materialVariant','operationVariant'], true)) {
+                        $parentIblockCode = $kind === 'materialVariant' ? 'CALC_MATERIALS' : 'CALC_OPERATIONS';
+                        $parentIblockId = (int)($iblocks[$parentIblockCode] ?? 0);
+                        $property = $this->skuLinkProperty($iblockId, $parentIblockId);
+                        // Use the module's canonical atomic SKU creation path.
+                        // A numeric property ID avoids code-case ambiguity and
+                        // the link is verified through the same filter as INIT.
+                        $skuPropertyId = (int)$property['ID'];
+                        $fields['PROPERTY_VALUES'] = [$skuPropertyId => (int)$ids[$parentDraftId]];
+                    }
                     $element = new \CIBlockElement(); $id = (int)$element->Add($fields);
                     if ($id <= 0) throw new \RuntimeException('Не удалось создать «' . $row['name'] . '»: ' . $element->LAST_ERROR);
                     $this->assertElementReadback($id, $iblockId, $fields);
-                    $parentDraftId = (string)($row['parentDraftId'] ?? '');
                     if ($parentDraftId !== '' && isset($ids[$parentDraftId]) && in_array($kind, ['materialVariant','operationVariant'], true)) {
-                        $this->setAndVerifyPropertyValues($id, $iblockId, ['CML2_LINK' => $ids[$parentDraftId]]);
+                        $this->assertSkuParentReadback($id, $iblockId, $skuPropertyId, (int)$ids[$parentDraftId]);
                     }
                     $ids[$row['draftId']] = $id; $created[$row['draftId']] = ['kind' => $kind, 'id' => $id, 'iblockCode' => $iblockCode];
                 }
@@ -703,6 +714,45 @@ final class AiLogicPilotMaterializationService
             sort($expectedValues); sort($actualValues);
             if ($actualValues !== $expectedValues) throw new \RuntimeException('Bitrix не сохранил связь AI-пилота ' . $code . '.', 409);
         }
+    }
+
+    /** @return array<string,mixed> */
+    private function skuLinkProperty(int $variantsIblockId, int $parentIblockId): array
+    {
+        $property = \CIBlockProperty::GetList(['ID' => 'ASC'], [
+            'IBLOCK_ID' => $variantsIblockId,
+            'CODE' => 'CML2_LINK',
+            'ACTIVE' => 'Y',
+        ])->Fetch();
+        if (!$property) throw new \RuntimeException('В инфоблоке вариантов не настроена активная SKU-связь CML2_LINK.', 409);
+        if ((int)($property['LINK_IBLOCK_ID'] ?? 0) !== $parentIblockId
+            || (string)($property['PROPERTY_TYPE'] ?? '') !== 'E'
+            || (string)($property['MULTIPLE'] ?? '') !== 'N') {
+            throw new \RuntimeException('Свойство CML2_LINK не соответствует одиночной SKU-связи с родительским инфоблоком.', 409);
+        }
+        $sku = \CCatalogSKU::GetInfoByProductIBlock($parentIblockId);
+        if (!is_array($sku) || (int)($sku['IBLOCK_ID'] ?? 0) !== $variantsIblockId
+            || (int)($sku['SKU_PROPERTY_ID'] ?? 0) !== (int)$property['ID']) {
+            throw new \RuntimeException('Пара инфоблоков вариантов не зарегистрирована с ожидаемым SKU-свойством.', 409);
+        }
+        return $property;
+    }
+
+    private function assertSkuParentReadback(int $elementId, int $variantsIblockId, int $propertyId, int $expectedParentId): void
+    {
+        $cursor = \CIBlockElement::GetProperty($variantsIblockId, $elementId, ['sort' => 'asc'], ['ID' => $propertyId]);
+        $actual = 0;
+        while ($property = $cursor->Fetch()) {
+            $actual = (int)($property['VALUE'] ?? 0);
+            if ($actual > 0) break;
+        }
+        if ($actual !== $expectedParentId) throw new \RuntimeException('Bitrix не сохранил родительскую SKU-связь варианта AI-пилота.', 409);
+        $visible = \CIBlockElement::GetList([], [
+            'ID' => $elementId,
+            'IBLOCK_ID' => $variantsIblockId,
+            'PROPERTY_CML2_LINK' => $expectedParentId,
+        ], false, ['nTopCount' => 1], ['ID'])->Fetch();
+        if (!$visible) throw new \RuntimeException('Вариант AI-пилота не виден через канонический SKU-фильтр.', 409);
     }
 
     private function assertSectionReadback(int $id, int $iblockId, int $parentId, string $name, string $description): void

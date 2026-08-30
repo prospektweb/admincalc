@@ -160,7 +160,7 @@ final class AiLogicPilotRepairService
                 if (in_array($kind, ['materialVariant','operationVariant'], true)) {
                     $expectedParent = (int)($ids[(string)($row['parentDraftId'] ?? '')] ?? 0);
                     if ($expectedParent <= 0) { $blockers[] = ['code' => 'MISSING_VARIANT_PARENT', 'draftId' => $draftId]; continue; }
-                    if ((int)($state['properties']['CML2_LINK'] ?? 0) !== $expectedParent) { $issues[] = ['code' => 'VARIANT_PARENT_MISMATCH', 'draftId' => $draftId]; $operations[] = ['type' => 'properties', 'spec' => $spec, 'properties' => ['CML2_LINK' => $expectedParent]]; }
+                    if ((int)($state['properties']['CML2_LINK'] ?? 0) !== $expectedParent) { $issues[] = ['code' => 'VARIANT_PARENT_MISMATCH', 'draftId' => $draftId]; $operations[] = ['type' => 'variant_parent', 'spec' => $spec, 'parentId' => $expectedParent]; }
                 }
             }
         }
@@ -245,6 +245,12 @@ final class AiLogicPilotRepairService
             elseif($operation['type']==='section_parent') { $api=new \CIBlockSection(); if(!$api->Update($id,['IBLOCK_SECTION_ID'=>(int)$operation['parentId']]))throw new \RuntimeException('Не удалось восстановить родительскую папку: '.$api->LAST_ERROR); }
             elseif($operation['type']==='section') { $api=new \CIBlockElement(); if(!$api->Update($id,['IBLOCK_SECTION_ID'=>(int)$operation['sectionId']]))throw new \RuntimeException('Не удалось восстановить папку объекта: '.$api->LAST_ERROR); }
             elseif($operation['type']==='properties') \CIBlockElement::SetPropertyValuesEx($id,$iblockId,$operation['properties']);
+            elseif($operation['type']==='variant_parent') {
+                $parentIblockCode=$kind==='materialVariant'?'CALC_MATERIALS':($kind==='operationVariant'?'CALC_OPERATIONS':'');
+                $parentIblockId=(int)($iblocks[$parentIblockCode]??0);
+                $property=$this->skuLinkProperty($iblockId,$parentIblockId);
+                \CIBlockElement::SetPropertyValues($id,$iblockId,(int)$operation['parentId'],(int)$property['ID']);
+            }
             elseif($operation['type']==='append_property') { $state=$this->readState($spec); $current=array_map('intval',(array)($state['properties'][$operation['property']]??[])); $values=array_values(array_unique(array_merge($current,array_map('intval',$operation['values'])))); \CIBlockElement::SetPropertyValuesEx($id,$iblockId,[$operation['property']=>$values]); }
         }
         foreach ($operations as $operation) {
@@ -255,6 +261,13 @@ final class AiLogicPilotRepairService
             if($operation['type']==='section'&&(int)($after['sectionId']??0)!==(int)$operation['sectionId'])throw new \RuntimeException('Bitrix не сохранил путь объекта.',409);
             if($operation['type']==='section_parent'&&(int)($after['parentId']??0)!==(int)$operation['parentId'])throw new \RuntimeException('Bitrix не сохранил родительский путь.',409);
             if($operation['type']==='properties')foreach($operation['properties'] as $code=>$value)if((int)($after['properties'][$code]??0)!==(int)$value)throw new \RuntimeException('Bitrix не сохранил связь '.$code.'.',409);
+            if($operation['type']==='variant_parent'){
+                $kind=(string)$operation['spec']['kind'];$iblockCode=self::IBLOCK_BY_KIND[$kind]??'';$iblockId=(int)($iblocks[$iblockCode]??0);
+                $parentIblockCode=$kind==='materialVariant'?'CALC_MATERIALS':($kind==='operationVariant'?'CALC_OPERATIONS':'');
+                $property=$this->skuLinkProperty($iblockId,(int)($iblocks[$parentIblockCode]??0));
+                if($this->readSkuParentId((int)$operation['spec']['id'],$iblockId,(int)$property['ID'])!==(int)$operation['parentId'])throw new \RuntimeException('Bitrix не сохранил родительскую SKU-связь варианта.',409);
+                if(!$this->skuRelationVisible((int)$operation['spec']['id'],$iblockId,(int)$operation['parentId']))throw new \RuntimeException('Вариант не виден через канонический SKU-фильтр.',409);
+            }
             if($operation['type']==='append_property'){ $actual=array_map('intval',(array)($after['properties'][$operation['property']]??[])); if(array_diff(array_map('intval',$operation['values']),$actual)!==[])throw new \RuntimeException('Bitrix не сохранил связь '.$operation['property'].'.',409); }
         }
     }
@@ -264,6 +277,29 @@ final class AiLogicPilotRepairService
         $kind = strtolower((string)(preg_replace('/[^a-z0-9]+/i', '_', $kind) ?? 'entity'));
         $kind = trim($kind, '_') ?: 'entity';
         return 'ai_pilot_' . $kind . '_' . substr(hash('sha256', $draftId), 0, 16);
+    }
+
+    /** @return array<string,mixed> */
+    private function skuLinkProperty(int $variantsIblockId, int $parentIblockId): array
+    {
+        $property=\CIBlockProperty::GetList(['ID'=>'ASC'],['IBLOCK_ID'=>$variantsIblockId,'CODE'=>'CML2_LINK','ACTIVE'=>'Y'])->Fetch();
+        if(!$property)throw new \RuntimeException('В инфоблоке вариантов не настроена активная SKU-связь CML2_LINK.',409);
+        if((int)($property['LINK_IBLOCK_ID']??0)!==$parentIblockId||(string)($property['PROPERTY_TYPE']??'')!=='E'||(string)($property['MULTIPLE']??'')!=='N')throw new \RuntimeException('Свойство CML2_LINK не соответствует одиночной SKU-связи с родительским инфоблоком.',409);
+        $sku=\CCatalogSKU::GetInfoByProductIBlock($parentIblockId);
+        if(!is_array($sku)||(int)($sku['IBLOCK_ID']??0)!==$variantsIblockId||(int)($sku['SKU_PROPERTY_ID']??0)!==(int)$property['ID'])throw new \RuntimeException('Пара инфоблоков вариантов не зарегистрирована с ожидаемым SKU-свойством.',409);
+        return $property;
+    }
+
+    private function readSkuParentId(int $elementId,int $variantsIblockId,int $propertyId): int
+    {
+        $cursor=\CIBlockElement::GetProperty($variantsIblockId,$elementId,['sort'=>'asc'],['ID'=>$propertyId]);
+        while($property=$cursor->Fetch()){ $value=(int)($property['VALUE']??0);if($value>0)return$value; }
+        return 0;
+    }
+
+    private function skuRelationVisible(int $elementId,int $variantsIblockId,int $parentId): bool
+    {
+        return (bool)\CIBlockElement::GetList([],['ID'=>$elementId,'IBLOCK_ID'=>$variantsIblockId,'PROPERTY_CML2_LINK'=>$parentId],false,['nTopCount'=>1],['ID'])->Fetch();
     }
 
     private function latestReceipt(array $context): array
