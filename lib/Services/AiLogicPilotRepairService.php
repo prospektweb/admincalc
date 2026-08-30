@@ -114,6 +114,7 @@ final class AiLogicPilotRepairService
         }
         foreach (is_array($receipt['replaced'] ?? null) ? $receipt['replaced'] : [] as $draftId => $entry) $ids[(string)$draftId] = is_array($entry) ? (int)($entry['id'] ?? 0) : (int)$entry;
         $owned = array_fill_keys(array_keys(is_array($receipt['created'] ?? null) ? $receipt['created'] : []), true);
+        $replaced = array_fill_keys(array_keys(is_array($receipt['replaced'] ?? null) ? $receipt['replaced'] : []), true);
         $operations = []; $issues = []; $blockers = [];
         $rowsById = [];
         foreach (['catalogFolders','catalogObjects','details','stages','globals'] as $collection) foreach (is_array($draft[$collection] ?? null) ? $draft[$collection] : [] as $row) {
@@ -139,6 +140,12 @@ final class AiLogicPilotRepairService
                     if ((string)($state['code'] ?? '') !== $expectedCode) $fields['code'] = $expectedCode;
                 }
                 if ($fields !== []) { $issues[] = ['code' => 'METADATA_MISMATCH', 'draftId' => $draftId]; $operations[] = ['type' => 'metadata', 'spec' => $spec, 'fields' => $fields]; }
+            }
+            // Replacement objects are external Bitrix authorities. Repair may
+            // restore references to them, but must never rename, move or
+            // re-parent those real catalog entities.
+            if (isset($replaced[$draftId]) && ($kind === 'directory' || isset(self::IBLOCK_BY_KIND[$kind]))) {
+                continue;
             }
             if ($kind === 'directory') {
                 $parentDraftId = trim((string)($row['parentDraftId'] ?? '')); $expected = (int)($ids[$parentDraftId] ?? 0);
