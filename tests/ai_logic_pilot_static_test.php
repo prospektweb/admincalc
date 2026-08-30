@@ -64,6 +64,8 @@ $checks += [
     'repair reads graph properties by authoritative property id' => strpos($repair, "'stage' => ['MATERIAL_VARIANT','OPERATION_VARIANT','EQUIPMENT','CALC_SETTINGS']") !== false
         && strpos($repair, "'detail' => ['CALC_STAGES','DETAILS']") !== false
         && strpos($repair, "'preset' => ['CALC_DETAILS']") !== false,
+    'repair resolves repeated stage entity kinds deterministically' => strpos($repair, '$expectedProps[$property] = (int)$ids[$catalogDraftId]') !== false
+        && strpos($repair, 'foreach ($expectedProps as $property => $expectedId)') !== false,
     'variant folder ids are never copied across iblocks' => strpos($materialization, "in_array(\$kind, ['materialVariant','operationVariant'], true)\n                        ? ''") !== false,
     'repair never creates or deletes entities' => strpos($repair, '->Add(') === false
         && strpos($repair, '->Delete(') === false,

@@ -182,12 +182,16 @@ final class AiLogicPilotRepairService
             $expectedStagesByDetail[$detailDraftId][] = (int)$ids[$stageDraftId];
             $spec = ['draftId' => $stageDraftId, 'kind' => 'stage', 'id' => (int)$ids[$stageDraftId], 'workingPresetId' => $workingPresetId];
             $state = $this->readState($spec); if ($state === null) continue;
-            $props = [];
+            $expectedProps = [];
             foreach (is_array($stage['catalogDraftIds'] ?? null) ? $stage['catalogDraftIds'] : [] as $catalogDraftId) {
                 if (!isset($ids[$catalogDraftId], $rowsById[$catalogDraftId])) { $blockers[] = ['code'=>'MISSING_STAGE_CATALOG','draftId'=>$stageDraftId,'reference'=>$catalogDraftId]; continue; }
                 $catalogKind = (string)($rowsById[$catalogDraftId]['row']['kind'] ?? '');
                 $property = ['calculator'=>'CALC_SETTINGS','materialVariant'=>'MATERIAL_VARIANT','operationVariant'=>'OPERATION_VARIANT','equipment'=>'EQUIPMENT'][$catalogKind] ?? null;
-                if ($property && (int)($state['properties'][$property] ?? 0) !== (int)$ids[$catalogDraftId]) $props[$property] = (int)$ids[$catalogDraftId];
+                if ($property) $expectedProps[$property] = (int)$ids[$catalogDraftId];
+            }
+            $props = [];
+            foreach ($expectedProps as $property => $expectedId) {
+                if ((int)($state['properties'][$property] ?? 0) !== $expectedId) $props[$property] = $expectedId;
             }
             if ($props !== []) { $issues[] = ['code' => 'STAGE_CATALOG_LINK_MISMATCH', 'draftId' => $stageDraftId]; $operations[] = ['type' => 'properties', 'spec' => $spec, 'properties' => $props]; }
         }
