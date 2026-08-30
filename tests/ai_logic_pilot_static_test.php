@@ -19,6 +19,13 @@ $checks = [
     'acceptance copy removes virtual labels' => strpos($gateway, 'sanitizePilotAcceptanceCopy') !== false,
     'saved pilot prompt is migrated away from virtual labels' => strpos($gateway, "mb_stripos(\$template['prompt'], 'Виртуальным материалам')") !== false,
     'pilot prompt forbids virtual wording' => strpos($gateway, 'Не используй слово «виртуальный»') !== false,
+    'pilot schema demonstrates every catalog entity kind' => strpos($gateway, "'draftId' => 'draft_material_variant_001', 'kind' => 'materialVariant'") !== false
+        && strpos($gateway, "'draftId' => 'draft_operation_variant_001', 'kind' => 'operationVariant'") !== false
+        && strpos($gateway, "'draftId' => 'draft_equipment_001', 'kind' => 'equipment'") !== false
+        && strpos($gateway, "'draftId' => 'draft_custom_field_001', 'kind' => 'customField'") !== false
+        && strpos($gateway, "'draftId' => 'draft_calculator_001', 'kind' => 'calculator'") !== false,
+    'pilot prompt requires one calculator per stage' => strpos($gateway, 'ровно один отдельный calculator для каждого этапа') !== false,
+    'pilot prompt forbids base objects in stage links' => strpos($gateway, 'не ссылайся там на базовые material/operation') !== false,
     'prompt forbids real records and formulas' => strpos($gateway, 'Не добавляй реальные ID, sourcePath, формулы') !== false,
     'prompt requires exact context echo' => strpos($gateway, 'Скопируй context из обязательной схемы без единого изменения') !== false,
     'pilot schema shows branch mode' => strpos($gateway, "'draftId' => 'draft_branch_001', 'title' => '', 'mode' => 'and'") !== false,

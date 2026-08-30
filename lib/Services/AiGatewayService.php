@@ -82,22 +82,29 @@ final class AiGatewayService
             'draftId' => 'draft_global_001', 'kind' => 'variable', 'dataType' => 'boolean',
             'code' => 'needs_lamination', 'title' => '', 'description' => '',
         ]],
-        'catalogFolders' => [[
-            'draftId' => 'draft_folder_001', 'kind' => 'operation', 'title' => '',
-            'description' => '', 'parentDraftId' => null,
-        ]],
-        'catalogObjects' => [[
-            'draftId' => 'draft_object_001', 'kind' => 'operation', 'title' => '', 'description' => '',
-            'folderDraftId' => 'draft_folder_001', 'parentDraftId' => null,
-            'intendedInputs' => [''], 'intendedMappings' => [''],
-        ]],
+        'catalogFolders' => [
+            ['draftId' => 'draft_folder_material_001', 'kind' => 'material', 'title' => '', 'description' => '', 'parentDraftId' => null],
+            ['draftId' => 'draft_folder_operation_001', 'kind' => 'operation', 'title' => '', 'description' => '', 'parentDraftId' => null],
+            ['draftId' => 'draft_folder_equipment_001', 'kind' => 'equipment', 'title' => '', 'description' => '', 'parentDraftId' => null],
+            ['draftId' => 'draft_folder_custom_field_001', 'kind' => 'customField', 'title' => '', 'description' => '', 'parentDraftId' => null],
+            ['draftId' => 'draft_folder_calculator_001', 'kind' => 'calculator', 'title' => '', 'description' => '', 'parentDraftId' => null],
+        ],
+        'catalogObjects' => [
+            ['draftId' => 'draft_material_001', 'kind' => 'material', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_material_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_material_variant_001', 'kind' => 'materialVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_material_001', 'parentDraftId' => 'draft_material_001', 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_001', 'kind' => 'operation', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_variant_001', 'kind' => 'operationVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => 'draft_operation_001', 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_equipment_001', 'kind' => 'equipment', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_equipment_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_custom_field_001', 'kind' => 'customField', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_custom_field_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_calculator_001', 'kind' => 'calculator', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_calculator_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+        ],
         'details' => [[
             'draftId' => 'draft_detail_001', 'kind' => 'detail', 'title' => '',
             'description' => '', 'parentDraftId' => null,
         ]],
         'stages' => [[
             'draftId' => 'draft_stage_001', 'detailDraftId' => 'draft_detail_001',
-            'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_object_001'],
+            'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_material_variant_001', 'draft_operation_variant_001', 'draft_equipment_001', 'draft_custom_field_001', 'draft_calculator_001'],
             'requiresConfiguration' => true,
         ]],
         'groups' => [[
@@ -270,6 +277,7 @@ final class AiGatewayService
                 . json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)
                 . ($zone === 'logic_structure_pilot'
                     ? "\nНе добавляй поля вне схемы. Скопируй context из обязательной схемы без единого изменения: он связывает ответ с конкретным калькулятором и запросом. Используй только стабильные строковые draftId с префиксом draft_. Не добавляй реальные ID, sourcePath, формулы, значения глобальных переменных, цены или физические записи. У каждого condition должна быть ровно одна ветка isElse=true."
+                        . "\nОбязательная полнота профессионального черновика: создай непустые пути material, operation, equipment, customField и calculator; базовые material и operation; их дочерние materialVariant и operationVariant; оборудование; дополнительные поля; и ровно один отдельный calculator для каждого этапа. parentDraftId варианта должен ссылаться на базовый объект своего вида. В catalogDraftIds этапа ссылайся только на конечные объекты — materialVariant, operationVariant, equipment, customField и ровно один calculator; не ссылайся там на базовые material/operation или каталожные пути."
                     : "\nНе добавляй поля вне схемы. Неизвестные числа возвращай как null, неизвестные строки — как пустую строку. "
                         . "В parameters помещай только подтверждённые технические особенности, для которых нет отдельного поля. "
                         . "catalog.weightG означает физическую массу в граммах; catalog.lengthMm, catalog.widthMm и catalog.heightMm — внешние габариты в миллиметрах.");
