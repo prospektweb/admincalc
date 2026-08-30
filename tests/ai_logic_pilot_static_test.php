@@ -28,6 +28,8 @@ $checks = [
     'pilot prompt requires distinct stage calculators and production operations' => strpos($gateway, 'Для каждого этапа создай отдельный calculator, а отдельный operationVariant — для каждого производственного этапа с requiresConfiguration=true') !== false
         && strpos($gateway, 'запрещено ссылать из двух производственных этапов') !== false,
     'pilot prompt forbids catch-all stage entity lists' => strpos($gateway, 'запрещено копировать одинаковый полный catalogDraftIds во все этапы') !== false,
+    'pilot prompt requires granular stage routes' => strpos($gateway, 'Для уровня detailed создай не менее 4 этапов, для professional — не менее 6') !== false
+        && strpos($gateway, 'В одном этапе допустимо не более одного materialVariant, operationVariant, equipment и calculator') !== false,
     'detailed pilot requires concrete candidates' => strpos($gateway, 'Для уровня detailed предлагай конкретные кандидаты каталога') !== false,
     'server rejects low quality pilot topology' => strpos($gateway, 'validatePilotStructureQuality') !== false
         && strpos($gateway, 'не смог построить пригодную производственную структуру') !== false,
