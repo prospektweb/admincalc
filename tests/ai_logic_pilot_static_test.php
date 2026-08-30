@@ -34,8 +34,10 @@ $checks = [
     'pilot prompt requires distinct stage calculators and production operations' => strpos($gateway, 'Для каждого этапа создай отдельный calculator, а отдельный operationVariant — для каждого производственного этапа с requiresConfiguration=true') !== false
         && strpos($gateway, 'запрещено ссылать из двух производственных этапов') !== false,
     'pilot prompt forbids catch-all stage entity lists' => strpos($gateway, 'запрещено копировать одинаковый полный catalogDraftIds во все этапы') !== false,
-    'pilot prompt requires granular stage routes' => strpos($gateway, 'Для уровня detailed создай не менее 4 этапов, для professional — не менее 6') !== false
+    'pilot prompt requires granular stage routes' => strpos($gateway, 'Для уровня detailed создай не менее 6 этапов, для professional — не менее 8') !== false
         && strpos($gateway, 'В одном этапе допустимо не более одного materialVariant, operationVariant, equipment и calculator') !== false,
+    'pilot prompt preserves explicitly requested production stages' => strpos($gateway, 'Все производственные этапы, явно перечисленные администратором в пожеланиях, обязательны') !== false
+        && strpos($gateway, 'В пожеланиях явно указан обязательный этап') !== false,
     'detailed pilot requires conditions and rejects composite stage cards' => strpos($gateway, 'Для detailed и professional создай хотя бы одно condition') !== false
         && strpos($gateway, 'объединяет альтернативные или самостоятельные операции') !== false,
     'detailed pilot requires concrete candidates' => strpos($gateway, 'Для уровня detailed предлагай конкретные кандидаты каталога') !== false,
@@ -139,6 +141,19 @@ if ($bad === []
     || strpos(implode(' ', $bad), 'обобщённое название') === false
     || strpos(implode(' ', $bad), 'Нет конкретных видов материалов') === false) {
     fwrite(STDERR, "Failed: pilot structure quality gate\n");
+    exit(1);
+}
+$coverage = $quality->invoke($service, [
+    'catalogObjects' => [],
+    'stages' => [['draftId' => 'draft_stage_print', 'title' => 'Печать', 'catalogDraftIds' => []]],
+    'groups' => [],
+], 'detailed', 'Подготовка материала, печать, сушка, накатка, натяжка и упаковка.');
+if (strpos(implode(' ', $coverage), '«Подготовка материала»') === false
+    || strpos(implode(' ', $coverage), '«Сушка»') === false
+    || strpos(implode(' ', $coverage), '«Накатка»') === false
+    || strpos(implode(' ', $coverage), '«Натяжка»') === false
+    || strpos(implode(' ', $coverage), '«Упаковка»') === false) {
+    fwrite(STDERR, "Failed: explicit pilot stage coverage gate\n");
     exit(1);
 }
 

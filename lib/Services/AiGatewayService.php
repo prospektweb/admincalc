@@ -304,6 +304,7 @@ final class AiGatewayService
         foreach (self::ZONE_CONTEXT[$zone] as $tag => $contextKey) $tags[$tag] = (string)($context[$contextKey] ?? '');
         $override = trim((string)($request['prompt'] ?? ''));
         $prompt = strtr($override !== '' ? mb_substr($override, 0, 12000) : (string)$template['prompt'], $tags);
+        $pilotBrief = $prompt;
         if (in_array($zone, self::STRUCTURED_ZONES, true)) {
             $schema = $zone === 'equipment_description'
                 ? self::EQUIPMENT_RESPONSE_SCHEMA
@@ -320,7 +321,7 @@ final class AiGatewayService
                 . json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)
                 . ($zone === 'logic_structure_pilot'
                     ? "\nНе добавляй поля вне схемы. Скопируй context из обязательной схемы без единого изменения: он связывает ответ с конкретным калькулятором и запросом. Используй только стабильные строковые draftId с префиксом draft_. Не добавляй реальные ID, sourcePath, формулы, значения глобальных переменных, цены или физические записи. У каждого condition должна быть ровно одна ветка isElse=true."
-                        . "\nСтруктура должна быть технологически правдоподобной, а не демонстрационной. Каждая независимо рассчитываемая производственная операция должна быть отдельным этапом: не объединяй печать, сушку, ламинацию, резку, обработку краёв, монтаж и упаковку в одну карточку. Для уровня detailed создай не менее 4 этапов, для professional — не менее 6. Для каждого этапа создай отдельный calculator, а отдельный operationVariant — для каждого производственного этапа с requiresConfiguration=true; один calculator или operationVariant запрещено ссылать из двух производственных этапов."
+                        . "\nСтруктура должна быть технологически правдоподобной, а не демонстрационной. Каждая независимо рассчитываемая производственная операция должна быть отдельным этапом: не объединяй печать, сушку, ламинацию, резку, обработку краёв, монтаж и упаковку в одну карточку. Для уровня detailed создай не менее 6 этапов, для professional — не менее 8. Все производственные этапы, явно перечисленные администратором в пожеланиях, обязательны: нельзя молча пропускать упаковку, сушку, накатку, натяжку или другую названную операцию. Для каждого этапа создай отдельный calculator, а отдельный operationVariant — для каждого производственного этапа с requiresConfiguration=true; один calculator или operationVariant запрещено ссылать из двух производственных этапов."
                         . "\nВ одном этапе допустимо не более одного materialVariant, operationVariant, equipment и calculator. Альтернативные материалы, оборудование и технологические маршруты разделяй условиями и ветвями с отдельными этапами. Для detailed и professional создай хотя бы одно condition по необязательному или альтернативному значению формы. Не перечисляй несколько самостоятельных операций в названии одной карточки через запятую, косую черту или слово «или». Материал, оборудование и дополнительное поле прикрепляй только к тем этапам, где они действительно используются: запрещено копировать одинаковый полный catalogDraftIds во все этапы."
                         . "\nСоздай непустые пути material, operation, equipment, customField и calculator; базовые material и operation; их дочерние materialVariant и operationVariant; оборудование и необходимые дополнительные поля. parentDraftId варианта должен ссылаться на базовый объект своего вида. В catalogDraftIds этапа ссылайся только на конечные объекты — materialVariant, operationVariant, equipment, customField и ровно один calculator; не ссылайся там на базовые material/operation или каталожные пути."
                         . "\nДля уровня detailed предлагай конкретные кандидаты каталога: назначение, технология, класс/тип, значимые характеристики, а где разумно — производитель, серия, марка или модель. Нельзя называть сущности просто «Материал», «Материал — баннерная сетка», «Операция для производства», «Оборудование» или «Калькулятор этапа». Для уровня professional дополнительно опиши закупочный формат, единицу хранения/поставки, размеры заготовки или рулона и будущий контекст учёта, но не придумывай цену. Для simple допустимы родовые классы; calculator всё равно отдельный для каждого этапа, а operationVariant — для каждого производственного этапа с requiresConfiguration=true."
@@ -348,7 +349,7 @@ final class AiGatewayService
             $decoded['level'] = $pilotLevelCode;
             $decoded['scheme'] = $pilotSchemeCode;
             $decoded = $this->sanitizePilotAcceptanceCopy($decoded);
-            $qualityErrors = $this->validatePilotStructureQuality($decoded, $pilotLevelCode);
+            $qualityErrors = $this->validatePilotStructureQuality($decoded, $pilotLevelCode, $pilotBrief);
             if ($qualityErrors !== []) {
                 $repairResponse = $this->request('POST', '/chat/completions', [
                     'model' => (string)$template['model'],
@@ -369,7 +370,7 @@ final class AiGatewayService
                 $repairDecoded['level'] = $pilotLevelCode;
                 $repairDecoded['scheme'] = $pilotSchemeCode;
                 $decoded = $this->sanitizePilotAcceptanceCopy($repairDecoded);
-                $qualityErrors = $this->validatePilotStructureQuality($decoded, $pilotLevelCode);
+                $qualityErrors = $this->validatePilotStructureQuality($decoded, $pilotLevelCode, $pilotBrief);
                 if ($qualityErrors !== []) {
                     throw new \RuntimeException('AI-пилот не смог построить пригодную производственную структуру: ' . implode(' ', array_slice($qualityErrors, 0, 4)));
                 }
@@ -781,7 +782,7 @@ final class AiGatewayService
     }
 
     /** @return string[] */
-    private function validatePilotStructureQuality(array $draft, string $level): array
+    private function validatePilotStructureQuality(array $draft, string $level, string $operatorBrief = ''): array
     {
         $errors = [];
         $objects = is_array($draft['catalogObjects'] ?? null) ? $draft['catalogObjects'] : [];
@@ -806,8 +807,36 @@ final class AiGatewayService
         $calculatorUsage = [];
         $operationUsage = [];
         $configuredStageCount = 0;
-        $minimumStageCount = $level === 'professional' ? 6 : ($level === 'detailed' ? 4 : 1);
+        $minimumStageCount = $level === 'professional' ? 8 : ($level === 'detailed' ? 6 : 1);
         if (count($stages) < $minimumStageCount) $errors[] = 'Для уровня ' . $level . ' требуется не менее ' . $minimumStageCount . ' технологически раздельных этапов.';
+        if (in_array($level, ['detailed', 'professional'], true) && trim($operatorBrief) !== '') {
+            $stageTitles = array_map(
+                static fn($stage): string => is_array($stage) ? mb_strtolower(trim((string)($stage['title'] ?? ''))) : '',
+                $stages
+            );
+            $requiredStageRules = [
+                ['brief' => '/подготовк\p{L}*\s+материал/ui', 'stage' => '/подготовк\p{L}*\s+материал/ui', 'label' => 'Подготовка материала'],
+                ['brief' => '/печа(?:ть|ти|тн)/ui', 'stage' => '/печа(?:ть|ти|тн)/ui', 'label' => 'Печать'],
+                ['brief' => '/сушк/ui', 'stage' => '/сушк/ui', 'label' => 'Сушка'],
+                ['brief' => '/ламинац/ui', 'stage' => '/ламинац/ui', 'label' => 'Ламинация'],
+                ['brief' => '/(?:резк|раскро)/ui', 'stage' => '/(?:резк|раскро)/ui', 'label' => 'Резка'],
+                ['brief' => '/(?:обработк\p{L}*\s+кра|люверс)/ui', 'stage' => '/(?:обработк\p{L}*\s+кра|люверс)/ui', 'label' => 'Обработка краёв и крепежа'],
+                ['brief' => '/накатк/ui', 'stage' => '/накатк/ui', 'label' => 'Накатка'],
+                ['brief' => '/натяжк/ui', 'stage' => '/натяжк/ui', 'label' => 'Натяжка'],
+                ['brief' => '/упаковк/ui', 'stage' => '/упаковк/ui', 'label' => 'Упаковка'],
+            ];
+            foreach ($requiredStageRules as $rule) {
+                if (!preg_match($rule['brief'], $operatorBrief)) continue;
+                $covered = false;
+                foreach ($stageTitles as $stageTitle) {
+                    if ($stageTitle !== '' && preg_match($rule['stage'], $stageTitle)) {
+                        $covered = true;
+                        break;
+                    }
+                }
+                if (!$covered) $errors[] = 'В пожеланиях явно указан обязательный этап «' . $rule['label'] . '», но отдельной карточки для него нет.';
+            }
+        }
         if (in_array($level, ['detailed', 'professional'], true)) {
             $conditionCount = count(array_filter(is_array($draft['groups'] ?? null) ? $draft['groups'] : [], static fn($group): bool => is_array($group) && ($group['kind'] ?? '') === 'condition'));
             if ($conditionCount < 1) $errors[] = 'Детализированная структура должна содержать хотя бы одно условие с альтернативными ветвями.';
