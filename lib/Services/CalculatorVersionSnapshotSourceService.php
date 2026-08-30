@@ -194,6 +194,12 @@ final class CalculatorVersionSnapshotSourceService
                     $runtimePayload['runtimeConfigSnapshot'] = $runtimeConfigSnapshot;
                     $runtimePayload['preset']['runtimePresetId'] = $sourcePresetId;
                     $runtimePayload['preset']['id'] = $calculatorPresetId;
+                    $runtimePayload = self::projectLockedGraphRuntimePayload(
+                        $runtimePayload,
+                        $graph,
+                        $payload,
+                        $iblockIds
+                    );
                     if (!is_array($runtimePayload['globalSymbols'] ?? null)) {
                         throw new \RuntimeException('Logic runtime global-symbol projection is invalid.', 409);
                     }
@@ -222,6 +228,109 @@ final class CalculatorVersionSnapshotSourceService
             unset($value['workingPresetId'], $value['workingVersionId']);
         }
         return $value;
+    }
+
+    /**
+     * Snapshot capture already owns one authority lock and one exact structural
+     * read. Reuse that read instead of following the preset's denormalized links
+     * a second time through InitPayloadService.
+     *
+     * @param array<string,mixed> $runtimePayload
+     * @param array<string,mixed> $graph
+     * @param array<int,array<string,mixed>> $structuralPayload
+     * @param array<string,int> $iblockIds
+     * @return array<string,mixed>
+     */
+    private static function projectLockedGraphRuntimePayload(
+        array $runtimePayload,
+        array $graph,
+        array $structuralPayload,
+        array $iblockIds
+    ): array {
+        if (!is_array($runtimePayload['preset'] ?? null)) {
+            throw new \RuntimeException('Logic runtime preset projection is invalid.', 409);
+        }
+        if (!is_array($runtimePayload['preset']['properties'] ?? null)) {
+            $runtimePayload['preset']['properties'] = [];
+        }
+        if (!is_array($runtimePayload['elementsStore'] ?? null)) {
+            throw new \RuntimeException('Logic runtime structural store is invalid.', 409);
+        }
+
+        $propertyDefinitions = [
+            'CALC_DETAILS' => 'rootDetailIds',
+            'CALC_STAGES' => 'stageIds',
+            'CALC_SETTINGS' => 'directSettingsIds',
+        ];
+        foreach ($propertyDefinitions as $propertyCode => $graphKey) {
+            $runtimePayload['preset']['properties'][$propertyCode] = self::exactGraphIds($graph, $graphKey);
+        }
+
+        $storeDefinitions = [
+            'CALC_DETAILS' => 'detailIds',
+            'CALC_STAGES' => 'stageIds',
+            'CALC_SETTINGS' => 'settingsIds',
+        ];
+        foreach ($storeDefinitions as $iblockCode => $graphKey) {
+            $expectedIds = self::exactGraphIds($graph, $graphKey);
+            $rows = [];
+            $matchedPayloads = [];
+            foreach ($structuralPayload as $entry) {
+                if ((int)($entry['iblockId'] ?? 0) === (int)($iblockIds[$iblockCode] ?? 0)) {
+                    $matchedPayloads[] = $entry;
+                }
+            }
+
+            if ($expectedIds !== []) {
+                if (count($matchedPayloads) !== 1) {
+                    throw new \RuntimeException(
+                        'Locked logic snapshot has no exact structural payload for ' . $iblockCode . '.',
+                        409
+                    );
+                }
+                $declaredIds = array_values(array_map('intval', (array)($matchedPayloads[0]['ids'] ?? [])));
+                $rows = is_array($matchedPayloads[0]['data'] ?? null) ? $matchedPayloads[0]['data'] : [];
+                $actualIds = [];
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        throw new \RuntimeException('Locked logic structural row is invalid.', 409);
+                    }
+                    $actualIds[] = (int)($row['id'] ?? 0);
+                }
+                if ($declaredIds !== $expectedIds || $actualIds !== $expectedIds) {
+                    throw new \RuntimeException(
+                        'Locked logic graph changed while its runtime snapshot was being captured.',
+                        409
+                    );
+                }
+            } elseif ($matchedPayloads !== []) {
+                throw new \RuntimeException(
+                    'Locked logic snapshot contains an unexpected structural payload for ' . $iblockCode . '.',
+                    409
+                );
+            }
+
+            $runtimePayload['elementsStore'][$iblockCode] = array_values($rows);
+        }
+
+        return $runtimePayload;
+    }
+
+    /** @param array<string,mixed> $graph @return int[] */
+    private static function exactGraphIds(array $graph, string $key): array
+    {
+        if (!is_array($graph[$key] ?? null) || !array_is_list($graph[$key])) {
+            throw new \RuntimeException('Locked logic graph has an invalid ' . $key . ' list.', 409);
+        }
+        $ids = [];
+        foreach ($graph[$key] as $rawId) {
+            $id = (int)$rawId;
+            if ($id <= 0 || isset($ids[$id])) {
+                throw new \RuntimeException('Locked logic graph has invalid or duplicate structural IDs.', 409);
+            }
+            $ids[$id] = true;
+        }
+        return array_map('intval', array_keys($ids));
     }
 
     /**

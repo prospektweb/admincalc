@@ -108,6 +108,78 @@ namespace {
     $assert(($isolatedLogic['workingPresetId'] ?? null) === 54321, 'isolated logic must retain physical working preset');
     $assert(($isolatedLogic['workingVersionId'] ?? null) === 'v_4444444444444444', 'isolated logic must retain owning version');
 
+    $projectLockedGraph = new ReflectionMethod(
+        CalculatorVersionSnapshotSourceService::class,
+        'projectLockedGraphRuntimePayload'
+    );
+    $lockedGraph = [
+        'rootDetailIds' => [10],
+        'detailIds' => [10, 11],
+        'stageIds' => [20, 21],
+        'settingsIds' => [30, 31],
+        'directSettingsIds' => [31],
+    ];
+    $structuralPayload = [
+        ['iblockId' => 1, 'ids' => [54321], 'data' => [['id' => 54321]]],
+        ['iblockId' => 2, 'ids' => [10, 11], 'data' => [['id' => 10], ['id' => 11]]],
+        ['iblockId' => 3, 'ids' => [20, 21], 'data' => [['id' => 20], ['id' => 21]]],
+        ['iblockId' => 4, 'ids' => [30, 31], 'data' => [['id' => 30], ['id' => 31]]],
+    ];
+    $projectedRuntime = $projectLockedGraph->invoke(null, [
+        'preset' => [
+            'id' => 12740,
+            'properties' => [
+                'CALC_DETAILS' => [],
+                'CALC_STAGES' => [],
+                'CALC_SETTINGS' => [],
+            ],
+        ],
+        'elementsStore' => [
+            'CALC_DETAILS' => [],
+            'CALC_STAGES' => [],
+            'CALC_SETTINGS' => [],
+        ],
+    ], $lockedGraph, $structuralPayload, [
+        'CALC_PRESETS' => 1,
+        'CALC_DETAILS' => 2,
+        'CALC_STAGES' => 3,
+        'CALC_SETTINGS' => 4,
+    ]);
+    $assert(
+        ($projectedRuntime['preset']['properties']['CALC_DETAILS'] ?? null) === [10]
+        && ($projectedRuntime['preset']['properties']['CALC_STAGES'] ?? null) === [20, 21]
+        && ($projectedRuntime['preset']['properties']['CALC_SETTINGS'] ?? null) === [31],
+        'snapshot runtime must project preset structural properties from the exact locked graph'
+    );
+    $assert(
+        array_column($projectedRuntime['elementsStore']['CALC_DETAILS'] ?? [], 'id') === [10, 11]
+        && array_column($projectedRuntime['elementsStore']['CALC_STAGES'] ?? [], 'id') === [20, 21]
+        && array_column($projectedRuntime['elementsStore']['CALC_SETTINGS'] ?? [], 'id') === [30, 31],
+        'snapshot runtime must project all locked graph entities from the already loaded structural payload'
+    );
+
+    $incompleteStructuralPayloadRejected = false;
+    try {
+        $brokenPayload = $structuralPayload;
+        $brokenPayload[2]['data'] = [['id' => 20]];
+        $projectLockedGraph->invoke(null, [
+            'preset' => ['id' => 12740, 'properties' => []],
+            'elementsStore' => [],
+        ], $lockedGraph, $brokenPayload, [
+            'CALC_PRESETS' => 1,
+            'CALC_DETAILS' => 2,
+            'CALC_STAGES' => 3,
+            'CALC_SETTINGS' => 4,
+        ]);
+    } catch (RuntimeException $error) {
+        $incompleteStructuralPayloadRejected = $error->getCode() === 409
+            && str_contains($error->getMessage(), 'runtime snapshot');
+    }
+    $assert(
+        $incompleteStructuralPayloadRejected,
+        'snapshot runtime projection must fail closed when a locked graph entity is absent from the structural read'
+    );
+
     $historicalLogic = [
         'graph' => [
             'detailIds' => [10],
