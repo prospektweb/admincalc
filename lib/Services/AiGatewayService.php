@@ -149,15 +149,18 @@ final class AiGatewayService
         ]],
         'groups' => [[
             'draftId' => 'draft_group_001', 'kind' => 'group', 'title' => '', 'description' => '',
-            'parentDraftId' => null, 'stageDraftIds' => ['draft_stage_001', 'draft_stage_002', 'draft_stage_003', 'draft_stage_004', 'draft_stage_005', 'draft_stage_006'], 'branches' => [[
+            'parentDraftId' => null, 'stageDraftIds' => ['draft_stage_001', 'draft_stage_002', 'draft_stage_003', 'draft_stage_006'], 'branches' => [],
+        ], [
+            'draftId' => 'draft_condition_001', 'kind' => 'condition', 'title' => '', 'description' => '',
+            'parentDraftId' => 'draft_group_001', 'stageDraftIds' => [], 'branches' => [[
                 'draftId' => 'draft_branch_001', 'title' => '', 'mode' => 'and',
                 'operands' => [[
                     'kind' => 'variable', 'code' => 'needs_lamination',
                 ]],
-                'stageDraftIds' => ['draft_stage_001'], 'isElse' => false,
+                'stageDraftIds' => ['draft_stage_004'], 'isElse' => false,
             ], [
                 'draftId' => 'draft_branch_else_001', 'title' => '', 'mode' => 'and',
-                'operands' => [], 'stageDraftIds' => [], 'isElse' => true,
+                'operands' => [], 'stageDraftIds' => ['draft_stage_005'], 'isElse' => true,
             ]],
         ]],
     ];
@@ -318,7 +321,7 @@ final class AiGatewayService
                 . ($zone === 'logic_structure_pilot'
                     ? "\nНе добавляй поля вне схемы. Скопируй context из обязательной схемы без единого изменения: он связывает ответ с конкретным калькулятором и запросом. Используй только стабильные строковые draftId с префиксом draft_. Не добавляй реальные ID, sourcePath, формулы, значения глобальных переменных, цены или физические записи. У каждого condition должна быть ровно одна ветка isElse=true."
                         . "\nСтруктура должна быть технологически правдоподобной, а не демонстрационной. Каждая независимо рассчитываемая производственная операция должна быть отдельным этапом: не объединяй печать, сушку, ламинацию, резку, обработку краёв, монтаж и упаковку в одну карточку. Для уровня detailed создай не менее 4 этапов, для professional — не менее 6. Для каждого этапа создай отдельный calculator, а отдельный operationVariant — для каждого производственного этапа с requiresConfiguration=true; один calculator или operationVariant запрещено ссылать из двух производственных этапов."
-                        . "\nВ одном этапе допустимо не более одного materialVariant, operationVariant, equipment и calculator. Альтернативные материалы, оборудование и технологические маршруты разделяй условиями и ветвями с отдельными этапами. Материал, оборудование и дополнительное поле прикрепляй только к тем этапам, где они действительно используются: запрещено копировать одинаковый полный catalogDraftIds во все этапы."
+                        . "\nВ одном этапе допустимо не более одного materialVariant, operationVariant, equipment и calculator. Альтернативные материалы, оборудование и технологические маршруты разделяй условиями и ветвями с отдельными этапами. Для detailed и professional создай хотя бы одно condition по необязательному или альтернативному значению формы. Не перечисляй несколько самостоятельных операций в названии одной карточки через запятую, косую черту или слово «или». Материал, оборудование и дополнительное поле прикрепляй только к тем этапам, где они действительно используются: запрещено копировать одинаковый полный catalogDraftIds во все этапы."
                         . "\nСоздай непустые пути material, operation, equipment, customField и calculator; базовые material и operation; их дочерние materialVariant и operationVariant; оборудование и необходимые дополнительные поля. parentDraftId варианта должен ссылаться на базовый объект своего вида. В catalogDraftIds этапа ссылайся только на конечные объекты — materialVariant, operationVariant, equipment, customField и ровно один calculator; не ссылайся там на базовые material/operation или каталожные пути."
                         . "\nДля уровня detailed предлагай конкретные кандидаты каталога: назначение, технология, класс/тип, значимые характеристики, а где разумно — производитель, серия, марка или модель. Нельзя называть сущности просто «Материал», «Материал — баннерная сетка», «Операция для производства», «Оборудование» или «Калькулятор этапа». Для уровня professional дополнительно опиши закупочный формат, единицу хранения/поставки, размеры заготовки или рулона и будущий контекст учёта, но не придумывай цену. Для simple допустимы родовые классы; calculator всё равно отдельный для каждого этапа, а operationVariant — для каждого производственного этапа с requiresConfiguration=true."
                         . "\nКаждое описание catalogObject должно объяснять назначение объекта, ожидаемые входы и будущие сопоставления. Если точная марка или модель является предположением, явно вынеси это в assumptions; не маскируй догадку под подтверждённый факт."
@@ -805,9 +808,16 @@ final class AiGatewayService
         $configuredStageCount = 0;
         $minimumStageCount = $level === 'professional' ? 6 : ($level === 'detailed' ? 4 : 1);
         if (count($stages) < $minimumStageCount) $errors[] = 'Для уровня ' . $level . ' требуется не менее ' . $minimumStageCount . ' технологически раздельных этапов.';
+        if (in_array($level, ['detailed', 'professional'], true)) {
+            $conditionCount = count(array_filter(is_array($draft['groups'] ?? null) ? $draft['groups'] : [], static fn($group): bool => is_array($group) && ($group['kind'] ?? '') === 'condition'));
+            if ($conditionCount < 1) $errors[] = 'Детализированная структура должна содержать хотя бы одно условие с альтернативными ветвями.';
+        }
         foreach ($stages as $stage) {
             if (!is_array($stage)) continue;
             $stageTitle = trim((string)($stage['title'] ?? '')) ?: 'Без названия';
+            if (in_array($level, ['detailed', 'professional'], true) && preg_match('/[,\/]|\sили\s/ui', $stageTitle)) {
+                $errors[] = 'Этап «' . $stageTitle . '» объединяет альтернативные или самостоятельные операции; разделите их на карточки и ветви.';
+            }
             $refs = is_array($stage['catalogDraftIds'] ?? null) ? $stage['catalogDraftIds'] : [];
             $requiresConfiguration = ($stage['requiresConfiguration'] ?? false) === true;
             if ($requiresConfiguration) $configuredStageCount++;
