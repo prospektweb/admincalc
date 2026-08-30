@@ -38,6 +38,9 @@ $checks = [
         && strpos($gateway, 'В одном этапе допустимо не более одного materialVariant, operationVariant, equipment и calculator') !== false,
     'pilot prompt preserves explicitly requested production stages' => strpos($gateway, 'Все производственные этапы, явно перечисленные администратором в пожеланиях, обязательны') !== false
         && strpos($gateway, 'В пожеланиях явно указан обязательный этап') !== false,
+    'pilot rejects stages hidden outside the kanban topology' => strpos($gateway, 'Каждый созданный этап размести ровно один раз') !== false
+        && strpos($gateway, 'не размещён ни в группе, ни в ветке условия и поэтому не виден в канбане') !== false
+        && strpos($gateway, 'размещён в нескольких маршрутах') !== false,
     'detailed pilot requires conditions and rejects composite stage cards' => strpos($gateway, 'Для detailed и professional создай хотя бы одно condition') !== false
         && strpos($gateway, 'объединяет альтернативные или самостоятельные операции') !== false,
     'detailed pilot requires concrete candidates' => strpos($gateway, 'Для уровня detailed предлагай конкретные кандидаты каталога') !== false,
@@ -154,6 +157,15 @@ if (strpos(implode(' ', $coverage), '«Подготовка материала»
     || strpos(implode(' ', $coverage), '«Натяжка»') === false
     || strpos(implode(' ', $coverage), '«Упаковка»') === false) {
     fwrite(STDERR, "Failed: explicit pilot stage coverage gate\n");
+    exit(1);
+}
+$orphaned = $quality->invoke($service, [
+    'catalogObjects' => [],
+    'stages' => [['draftId' => 'draft_stage_orphan', 'title' => 'Скрытая накатка', 'catalogDraftIds' => []]],
+    'groups' => [['draftId' => 'draft_group', 'kind' => 'group', 'stageDraftIds' => [], 'branches' => []]],
+], 'simple');
+if (strpos(implode(' ', $orphaned), 'не размещён ни в группе, ни в ветке условия') === false) {
+    fwrite(STDERR, "Failed: orphaned pilot stage topology gate\n");
     exit(1);
 }
 

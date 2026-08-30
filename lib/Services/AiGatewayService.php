@@ -322,7 +322,7 @@ final class AiGatewayService
                 . ($zone === 'logic_structure_pilot'
                     ? "\nНе добавляй поля вне схемы. Скопируй context из обязательной схемы без единого изменения: он связывает ответ с конкретным калькулятором и запросом. Используй только стабильные строковые draftId с префиксом draft_. Не добавляй реальные ID, sourcePath, формулы, значения глобальных переменных, цены или физические записи. У каждого condition должна быть ровно одна ветка isElse=true."
                         . "\nСтруктура должна быть технологически правдоподобной, а не демонстрационной. Каждая независимо рассчитываемая производственная операция должна быть отдельным этапом: не объединяй печать, сушку, ламинацию, резку, обработку краёв, монтаж и упаковку в одну карточку. Для уровня detailed создай не менее 6 этапов, для professional — не менее 8. Все производственные этапы, явно перечисленные администратором в пожеланиях, обязательны: нельзя молча пропускать упаковку, сушку, накатку, натяжку или другую названную операцию. Для каждого этапа создай отдельный calculator, а отдельный operationVariant — для каждого производственного этапа с requiresConfiguration=true; один calculator или operationVariant запрещено ссылать из двух производственных этапов."
-                        . "\nВ одном этапе допустимо не более одного materialVariant, operationVariant, equipment и calculator. Альтернативные материалы, оборудование и технологические маршруты разделяй условиями и ветвями с отдельными этапами. Для detailed и professional создай хотя бы одно condition по необязательному или альтернативному значению формы. Не перечисляй несколько самостоятельных операций в названии одной карточки через запятую, косую черту или слово «или». Материал, оборудование и дополнительное поле прикрепляй только к тем этапам, где они действительно используются: запрещено копировать одинаковый полный catalogDraftIds во все этапы."
+                        . "\nВ одном этапе допустимо не более одного materialVariant, operationVariant, equipment и calculator. Каждый созданный этап размести ровно один раз: либо в stageDraftIds обычной группы, либо в stageDraftIds конкретной ветки condition. Этапы-сироты, которые не видны в канбане, и повторное размещение одной карточки в нескольких маршрутах запрещены. Альтернативные материалы, оборудование и технологические маршруты разделяй условиями и ветвями с отдельными этапами. Для detailed и professional создай хотя бы одно condition по необязательному или альтернативному значению формы. Не перечисляй несколько самостоятельных операций в названии одной карточки через запятую, косую черту или слово «или». Материал, оборудование и дополнительное поле прикрепляй только к тем этапам, где они действительно используются: запрещено копировать одинаковый полный catalogDraftIds во все этапы."
                         . "\nСоздай непустые пути material, operation, equipment, customField и calculator; базовые material и operation; их дочерние materialVariant и operationVariant; оборудование и необходимые дополнительные поля. parentDraftId варианта должен ссылаться на базовый объект своего вида. В catalogDraftIds этапа ссылайся только на конечные объекты — materialVariant, operationVariant, equipment, customField и ровно один calculator; не ссылайся там на базовые material/operation или каталожные пути."
                         . "\nДля уровня detailed предлагай конкретные кандидаты каталога: назначение, технология, класс/тип, значимые характеристики, а где разумно — производитель, серия, марка или модель. Нельзя называть сущности просто «Материал», «Материал — баннерная сетка», «Операция для производства», «Оборудование» или «Калькулятор этапа». Для уровня professional дополнительно опиши закупочный формат, единицу хранения/поставки, размеры заготовки или рулона и будущий контекст учёта, но не придумывай цену. Для simple допустимы родовые классы; calculator всё равно отдельный для каждого этапа, а operationVariant — для каждого производственного этапа с requiresConfiguration=true."
                         . "\nКаждое описание catalogObject должно объяснять назначение объекта, ожидаемые входы и будущие сопоставления. Если точная марка или модель является предположением, явно вынеси это в assumptions; не маскируй догадку под подтверждённый факт."
@@ -836,6 +836,30 @@ final class AiGatewayService
                 }
                 if (!$covered) $errors[] = 'В пожеланиях явно указан обязательный этап «' . $rule['label'] . '», но отдельной карточки для него нет.';
             }
+        }
+        $stagePlacementCounts = [];
+        foreach (is_array($draft['groups'] ?? null) ? $draft['groups'] : [] as $group) {
+            if (!is_array($group)) continue;
+            foreach (is_array($group['stageDraftIds'] ?? null) ? $group['stageDraftIds'] : [] as $stageDraftId) {
+                $id = trim((string)$stageDraftId);
+                if ($id !== '') $stagePlacementCounts[$id] = ($stagePlacementCounts[$id] ?? 0) + 1;
+            }
+            foreach (is_array($group['branches'] ?? null) ? $group['branches'] : [] as $branch) {
+                if (!is_array($branch)) continue;
+                foreach (is_array($branch['stageDraftIds'] ?? null) ? $branch['stageDraftIds'] : [] as $stageDraftId) {
+                    $id = trim((string)$stageDraftId);
+                    if ($id !== '') $stagePlacementCounts[$id] = ($stagePlacementCounts[$id] ?? 0) + 1;
+                }
+            }
+        }
+        foreach ($stages as $stage) {
+            if (!is_array($stage)) continue;
+            $stageId = trim((string)($stage['draftId'] ?? ''));
+            if ($stageId === '') continue;
+            $stageTitle = trim((string)($stage['title'] ?? '')) ?: $stageId;
+            $placementCount = $stagePlacementCounts[$stageId] ?? 0;
+            if ($placementCount === 0) $errors[] = 'Этап «' . $stageTitle . '» не размещён ни в группе, ни в ветке условия и поэтому не виден в канбане.';
+            if ($placementCount > 1) $errors[] = 'Этап «' . $stageTitle . '» размещён в нескольких маршрутах; создайте отдельные карточки для альтернатив.';
         }
         if (in_array($level, ['detailed', 'professional'], true)) {
             $conditionCount = count(array_filter(is_array($draft['groups'] ?? null) ? $draft['groups'] : [], static fn($group): bool => is_array($group) && ($group['kind'] ?? '') === 'condition'));
