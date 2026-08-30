@@ -102,7 +102,16 @@ final class AiGatewayService
         ]],
         'groups' => [[
             'draftId' => 'draft_group_001', 'kind' => 'group', 'title' => '', 'description' => '',
-            'parentDraftId' => null, 'stageDraftIds' => ['draft_stage_001'], 'branches' => [],
+            'parentDraftId' => null, 'stageDraftIds' => ['draft_stage_001'], 'branches' => [[
+                'draftId' => 'draft_branch_001', 'title' => '', 'mode' => 'and',
+                'operands' => [[
+                    'kind' => 'variable', 'code' => 'needs_lamination',
+                ]],
+                'stageDraftIds' => ['draft_stage_001'], 'isElse' => false,
+            ], [
+                'draftId' => 'draft_branch_else_001', 'title' => '', 'mode' => 'and',
+                'operands' => [], 'stageDraftIds' => [], 'isElse' => true,
+            ]],
         ]],
     ];
     private const CATALOG_RESPONSE_SCHEMA = [

@@ -12,6 +12,9 @@ $checks = [
     'response echoes request token' => strpos($gateway, "'requestToken' => mb_substr") !== false,
     'prompt forbids real records and formulas' => strpos($gateway, 'Не добавляй реальные ID, sourcePath, формулы') !== false,
     'prompt requires exact context echo' => strpos($gateway, 'Скопируй context из обязательной схемы без единого изменения') !== false,
+    'pilot schema shows branch mode' => strpos($gateway, "'draftId' => 'draft_branch_001', 'title' => '', 'mode' => 'and'") !== false,
+    'pilot schema shows symbolic operands' => strpos($gateway, "'kind' => 'variable', 'code' => 'needs_lamination'") !== false,
+    'pilot schema shows explicit else branch' => strpos($gateway, "'draftId' => 'draft_branch_else_001'") !== false,
 ];
 
 foreach ($checks as $label => $ok) {
