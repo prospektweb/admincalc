@@ -26,6 +26,10 @@ $draft = [
         ['draftId'=>'draft_real_calculator','kind'=>'calculator','title'=>'Реальный калькулятор','description'=>'Замена','folderDraftId'=>'draft_folder_calculator'],
         ['draftId'=>'draft_material','kind'=>'material','title'=>'Баннер','description'=>'Материал','folderDraftId'=>null],
         ['draftId'=>'draft_material_variant','kind'=>'materialVariant','title'=>'Баннер 440','description'=>'Вариант','parentDraftId'=>'draft_material'],
+        ['draftId'=>'draft_operation','kind'=>'operation','title'=>'Печать','description'=>'Операция','folderDraftId'=>null],
+        ['draftId'=>'draft_operation_variant','kind'=>'operationVariant','title'=>'Печать 720 dpi','description'=>'Вид операции','parentDraftId'=>'draft_operation'],
+        ['draftId'=>'draft_equipment','kind'=>'equipment','title'=>'Плоттер','description'=>'Оборудование','folderDraftId'=>null],
+        ['draftId'=>'draft_custom_field','kind'=>'customField','title'=>'Комментарий','description'=>'Дополнительное поле','folderDraftId'=>null],
     ],
     'globals' => [['draftId'=>'draft_global','kind'=>'variable','code'=>'needs_cut','title'=>'Нужна резка','description'=>'Флаг']],
     'details' => [['draftId'=>'draft_detail','kind'=>'detail','title'=>'Изделие','description'=>'Корневая деталь','parentDraftId'=>null]],
@@ -53,6 +57,10 @@ $latestReceipt = ['presetId'=>16488,'versionId'=>$versionId,'manifestHash'=>str_
         'draft_stage'=>['kind'=>'stage','id'=>501],
         'draft_material'=>['kind'=>'material','id'=>301],
         'draft_material_variant'=>['kind'=>'materialVariant','id'=>302],
+        'draft_operation'=>['kind'=>'operation','id'=>303],
+        'draft_operation_variant'=>['kind'=>'operationVariant','id'=>304],
+        'draft_equipment'=>['kind'=>'equipment','id'=>305],
+        'draft_custom_field'=>['kind'=>'customField','id'=>306],
     ], 'reused'=>[], 'replaced'=>['draft_real_calculator'=>['kind'=>'calculator','id'=>202]]];
 $states = [
     101=>['name'=>'Старая папка','description'=>'','parentId'=>0,'properties'=>[]],
@@ -60,6 +68,10 @@ $states = [
     202=>['code'=>'real','name'=>'Существующий калькулятор','description'=>'Не изменять','sectionId'=>999,'properties'=>[]],
     301=>['code'=>'ai_pilot_material_'.substr(hash('sha256','draft_material'),0,16),'name'=>'Баннер','description'=>'Материал','sectionId'=>0,'properties'=>[]],
     302=>['code'=>'ai_pilot_materialvariant_'.substr(hash('sha256','draft_material_variant'),0,16),'name'=>'Баннер 440','description'=>'Вариант','sectionId'=>0,'properties'=>['CML2_LINK'=>0]],
+    303=>['code'=>'ai_pilot_operation_'.substr(hash('sha256','draft_operation'),0,16),'name'=>'Печать','description'=>'Операция','sectionId'=>0,'properties'=>[]],
+    304=>['code'=>'ai_pilot_operationvariant_'.substr(hash('sha256','draft_operation_variant'),0,16),'name'=>'Печать 720 dpi','description'=>'Вид операции','sectionId'=>0,'properties'=>['CML2_LINK'=>303]],
+    305=>['code'=>'ai_pilot_equipment_'.substr(hash('sha256','draft_equipment'),0,16),'name'=>'Плоттер','description'=>'Оборудование','sectionId'=>0,'properties'=>[]],
+    306=>['code'=>'ai_pilot_customfield_'.substr(hash('sha256','draft_custom_field'),0,16),'name'=>'Комментарий','description'=>'Дополнительное поле','sectionId'=>0,'properties'=>[]],
     401=>['code'=>'','name'=>'Изделие','description'=>'Корневая деталь','sectionId'=>0,'properties'=>['CALC_STAGES'=>[]]],
     501=>['code'=>'','name'=>'Печать','description'=>'Этап','sectionId'=>0,'properties'=>[]],
     601=>['code'=>'needs_cut','name'=>'Нужна резка','description'=>'Флаг','sectionId'=>0,'properties'=>[]],
@@ -106,6 +118,23 @@ $request=['presetId'=>16488,'versionId'=>$versionId,'baseCompileHash'=>$baseHash
 $inspection=$service->inspect($request);
 $assert($inspection['healthy']===false && $inspection['blockers']===[],'recoverable broken graph must be reported without blockers');
 $assert($inspection['receipt']['appliedAt']==='2026-08-30T12:00:00Z','latest receipt must win for preset/version');
+$inventoryByDraftId=array_column($inspection['entities'],null,'draftId');
+$assert(($inventoryByDraftId['draft_material']['id']??0)===301
+    && ($inventoryByDraftId['draft_material']['name']??'')==='Баннер'
+    && ($inventoryByDraftId['draft_material']['description']??'')==='Материал'
+    && ($inventoryByDraftId['draft_material']['exists']??false)===true,
+    'readback inventory must expose the actual created material metadata');
+$assert(($inventoryByDraftId['draft_material_variant']['path']??[])===['Баннер','Баннер 440']
+    && ($inventoryByDraftId['draft_material_variant']['source']??'')==='created',
+    'readback inventory must expose variant hierarchy and creation source');
+$assert(($inventoryByDraftId['draft_real_calculator']['id']??0)===202
+    && ($inventoryByDraftId['draft_real_calculator']['name']??'')==='Существующий калькулятор'
+    && ($inventoryByDraftId['draft_real_calculator']['source']??'')==='replaced',
+    'readback inventory must distinguish a real Bitrix replacement from created entities');
+$inventoryKinds=array_values(array_unique(array_column($inspection['entities'],'kind')));
+foreach(['material','materialVariant','operation','operationVariant','equipment','customField','calculator','detail','stage','global','directory'] as $kind){
+    $assert(in_array($kind,$inventoryKinds,true),'readback inventory must expose '.$kind);
+}
 $types=array_values(array_unique(array_column($inspection['operations'],'type')));
 $assert(in_array('metadata',$types,true)&&in_array('section',$types,true)&&in_array('properties',$types,true)&&in_array('append_property',$types,true),'repair plan must cover codes, folders and graph links');
 $assert(in_array('variant_parent',$types,true),'repair plan must use the authoritative SKU parent operation for variants');

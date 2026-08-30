@@ -36,7 +36,12 @@ final class AiLogicPilotRepairService
         $receipt = $this->latestReceipt($context);
         $stored = $this->draft($context, $receipt);
         $plan = $this->buildPlan($context, $bundle, $receipt, $stored);
-        return ['status' => 'ok', 'contract' => self::REPORT_CONTRACT, 'receipt' => $this->publicReceipt($receipt)] + $plan;
+        return [
+            'status' => 'ok',
+            'contract' => self::REPORT_CONTRACT,
+            'receipt' => $this->publicReceipt($receipt),
+            'entities' => $this->inventory($stored, $receipt, (int)($plan['workingPresetId'] ?? 0)),
+        ] + $plan;
     }
 
     /** @return array<string,mixed> */
@@ -422,6 +427,104 @@ final class AiLogicPilotRepairService
         if(!$visible)return false;
         $product=\CCatalogSKU::GetProductInfo($elementId,$variantsIblockId);
         return is_array($product)&&(int)($product['ID']??0)===$parentId;
+    }
+
+    /**
+     * Authoritative post-apply inventory for the acceptance UI. Every row is
+     * read back from Bitrix; a successful receipt alone is not evidence that
+     * the entity still exists or that its metadata is visible.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function inventory(array $stored, array $receipt, int $workingPresetId): array
+    {
+        $draft = is_array($stored['draft'] ?? null) ? $stored['draft'] : [];
+        $decisions = is_array($stored['decisions'] ?? null) ? $stored['decisions'] : [];
+        $approved = static fn(string $draftId): bool => ($decisions[$draftId] ?? 'approved') !== 'rejected';
+        $ids = [];
+        $sources = [];
+        foreach (['created', 'reused', 'replaced'] as $bucket) {
+            foreach (is_array($receipt[$bucket] ?? null) ? $receipt[$bucket] : [] as $draftId => $entry) {
+                $ids[(string)$draftId] = is_array($entry) ? (int)($entry['id'] ?? 0) : (int)$entry;
+                $sources[(string)$draftId] = $bucket === 'created' ? 'created' : ($bucket === 'replaced' ? 'replaced' : 'reused');
+            }
+        }
+
+        $rows = [];
+        $append = static function (string $collection, array $row) use (&$rows, $approved): void {
+            $draftId = trim((string)($row['draftId'] ?? ''));
+            if ($draftId === '' || !$approved($draftId)) return;
+            $kind = $collection === 'catalogFolders' ? 'directory'
+                : ($collection === 'details' ? 'detail'
+                    : ($collection === 'stages' ? 'stage'
+                        : ($collection === 'globals' ? 'global' : (string)($row['kind'] ?? ''))));
+            $parentDraftId = '';
+            if ($collection === 'catalogFolders' || $collection === 'details') {
+                $parentDraftId = trim((string)($row['parentDraftId'] ?? ''));
+            } elseif ($collection === 'catalogObjects') {
+                $parentDraftId = trim((string)($row['parentDraftId'] ?? ''));
+                if ($parentDraftId === '') $parentDraftId = trim((string)($row['folderDraftId'] ?? ''));
+            } elseif ($collection === 'stages') {
+                $parentDraftId = trim((string)($row['detailDraftId'] ?? ''));
+            }
+            $rows[$draftId] = [
+                'draftId' => $draftId,
+                'kind' => $kind,
+                'catalogKind' => $collection === 'catalogFolders' ? (string)($row['kind'] ?? '') : '',
+                'title' => (string)($row['title'] ?? ($row['code'] ?? $draftId)),
+                'description' => (string)($row['description'] ?? ''),
+                'code' => (string)($row['code'] ?? ''),
+                'parentDraftId' => $parentDraftId,
+            ];
+        };
+        foreach (['catalogFolders', 'catalogObjects', 'details', 'stages', 'globals'] as $collection) {
+            foreach (is_array($draft[$collection] ?? null) ? $draft[$collection] : [] as $row) {
+                if (is_array($row)) $append($collection, $row);
+            }
+        }
+
+        $pathFor = static function (string $draftId) use (&$rows): array {
+            $path = [];
+            $visited = [];
+            $cursor = $draftId;
+            while ($cursor !== '' && isset($rows[$cursor]) && !isset($visited[$cursor])) {
+                $visited[$cursor] = true;
+                array_unshift($path, (string)$rows[$cursor]['title']);
+                $cursor = (string)$rows[$cursor]['parentDraftId'];
+            }
+            return $path;
+        };
+
+        $inventory = [];
+        foreach ($rows as $draftId => $row) {
+            $id = (int)($ids[$draftId] ?? 0);
+            if ($row['kind'] === 'global' && $id <= 0 && $workingPresetId > 0) {
+                $id = $this->findGlobalId($workingPresetId, (string)$row['code']);
+            }
+            $spec = [
+                'draftId' => $draftId,
+                'kind' => $row['kind'],
+                'catalogKind' => $row['catalogKind'],
+                'id' => $id,
+                'workingPresetId' => $workingPresetId,
+            ];
+            $state = $id > 0 ? $this->readState($spec) : null;
+            $path = $pathFor($draftId);
+            $actualName = trim((string)($state['name'] ?? ''));
+            if ($actualName !== '' && $path !== []) $path[count($path) - 1] = $actualName;
+            $inventory[] = [
+                'draftId' => $draftId,
+                'kind' => $row['kind'],
+                'catalogKind' => $row['catalogKind'],
+                'id' => $id,
+                'name' => $actualName !== '' ? $actualName : $row['title'],
+                'description' => $state !== null ? (string)($state['description'] ?? '') : $row['description'],
+                'path' => $path,
+                'source' => (string)($sources[$draftId] ?? ($row['kind'] === 'global' ? 'reused' : 'unknown')),
+                'exists' => $state !== null,
+            ];
+        }
+        return $inventory;
     }
 
     private function latestReceipt(array $context): array
