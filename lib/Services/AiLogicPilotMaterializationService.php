@@ -703,35 +703,52 @@ final class AiLogicPilotMaterializationService
     /** Bitrix's SetPropertyValuesEx has no success return, so every AI link is read back. */
     private function setAndVerifyPropertyValues(int $elementId, int $iblockId, array $values): void
     {
-        \CIBlockElement::SetPropertyValuesEx($elementId, $iblockId, $values);
-        $element = \CIBlockElement::GetList([], ['ID' => $elementId, 'IBLOCK_ID' => $iblockId], false, ['nTopCount' => 1], ['ID'])->GetNextElement();
-        if (!$element) throw new \RuntimeException('Сущность исчезла при сохранении связей AI-пилота.', 409);
-        $properties = $element->GetProperties();
         foreach ($values as $code => $expected) {
-            $actual = $properties[$code]['VALUE'] ?? null;
+            $property = $this->propertyDefinition($iblockId, (string)$code);
+            \CIBlockElement::SetPropertyValues($elementId, $iblockId, $expected, (int)$property['ID']);
             $expectedValues = array_values(array_filter(array_map('intval', is_array($expected) ? $expected : [$expected])));
-            $actualValues = array_values(array_filter(array_map('intval', is_array($actual) ? $actual : [$actual])));
+            $actualValues = $this->readPropertyIntValues($elementId, $iblockId, (int)$property['ID']);
             sort($expectedValues); sort($actualValues);
             if ($actualValues !== $expectedValues) throw new \RuntimeException('Bitrix не сохранил связь AI-пилота ' . $code . '.', 409);
         }
     }
 
     /** @return array<string,mixed> */
-    private function skuLinkProperty(int $variantsIblockId, int $parentIblockId): array
+    private function propertyDefinition(int $iblockId, string $code): array
     {
         $property = \CIBlockProperty::GetList(['ID' => 'ASC'], [
-            'IBLOCK_ID' => $variantsIblockId,
-            'CODE' => 'CML2_LINK',
+            'IBLOCK_ID' => $iblockId,
+            'CODE' => $code,
             'ACTIVE' => 'Y',
         ])->Fetch();
-        if (!$property) throw new \RuntimeException('В инфоблоке вариантов не настроена активная SKU-связь CML2_LINK.', 409);
+        if (!$property) throw new \RuntimeException('В инфоблоке не настроено активное свойство ' . $code . '.', 409);
+        return $property;
+    }
+
+    /** @return int[] */
+    private function readPropertyIntValues(int $elementId, int $iblockId, int $propertyId): array
+    {
+        $cursor = \CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc'], ['ID' => $propertyId]);
+        $values = [];
+        while ($property = $cursor->Fetch()) {
+            $value = (int)($property['VALUE'] ?? 0);
+            if ($value > 0) $values[] = $value;
+        }
+        return array_values(array_unique($values));
+    }
+
+    /** @return array<string,mixed> */
+    private function skuLinkProperty(int $variantsIblockId, int $parentIblockId): array
+    {
+        $property = $this->propertyDefinition($variantsIblockId, 'CML2_LINK');
         if ((int)($property['LINK_IBLOCK_ID'] ?? 0) !== $parentIblockId
             || (string)($property['PROPERTY_TYPE'] ?? '') !== 'E'
             || (string)($property['MULTIPLE'] ?? '') !== 'N') {
             throw new \RuntimeException('Свойство CML2_LINK не соответствует одиночной SKU-связи с родительским инфоблоком.', 409);
         }
         $sku = \CCatalogSKU::GetInfoByProductIBlock($parentIblockId);
-        if (!is_array($sku) || (int)($sku['IBLOCK_ID'] ?? 0) !== $variantsIblockId
+        if (!is_array($sku) || (int)($sku['PRODUCT_IBLOCK_ID'] ?? 0) !== $parentIblockId
+            || (int)($sku['IBLOCK_ID'] ?? 0) !== $variantsIblockId
             || (int)($sku['SKU_PROPERTY_ID'] ?? 0) !== (int)$property['ID']) {
             throw new \RuntimeException('Пара инфоблоков вариантов не зарегистрирована с ожидаемым SKU-свойством.', 409);
         }
@@ -753,6 +770,10 @@ final class AiLogicPilotMaterializationService
             'PROPERTY_CML2_LINK' => $expectedParentId,
         ], false, ['nTopCount' => 1], ['ID'])->Fetch();
         if (!$visible) throw new \RuntimeException('Вариант AI-пилота не виден через канонический SKU-фильтр.', 409);
+        $product = \CCatalogSKU::GetProductInfo($elementId, $variantsIblockId);
+        if (!is_array($product) || (int)($product['ID'] ?? 0) !== $expectedParentId) {
+            throw new \RuntimeException('Каталог Bitrix не распознал родительский товар варианта AI-пилота.', 409);
+        }
     }
 
     private function assertSectionReadback(int $id, int $iblockId, int $parentId, string $name, string $description): void

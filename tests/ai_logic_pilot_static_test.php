@@ -47,8 +47,14 @@ $checks += [
         && strpos($repair, 'SetPropertyValues($id,$iblockId') !== false
         && strpos($repair, "'LINK_IBLOCK_ID'") !== false
         && strpos($repair, 'GetInfoByProductIBlock') !== false
+        && strpos($repair, 'GetProductInfo') !== false
+        && strpos($repair, "['PRODUCT_IBLOCK_ID']") !== false
         && strpos($repair, 'readSkuParentId') !== false,
     'future materialization reads every link back' => strpos($materialization, 'setAndVerifyPropertyValues') !== false
+        && strpos($materialization, 'SetPropertyValues($elementId, $iblockId, $expected') !== false
+        && strpos($materialization, 'readPropertyIntValues') !== false
+        && strpos($materialization, 'GetProductInfo') !== false
+        && strpos($materialization, "['PRODUCT_IBLOCK_ID']") !== false
         && strpos($materialization, 'Bitrix не сохранил связь AI-пилота') !== false,
     'historical receipts cannot replay without readback' => strpos($materialization, "['readbackVerified']") !== false
         && strpos($materialization, 'требует проверки и восстановления связей') !== false,
