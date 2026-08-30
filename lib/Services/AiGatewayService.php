@@ -237,10 +237,16 @@ final class AiGatewayService
             $pilotVersionKey = trim((string)($context['versionKey'] ?? ''));
             $pilotBaseCompileHash = strtolower(trim((string)($context['baseCompileHash'] ?? '')));
             $pilotRequestToken = trim((string)($context['requestToken'] ?? ''));
+            $pilotModeCode = trim((string)($context['pilotModeCode'] ?? ''));
+            $pilotLevelCode = trim((string)($context['pilotLevelCode'] ?? ''));
+            $pilotSchemeCode = trim((string)($context['schemeCode'] ?? ''));
             if ($pilotPresetId <= 0 || $pilotVersionKey === '' || strlen($pilotVersionKey) > 180
                 || !preg_match('/^[A-Za-z0-9_.:-]+$/', $pilotVersionKey)
                 || !preg_match('/^[a-f0-9]{64}$/', $pilotBaseCompileHash)
-                || $pilotRequestToken === '' || strlen($pilotRequestToken) > 180) {
+                || $pilotRequestToken === '' || strlen($pilotRequestToken) > 180
+                || !in_array($pilotModeCode, ['create', 'augment', 'replace'], true)
+                || !in_array($pilotLevelCode, ['simple', 'detailed', 'professional'], true)
+                || !in_array($pilotSchemeCode, ['simple', 'complex'], true)) {
                 throw new \InvalidArgumentException('Некорректный контекст AI-пилота структуры.');
             }
         }
@@ -271,6 +277,23 @@ final class AiGatewayService
         $response = $this->request('POST', '/chat/completions', ['model' => (string)$template['model'], 'messages' => [['role' => 'user', 'content' => $prompt]]]);
         $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
         if ($content === '') throw new \RuntimeException('AI Gateway вернул пустой текст');
+        if ($zone === 'logic_structure_pilot') {
+            $json = preg_replace('/^```(?:json)?\s*|\s*```$/iu', '', $content);
+            $decoded = json_decode((string)$json, true);
+            if (!is_array($decoded)) {
+                throw new \RuntimeException('AI Gateway вернул некорректный JSON структуры.');
+            }
+            $decoded['context'] = [
+                'presetId' => $pilotPresetId,
+                'versionKey' => $pilotVersionKey,
+                'baseCompileHash' => $pilotBaseCompileHash,
+                'requestToken' => $pilotRequestToken,
+            ];
+            $decoded['mode'] = $pilotModeCode;
+            $decoded['level'] = $pilotLevelCode;
+            $decoded['scheme'] = $pilotSchemeCode;
+            $content = (string)json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
         return ['status' => 'ok', 'text' => $content, 'zone' => $zone, 'templateId' => $templateId];
     }
 
