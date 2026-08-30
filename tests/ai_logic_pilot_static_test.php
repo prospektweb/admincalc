@@ -25,6 +25,9 @@ $checks = [
         && strpos($gateway, "'draftId' => 'draft_equipment_001', 'kind' => 'equipment'") !== false
         && strpos($gateway, "'draftId' => 'draft_custom_field_001', 'kind' => 'customField'") !== false
         && strpos($gateway, "'draftId' => 'draft_calculator_001', 'kind' => 'calculator'") !== false,
+    'pilot schema demonstrates a granular six-stage production route' => strpos($gateway, "'draftId' => 'draft_stage_006'") !== false
+        && strpos($gateway, "'draftId' => 'draft_operation_variant_006'") !== false
+        && strpos($gateway, "'draftId' => 'draft_calculator_006'") !== false,
     'pilot prompt requires distinct stage calculators and production operations' => strpos($gateway, 'Для каждого этапа создай отдельный calculator, а отдельный operationVariant — для каждого производственного этапа с requiresConfiguration=true') !== false
         && strpos($gateway, 'запрещено ссылать из двух производственных этапов') !== false,
     'pilot prompt forbids catch-all stage entity lists' => strpos($gateway, 'запрещено копировать одинаковый полный catalogDraftIds во все этапы') !== false,

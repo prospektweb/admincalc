@@ -92,13 +92,31 @@ final class AiGatewayService
         'catalogObjects' => [
             ['draftId' => 'draft_material_001', 'kind' => 'material', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_material_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_material_variant_001', 'kind' => 'materialVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_material_001', 'parentDraftId' => 'draft_material_001', 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_material_002', 'kind' => 'material', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_material_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_material_variant_002', 'kind' => 'materialVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_material_001', 'parentDraftId' => 'draft_material_002', 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_operation_001', 'kind' => 'operation', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_operation_variant_001', 'kind' => 'operationVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => 'draft_operation_001', 'intendedInputs' => [''], 'intendedMappings' => ['']],
-            ['draftId' => 'draft_operation_variant_002', 'kind' => 'operationVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => 'draft_operation_001', 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_002', 'kind' => 'operation', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_variant_002', 'kind' => 'operationVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => 'draft_operation_002', 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_003', 'kind' => 'operation', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_variant_003', 'kind' => 'operationVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => 'draft_operation_003', 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_004', 'kind' => 'operation', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_variant_004', 'kind' => 'operationVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => 'draft_operation_004', 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_005', 'kind' => 'operation', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_variant_005', 'kind' => 'operationVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => 'draft_operation_005', 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_006', 'kind' => 'operation', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_variant_006', 'kind' => 'operationVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => 'draft_operation_006', 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_equipment_001', 'kind' => 'equipment', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_equipment_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_equipment_002', 'kind' => 'equipment', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_equipment_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_equipment_003', 'kind' => 'equipment', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_equipment_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_equipment_004', 'kind' => 'equipment', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_equipment_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_custom_field_001', 'kind' => 'customField', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_custom_field_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_calculator_001', 'kind' => 'calculator', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_calculator_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_calculator_002', 'kind' => 'calculator', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_calculator_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_calculator_003', 'kind' => 'calculator', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_calculator_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_calculator_004', 'kind' => 'calculator', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_calculator_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_calculator_005', 'kind' => 'calculator', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_calculator_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_calculator_006', 'kind' => 'calculator', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_calculator_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
         ],
         'details' => [[
             'draftId' => 'draft_detail_001', 'kind' => 'detail', 'title' => '',
@@ -110,12 +128,28 @@ final class AiGatewayService
             'requiresConfiguration' => true,
         ], [
             'draftId' => 'draft_stage_002', 'detailDraftId' => 'draft_detail_001',
-            'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_operation_variant_002', 'draft_calculator_002'],
+            'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_operation_variant_002', 'draft_equipment_002', 'draft_calculator_002'],
+            'requiresConfiguration' => true,
+        ], [
+            'draftId' => 'draft_stage_003', 'detailDraftId' => 'draft_detail_001',
+            'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_material_variant_002', 'draft_operation_variant_003', 'draft_equipment_003', 'draft_calculator_003'],
+            'requiresConfiguration' => true,
+        ], [
+            'draftId' => 'draft_stage_004', 'detailDraftId' => 'draft_detail_001',
+            'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_operation_variant_004', 'draft_equipment_004', 'draft_calculator_004'],
+            'requiresConfiguration' => true,
+        ], [
+            'draftId' => 'draft_stage_005', 'detailDraftId' => 'draft_detail_001',
+            'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_operation_variant_005', 'draft_calculator_005'],
+            'requiresConfiguration' => true,
+        ], [
+            'draftId' => 'draft_stage_006', 'detailDraftId' => 'draft_detail_001',
+            'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_operation_variant_006', 'draft_calculator_006'],
             'requiresConfiguration' => true,
         ]],
         'groups' => [[
             'draftId' => 'draft_group_001', 'kind' => 'group', 'title' => '', 'description' => '',
-            'parentDraftId' => null, 'stageDraftIds' => ['draft_stage_001', 'draft_stage_002'], 'branches' => [[
+            'parentDraftId' => null, 'stageDraftIds' => ['draft_stage_001', 'draft_stage_002', 'draft_stage_003', 'draft_stage_004', 'draft_stage_005', 'draft_stage_006'], 'branches' => [[
                 'draftId' => 'draft_branch_001', 'title' => '', 'mode' => 'and',
                 'operands' => [[
                     'kind' => 'variable', 'code' => 'needs_lamination',
