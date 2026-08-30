@@ -277,18 +277,32 @@ final class AiLogicPilotMaterializationService
         }
         $catalogKindByDraftId = [];
         foreach ($groups as $kind => $rows) foreach ($rows as $row) $catalogKindByDraftId[(string)$row['draftId']] = $kind;
+        $stageCalculatorUsage = [];
+        $stageOperationUsage = [];
         foreach ($structure['stages'] as $item) {
             $stageName = (string)($item['data']['title'] ?? $item['draftId']);
             $refs = is_array($item['data']['catalogDraftIds'] ?? null) ? $item['data']['catalogDraftIds'] : [];
             $calculatorCount = count(array_filter($refs, static fn($ref): bool => ($catalogKindByDraftId[(string)$ref] ?? '') === 'calculator'));
             if ($calculatorCount !== 1) $blockers[] = 'Этап «' . $stageName . '» должен иметь ровно один утверждённый калькулятор логики.';
+            $kindCounts = [];
             foreach ($refs as $ref) {
                 $kind = $catalogKindByDraftId[(string)$ref] ?? '';
+                $kindCounts[$kind] = ($kindCounts[$kind] ?? 0) + 1;
+                if ($kind === 'calculator') $stageCalculatorUsage[(string)$ref][] = $stageName;
+                if ($kind === 'operationVariant' && (($item['data']['requiresConfiguration'] ?? false) === true)) $stageOperationUsage[(string)$ref][] = $stageName;
                 if (!in_array($kind, ['materialVariant', 'operationVariant', 'equipment', 'customField', 'calculator'], true)) {
                     $blockers[] = 'Этап «' . $stageName . '» должен ссылаться на вид материала/операции, оборудование и калькулятор, а не на базовый объект или путь.';
                 }
             }
+            foreach (['materialVariant', 'operationVariant', 'equipment', 'calculator'] as $scalarKind) {
+                if (($kindCounts[$scalarKind] ?? 0) > 1) $blockers[] = 'Этап «' . $stageName . '» содержит несколько одиночных связей типа ' . $scalarKind . '.';
+            }
+            if (($item['data']['requiresConfiguration'] ?? false) === true && ($kindCounts['operationVariant'] ?? 0) < 1) {
+                $blockers[] = 'Производственный этап «' . $stageName . '» должен иметь собственный вид операции.';
+            }
         }
+        foreach ($stageCalculatorUsage as $usedBy) if (count($usedBy) > 1) $blockers[] = 'Один калькулятор нельзя использовать в нескольких этапах: ' . implode(', ', $usedBy) . '.';
+        foreach ($stageOperationUsage as $usedBy) if (count($usedBy) > 1) $blockers[] = 'Один вид операции нельзя использовать как универсальный для нескольких производственных этапов: ' . implode(', ', $usedBy) . '.';
         foreach ($decisions as $draftId => $_decision) if (!isset($knownDecisionIds[(string)$draftId])) $blockers[] = 'Решение относится к неизвестному объекту ' . $draftId . '.';
         foreach ($replacements as $id => $_replacement) if (!isset($all[$id])) $blockers[] = 'Замена относится к неизвестному объекту ' . $id . '.';
         if ($replacements !== []) {
@@ -325,6 +339,20 @@ final class AiLogicPilotMaterializationService
                     $blockers[] = 'Реальный объект замены для ' . $draftId . ' изменился.';
                 }
             }
+            $effectiveCalculatorUsage = [];
+            $effectiveOperationUsage = [];
+            foreach ($structure['stages'] as $item) {
+                $stageName = (string)($item['data']['title'] ?? $item['draftId']);
+                foreach (is_array($item['data']['catalogDraftIds'] ?? null) ? $item['data']['catalogDraftIds'] : [] as $ref) {
+                    $kind = $catalogKindByDraftId[(string)$ref] ?? '';
+                    $replacement = $replacements[(string)$ref] ?? null;
+                    $identity = is_array($replacement) ? 'real:' . (int)($replacement['realId'] ?? 0) : 'draft:' . (string)$ref;
+                    if ($kind === 'calculator') $effectiveCalculatorUsage[$identity][] = $stageName;
+                    if ($kind === 'operationVariant' && (($item['data']['requiresConfiguration'] ?? false) === true)) $effectiveOperationUsage[$identity][] = $stageName;
+                }
+            }
+            foreach ($effectiveCalculatorUsage as $usedBy) if (count($usedBy) > 1) $blockers[] = 'После подстановок один реальный калькулятор используется в нескольких этапах: ' . implode(', ', $usedBy) . '.';
+            foreach ($effectiveOperationUsage as $usedBy) if (count($usedBy) > 1) $blockers[] = 'После подстановок один реальный вид операции используется в нескольких производственных этапах: ' . implode(', ', $usedBy) . '.';
         }
         $counts = [];
         foreach ($groups as $kind => $rows) $counts[$kind] = count($rows);
@@ -590,13 +618,7 @@ final class AiLogicPilotMaterializationService
                     'NAME'=>(string)$row['title'], 'CODE'=>$this->elementCode('stage', (string)$item['draftId']),
                     'PREVIEW_TEXT'=>(string)($row['description']??''), 'IBLOCK_SECTION_ID'=>0,
                 ]);
-                $properties = [];
-                foreach (is_array($row['catalogDraftIds'] ?? null) ? $row['catalogDraftIds'] : [] as $catalogDraftId) {
-                    $catalogKind = null;
-                    foreach ($manifest['groups'] as $kind => $catalogRows) foreach ($catalogRows as $catalogRow) if ($catalogRow['draftId'] === $catalogDraftId) $catalogKind = $kind;
-                    $property = ['calculator'=>'CALC_SETTINGS','materialVariant'=>'MATERIAL_VARIANT','operationVariant'=>'OPERATION_VARIANT','equipment'=>'EQUIPMENT'][$catalogKind] ?? null;
-                    if ($property && isset($ids[$catalogDraftId])) $properties[$property] = $ids[$catalogDraftId];
-                }
+                $properties = $this->buildStagePropertyValues($row, $manifest, $ids);
                 if ($properties) $this->setAndVerifyPropertyValues($id, $iblockId, $properties);
                 $ids[$item['draftId']] = $id; $created[$item['draftId']] = ['kind' => 'stage', 'id' => $id];
             }
@@ -659,6 +681,34 @@ final class AiLogicPilotMaterializationService
             }
             return ['created' => $created, 'reused' => $reused, 'replaced' => $replaced];
         });
+    }
+
+    private function buildStagePropertyValues(array $stage, array $manifest, array $ids): array
+    {
+        $properties = [];
+        $customFields = [];
+        $propertyByKind = ['calculator'=>'CALC_SETTINGS','materialVariant'=>'MATERIAL_VARIANT','operationVariant'=>'OPERATION_VARIANT','equipment'=>'EQUIPMENT'];
+        $kindByDraftId = [];
+        foreach (is_array($manifest['groups'] ?? null) ? $manifest['groups'] : [] as $kind => $rows) {
+            foreach (is_array($rows) ? $rows : [] as $row) $kindByDraftId[(string)($row['draftId'] ?? '')] = (string)$kind;
+        }
+        foreach (is_array($stage['catalogDraftIds'] ?? null) ? $stage['catalogDraftIds'] : [] as $catalogDraftId) {
+            $catalogDraftId = (string)$catalogDraftId;
+            if (!isset($ids[$catalogDraftId])) continue;
+            $kind = $kindByDraftId[$catalogDraftId] ?? '';
+            if ($kind === 'customField') {
+                $customFields[] = (int)$ids[$catalogDraftId];
+                continue;
+            }
+            $property = $propertyByKind[$kind] ?? null;
+            if ($property === null) continue;
+            if (isset($properties[$property]) && (int)$properties[$property] !== (int)$ids[$catalogDraftId]) {
+                throw new \RuntimeException('Этап содержит несколько значений одиночной связи ' . $property . '.', 409);
+            }
+            $properties[$property] = (int)$ids[$catalogDraftId];
+        }
+        if ($customFields !== []) $properties['CUSTOM_FIELDS'] = array_values(array_unique($customFields));
+        return $properties;
     }
 
     private function receiptGet(string $key): ?array

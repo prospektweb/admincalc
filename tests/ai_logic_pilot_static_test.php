@@ -25,7 +25,14 @@ $checks = [
         && strpos($gateway, "'draftId' => 'draft_equipment_001', 'kind' => 'equipment'") !== false
         && strpos($gateway, "'draftId' => 'draft_custom_field_001', 'kind' => 'customField'") !== false
         && strpos($gateway, "'draftId' => 'draft_calculator_001', 'kind' => 'calculator'") !== false,
-    'pilot prompt requires one calculator per stage' => strpos($gateway, 'ровно один отдельный calculator для каждого этапа') !== false,
+    'pilot prompt requires distinct stage calculators and operations' => strpos($gateway, 'Для каждого этапа создай отдельный calculator и отдельный operationVariant') !== false
+        && strpos($gateway, 'запрещено ссылать из двух этапов') !== false,
+    'pilot prompt forbids catch-all stage entity lists' => strpos($gateway, 'запрещено копировать одинаковый полный catalogDraftIds во все этапы') !== false,
+    'detailed pilot requires concrete candidates' => strpos($gateway, 'Для уровня detailed предлагай конкретные кандидаты каталога') !== false,
+    'server rejects low quality pilot topology' => strpos($gateway, 'validatePilotStructureQuality') !== false
+        && strpos($gateway, 'не смог построить пригодную производственную структуру') !== false,
+    'server retries one bounded topology repair' => strpos($gateway, 'Ответ не проходит обязательную проверку производственной структуры') !== false
+        && strpos($gateway, 'AI-пилот не смог построить пригодную производственную структуру') !== false,
     'pilot prompt forbids base objects in stage links' => strpos($gateway, 'не ссылайся там на базовые material/operation') !== false,
     'prompt forbids real records and formulas' => strpos($gateway, 'Не добавляй реальные ID, sourcePath, формулы') !== false,
     'prompt requires exact context echo' => strpos($gateway, 'Скопируй context из обязательной схемы без единого изменения') !== false,
@@ -101,6 +108,25 @@ if (($clean['summary'] ?? '') !== 'Каталог под-калькулятор�
     || ($clean['catalogObjects'][0]['description'] ?? '') !== 'Операция печати, ожидающая входы.'
     || ($clean['catalogObjects'][0]['draftId'] ?? '') !== 'draft_operation_print') {
     fwrite(STDERR, "Failed: acceptance copy sanitizer\n");
+    exit(1);
+}
+
+$quality = new ReflectionMethod($service, 'validatePilotStructureQuality');
+$bad = $quality->invoke($service, [
+    'catalogObjects' => [
+        ['draftId' => 'draft_operation_1', 'kind' => 'operationVariant', 'title' => 'Операция для производства', 'description' => ''],
+        ['draftId' => 'draft_calculator_1', 'kind' => 'calculator', 'title' => 'Калькулятор этапа', 'description' => ''],
+    ],
+    'stages' => [
+        ['title' => 'Печать', 'catalogDraftIds' => ['draft_operation_1', 'draft_calculator_1']],
+        ['title' => 'Резка', 'catalogDraftIds' => ['draft_operation_1', 'draft_calculator_1']],
+    ],
+], 'detailed');
+if ($bad === []
+    || strpos(implode(' ', $bad), 'нескольких этапах') === false
+    || strpos(implode(' ', $bad), 'обобщённое название') === false
+    || strpos(implode(' ', $bad), 'Нет конкретных видов материалов') === false) {
+    fwrite(STDERR, "Failed: pilot structure quality gate\n");
     exit(1);
 }
 

@@ -94,9 +94,11 @@ final class AiGatewayService
             ['draftId' => 'draft_material_variant_001', 'kind' => 'materialVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_material_001', 'parentDraftId' => 'draft_material_001', 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_operation_001', 'kind' => 'operation', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_operation_variant_001', 'kind' => 'operationVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => 'draft_operation_001', 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_operation_variant_002', 'kind' => 'operationVariant', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_operation_001', 'parentDraftId' => 'draft_operation_001', 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_equipment_001', 'kind' => 'equipment', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_equipment_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_custom_field_001', 'kind' => 'customField', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_custom_field_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
             ['draftId' => 'draft_calculator_001', 'kind' => 'calculator', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_calculator_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
+            ['draftId' => 'draft_calculator_002', 'kind' => 'calculator', 'title' => '', 'description' => '', 'folderDraftId' => 'draft_folder_calculator_001', 'parentDraftId' => null, 'intendedInputs' => [''], 'intendedMappings' => ['']],
         ],
         'details' => [[
             'draftId' => 'draft_detail_001', 'kind' => 'detail', 'title' => '',
@@ -106,10 +108,14 @@ final class AiGatewayService
             'draftId' => 'draft_stage_001', 'detailDraftId' => 'draft_detail_001',
             'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_material_variant_001', 'draft_operation_variant_001', 'draft_equipment_001', 'draft_custom_field_001', 'draft_calculator_001'],
             'requiresConfiguration' => true,
+        ], [
+            'draftId' => 'draft_stage_002', 'detailDraftId' => 'draft_detail_001',
+            'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_operation_variant_002', 'draft_calculator_002'],
+            'requiresConfiguration' => true,
         ]],
         'groups' => [[
             'draftId' => 'draft_group_001', 'kind' => 'group', 'title' => '', 'description' => '',
-            'parentDraftId' => null, 'stageDraftIds' => ['draft_stage_001'], 'branches' => [[
+            'parentDraftId' => null, 'stageDraftIds' => ['draft_stage_001', 'draft_stage_002'], 'branches' => [[
                 'draftId' => 'draft_branch_001', 'title' => '', 'mode' => 'and',
                 'operands' => [[
                     'kind' => 'variable', 'code' => 'needs_lamination',
@@ -277,7 +283,10 @@ final class AiGatewayService
                 . json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)
                 . ($zone === 'logic_structure_pilot'
                     ? "\nНе добавляй поля вне схемы. Скопируй context из обязательной схемы без единого изменения: он связывает ответ с конкретным калькулятором и запросом. Используй только стабильные строковые draftId с префиксом draft_. Не добавляй реальные ID, sourcePath, формулы, значения глобальных переменных, цены или физические записи. У каждого condition должна быть ровно одна ветка isElse=true."
-                        . "\nОбязательная полнота профессионального черновика: создай непустые пути material, operation, equipment, customField и calculator; базовые material и operation; их дочерние materialVariant и operationVariant; оборудование; дополнительные поля; и ровно один отдельный calculator для каждого этапа. parentDraftId варианта должен ссылаться на базовый объект своего вида. В catalogDraftIds этапа ссылайся только на конечные объекты — materialVariant, operationVariant, equipment, customField и ровно один calculator; не ссылайся там на базовые material/operation или каталожные пути."
+                        . "\nСтруктура должна быть технологически правдоподобной, а не демонстрационной. Для каждого этапа создай отдельный calculator и отдельный operationVariant; один calculator или operationVariant запрещено ссылать из двух этапов. Материал, оборудование и дополнительное поле прикрепляй только к тем этапам, где они действительно используются: запрещено копировать одинаковый полный catalogDraftIds во все этапы."
+                        . "\nСоздай непустые пути material, operation, equipment, customField и calculator; базовые material и operation; их дочерние materialVariant и operationVariant; оборудование и необходимые дополнительные поля. parentDraftId варианта должен ссылаться на базовый объект своего вида. В catalogDraftIds этапа ссылайся только на конечные объекты — materialVariant, operationVariant, equipment, customField и ровно один calculator; не ссылайся там на базовые material/operation или каталожные пути."
+                        . "\nДля уровня detailed предлагай конкретные кандидаты каталога: назначение, технология, класс/тип, значимые характеристики, а где разумно — производитель, серия, марка или модель. Нельзя называть сущности просто «Материал», «Материал — баннерная сетка», «Операция для производства», «Оборудование» или «Калькулятор этапа». Для уровня professional дополнительно опиши закупочный формат, единицу хранения/поставки, размеры заготовки или рулона и будущий контекст учёта, но не придумывай цену. Для simple допустимы родовые классы, однако калькулятор и операция всё равно отдельные для каждого этапа."
+                        . "\nКаждое описание catalogObject должно объяснять назначение объекта, ожидаемые входы и будущие сопоставления. Если точная марка или модель является предположением, явно вынеси это в assumptions; не маскируй догадку под подтверждённый факт."
                     : "\nНе добавляй поля вне схемы. Неизвестные числа возвращай как null, неизвестные строки — как пустую строку. "
                         . "В parameters помещай только подтверждённые технические особенности, для которых нет отдельного поля. "
                         . "catalog.weightG означает физическую массу в граммах; catalog.lengthMm, catalog.widthMm и catalog.heightMm — внешние габариты в миллиметрах.");
@@ -301,6 +310,32 @@ final class AiGatewayService
             $decoded['level'] = $pilotLevelCode;
             $decoded['scheme'] = $pilotSchemeCode;
             $decoded = $this->sanitizePilotAcceptanceCopy($decoded);
+            $qualityErrors = $this->validatePilotStructureQuality($decoded, $pilotLevelCode);
+            if ($qualityErrors !== []) {
+                $repairResponse = $this->request('POST', '/chat/completions', [
+                    'model' => (string)$template['model'],
+                    'messages' => [
+                        ['role' => 'user', 'content' => $prompt],
+                        ['role' => 'assistant', 'content' => $content],
+                        ['role' => 'user', 'content' => "Ответ не проходит обязательную проверку производственной структуры:\n- "
+                            . implode("\n- ", array_slice($qualityErrors, 0, 12))
+                            . "\nВерни заново полный JSON по той же схеме. Исправь все перечисленные дефекты; не сокращай структуру и не добавляй пояснения вне JSON."],
+                    ],
+                ]);
+                $repairContent = trim((string)($repairResponse['choices'][0]['message']['content'] ?? ''));
+                $repairJson = preg_replace('/^```(?:json)?\s*|\s*```$/iu', '', $repairContent);
+                $repairDecoded = json_decode((string)$repairJson, true);
+                if (!is_array($repairDecoded)) throw new \RuntimeException('AI Gateway не смог исправить JSON структуры.');
+                $repairDecoded['context'] = $decoded['context'];
+                $repairDecoded['mode'] = $pilotModeCode;
+                $repairDecoded['level'] = $pilotLevelCode;
+                $repairDecoded['scheme'] = $pilotSchemeCode;
+                $decoded = $this->sanitizePilotAcceptanceCopy($repairDecoded);
+                $qualityErrors = $this->validatePilotStructureQuality($decoded, $pilotLevelCode);
+                if ($qualityErrors !== []) {
+                    throw new \RuntimeException('AI-пилот не смог построить пригодную производственную структуру: ' . implode(' ', array_slice($qualityErrors, 0, 4)));
+                }
+            }
             $content = (string)json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
         return ['status' => 'ok', 'text' => $content, 'zone' => $zone, 'templateId' => $templateId];
@@ -705,6 +740,63 @@ final class AiGatewayService
         };
 
         return $walk($draft);
+    }
+
+    /** @return string[] */
+    private function validatePilotStructureQuality(array $draft, string $level): array
+    {
+        $errors = [];
+        $objects = is_array($draft['catalogObjects'] ?? null) ? $draft['catalogObjects'] : [];
+        $stages = is_array($draft['stages'] ?? null) ? $draft['stages'] : [];
+        $byId = [];
+        $kindCounts = [];
+        foreach ($objects as $object) {
+            if (!is_array($object)) continue;
+            $id = trim((string)($object['draftId'] ?? ''));
+            $kind = trim((string)($object['kind'] ?? ''));
+            if ($id !== '') $byId[$id] = $object;
+            $kindCounts[$kind] = ($kindCounts[$kind] ?? 0) + 1;
+            if (in_array($level, ['detailed', 'professional'], true)) {
+                $title = trim((string)($object['title'] ?? ''));
+                $description = trim((string)($object['description'] ?? ''));
+                if ($description === '') $errors[] = 'Для объекта «' . ($title !== '' ? $title : $id) . '» отсутствует описание.';
+                if (preg_match('/^(?:материал|вид материала|операция|вид операции|оборудование|дополнительное поле|калькулятор)(?:\s*[-—:])?(?:\s+(?:для|этапа|широкоформатн|производственн).*)?$/ui', $title)) {
+                    $errors[] = 'Объект «' . $title . '» имеет обобщённое название.';
+                }
+            }
+        }
+        $calculatorUsage = [];
+        $operationUsage = [];
+        $configuredStageCount = 0;
+        foreach ($stages as $stage) {
+            if (!is_array($stage)) continue;
+            $stageTitle = trim((string)($stage['title'] ?? '')) ?: 'Без названия';
+            $refs = is_array($stage['catalogDraftIds'] ?? null) ? $stage['catalogDraftIds'] : [];
+            $requiresConfiguration = ($stage['requiresConfiguration'] ?? false) === true;
+            if ($requiresConfiguration) $configuredStageCount++;
+            $calculators = [];
+            $operations = [];
+            foreach ($refs as $ref) {
+                $object = $byId[(string)$ref] ?? null;
+                $kind = is_array($object) ? (string)($object['kind'] ?? '') : '';
+                if ($kind === 'calculator') $calculators[] = (string)$ref;
+                if ($kind === 'operationVariant') $operations[] = (string)$ref;
+                if ($kind === 'material' || $kind === 'operation') $errors[] = 'Этап «' . $stageTitle . '» ссылается на базовый объект вместо его вида.';
+            }
+            if (count($calculators) !== 1) $errors[] = 'Этап «' . $stageTitle . '» должен иметь ровно один собственный калькулятор.';
+            if ($requiresConfiguration && $operations === []) $errors[] = 'Производственный этап «' . $stageTitle . '» должен иметь собственный вид операции.';
+            foreach ($calculators as $id) $calculatorUsage[$id][] = $stageTitle;
+            foreach ($operations as $id) $operationUsage[$id][] = $stageTitle;
+        }
+        foreach ($calculatorUsage as $id => $usedBy) if (count($usedBy) > 1) $errors[] = 'Один калькулятор нельзя использовать в нескольких этапах: ' . implode(', ', $usedBy) . '.';
+        foreach ($operationUsage as $id => $usedBy) if (count($usedBy) > 1) $errors[] = 'Один вид операции нельзя использовать как универсальный для нескольких этапов: ' . implode(', ', $usedBy) . '.';
+        if (in_array($level, ['detailed', 'professional'], true)) {
+            if (($kindCounts['materialVariant'] ?? 0) < 1) $errors[] = 'Нет конкретных видов материалов.';
+            if (($kindCounts['equipment'] ?? 0) < 1) $errors[] = 'Нет конкретного оборудования.';
+            if (($kindCounts['calculator'] ?? 0) < count($stages)) $errors[] = 'Калькуляторов меньше, чем этапов.';
+            if (($kindCounts['operationVariant'] ?? 0) < $configuredStageCount) $errors[] = 'Видов операций меньше, чем производственных этапов.';
+        }
+        return array_values(array_unique($errors));
     }
 
     private function sanitizeTemplates(array $templates): array

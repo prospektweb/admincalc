@@ -29,7 +29,7 @@ $draft = [
     ],
     'globals' => [['draftId' => 'draft_global', 'kind' => 'variable', 'dataType' => 'boolean', 'code' => 'needs_cut', 'title' => 'Нужна резка', 'description' => 'Глобальное значение']],
     'details' => [['draftId' => 'draft_detail', 'kind' => 'detail', 'title' => 'Изделие', 'description' => 'Деталь', 'parentDraftId' => null]],
-    'stages' => [['draftId' => 'draft_stage', 'detailDraftId' => 'draft_detail', 'title' => 'Печать', 'description' => 'Этап', 'catalogDraftIds' => ['draft_calculator', 'draft_material_variant', 'draft_operation_variant', 'draft_equipment'], 'requiresConfiguration' => true]],
+    'stages' => [['draftId' => 'draft_stage', 'detailDraftId' => 'draft_detail', 'title' => 'Печать', 'description' => 'Этап', 'catalogDraftIds' => ['draft_calculator', 'draft_material_variant', 'draft_operation_variant', 'draft_equipment', 'draft_custom_field'], 'requiresConfiguration' => true]],
     'groups' => [],
 ];
 $bundle = ['contentHash' => $hash, 'componentHashes' => ['logic' => str_repeat('b', 64)], 'documents' => ['logic' => [
@@ -86,6 +86,17 @@ $assert(preg_match('/^ai_pilot_material_[a-f0-9]{16}$/', $materialCode) === 1
 $assert(preg_match('/^ai_pilot_stage_[a-f0-9]{16}$/', $codeMethod->invoke($service, 'stage', 'draft_stage')) === 1
     && preg_match('/^ai_pilot_detail_[a-f0-9]{16}$/', $codeMethod->invoke($service, 'detail', 'draft_detail')) === 1,
     'created structural entities need deterministic Bitrix symbolic codes');
+$stagePropertiesMethod = new ReflectionMethod($service, 'buildStagePropertyValues');
+$stageProperties = $stagePropertiesMethod->invoke($service, $draft['stages'][0], $preview, [
+    'draft_calculator' => 1001, 'draft_material_variant' => 1002, 'draft_operation_variant' => 1003,
+    'draft_equipment' => 1004, 'draft_custom_field' => 1005,
+]);
+$assert(($stageProperties['CALC_SETTINGS'] ?? 0) === 1001
+    && ($stageProperties['MATERIAL_VARIANT'] ?? 0) === 1002
+    && ($stageProperties['OPERATION_VARIANT'] ?? 0) === 1003
+    && ($stageProperties['EQUIPMENT'] ?? 0) === 1004
+    && ($stageProperties['CUSTOM_FIELDS'] ?? []) === [1005],
+    'stage materialization must preserve scalar links and all custom fields');
 
 $applyRequest = $request + ['explicitConfirm' => true, 'manifestHash' => $preview['manifestHash'], 'idempotencyKey' => 'pilot-16488-test-0001'];
 $first = $service->apply($applyRequest);
@@ -131,6 +142,22 @@ $blockedService = new AiLogicPilotMaterializationService([
 $blocked = $blockedService->preview($plainRequest)['manifest'];
 $assert($blocked['ready'] === false && str_contains(implode("\n", $blocked['blockers']), 'ровно один утверждённый калькулятор'),
     'every stage must have exactly one calculator entity before apply');
+
+$sharedDraft = $draft;
+$sharedDraft['stages'][] = ['draftId' => 'draft_stage_2', 'detailDraftId' => 'draft_detail', 'title' => 'Резка', 'description' => 'Этап',
+    'catalogDraftIds' => ['draft_calculator', 'draft_operation_variant'], 'requiresConfiguration' => true];
+$sharedStore = $draftStore; $sharedStore['draft'] = $sharedDraft;
+$sharedService = new AiLogicPilotMaterializationService([
+    'assert_admin' => static fn() => null,
+    'bundle' => static fn(array $_context): array => $bundle,
+    'draft' => static fn(array $_context): array => $sharedStore,
+    'candidates' => static fn(array $_kinds, array $_context): array => [],
+]);
+$sharedPreview = $sharedService->preview($plainRequest)['manifest'];
+$assert($sharedPreview['ready'] === false
+    && str_contains(implode("\n", $sharedPreview['blockers']), 'Один калькулятор нельзя использовать в нескольких этапах')
+    && str_contains(implode("\n", $sharedPreview['blockers']), 'Один вид операции нельзя использовать как универсальный'),
+    'server preview must reject catch-all calculator and operation links');
 
 $wrongStageDraft = $draft;
 $wrongStageDraft['stages'][0]['detailDraftId'] = 'draft_material';
