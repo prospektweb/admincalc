@@ -45,6 +45,8 @@ $checks = [
         && strpos($gateway, 'Один и тот же draftId запрещено указывать в двух любых массивах stageDraftIds') !== false,
     'pilot rejects malformed condition branches before the browser' => strpos($gateway, 'содержит некорректную ветку №') !== false
         && strpos($gateway, "['draftId', 'isElse', 'mode', 'operands', 'stageDraftIds', 'title']") !== false,
+    'pilot canonicalizes provider branch extras before strict validation' => strpos($gateway, "'stageDraftIds' => array_values") !== false
+        && strpos($gateway, "'isElse' => (\$branch['isElse'] ?? false) === true") !== false,
     'detailed pilot requires conditions and rejects composite stage cards' => strpos($gateway, 'Для detailed и professional создай хотя бы одно condition') !== false
         && strpos($gateway, 'объединяет альтернативные или самостоятельные операции') !== false,
     'detailed pilot requires concrete candidates' => strpos($gateway, 'Для уровня detailed предлагай конкретные кандидаты каталога') !== false,

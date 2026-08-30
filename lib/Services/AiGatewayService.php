@@ -778,7 +778,35 @@ final class AiGatewayService
             return $value;
         };
 
-        return $walk($draft);
+        $draft = $walk($draft);
+        if (!is_array($draft['groups'] ?? null)) return $draft;
+
+        foreach ($draft['groups'] as &$group) {
+            if (!is_array($group) || !is_array($group['branches'] ?? null)) continue;
+            foreach ($group['branches'] as &$branch) {
+                if (!is_array($branch)) continue;
+                $operands = [];
+                foreach (is_array($branch['operands'] ?? null) ? $branch['operands'] : [] as $operand) {
+                    if (!is_array($operand)) continue;
+                    $operands[] = [
+                        'kind' => trim((string)($operand['kind'] ?? '')),
+                        'code' => trim((string)($operand['code'] ?? '')),
+                    ];
+                }
+                $branch = [
+                    'draftId' => trim((string)($branch['draftId'] ?? '')),
+                    'title' => trim((string)($branch['title'] ?? '')),
+                    'mode' => in_array((string)($branch['mode'] ?? ''), ['and', 'or'], true) ? (string)$branch['mode'] : 'and',
+                    'operands' => $operands,
+                    'stageDraftIds' => array_values(is_array($branch['stageDraftIds'] ?? null) ? $branch['stageDraftIds'] : []),
+                    'isElse' => ($branch['isElse'] ?? false) === true,
+                ];
+            }
+            unset($branch);
+        }
+        unset($group);
+
+        return $draft;
     }
 
     /** @return string[] */
