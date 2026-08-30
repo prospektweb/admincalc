@@ -16,6 +16,9 @@ $checks = [
     'response mode is normalized from trusted request context' => strpos($gateway, "\$decoded['mode'] = \$pilotModeCode") !== false,
     'response level is normalized from trusted request context' => strpos($gateway, "\$decoded['level'] = \$pilotLevelCode") !== false,
     'response scheme is normalized from trusted request context' => strpos($gateway, "\$decoded['scheme'] = \$pilotSchemeCode") !== false,
+    'acceptance copy removes virtual labels' => strpos($gateway, 'sanitizePilotAcceptanceCopy') !== false,
+    'saved pilot prompt is migrated away from virtual labels' => strpos($gateway, "mb_stripos(\$template['prompt'], 'Виртуальным материалам')") !== false,
+    'pilot prompt forbids virtual wording' => strpos($gateway, 'Не используй слово «виртуальный»') !== false,
     'prompt forbids real records and formulas' => strpos($gateway, 'Не добавляй реальные ID, sourcePath, формулы') !== false,
     'prompt requires exact context echo' => strpos($gateway, 'Скопируй context из обязательной схемы без единого изменения') !== false,
     'pilot schema shows branch mode' => strpos($gateway, "'draftId' => 'draft_branch_001', 'title' => '', 'mode' => 'and'") !== false,
@@ -40,6 +43,25 @@ foreach ($checks as $label => $ok) {
         fwrite(STDERR, "Failed: {$label}\n");
         exit(1);
     }
+}
+
+require_once $root . '/lib/Services/AiGatewayService.php';
+$service = new \Prospektweb\Calc\Services\AiGatewayService();
+$method = new ReflectionMethod($service, 'sanitizePilotAcceptanceCopy');
+$clean = $method->invoke($service, [
+    'summary' => 'Каталог виртуальных под-калькуляторов',
+    'catalogObjects' => [[
+        'title' => 'Виртуальная операция: Печать',
+        'description' => 'Виртуальная операция печати, ожидающая входы.',
+        'draftId' => 'draft_operation_print',
+    ]],
+]);
+if (($clean['summary'] ?? '') !== 'Каталог под-калькуляторов'
+    || ($clean['catalogObjects'][0]['title'] ?? '') !== 'Операция: Печать'
+    || ($clean['catalogObjects'][0]['description'] ?? '') !== 'Операция печати, ожидающая входы.'
+    || ($clean['catalogObjects'][0]['draftId'] ?? '') !== 'draft_operation_print') {
+    fwrite(STDERR, "Failed: acceptance copy sanitizer\n");
+    exit(1);
 }
 
 echo "AI logic pilot static checks passed\n";

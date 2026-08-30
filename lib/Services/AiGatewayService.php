@@ -292,6 +292,7 @@ final class AiGatewayService
             $decoded['mode'] = $pilotModeCode;
             $decoded['level'] = $pilotLevelCode;
             $decoded['scheme'] = $pilotSchemeCode;
+            $decoded = $this->sanitizePilotAcceptanceCopy($decoded);
             $content = (string)json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
         return ['status' => 'ok', 'text' => $content, 'zone' => $zone, 'templateId' => $templateId];
@@ -659,11 +660,43 @@ final class AiGatewayService
             ) {
                 $template['prompt'] = 'Заполни техническую карточку полиграфического оборудования «{название оборудования}». В первую очередь используй сведения из блока «Источники данных»: {Источники данных}. Если содержимое источника недоступно или параметр не подтверждён, оставь соответствующее значение пустым и ничего не выдумывай. Подготовь краткий анонс, подробное HTML-описание, известные размеры, технические поля, допуски, цены и габариты. Особенности, для которых нет отдельного поля, добавь в массив «Другие параметры». Верни только JSON по обязательной схеме без Markdown и пояснений.';
             }
+            if ($template['zone'] === 'logic_structure_pilot' && mb_stripos($template['prompt'], 'Виртуальным материалам') !== false) {
+                $template['prompt'] = str_replace(
+                    'Виртуальным материалам, операциям, вариантам и оборудованию',
+                    'Материалам, операциям, вариантам и оборудованию',
+                    $template['prompt']
+                ) . ' Не используй слово «виртуальный» и его формы в названиях, описаниях и итоговом резюме.';
+            }
         }
         unset($template);
         $present = array_fill_keys(array_column($templates, 'zone'), true);
         foreach ($this->getTemplatesFallback() as $fallback) if (!isset($present[$fallback['zone']])) $templates[] = $fallback;
         return $templates;
+    }
+
+    private function sanitizePilotAcceptanceCopy(array $draft): array
+    {
+        $walk = function ($value, ?string $key = null) use (&$walk) {
+            if (is_array($value)) {
+                foreach ($value as $nestedKey => $nestedValue) {
+                    $value[$nestedKey] = $walk($nestedValue, is_string($nestedKey) ? $nestedKey : $key);
+                }
+                return $value;
+            }
+            if (!is_string($value) || !in_array($key, ['summary', 'title', 'description'], true)) return $value;
+
+            $hadLeadingVirtual = preg_match('/^\s*виртуальн(?:ый|ая|ое|ые|ого|ой|ых|ому|ым|ыми|ую)\b/ui', $value) === 1;
+            $value = preg_replace('/\bвиртуальн(?:ый|ая|ое|ые|ого|ой|ых|ому|ым|ыми|ую)\b/ui', '', $value) ?? $value;
+            $value = preg_replace('/[ \t]{2,}/u', ' ', $value) ?? $value;
+            $value = preg_replace('/\s+([,.;:])/u', '$1', $value) ?? $value;
+            $value = trim($value);
+            if ($hadLeadingVirtual && $value !== '') {
+                $value = mb_strtoupper(mb_substr($value, 0, 1)) . mb_substr($value, 1);
+            }
+            return $value;
+        };
+
+        return $walk($draft);
     }
 
     private function sanitizeTemplates(array $templates): array
@@ -708,7 +741,7 @@ final class AiGatewayService
             ],
             'logic_structure_pilot' => [
                 'AI-пилот структуры расчёта',
-                'Ты архитектор производственных калькуляторов полиграфии. Создай только проверяемый структурный черновик без формул, цен, внутренних ID и записей в Bitrix. Форма: {контекст формы}. Текущая схема: {текущая схема}. Режим: {режим пилота}. Уровень: {уровень проработки}. Тип схемы: {тип схемы}. Пожелания: {пожелания пользователя}. Для глобальных значений указывай только тип, код, название и описание. Виртуальным материалам, операциям, вариантам и оборудованию дай описания назначения, ожидаемых входов и будущих сопоставлений. Верни только JSON по обязательной схеме.',
+                'Ты архитектор производственных калькуляторов полиграфии. Создай только проверяемый структурный черновик без формул, цен, внутренних ID и записей в Bitrix. Форма: {контекст формы}. Текущая схема: {текущая схема}. Режим: {режим пилота}. Уровень: {уровень проработки}. Тип схемы: {тип схемы}. Пожелания: {пожелания пользователя}. Для глобальных значений указывай только тип, код, название и описание. Материалам, операциям, вариантам и оборудованию дай описания назначения, ожидаемых входов и будущих сопоставлений. Не используй слово «виртуальный» и его формы в названиях, описаниях и итоговом резюме. Верни только JSON по обязательной схеме.',
             ],
             'preset_description' => ['Описание пресета', 'Напиши краткий анонс пресета. Пресет: {название пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
             'detail_description' => ['Описание детали', 'Напиши краткий технический анонс детали. Деталь: {название детали}. Пресет: {название пресета}. Анонс пресета: {анонс пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
