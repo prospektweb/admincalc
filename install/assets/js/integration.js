@@ -57,7 +57,6 @@
             this.pendingRequests = {};
             this.initData = null;
             this.currentSelectionItems = null;
-            this.defaultDetailBootstrapPresetIds = new Set();
 
             // Сохраняем ссылку на обработчик для корректного removeEventListener
             this.boundHandleMessage = this.handleMessage.bind(this);
@@ -239,6 +238,7 @@
                     'GET_PRESET_LOAD_OPTIONS_REQUEST',
                     'GENERATE_STAGE_PREVIEW_REQUEST',
                     'GENERATE_AI_TEXT_REQUEST',
+                    'LOAD_AI_LOGIC_PILOT_DRAFT_REQUEST',
                     'GENERATE_LOGIC_PROPOSAL_REQUEST',
                     'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST',
                     'GENERATE_LOGIC_AUDIT_REQUEST',
@@ -353,6 +353,12 @@
                     break;
                 case 'GENERATE_AI_TEXT_REQUEST':
                     await this.handleGenerateAiTextRequest(message, origin);
+                    break;
+                case 'LOAD_AI_LOGIC_PILOT_DRAFT_REQUEST':
+                    await this.handleLoadAiLogicPilotDraftRequest(message, origin);
+                    break;
+                case 'SAVE_AI_LOGIC_PILOT_DRAFT_REQUEST':
+                    await this.handleSaveAiLogicPilotDraftRequest(message, origin);
                     break;
                 case 'GENERATE_LOGIC_PROPOSAL_REQUEST':
                     await this.handleGenerateLogicProposalRequest(message, origin);
@@ -509,7 +515,7 @@
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST', 'CLONE_SELECTED_DETAILS_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
-                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_LOGIC_AUDIT_REQUEST', 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST', 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
+                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_AI_TEXT_REQUEST', 'LOAD_AI_LOGIC_PILOT_DRAFT_REQUEST', 'SAVE_AI_LOGIC_PILOT_DRAFT_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_LOGIC_AUDIT_REQUEST', 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST', 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
@@ -1429,6 +1435,39 @@
                     status: 'error',
                     message: error && error.message ? error.message : 'Не удалось сформировать проект логики этапа',
                 }, message.requestId, origin);
+            }
+        }
+
+        async handleLoadAiLogicPilotDraftRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'loadAiLogicPilotDraft',
+                    presetId: Number(payload.presetId || 0),
+                    versionKey: String(payload.versionKey || ''),
+                    baseCompileHash: String(payload.baseCompileHash || ''),
+                }]);
+                this.sendPwrtMessage('AI_LOGIC_PILOT_DRAFT_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('AI_LOGIC_PILOT_DRAFT_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось загрузить AI-черновик' }, message.requestId, origin);
+            }
+        }
+
+        async handleSaveAiLogicPilotDraftRequest(message, origin) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'saveAiLogicPilotDraft',
+                    presetId: Number(payload.presetId || 0),
+                    versionKey: String(payload.versionKey || ''),
+                    baseCompileHash: String(payload.baseCompileHash || ''),
+                    draft: payload.draft || null,
+                    decisions: payload.decisions || {},
+                    clientRevision: Number(payload.clientRevision || 0),
+                }]);
+                this.sendPwrtMessage('AI_LOGIC_PILOT_DRAFT_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('AI_LOGIC_PILOT_DRAFT_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сохранить AI-черновик' }, message.requestId, origin);
             }
         }
 
@@ -4643,17 +4682,12 @@
                 // before opening the dialog. Standalone/manual launch loads it here.
                 const initData = this.config.initPayload || await this.fetchInitData();
                 this.config.initPayload = null;
-                // Published form-first presets are a read-only INIT boundary.
-                // Their graph is validated by the publication contract; loading
-                // an editor must never create a Bitrix detail implicitly.
-                const readyData = initData && initData.editorRuntime
-                    ? initData
-                    : await this.ensureDefaultPresetDetail(initData);
-
-                this.initData = readyData;
+                // INIT is read-only. An empty graph is created only through the
+                // explicit simple/complex foundation choice in Control Center.
+                this.initData = initData;
 
                 // Отправляем INIT в iframe
-                this.sendMessageToIframe('INIT', readyData, message.requestId);
+                this.sendMessageToIframe('INIT', initData, message.requestId);
             } catch (error) {
                 console.error('[CalcIntegration] Error in handleReady:', error);
                 this.sendMessageToIframe('ERROR', {
@@ -4681,40 +4715,6 @@
                     requestType: requestType,
                 }, message.requestId, origin);
             }
-        }
-
-        /**
-         * A preset is always edited through at least one root detail column.
-         * Bootstrap exactly once per loaded preset. The default detail is
-         * intentionally empty; its first stage is created explicitly in UI.
-         */
-        async ensureDefaultPresetDetail(initData) {
-            const presetId = parseInt(initData?.preset?.id, 10) || 0;
-            const rawDetails = initData?.preset?.properties?.CALC_DETAILS;
-            const detailIds = (Array.isArray(rawDetails) ? rawDetails : [rawDetails])
-                .map((value) => parseInt(value, 10) || 0)
-                .filter((value) => value > 0);
-            if (!presetId || detailIds.length > 0 || this.defaultDetailBootstrapPresetIds.has(presetId)) {
-                return initData;
-            }
-
-            this.defaultDetailBootstrapPresetIds.add(presetId);
-            const created = await this.fetchRefreshData([{
-                action: 'addNewDetail',
-                presetId,
-                name: 'Новая деталь',
-            }]);
-            const response = Array.isArray(created) ? created[0] : null;
-            const newDetailId = parseInt(response?.detail?.id, 10) || 0;
-            if (!response || response.status !== 'ok' || !newDetailId) {
-                throw new Error(response?.message || 'Не удалось создать деталь по умолчанию');
-            }
-
-            if (!response.initPayload) {
-                throw new Error('Сервер не вернул деталь по умолчанию в структуре пресета');
-            }
-
-            return response.initPayload;
         }
 
         /**

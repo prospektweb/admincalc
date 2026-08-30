@@ -25,6 +25,7 @@ final class CalculatorRefreshActionRegistryService
         'generateStagePreview',
         'getAiBaseProducts',
         'getAiSettings',
+        'loadAiLogicPilotDraft',
         'getCatalogEntityMeta',
         'getCatalogTree',
         'getDetailWithChildren',
@@ -53,6 +54,7 @@ final class CalculatorRefreshActionRegistryService
     private const SELF_COORDINATED_ACTIONS = [
         'applyGlobalCodeRefactor',
         'clonePreset',
+        'saveAiLogicPilotDraft',
     ];
 
     /** @var string[] */

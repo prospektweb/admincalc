@@ -31,8 +31,7 @@ $assert(
 $assert(strpos($detailHandler, 'array_splice($updatedPresetDetails, $origPos + 1, 0, [$newDetailId])') !== false, 'top-level duplication inserts an adjacent independent detail');
 $assert(strpos($detailHandler, "createDetailElement(\$bindingName, 'BINDING')") === false, 'top-level duplication no longer creates a legacy binding');
 $assert(strpos($integration, 'Array.isArray(requestPayload.selectedIds)') !== false, 'hierarchical multi-select can submit several selected detail ids');
-$assert(strpos($integration, 'ensureDefaultPresetDetail(initData)') !== false, 'empty presets bootstrap a default root detail before INIT');
-$assert(strpos($integration, "name: 'Новая деталь'") !== false, 'default detail uses a stable operator-facing name');
-$assert(strpos($integration, 'defaultDetailBootstrapPresetIds.has(presetId)') !== false, 'default detail bootstrap is guarded against duplicate requests');
+$assert(strpos($integration, 'ensureDefaultPresetDetail(initData)') === false, 'INIT never creates a physical default detail implicitly');
+$assert(strpos($integration, 'explicit simple/complex foundation choice') !== false, 'empty graph creation belongs to the explicit foundation choice');
 
 echo "Calculator contract static checks passed\n";

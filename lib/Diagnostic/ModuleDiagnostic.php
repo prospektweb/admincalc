@@ -82,6 +82,7 @@ class ModuleDiagnostic
         'lib/Services/CatalogCalculationWriteService.php',
         'lib/Services/OfferUpdateService.php',
         'lib/Services/GlobalCodeRefactorService.php',
+        'lib/Services/AiLogicPilotDraftStore.php',
         'lib/Services/GlobalSymbolService.php',
         'lib/Services/CalculatorMutationAuthorityService.php',
         'lib/Services/CalculatorSemanticMutationService.php',

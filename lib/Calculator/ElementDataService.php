@@ -67,6 +67,14 @@ class ElementDataService
                         $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->generateText($request);
                         continue 2;
 
+                    case 'loadAiLogicPilotDraft':
+                        $result[] = (new \Prospektweb\Calc\Services\AiLogicPilotDraftStore())->load($request);
+                        continue 2;
+
+                    case 'saveAiLogicPilotDraft':
+                        $result[] = (new \Prospektweb\Calc\Services\AiLogicPilotDraftStore())->save($request);
+                        continue 2;
+
                     case 'generateLogicProposal':
                         $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->generateLogicProposal(
                             is_array($request['request'] ?? null) ? $request['request'] : []

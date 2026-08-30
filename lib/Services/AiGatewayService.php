@@ -45,6 +45,14 @@ final class AiGatewayService
         'logic_formula' => [],
         'logic_stage' => [],
         'logic_audit' => [],
+        'logic_structure_pilot' => [
+            '{контекст формы}' => 'formContext',
+            '{текущая схема}' => 'currentStructure',
+            '{режим пилота}' => 'pilotMode',
+            '{уровень проработки}' => 'pilotLevel',
+            '{тип схемы}' => 'schemeMode',
+            '{пожелания пользователя}' => 'wishes',
+        ],
     ];
     private const STRUCTURED_ZONES = [
         'calculator_description',
@@ -53,6 +61,49 @@ final class AiGatewayService
         'equipment_description',
         'material_description',
         'material_variant_description',
+        'logic_structure_pilot',
+    ];
+    private const LOGIC_STRUCTURE_PILOT_RESPONSE_SCHEMA = [
+        'schema' => 'prospektweb.calc.ai-logic-pilot-draft/v1',
+        'draftId' => 'draft_logic_001',
+        'context' => [
+            'presetId' => 0,
+            'versionKey' => '',
+            'baseCompileHash' => '',
+            'requestToken' => '',
+        ],
+        'mode' => 'create',
+        'level' => 'detailed',
+        'scheme' => 'simple',
+        'summary' => '',
+        'assumptions' => [''],
+        'warnings' => [''],
+        'globals' => [[
+            'draftId' => 'draft_global_001', 'kind' => 'variable', 'dataType' => 'boolean',
+            'code' => 'needs_lamination', 'title' => '', 'description' => '',
+        ]],
+        'catalogFolders' => [[
+            'draftId' => 'draft_folder_001', 'kind' => 'operation', 'title' => '',
+            'description' => '', 'parentDraftId' => null,
+        ]],
+        'catalogObjects' => [[
+            'draftId' => 'draft_object_001', 'kind' => 'operation', 'title' => '', 'description' => '',
+            'folderDraftId' => 'draft_folder_001', 'parentDraftId' => null,
+            'intendedInputs' => [''], 'intendedMappings' => [''],
+        ]],
+        'details' => [[
+            'draftId' => 'draft_detail_001', 'kind' => 'detail', 'title' => '',
+            'description' => '', 'parentDraftId' => null,
+        ]],
+        'stages' => [[
+            'draftId' => 'draft_stage_001', 'detailDraftId' => 'draft_detail_001',
+            'title' => '', 'description' => '', 'catalogDraftIds' => ['draft_object_001'],
+            'requiresConfiguration' => true,
+        ]],
+        'groups' => [[
+            'draftId' => 'draft_group_001', 'kind' => 'group', 'title' => '', 'description' => '',
+            'parentDraftId' => null, 'stageDraftIds' => ['draft_stage_001'], 'branches' => [],
+        ]],
     ];
     private const CATALOG_RESPONSE_SCHEMA = [
         'version' => 1,
@@ -172,17 +223,41 @@ final class AiGatewayService
         if ($template === null || $template['zone'] !== $zone) throw new \InvalidArgumentException('Шаблон промпта не найден или относится к другой зоне');
         if (trim((string)$template['model']) === '') throw new \InvalidArgumentException('Для шаблона не выбрана модель');
         $context = is_array($request['context'] ?? null) ? $request['context'] : [];
+        if ($zone === 'logic_structure_pilot') {
+            $pilotPresetId = (int)($context['presetId'] ?? 0);
+            $pilotVersionKey = trim((string)($context['versionKey'] ?? ''));
+            $pilotBaseCompileHash = strtolower(trim((string)($context['baseCompileHash'] ?? '')));
+            $pilotRequestToken = trim((string)($context['requestToken'] ?? ''));
+            if ($pilotPresetId <= 0 || $pilotVersionKey === '' || strlen($pilotVersionKey) > 180
+                || !preg_match('/^[A-Za-z0-9_.:-]+$/', $pilotVersionKey)
+                || !preg_match('/^[a-f0-9]{64}$/', $pilotBaseCompileHash)
+                || $pilotRequestToken === '' || strlen($pilotRequestToken) > 180) {
+                throw new \InvalidArgumentException('Некорректный контекст AI-пилота структуры.');
+            }
+        }
         $tags = [];
         foreach (self::ZONE_CONTEXT[$zone] as $tag => $contextKey) $tags[$tag] = (string)($context[$contextKey] ?? '');
         $override = trim((string)($request['prompt'] ?? ''));
         $prompt = strtr($override !== '' ? mb_substr($override, 0, 12000) : (string)$template['prompt'], $tags);
         if (in_array($zone, self::STRUCTURED_ZONES, true)) {
-            $schema = $zone === 'equipment_description' ? self::EQUIPMENT_RESPONSE_SCHEMA : self::CATALOG_RESPONSE_SCHEMA;
+            $schema = $zone === 'equipment_description'
+                ? self::EQUIPMENT_RESPONSE_SCHEMA
+                : ($zone === 'logic_structure_pilot' ? self::LOGIC_STRUCTURE_PILOT_RESPONSE_SCHEMA : self::CATALOG_RESPONSE_SCHEMA);
+            if ($zone === 'logic_structure_pilot') {
+                $schema['context'] = [
+                    'presetId' => max(1, (int)($context['presetId'] ?? 0)),
+                    'versionKey' => mb_substr(trim((string)($context['versionKey'] ?? '')), 0, 180),
+                    'baseCompileHash' => mb_substr(trim((string)($context['baseCompileHash'] ?? '')), 0, 64),
+                    'requestToken' => mb_substr(trim((string)($context['requestToken'] ?? '')), 0, 180),
+                ];
+            }
             $prompt .= "\n\nОбязательная схема ответа JSON:\n"
                 . json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)
-                . "\nНе добавляй поля вне схемы. Неизвестные числа возвращай как null, неизвестные строки — как пустую строку. "
-                . "В parameters помещай только подтверждённые технические особенности, для которых нет отдельного поля. "
-                . "catalog.weightG означает физическую массу в граммах; catalog.lengthMm, catalog.widthMm и catalog.heightMm — внешние габариты в миллиметрах.";
+                . ($zone === 'logic_structure_pilot'
+                    ? "\nНе добавляй поля вне схемы. Скопируй context из обязательной схемы без единого изменения: он связывает ответ с конкретным калькулятором и запросом. Используй только стабильные строковые draftId с префиксом draft_. Не добавляй реальные ID, sourcePath, формулы, значения глобальных переменных, цены или физические записи. У каждого condition должна быть ровно одна ветка isElse=true."
+                    : "\nНе добавляй поля вне схемы. Неизвестные числа возвращай как null, неизвестные строки — как пустую строку. "
+                        . "В parameters помещай только подтверждённые технические особенности, для которых нет отдельного поля. "
+                        . "catalog.weightG означает физическую массу в граммах; catalog.lengthMm, catalog.widthMm и catalog.heightMm — внешние габариты в миллиметрах.");
         }
         $response = $this->request('POST', '/chat/completions', ['model' => (string)$template['model'], 'messages' => [['role' => 'user', 'content' => $prompt]]]);
         $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
@@ -598,6 +673,10 @@ final class AiGatewayService
             'logic_audit' => [
                 'AI-анализ логики и обозначений',
                 'Ты технический редактор полиграфических калькуляторов. По исходным данным и полному контексту предложи понятные названия, однозначные ASCII-коды, точные описания и типы. Проверь формулы, единицы измерения и согласованность результатов. Не меняй бизнес-правила без достаточных данных.',
+            ],
+            'logic_structure_pilot' => [
+                'AI-пилот структуры расчёта',
+                'Ты архитектор производственных калькуляторов полиграфии. Создай только проверяемый структурный черновик без формул, цен, внутренних ID и записей в Bitrix. Форма: {контекст формы}. Текущая схема: {текущая схема}. Режим: {режим пилота}. Уровень: {уровень проработки}. Тип схемы: {тип схемы}. Пожелания: {пожелания пользователя}. Для глобальных значений указывай только тип, код, название и описание. Виртуальным материалам, операциям, вариантам и оборудованию дай описания назначения, ожидаемых входов и будущих сопоставлений. Верни только JSON по обязательной схеме.',
             ],
             'preset_description' => ['Описание пресета', 'Напиши краткий анонс пресета. Пресет: {название пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
             'detail_description' => ['Описание детали', 'Напиши краткий технический анонс детали. Деталь: {название детали}. Пресет: {название пресета}. Анонс пресета: {анонс пресета}. Товар: {название товара}. Анонс товара: {анонс товара}. Верни только готовый текст.'],
