@@ -58,6 +58,12 @@ $checks += [
         && strpos($materialization, 'Bitrix не сохранил связь AI-пилота') !== false,
     'historical receipts cannot replay without readback' => strpos($materialization, "['readbackVerified']") !== false
         && strpos($materialization, 'требует проверки и восстановления связей') !== false,
+    'repair revalidates receipts and version graph snapshots' => strpos($repair, "['needsSnapshotRefresh']") !== false
+        && strpos($repair, 'VERSION_GRAPH_SNAPSHOT_MISMATCH') !== false
+        && strpos($repair, "['idempotentReplay' => true] + \$previous") !== false,
+    'repair reads graph properties by authoritative property id' => strpos($repair, "'stage' => ['MATERIAL_VARIANT','OPERATION_VARIANT','EQUIPMENT','CALC_SETTINGS']") !== false
+        && strpos($repair, "'detail' => ['CALC_STAGES','DETAILS']") !== false
+        && strpos($repair, "'preset' => ['CALC_DETAILS']") !== false,
     'variant folder ids are never copied across iblocks' => strpos($materialization, "in_array(\$kind, ['materialVariant','operationVariant'], true)\n                        ? ''") !== false,
     'repair never creates or deletes entities' => strpos($repair, '->Add(') === false
         && strpos($repair, '->Delete(') === false,

@@ -48,13 +48,15 @@ final class AiLogicPilotRepairService
         $receipt = $this->latestReceipt($context);
         $repairKey = 'ai_logic_pilot_repair_' . substr(hash('sha256', self::TARGET_PRESET_ID . ':' . $context['versionId'] . ':' . (string)$receipt['manifestHash'] . ':' . $context['expectedContentHash']), 0, 40);
         $previous = $this->optionGet($repairKey);
-        if ($previous !== null) return ['status' => 'ok', 'contract' => self::REPAIR_CONTRACT, 'message' => 'Связи AI-пилота уже восстановлены.', 'idempotentReplay' => true] + $previous;
 
-        $critical = function () use ($context, $receipt, $repairKey): array {
+        $critical = function () use ($context, $receipt, $repairKey, $previous): array {
             $bundle = $this->bundle($context);
             $stored = $this->draft($context, $receipt);
             $plan = $this->buildPlan($context, $bundle, $receipt, $stored);
             if ($plan['blockers'] !== []) throw new \RuntimeException('Readback обнаружил повреждение, которое нельзя безопасно исправить без создания или удаления сущностей.', 409);
+            if ($previous !== null && $plan['operations'] === [] && ($plan['needsSnapshotRefresh'] ?? false) !== true) {
+                return ['idempotentReplay' => true] + $previous;
+            }
             $workingPresetId = (int)$plan['workingPresetId'];
             if ($workingPresetId <= 0 || $workingPresetId === self::FORBIDDEN_PRESET_ID) throw new \RuntimeException('Запрещённый рабочий граф.', 409);
             if ($plan['operations'] !== []) {
@@ -66,6 +68,8 @@ final class AiLogicPilotRepairService
                         $this->applyBitrixOperations($plan['operations'], $iblocks);
                     });
                 }
+            }
+            if ($plan['operations'] !== [] || ($plan['needsSnapshotRefresh'] ?? false) === true) {
                 if (!isset($this->adapters['skip_capture'])) {
                     $logic = (new CalculatorVersionSnapshotSourceService())->captureLogic($workingPresetId, self::TARGET_PRESET_ID, $context['versionId']);
                     $saved = (new CalculatorVersionComponentDocumentService())->saveDraft(
@@ -81,14 +85,20 @@ final class AiLogicPilotRepairService
             }
             $result = ['presetId' => self::TARGET_PRESET_ID, 'versionId' => $context['versionId'],
                 'applicationManifestHash' => (string)$receipt['manifestHash'], 'beforeContentHash' => $context['expectedContentHash'],
-                'afterContentHash' => $afterContentHash, 'fixedIssues' => count($plan['operations']), 'repairedAt' => gmdate('c')];
+                'afterContentHash' => $afterContentHash,
+                'fixedIssues' => count($plan['operations']) + (($plan['needsSnapshotRefresh'] ?? false) === true ? 1 : 0),
+                'repairedAt' => gmdate('c'), 'idempotentReplay' => false];
             $this->optionSet($repairKey, $result);
             return $result;
         };
         $result = isset($this->adapters['transaction'])
             ? ($this->adapters['transaction'])($critical)
             : (new CalculatorVersionRegistryService())->coordinateVersionMutation(self::TARGET_PRESET_ID, $critical);
-        return ['status' => 'ok', 'contract' => self::REPAIR_CONTRACT, 'message' => $result['fixedIssues'] > 0 ? 'Связи AI-пилота восстановлены.' : 'Связи AI-пилота уже корректны.', 'idempotentReplay' => false] + $result;
+        return ['status' => 'ok', 'contract' => self::REPAIR_CONTRACT,
+            'message' => ($result['idempotentReplay'] ?? false) === true
+                ? 'Связи AI-пилота уже восстановлены.'
+                : ($result['fixedIssues'] > 0 ? 'Связи AI-пилота восстановлены.' : 'Связи AI-пилота уже корректны.')]
+            + $result;
     }
 
     /** @return array<string,mixed> */
@@ -202,10 +212,34 @@ final class AiLogicPilotRepairService
         }
         $presetSpec = ['draftId' => 'working_preset', 'kind' => 'preset', 'id' => $workingPresetId, 'workingPresetId' => $workingPresetId];
         $presetState = $this->readState($presetSpec);
-        if ($presetState === null) { $blockers[]=['code'=>'MISSING_WORKING_PRESET','draftId'=>'working_preset']; return ['workingPresetId'=>$workingPresetId,'healthy'=>false,'issues'=>$issues,'blockers'=>$blockers,'operations'=>$operations]; }
+        if ($presetState === null) { $blockers[]=['code'=>'MISSING_WORKING_PRESET','draftId'=>'working_preset']; return ['workingPresetId'=>$workingPresetId,'healthy'=>false,'issues'=>$issues,'blockers'=>$blockers,'operations'=>$operations,'needsSnapshotRefresh'=>false]; }
         $currentRoots = array_map('intval', (array)($presetState['properties']['CALC_DETAILS'] ?? [])); $missingRoots = array_values(array_diff($roots, $currentRoots));
         if ($missingRoots !== []) { $issues[] = ['code' => 'PRESET_ROOT_LINK_MISSING', 'draftId' => 'working_preset']; $operations[] = ['type' => 'append_property', 'spec' => $presetSpec, 'property' => 'CALC_DETAILS', 'values' => $missingRoots]; }
-        return ['workingPresetId' => $workingPresetId, 'healthy' => $issues === [] && $blockers === [], 'issues' => $issues, 'blockers' => $blockers, 'operations' => $operations];
+        $expectedDetails = [];
+        foreach (is_array($draft['details'] ?? null) ? $draft['details'] : [] as $detail) {
+            $draftId = (string)($detail['draftId'] ?? '');
+            if ($approved($draftId) && isset($ids[$draftId])) $expectedDetails[] = (int)$ids[$draftId];
+        }
+        $expectedStages = [];
+        $expectedSettings = [];
+        foreach (is_array($draft['stages'] ?? null) ? $draft['stages'] : [] as $stage) {
+            $stageDraftId = (string)($stage['draftId'] ?? '');
+            if (!$approved($stageDraftId) || !isset($ids[$stageDraftId])) continue;
+            $expectedStages[] = (int)$ids[$stageDraftId];
+            foreach (is_array($stage['catalogDraftIds'] ?? null) ? $stage['catalogDraftIds'] : [] as $catalogDraftId) {
+                if (($rowsById[$catalogDraftId]['row']['kind'] ?? null) === 'calculator' && isset($ids[$catalogDraftId])) {
+                    $expectedSettings[] = (int)$ids[$catalogDraftId];
+                }
+            }
+        }
+        $graph = is_array($logic['graph'] ?? null) ? $logic['graph'] : [];
+        $needsSnapshotRefresh = array_diff(array_values(array_unique($expectedDetails)), array_map('intval', (array)($graph['detailIds'] ?? []))) !== []
+            || array_diff(array_values(array_unique($expectedStages)), array_map('intval', (array)($graph['stageIds'] ?? []))) !== []
+            || array_diff(array_values(array_unique($expectedSettings)), array_map('intval', (array)($graph['settingsIds'] ?? []))) !== [];
+        if ($needsSnapshotRefresh) $issues[] = ['code' => 'VERSION_GRAPH_SNAPSHOT_MISMATCH', 'draftId' => 'working_preset'];
+        return ['workingPresetId' => $workingPresetId, 'healthy' => $issues === [] && $blockers === [],
+            'issues' => $issues, 'blockers' => $blockers, 'operations' => $operations,
+            'needsSnapshotRefresh' => $needsSnapshotRefresh];
     }
 
     private function readState(array $spec): ?array
@@ -222,6 +256,16 @@ final class AiLogicPilotRepairService
         $element = \CIBlockElement::GetList([], ['ID'=>$id,'IBLOCK_ID'=>$iblockId], false, ['nTopCount'=>1], ['ID','CODE','NAME','PREVIEW_TEXT','IBLOCK_SECTION_ID'])->GetNextElement();
         if (!$element) return null; $fields=$element->GetFields(); $properties=$element->GetProperties(); $normalized=[];
         foreach ($properties as $code=>$property) { $value=$property['VALUE']??null; $normalized[$code]=is_array($value)?array_values(array_filter(array_map('intval',$value))):(is_numeric($value)?(int)$value:$value); }
+        $authoritativeProperties = [
+            'materialVariant' => ['CML2_LINK'], 'operationVariant' => ['CML2_LINK'],
+            'stage' => ['MATERIAL_VARIANT','OPERATION_VARIANT','EQUIPMENT','CALC_SETTINGS'],
+            'detail' => ['CALC_STAGES','DETAILS'], 'preset' => ['CALC_DETAILS'],
+        ];
+        foreach ($authoritativeProperties[$kind] ?? [] as $code) {
+            $property = $this->propertyDefinition($iblockId, $code);
+            $values = $this->readPropertyIntValues($id, $iblockId, (int)$property['ID']);
+            $normalized[$code] = (string)($property['MULTIPLE'] ?? '') === 'Y' ? $values : (int)($values[0] ?? 0);
+        }
         return ['code'=>(string)($fields['CODE']??''),'name'=>(string)$fields['NAME'],'description'=>(string)($fields['~PREVIEW_TEXT']??$fields['PREVIEW_TEXT']??''),'sectionId'=>(int)($fields['IBLOCK_SECTION_ID']??0),'properties'=>$normalized];
     }
 

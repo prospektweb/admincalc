@@ -54,19 +54,37 @@ $states = [
     601=>['code'=>'needs_cut','name'=>'Нужна резка','description'=>'Флаг','sectionId'=>0,'properties'=>[]],
     20001=>['code'=>'working','name'=>'Рабочий граф','description'=>'','sectionId'=>0,'properties'=>['CALC_DETAILS'=>[]]],
 ];
+$brokenStates = $states;
+$brokenBundle = $bundle;
 $options = [];
 $applied = [];
 $service = new AiLogicPilotRepairService([
     'assert_admin'=>static fn()=>null,
-    'bundle'=>static fn(array $_context): array=>$bundle,
+    'bundle'=>static function(array $_context) use (&$bundle): array { return $bundle; },
     'draft'=>static fn(array $_context): array=>$stored,
     'receipts'=>static fn(array $_context): array=>[
         array_merge($latestReceipt,['appliedAt'=>'2026-08-29T12:00:00Z','created'=>array_merge($latestReceipt['created'],['draft_stage'=>['kind'=>'stage','id'=>499]])]),
         $latestReceipt,
     ],
     'find_global'=>static fn(int $_presetId,string $_code): int=>601,
-    'read_state'=>static fn(array $spec): ?array=>$states[(int)$spec['id']]??null,
-    'apply_operations'=>static function(array $operations,int $workingPresetId) use (&$applied): void { $applied=$operations; if($workingPresetId!==20001)throw new RuntimeException('wrong graph'); },
+    'read_state'=>static function(array $spec) use (&$states): ?array { return $states[(int)$spec['id']]??null; },
+    'apply_operations'=>static function(array $operations,int $workingPresetId) use (&$applied,&$states,&$bundle): void {
+        $applied=$operations;
+        if($workingPresetId!==20001)throw new RuntimeException('wrong graph');
+        foreach($operations as $operation){
+            $id=(int)$operation['spec']['id'];
+            if($operation['type']==='metadata')foreach($operation['fields'] as $field=>$value)$states[$id][$field]=$value;
+            if($operation['type']==='section')$states[$id]['sectionId']=(int)$operation['sectionId'];
+            if($operation['type']==='section_parent')$states[$id]['parentId']=(int)$operation['parentId'];
+            if($operation['type']==='variant_parent')$states[$id]['properties']['CML2_LINK']=(int)$operation['parentId'];
+            if($operation['type']==='properties')foreach($operation['properties'] as $code=>$value)$states[$id]['properties'][$code]=$value;
+            if($operation['type']==='append_property'){
+                $code=(string)$operation['property'];
+                $states[$id]['properties'][$code]=array_values(array_unique(array_merge((array)($states[$id]['properties'][$code]??[]),$operation['values'])));
+            }
+        }
+        $bundle['documents']['logic']['graph']=['detailIds'=>[401],'stageIds'=>[501],'settingsIds'=>[201]];
+    },
     'transaction'=>static fn(callable $callback)=>$callback(),
     'option_get'=>static function(string $key)use(&$options){return $options[$key]??'';},
     'option_set'=>static function(string $key,string $raw)use(&$options):void{$options[$key]=$raw;},
@@ -83,8 +101,10 @@ $assert(in_array('variant_parent',$types,true),'repair plan must use the authori
 $assert(count(array_filter($inspection['operations'],static fn(array $op):bool=>in_array($op['type'],['create','delete','activate'],true)))===0,'repair must never create, delete or activate');
 $assert(count(array_filter($inspection['operations'],static fn(array $op):bool=>(string)($op['spec']['draftId']??'')==='draft_real_calculator'))===0,'repair must not mutate a real Bitrix replacement');
 $first=$service->repair($request+['explicitConfirm'=>true]);
+$postInspection=$service->inspect($request);
 $second=$service->repair($request+['explicitConfirm'=>true]);
-$assert($first['status']==='ok'&&$first['idempotentReplay']===false&&$second['idempotentReplay']===true&&$applied!==[],'repair must be explicit and idempotent');
+$assert($first['status']==='ok'&&$first['idempotentReplay']===false&&$second['idempotentReplay']===true&&$applied!==[],
+    'repair must be explicit and idempotent: '.json_encode(['first'=>$first,'inspection'=>$postInspection,'second'=>$second],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
 
 $forbidden=false;
 try{$service->inspect(array_merge($request,['presetId'=>12740]));}catch(RuntimeException $error){$forbidden=$error->getCode()===403;}
@@ -92,9 +112,9 @@ $assert($forbidden,'preset 12740 must be hard denied');
 
 $rolledBack=[];
 $failing=new AiLogicPilotRepairService([
-    'assert_admin'=>static fn()=>null,'bundle'=>static fn(array $_):array=>$bundle,'draft'=>static fn(array $_):array=>$stored,
+    'assert_admin'=>static fn()=>null,'bundle'=>static fn(array $_):array=>$brokenBundle,'draft'=>static fn(array $_):array=>$stored,
     'receipts'=>static fn(array $_):array=>[$latestReceipt],'find_global'=>static fn(int $_,string $__):int=>601,
-    'read_state'=>static fn(array $spec):?array=>$states[(int)$spec['id']]??null,
+    'read_state'=>static fn(array $spec):?array=>$brokenStates[(int)$spec['id']]??null,
     'apply_operations'=>static function(array $_,int $__)use(&$rolledBack):void{$rolledBack[]='partial';throw new RuntimeException('injected');},
     'transaction'=>static function(callable $callback)use(&$rolledBack){$snapshot=$rolledBack;try{return $callback();}catch(Throwable $e){$rolledBack=$snapshot;throw $e;}},
     'option_get'=>static fn(string $_):string=>'','option_set'=>static fn(string $_,string $__)=>(null),'skip_capture'=>static fn()=>true,
