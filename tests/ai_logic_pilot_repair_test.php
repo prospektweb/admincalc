@@ -34,6 +34,17 @@ $draft = [
 ];
 $stored = ['status'=>'ok','found'=>true,'draftRevision'=>3,'draft'=>$draft,'decisions'=>[],'replacements'=>[]];
 $bundle = ['contentHash'=>$currentHash,'componentHashes'=>['logic'=>str_repeat('d',64)],'documents'=>['logic'=>['workingPresetId'=>20001]]];
+$healthyLogicSnapshot = [
+    'graph'=>['detailIds'=>[401],'stageIds'=>[501],'settingsIds'=>[201]],
+    'runtimePayload'=>[
+        'preset'=>['properties'=>['CALC_DETAILS'=>['VALUE'=>[401]]]],
+        'elementsStore'=>[
+            'CALC_DETAILS'=>[401],
+            'CALC_STAGES'=>[['id'=>501]],
+            'CALC_SETTINGS'=>['VALUE'=>[201]],
+        ],
+    ],
+];
 $latestReceipt = ['presetId'=>16488,'versionId'=>$versionId,'manifestHash'=>str_repeat('e',64),'appliedAt'=>'2026-08-30T12:00:00Z',
     'created'=>[
         'draft_folder_calculator'=>['kind'=>'directory','id'=>101],
@@ -68,7 +79,7 @@ $service = new AiLogicPilotRepairService([
     ],
     'find_global'=>static fn(int $_presetId,string $_code): int=>601,
     'read_state'=>static function(array $spec) use (&$states): ?array { return $states[(int)$spec['id']]??null; },
-    'apply_operations'=>static function(array $operations,int $workingPresetId) use (&$applied,&$states,&$bundle): void {
+    'apply_operations'=>static function(array $operations,int $workingPresetId) use (&$applied,&$states,&$bundle,$healthyLogicSnapshot): void {
         $applied=$operations;
         if($workingPresetId!==20001)throw new RuntimeException('wrong graph');
         foreach($operations as $operation){
@@ -83,7 +94,7 @@ $service = new AiLogicPilotRepairService([
                 $states[$id]['properties'][$code]=array_values(array_unique(array_merge((array)($states[$id]['properties'][$code]??[]),$operation['values'])));
             }
         }
-        $bundle['documents']['logic']['graph']=['detailIds'=>[401],'stageIds'=>[501],'settingsIds'=>[201]];
+        $bundle['documents']['logic']=array_merge($bundle['documents']['logic'],$healthyLogicSnapshot);
     },
     'transaction'=>static fn(callable $callback)=>$callback(),
     'option_get'=>static function(string $key)use(&$options){return $options[$key]??'';},
@@ -102,6 +113,26 @@ $assert(count(array_filter($inspection['operations'],static fn(array $op):bool=>
 $assert(count(array_filter($inspection['operations'],static fn(array $op):bool=>(string)($op['spec']['draftId']??'')==='draft_real_calculator'))===0,'repair must not mutate a real Bitrix replacement');
 $first=$service->repair($request+['explicitConfirm'=>true]);
 $postInspection=$service->inspect($request);
+$assert($postInspection['healthy']===true&&($postInspection['needsSnapshotRefresh']??true)===false,
+    'healthy graph fixture with raw-list and VALUE-shape runtime payload must pass strict parity');
+
+$runtimeEmptyBundle=$bundle;
+$runtimeEmptyBundle['documents']['logic']['runtimePayload']=[];
+$runtimeEmptyService=new AiLogicPilotRepairService([
+    'assert_admin'=>static fn()=>null,
+    'bundle'=>static fn(array $_):array=>$runtimeEmptyBundle,
+    'draft'=>static fn(array $_):array=>$stored,
+    'receipts'=>static fn(array $_):array=>[$latestReceipt],
+    'find_global'=>static fn(int $_presetId,string $_code):int=>601,
+    'read_state'=>static fn(array $spec):?array=>$states[(int)$spec['id']]??null,
+]);
+$runtimeEmptyInspection=$runtimeEmptyService->inspect($request);
+$runtimeIssueCodes=array_column($runtimeEmptyInspection['issues'],'code');
+$assert(($runtimeEmptyInspection['needsSnapshotRefresh']??false)===true
+    && in_array('VERSION_RUNTIME_SNAPSHOT_MISMATCH',$runtimeIssueCodes,true)
+    && !in_array('VERSION_GRAPH_SNAPSHOT_MISMATCH',$runtimeIssueCodes,true),
+    'graph healthy/runtime empty must require a version runtime snapshot refresh');
+
 $second=$service->repair($request+['explicitConfirm'=>true]);
 $assert($first['status']==='ok'&&$first['idempotentReplay']===false&&$second['idempotentReplay']===true&&$applied!==[],
     'repair must be explicit and idempotent: '.json_encode(['first'=>$first,'inspection'=>$postInspection,'second'=>$second],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));

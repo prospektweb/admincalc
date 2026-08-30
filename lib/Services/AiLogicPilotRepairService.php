@@ -237,13 +237,62 @@ final class AiLogicPilotRepairService
             }
         }
         $graph = is_array($logic['graph'] ?? null) ? $logic['graph'] : [];
-        $needsSnapshotRefresh = array_diff(array_values(array_unique($expectedDetails)), array_map('intval', (array)($graph['detailIds'] ?? []))) !== []
-            || array_diff(array_values(array_unique($expectedStages)), array_map('intval', (array)($graph['stageIds'] ?? []))) !== []
-            || array_diff(array_values(array_unique($expectedSettings)), array_map('intval', (array)($graph['settingsIds'] ?? []))) !== [];
-        if ($needsSnapshotRefresh) $issues[] = ['code' => 'VERSION_GRAPH_SNAPSHOT_MISMATCH', 'draftId' => 'working_preset'];
+        $expectedDetails = array_values(array_unique($expectedDetails));
+        $expectedStages = array_values(array_unique($expectedStages));
+        $expectedSettings = array_values(array_unique($expectedSettings));
+        $graphMismatch = array_diff($expectedDetails, array_map('intval', (array)($graph['detailIds'] ?? []))) !== []
+            || array_diff($expectedStages, array_map('intval', (array)($graph['stageIds'] ?? []))) !== []
+            || array_diff($expectedSettings, array_map('intval', (array)($graph['settingsIds'] ?? []))) !== [];
+        if ($graphMismatch) $issues[] = ['code' => 'VERSION_GRAPH_SNAPSHOT_MISMATCH', 'draftId' => 'working_preset'];
+
+        $runtimePayload = is_array($logic['runtimePayload'] ?? null) ? $logic['runtimePayload'] : [];
+        $runtimePreset = is_array($runtimePayload['preset'] ?? null) ? $runtimePayload['preset'] : [];
+        $runtimeProperties = is_array($runtimePreset['properties'] ?? null) ? $runtimePreset['properties'] : [];
+        $runtimeRoots = $this->runtimeIds($runtimeProperties['CALC_DETAILS'] ?? ($runtimePreset['CALC_DETAILS'] ?? []));
+        $runtimeStore = is_array($runtimePayload['elementsStore'] ?? null) ? $runtimePayload['elementsStore'] : [];
+        $runtimeDetails = $this->runtimeIds($runtimeStore['CALC_DETAILS'] ?? []);
+        $runtimeStages = $this->runtimeIds($runtimeStore['CALC_STAGES'] ?? []);
+        $runtimeSettings = $this->runtimeIds($runtimeStore['CALC_SETTINGS'] ?? []);
+        $runtimeMismatch = !$this->sameIdSet($roots, $runtimeRoots)
+            || array_diff($expectedDetails, $runtimeDetails) !== []
+            || array_diff($expectedStages, $runtimeStages) !== []
+            || array_diff($expectedSettings, $runtimeSettings) !== [];
+        if ($runtimeMismatch) $issues[] = ['code' => 'VERSION_RUNTIME_SNAPSHOT_MISMATCH', 'draftId' => 'working_preset'];
+        $needsSnapshotRefresh = $graphMismatch || $runtimeMismatch;
         return ['workingPresetId' => $workingPresetId, 'healthy' => $issues === [] && $blockers === [],
             'issues' => $issues, 'blockers' => $blockers, 'operations' => $operations,
             'needsSnapshotRefresh' => $needsSnapshotRefresh];
+    }
+
+    /** @return int[] */
+    private function runtimeIds($value): array
+    {
+        if (is_numeric($value)) {
+            $id = (int)$value;
+            return $id > 0 ? [$id] : [];
+        }
+        if (!is_array($value)) return [];
+        if (array_key_exists('VALUE', $value)) return $this->runtimeIds($value['VALUE']);
+        foreach (['id', 'ID'] as $key) {
+            if (isset($value[$key]) && is_numeric($value[$key])) {
+                $id = (int)$value[$key];
+                return $id > 0 ? [$id] : [];
+            }
+        }
+        if (array_values($value) !== $value) return [];
+        $ids = [];
+        foreach ($value as $item) $ids = array_merge($ids, $this->runtimeIds($item));
+        return array_values(array_unique($ids));
+    }
+
+    private function sameIdSet(array $expected, array $actual): bool
+    {
+        $normalize = static function (array $ids): array {
+            $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+            sort($ids, SORT_NUMERIC);
+            return $ids;
+        };
+        return $normalize($expected) === $normalize($actual);
     }
 
     private function readState(array $spec): ?array
