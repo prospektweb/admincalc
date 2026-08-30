@@ -282,6 +282,9 @@ $appIframeQuery = ['v' => $appVersion];
 if ($versionId !== '' && $versionContentHash !== '') {
     $appIframeQuery['version_id'] = $versionId;
     $appIframeQuery['version_content_hash'] = $versionContentHash;
+    if ($versionOriginalPresetId > 0) {
+        $appIframeQuery['original_preset_id'] = $versionOriginalPresetId;
+    }
 }
 if (isset($_GET['open_calculation_panel']) && (string)$_GET['open_calculation_panel'] === 'Y') {
     $appIframeQuery['open_calculation_panel'] = 'Y';
