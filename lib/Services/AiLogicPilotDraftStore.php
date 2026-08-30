@@ -66,11 +66,15 @@ final class AiLogicPilotDraftStore
         $decisions = is_array($request['decisions'] ?? null) ? $request['decisions'] : null;
         $replacements = is_array($request['replacements'] ?? null) ? $request['replacements'] : [];
         $clientRevision = (int)($request['clientRevision'] ?? 0);
+        $expectedDraftRevision = (int)($request['expectedDraftRevision'] ?? 0);
         if ($draft === null || ($draft['schema'] ?? null) !== self::DRAFT_CONTRACT || $decisions === null) {
             throw new \InvalidArgumentException('Некорректный AI-черновик или решения.');
         }
         if ($clientRevision <= 0 || $clientRevision > 9007199254740991) {
             throw new \InvalidArgumentException('Некорректная ревизия AI-черновика.');
+        }
+        if ($expectedDraftRevision < 0 || $expectedDraftRevision > 9007199254740991) {
+            throw new \InvalidArgumentException('Некорректная ожидаемая ревизия AI-черновика.');
         }
         $context = is_array($draft['context'] ?? null) ? $draft['context'] : [];
         if ((int)($context['presetId'] ?? 0) !== $presetId || (string)($context['versionKey'] ?? '') !== $versionKey
@@ -102,8 +106,12 @@ final class AiLogicPilotDraftStore
         if ($lock === false || !flock($lock, LOCK_EX)) throw new \RuntimeException('Не удалось заблокировать AI-черновик.');
         try {
             $current = $this->readDocument($path);
-            if ($current !== null && $clientRevision <= (int)($current['clientRevision'] ?? 0)) {
-                return ['status' => 'ok', 'found' => true, 'stale' => true, 'draftRevision' => (int)($current['revision'] ?? 0)] + $current;
+            $currentMatchesContext = $current !== null
+                && (string)($current['baseCompileHash'] ?? '') === $baseCompileHash
+                && (string)($current['expectedContentHash'] ?? '') === $expectedContentHash;
+            $currentRevision = $currentMatchesContext ? (int)($current['revision'] ?? 0) : 0;
+            if ($expectedDraftRevision !== $currentRevision) {
+                throw new \RuntimeException('AI-черновик изменён в другой вкладке. Обновите его и повторите.', 409);
             }
             $document = [
                 'contract' => self::CONTRACT,
@@ -111,7 +119,7 @@ final class AiLogicPilotDraftStore
                 'versionKey' => $versionKey,
                 'baseCompileHash' => $baseCompileHash,
                 'expectedContentHash' => $expectedContentHash,
-                'revision' => (int)($current['revision'] ?? 0) + 1,
+                'revision' => $currentRevision + 1,
                 'clientRevision' => $clientRevision,
                 'updatedAt' => gmdate('c'),
                 'draft' => $draft,

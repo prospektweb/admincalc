@@ -1463,7 +1463,7 @@
                     presetId: Number(payload.presetId || 0),
                     versionKey: String(payload.versionKey || ''),
                     baseCompileHash: String(payload.baseCompileHash || ''),
-                    expectedContentHash: String(payload.expectedContentHash || ''),
+                    expectedContentHash: String(this.config.versionContentHash || payload.expectedContentHash || ''),
                 }]);
                 this.sendPwrtMessage('AI_LOGIC_PILOT_DRAFT_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
             } catch (error) {
@@ -1479,10 +1479,11 @@
                     presetId: Number(payload.presetId || 0),
                     versionKey: String(payload.versionKey || ''),
                     baseCompileHash: String(payload.baseCompileHash || ''),
-                    expectedContentHash: String(payload.expectedContentHash || ''),
+                    expectedContentHash: String(this.config.versionContentHash || payload.expectedContentHash || ''),
                     draft: payload.draft || null,
                     decisions: payload.decisions || {},
                     replacements: payload.replacements || {},
+                    expectedDraftRevision: Number(payload.expectedDraftRevision || 0),
                     clientRevision: Number(payload.clientRevision || 0),
                 }]);
                 this.sendPwrtMessage('AI_LOGIC_PILOT_DRAFT_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
@@ -1512,7 +1513,7 @@
                     versionId: String(payload.versionId || payload.versionKey || ''),
                     versionKey: String(payload.versionKey || payload.versionId || ''),
                     baseCompileHash: String(payload.baseCompileHash || ''),
-                    expectedContentHash: String(payload.expectedContentHash || ''),
+                    expectedContentHash: String(this.config.versionContentHash || payload.expectedContentHash || ''),
                     expectedDraftRevision: Number(payload.expectedDraftRevision || payload.draftRevision || 0),
                 })]);
                 this.sendPwrtMessage(responseType, Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);

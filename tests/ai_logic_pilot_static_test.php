@@ -91,6 +91,8 @@ $checks += [
     'bridge exposes candidate transport' => strpos($bridge, 'LOAD_AI_LOGIC_PILOT_REPLACEMENT_CANDIDATES_REQUEST') !== false,
     'bridge exposes manifest preview transport' => strpos($bridge, 'PREVIEW_AI_LOGIC_PILOT_MANIFEST_REQUEST') !== false,
     'bridge exposes manifest apply transport' => strpos($bridge, 'APPLY_AI_LOGIC_PILOT_MANIFEST_REQUEST') !== false,
+    'bridge forwards draft compare-and-swap revision' => strpos($bridge, 'expectedDraftRevision: Number(payload.expectedDraftRevision || 0)') !== false,
+    'bridge owns the current version hash for AI draft and manifest requests' => substr_count($bridge, "expectedContentHash: String(this.config.versionContentHash || payload.expectedContentHash || '')") >= 3,
     'bridge exposes applied graph inspection' => strpos($bridge, 'INSPECT_AI_LOGIC_PILOT_APPLICATION_REQUEST') !== false,
     'bridge exposes explicit repair transport' => strpos($bridge, 'REPAIR_AI_LOGIC_PILOT_APPLICATION_REQUEST') !== false,
 ];

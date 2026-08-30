@@ -187,7 +187,7 @@ if (!class_exists('AiPilotRepairTestUser')) { class AiPilotRepairTestUser { publ
 $USER=new AiPilotRepairTestUser();
 $tmp=sys_get_temp_dir().'/pw-ai-repair-'.bin2hex(random_bytes(5));
 $store=new AiLogicPilotDraftStore($tmp);
-$store->save(['presetId'=>16488,'versionKey'=>$versionId,'baseCompileHash'=>$baseHash,'expectedContentHash'=>$oldHash,'draft'=>$draft,'decisions'=>[],'replacements'=>[],'clientRevision'=>1]);
+$store->save(['presetId'=>16488,'versionKey'=>$versionId,'baseCompileHash'=>$baseHash,'expectedContentHash'=>$oldHash,'draft'=>$draft,'decisions'=>[],'replacements'=>[],'expectedDraftRevision'=>0,'clientRevision'=>1]);
 $recovered=$store->loadLatestForRepair(['presetId'=>16488,'versionKey'=>$versionId,'baseCompileHash'=>str_repeat('f',64),'expectedContentHash'=>$currentHash,'appliedAt'=>gmdate('c',time()+60)]);
 $assert(($recovered['found']??false)===true&&($recovered['expectedContentHash']??'')===$oldHash,'repair lookup must find a pre-apply draft after version hash advances');
 foreach(glob($tmp.'/*')?:[] as $file)@unlink($file);@rmdir($tmp);
