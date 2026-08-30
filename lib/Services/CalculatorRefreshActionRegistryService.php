@@ -28,6 +28,7 @@ final class CalculatorRefreshActionRegistryService
         'loadAiLogicPilotDraft',
         'loadAiLogicPilotReplacementCandidates',
         'previewAiLogicPilotManifest',
+        'inspectAiLogicPilotApplication',
         'getCatalogEntityMeta',
         'getCatalogTree',
         'getDetailWithChildren',
@@ -58,6 +59,7 @@ final class CalculatorRefreshActionRegistryService
         'clonePreset',
         'saveAiLogicPilotDraft',
         'applyAiLogicPilotManifest',
+        'repairAiLogicPilotApplication',
     ];
 
     /** @var string[] */

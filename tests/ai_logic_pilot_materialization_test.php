@@ -73,6 +73,9 @@ $assert($preview['groups']['calculator'][0]['name'] === 'Расчёт печат
     && $preview['groups']['calculator'][0]['path'] === ['Расчёты AI', 'Расчёт печати'], 'calculator must be a described CALC_SETTINGS path object');
 $assert($preview['groups']['equipment'][0]['action'] === 'replace', 'approved replacement must not become create');
 $assert($preview['groups']['material'][0]['name'] === 'Баннер', 'legacy virtual prefix must not reach preview or created entity');
+$assert($preview['groups']['material'][0]['path'] === ['Материалы AI', 'Баннер']
+    && $preview['groups']['materialVariant'][0]['path'] === ['Материалы AI', 'Баннер', 'Баннер 440'],
+    'base and variant paths must inherit the owning catalog hierarchy');
 $assert($preview['structure']['details'][0]['action'] === 'reuse' && $preview['structure']['details'][0]['realId'] === 777,
     'blank working graph foundation must be reused instead of duplicated');
 $codeMethod = new ReflectionMethod($service, 'elementCode');
@@ -128,5 +131,28 @@ $blockedService = new AiLogicPilotMaterializationService([
 $blocked = $blockedService->preview($plainRequest)['manifest'];
 $assert($blocked['ready'] === false && str_contains(implode("\n", $blocked['blockers']), 'ровно один утверждённый калькулятор'),
     'every stage must have exactly one calculator entity before apply');
+
+$wrongStageDraft = $draft;
+$wrongStageDraft['stages'][0]['detailDraftId'] = 'draft_material';
+$wrongStageStore = $draftStore;
+$wrongStageStore['draft'] = $wrongStageDraft;
+$wrongStageService = new AiLogicPilotMaterializationService([
+    'assert_admin' => static fn() => null,
+    'bundle' => static fn(array $_context): array => $bundle,
+    'draft' => static fn(array $_context): array => $wrongStageStore,
+    'candidates' => static fn(array $_kinds, array $_context): array => [],
+]);
+$wrongStage = $wrongStageService->preview($plainRequest)['manifest'];
+$assert($wrongStage['ready'] === false && str_contains(implode("\n", $wrongStage['blockers']), 'утверждённую деталь'),
+    'a stage must never link to a catalog object instead of a detail');
+
+$legacyReplayService = new AiLogicPilotMaterializationService([
+    'assert_admin' => static fn() => null,
+    'receipt_get' => static fn(string $_key): string => json_encode(['manifestHash' => $preview['manifestHash']], JSON_THROW_ON_ERROR),
+]);
+$legacyReplayBlocked = false;
+try { $legacyReplayService->apply($applyRequest); }
+catch (RuntimeException $error) { $legacyReplayBlocked = str_contains($error->getMessage(), 'проверки и восстановления'); }
+$assert($legacyReplayBlocked, 'a historical receipt without authoritative readback must never replay as success');
 
 echo "AI logic pilot materialization tests passed\n";

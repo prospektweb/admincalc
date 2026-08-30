@@ -93,7 +93,10 @@ final class AiLogicPilotMaterializationService
             if ($requestedManifestHash === '' || !hash_equals((string)($receipt['manifestHash'] ?? ''), $requestedManifestHash)) {
                 throw new \RuntimeException('Ключ идемпотентности уже использован для другого финального списка.', 409);
             }
-            return ['status' => 'ok', 'contract' => self::APPLY_CONTRACT, 'message' => 'AI-пилот уже был применён.', 'idempotentReplay' => true] + $receipt;
+            if (($receipt['readbackVerified'] ?? false) !== true) {
+                throw new \RuntimeException('Ранее применённый AI-пилот требует проверки и восстановления связей.', 409);
+            }
+            return ['status' => 'ok', 'contract' => self::APPLY_CONTRACT, 'message' => 'AI-пилот уже был применён и проверен.', 'idempotentReplay' => true] + $receipt;
         }
         $preview = $this->preview($request);
         $manifest = $preview['manifest'];
@@ -139,6 +142,7 @@ final class AiLogicPilotMaterializationService
                 'created' => $mapping['created'] ?? [],
                 'reused' => $mapping['reused'] ?? [],
                 'replaced' => $mapping['replaced'] ?? [],
+                'readbackVerified' => true,
                 'appliedAt' => gmdate('c'),
             ];
             $this->receiptSet($receiptKey, $receipt);
@@ -191,7 +195,8 @@ final class AiLogicPilotMaterializationService
             if (isset($pathMemo[$id])) return $pathMemo[$id];
             $item = $all[$id]['row'] ?? null;
             if (!is_array($item)) return [];
-            $parent = trim((string)($item['parentDraftId'] ?? $item['folderDraftId'] ?? ''));
+            $parent = trim((string)($item['parentDraftId'] ?? ''));
+            if ($parent === '') $parent = trim((string)($item['folderDraftId'] ?? ''));
             if ($parent !== '' && !isset($all[$parent])) { $blockers[] = 'Не найден родитель ' . $parent . ' для ' . $id . '.'; return []; }
             $title = $this->text($item['title'] ?? '', 'Название ' . $id, 250);
             return $pathMemo[$id] = array_merge($parent !== '' ? $pathFor($parent) : [], [$title]);
@@ -203,6 +208,11 @@ final class AiLogicPilotMaterializationService
             if ($entry['collection'] === 'catalogFolders') {
                 $catalogKind = trim((string)($row['kind'] ?? ''));
                 if (!isset(self::IBLOCK_BY_KIND[$catalogKind])) $blockers[] = 'Каталог папки ' . $id . ' не поддерживается.';
+                $parentDraftId = trim((string)($row['parentDraftId'] ?? ''));
+                if ($parentDraftId !== '' && (($all[$parentDraftId]['collection'] ?? '') !== 'catalogFolders'
+                    || (string)($all[$parentDraftId]['row']['kind'] ?? '') !== $catalogKind)) {
+                    $blockers[] = 'Родитель пути ' . $id . ' должен быть путём того же каталога.';
+                }
                 $groups['directory'][] = $this->manifestRow($id, 'directory', $row, $pathFor($id), $replacement, [
                     'catalogKind' => $catalogKind,
                     'parentDraftId' => $row['parentDraftId'] ?? null,
@@ -211,8 +221,19 @@ final class AiLogicPilotMaterializationService
                 $kind = trim((string)($row['kind'] ?? ''));
                 if (!isset(self::IBLOCK_BY_KIND[$kind])) { $blockers[] = 'Тип объекта ' . $kind . ' не поддерживается.'; continue; }
                 $parent = trim((string)($row['parentDraftId'] ?? ''));
-                if (in_array($kind, ['materialVariant', 'operationVariant'], true) && ($parent === '' || !isset($all[$parent]) || !$approved($parent))) {
-                    $blockers[] = 'Вариант ' . $id . ' требует утверждённый родительский объект.';
+                if (in_array($kind, ['materialVariant', 'operationVariant'], true)) {
+                    $requiredParentKind = $kind === 'materialVariant' ? 'material' : 'operation';
+                    if ($parent === '' || !isset($all[$parent]) || !$approved($parent)
+                        || ($all[$parent]['collection'] ?? '') !== 'catalogObjects'
+                        || (string)($all[$parent]['row']['kind'] ?? '') !== $requiredParentKind) {
+                        $blockers[] = 'Вариант ' . $id . ' требует утверждённый родительский объект своего вида.';
+                    }
+                } else {
+                    $folderDraftId = trim((string)($row['folderDraftId'] ?? ''));
+                    if ($folderDraftId !== '' && (($all[$folderDraftId]['collection'] ?? '') !== 'catalogFolders'
+                        || (string)($all[$folderDraftId]['row']['kind'] ?? '') !== $kind)) {
+                        $blockers[] = 'Объект ' . $id . ' должен находиться в пути своего каталога.';
+                    }
                 }
                 $groups[$kind][] = $this->manifestRow($id, $kind, $row, $pathFor($id), $replacement, [
                     'folderDraftId' => $row['folderDraftId'] ?? null,
@@ -223,6 +244,18 @@ final class AiLogicPilotMaterializationService
                 foreach (['parentDraftId', 'detailDraftId'] as $refKey) {
                     $ref = trim((string)($row[$refKey] ?? ''));
                     if ($ref !== '' && (!isset($all[$ref]) || !$approved($ref))) $blockers[] = $id . ' ссылается на неутверждённый ' . $ref . '.';
+                }
+                if ($entry['collection'] === 'details') {
+                    $parent = trim((string)($row['parentDraftId'] ?? ''));
+                    if ($parent !== '' && ($all[$parent]['collection'] ?? '') !== 'details') {
+                        $blockers[] = 'Родитель детали ' . $id . ' должен быть деталью или группой деталей.';
+                    }
+                }
+                if ($entry['collection'] === 'stages') {
+                    $detail = trim((string)($row['detailDraftId'] ?? ''));
+                    if ($detail === '' || ($all[$detail]['collection'] ?? '') !== 'details') {
+                        $blockers[] = 'Этап ' . $id . ' должен ссылаться на утверждённую деталь.';
+                    }
                 }
                 foreach (['catalogDraftIds', 'stageDraftIds'] as $refsKey) {
                     foreach (is_array($row[$refsKey] ?? null) ? $row[$refsKey] : [] as $ref) {
@@ -251,7 +284,7 @@ final class AiLogicPilotMaterializationService
             if ($calculatorCount !== 1) $blockers[] = 'Этап «' . $stageName . '» должен иметь ровно один утверждённый калькулятор логики.';
             foreach ($refs as $ref) {
                 $kind = $catalogKindByDraftId[(string)$ref] ?? '';
-                if (in_array($kind, ['directory', 'material', 'operation'], true)) {
+                if (!in_array($kind, ['materialVariant', 'operationVariant', 'equipment', 'customField', 'calculator'], true)) {
                     $blockers[] = 'Этап «' . $stageName . '» должен ссылаться на вид материала/операции, оборудование и калькулятор, а не на базовый объект или путь.';
                 }
             }
@@ -462,6 +495,7 @@ final class AiLogicPilotMaterializationService
                 $section = new \CIBlockSection();
                 $id = (int)$section->Add(['IBLOCK_ID' => $iblockId, 'IBLOCK_SECTION_ID' => $parentId, 'ACTIVE' => 'Y', 'NAME' => $row['name'], 'DESCRIPTION' => $row['description']]);
                 if ($id <= 0) throw new \RuntimeException('Не удалось создать каталог «' . $row['name'] . '»: ' . $section->LAST_ERROR);
+                $this->assertSectionReadback($id, $iblockId, $parentId, (string)$row['name'], (string)$row['description']);
                 $ids[$draftId] = $id; $created[$draftId] = ['kind' => 'directory', 'id' => $id, 'iblockCode' => $iblockCode];
             }
             foreach (['material','operation','equipment','customField','calculator','materialVariant','operationVariant'] as $kind) {
@@ -476,13 +510,17 @@ final class AiLogicPilotMaterializationService
                         'PREVIEW_TEXT' => $row['description'],
                         'PREVIEW_TEXT_TYPE' => 'text',
                     ];
-                    $folderDraftId = (string)($row['folderDraftId'] ?? '');
+                    // Variants belong to their base object via CML2_LINK. A section
+                    // ID from the base catalog is invalid in the variants iblock.
+                    $folderDraftId = in_array($kind, ['materialVariant','operationVariant'], true)
+                        ? '' : (string)($row['folderDraftId'] ?? '');
                     if ($folderDraftId !== '' && isset($ids[$folderDraftId])) $fields['IBLOCK_SECTION_ID'] = $ids[$folderDraftId];
                     $element = new \CIBlockElement(); $id = (int)$element->Add($fields);
                     if ($id <= 0) throw new \RuntimeException('Не удалось создать «' . $row['name'] . '»: ' . $element->LAST_ERROR);
+                    $this->assertElementReadback($id, $iblockId, $fields);
                     $parentDraftId = (string)($row['parentDraftId'] ?? '');
                     if ($parentDraftId !== '' && isset($ids[$parentDraftId]) && in_array($kind, ['materialVariant','operationVariant'], true)) {
-                        \CIBlockElement::SetPropertyValuesEx($id, $iblockId, ['CML2_LINK' => $ids[$parentDraftId]]);
+                        $this->setAndVerifyPropertyValues($id, $iblockId, ['CML2_LINK' => $ids[$parentDraftId]]);
                     }
                     $ids[$row['draftId']] = $id; $created[$row['draftId']] = ['kind' => $kind, 'id' => $id, 'iblockCode' => $iblockCode];
                 }
@@ -500,7 +538,7 @@ final class AiLogicPilotMaterializationService
                 $type = strtoupper((string)($row['kind'] ?? 'detail')) === 'BINDING' ? 'BINDING' : 'DETAIL';
                 $enum = \CIBlockPropertyEnum::GetList([], ['IBLOCK_ID' => (int)$iblocks['CALC_DETAILS'], 'CODE' => 'TYPE', 'XML_ID' => $type])->Fetch();
                 if (!$enum) throw new \RuntimeException('Не настроен тип детали ' . $type . '.', 409);
-                \CIBlockElement::SetPropertyValuesEx($id, (int)$iblocks['CALC_DETAILS'], ['TYPE' => (int)$enum['ID']]);
+                $this->setAndVerifyPropertyValues($id, (int)$iblocks['CALC_DETAILS'], ['TYPE' => (int)$enum['ID']]);
                 $ids[$item['draftId']] = $id;
                 $reused[$item['draftId']] = ['kind' => 'detail', 'id' => $id];
             }
@@ -516,10 +554,14 @@ final class AiLogicPilotMaterializationService
                     'PREVIEW_TEXT_TYPE' => 'text',
                 ]);
                 if ($id <= 0) throw new \RuntimeException('Не удалось создать деталь AI-пилота: ' . $element->LAST_ERROR);
+                $this->assertElementReadback($id, $iblockId, [
+                    'NAME'=>(string)$row['title'], 'CODE'=>$this->elementCode('detail', (string)$item['draftId']),
+                    'PREVIEW_TEXT'=>(string)($row['description']??''), 'IBLOCK_SECTION_ID'=>0,
+                ]);
                 $type = strtoupper((string)($row['kind'] ?? 'detail')) === 'BINDING' ? 'BINDING' : 'DETAIL';
                 $enum = \CIBlockPropertyEnum::GetList([], ['IBLOCK_ID' => $iblockId, 'CODE' => 'TYPE', 'XML_ID' => $type])->Fetch();
                 if (!$enum) throw new \RuntimeException('Не настроен тип детали ' . $type . '.', 409);
-                \CIBlockElement::SetPropertyValuesEx($id, $iblockId, ['TYPE' => (int)$enum['ID']]);
+                $this->setAndVerifyPropertyValues($id, $iblockId, ['TYPE' => (int)$enum['ID']]);
                 $ids[$item['draftId']] = $id; $created[$item['draftId']] = ['kind' => 'detail', 'id' => $id];
             }
             foreach ($manifest['structure']['stages'] as $item) {
@@ -533,6 +575,10 @@ final class AiLogicPilotMaterializationService
                     'PREVIEW_TEXT_TYPE' => 'text',
                 ]);
                 if ($id <= 0) throw new \RuntimeException('Не удалось создать этап AI-пилота: ' . $element->LAST_ERROR);
+                $this->assertElementReadback($id, $iblockId, [
+                    'NAME'=>(string)$row['title'], 'CODE'=>$this->elementCode('stage', (string)$item['draftId']),
+                    'PREVIEW_TEXT'=>(string)($row['description']??''), 'IBLOCK_SECTION_ID'=>0,
+                ]);
                 $properties = [];
                 foreach (is_array($row['catalogDraftIds'] ?? null) ? $row['catalogDraftIds'] : [] as $catalogDraftId) {
                     $catalogKind = null;
@@ -540,7 +586,7 @@ final class AiLogicPilotMaterializationService
                     $property = ['calculator'=>'CALC_SETTINGS','materialVariant'=>'MATERIAL_VARIANT','operationVariant'=>'OPERATION_VARIANT','equipment'=>'EQUIPMENT'][$catalogKind] ?? null;
                     if ($property && isset($ids[$catalogDraftId])) $properties[$property] = $ids[$catalogDraftId];
                 }
-                if ($properties) \CIBlockElement::SetPropertyValuesEx($id, $iblockId, $properties);
+                if ($properties) $this->setAndVerifyPropertyValues($id, $iblockId, $properties);
                 $ids[$item['draftId']] = $id; $created[$item['draftId']] = ['kind' => 'stage', 'id' => $id];
             }
             $stagesByDetail = [];
@@ -549,7 +595,7 @@ final class AiLogicPilotMaterializationService
                 if (isset($ids[$detailDraftId], $ids[$item['draftId']])) $stagesByDetail[$detailDraftId][] = $ids[$item['draftId']];
             }
             foreach ($stagesByDetail as $detailDraftId => $stageIds) {
-                \CIBlockElement::SetPropertyValuesEx((int)$ids[$detailDraftId], (int)$iblocks['CALC_DETAILS'], ['CALC_STAGES' => array_values($stageIds)]);
+                $this->setAndVerifyPropertyValues((int)$ids[$detailDraftId], (int)$iblocks['CALC_DETAILS'], ['CALC_STAGES' => array_values($stageIds)]);
             }
             $childrenByBinding = [];
             $topLevelDetails = [];
@@ -559,7 +605,7 @@ final class AiLogicPilotMaterializationService
                 else $topLevelDetails[] = $ids[$item['draftId']];
             }
             foreach ($childrenByBinding as $bindingDraftId => $children) {
-                \CIBlockElement::SetPropertyValuesEx((int)$ids[$bindingDraftId], (int)$iblocks['CALC_DETAILS'], ['DETAILS' => array_values($children)]);
+                $this->setAndVerifyPropertyValues((int)$ids[$bindingDraftId], (int)$iblocks['CALC_DETAILS'], ['DETAILS' => array_values($children)]);
             }
             if ($topLevelDetails !== []) {
                 $existingElement = \CIBlockElement::GetList([], ['ID' => $workingPresetId, 'IBLOCK_ID' => (int)$iblocks['CALC_PRESETS']], false, ['nTopCount' => 1], ['ID'])->GetNextElement();
@@ -567,7 +613,7 @@ final class AiLogicPilotMaterializationService
                 $existingRoots = is_array($existingProperties['CALC_DETAILS']['VALUE'] ?? null)
                     ? array_map('intval', $existingProperties['CALC_DETAILS']['VALUE'])
                     : array_filter([(int)($existingProperties['CALC_DETAILS']['VALUE'] ?? 0)]);
-                \CIBlockElement::SetPropertyValuesEx($workingPresetId, (int)$iblocks['CALC_PRESETS'], ['CALC_DETAILS' => array_values(array_unique(array_merge($existingRoots, $topLevelDetails)))]);
+                $this->setAndVerifyPropertyValues($workingPresetId, (int)$iblocks['CALC_PRESETS'], ['CALC_DETAILS' => array_values(array_unique(array_merge($existingRoots, $topLevelDetails)))]);
             }
             if ($manifest['structure']['globals'] !== []) {
                 $globalsService = new GlobalSymbolService();
@@ -641,6 +687,40 @@ final class AiLogicPilotMaterializationService
         $kind = strtolower((string)(preg_replace('/[^a-z0-9]+/i', '_', $kind) ?? 'entity'));
         $kind = trim($kind, '_') ?: 'entity';
         return 'ai_pilot_' . $kind . '_' . substr(hash('sha256', $draftId), 0, 16);
+    }
+
+    /** Bitrix's SetPropertyValuesEx has no success return, so every AI link is read back. */
+    private function setAndVerifyPropertyValues(int $elementId, int $iblockId, array $values): void
+    {
+        \CIBlockElement::SetPropertyValuesEx($elementId, $iblockId, $values);
+        $element = \CIBlockElement::GetList([], ['ID' => $elementId, 'IBLOCK_ID' => $iblockId], false, ['nTopCount' => 1], ['ID'])->GetNextElement();
+        if (!$element) throw new \RuntimeException('Сущность исчезла при сохранении связей AI-пилота.', 409);
+        $properties = $element->GetProperties();
+        foreach ($values as $code => $expected) {
+            $actual = $properties[$code]['VALUE'] ?? null;
+            $expectedValues = array_values(array_filter(array_map('intval', is_array($expected) ? $expected : [$expected])));
+            $actualValues = array_values(array_filter(array_map('intval', is_array($actual) ? $actual : [$actual])));
+            sort($expectedValues); sort($actualValues);
+            if ($actualValues !== $expectedValues) throw new \RuntimeException('Bitrix не сохранил связь AI-пилота ' . $code . '.', 409);
+        }
+    }
+
+    private function assertSectionReadback(int $id, int $iblockId, int $parentId, string $name, string $description): void
+    {
+        $row = \CIBlockSection::GetList([], ['ID'=>$id,'IBLOCK_ID'=>$iblockId], false, ['ID','NAME','DESCRIPTION','IBLOCK_SECTION_ID'])->Fetch();
+        if (!$row || (string)$row['NAME'] !== $name || (string)$row['DESCRIPTION'] !== $description
+            || (int)$row['IBLOCK_SECTION_ID'] !== $parentId) throw new \RuntimeException('Bitrix не подтвердил созданную папку AI-пилота.', 409);
+    }
+
+    private function assertElementReadback(int $id, int $iblockId, array $expected): void
+    {
+        $row = \CIBlockElement::GetList([], ['ID'=>$id,'IBLOCK_ID'=>$iblockId], false, ['nTopCount'=>1],
+            ['ID','NAME','CODE','PREVIEW_TEXT','IBLOCK_SECTION_ID'])->Fetch();
+        if (!$row) throw new \RuntimeException('Bitrix не подтвердил созданную сущность AI-пилота.', 409);
+        foreach (['NAME','CODE','PREVIEW_TEXT'] as $field) if (array_key_exists($field,$expected) && (string)$row[$field] !== (string)$expected[$field])
+            throw new \RuntimeException('Bitrix изменил поле '.$field.' созданной сущности AI-пилота.',409);
+        if (array_key_exists('IBLOCK_SECTION_ID',$expected) && (int)$row['IBLOCK_SECTION_ID'] !== (int)$expected['IBLOCK_SECTION_ID'])
+            throw new \RuntimeException('Bitrix не сохранил каталог созданной сущности AI-пилота.',409);
     }
 
     private function hash(array $value): string

@@ -31,6 +31,33 @@ final class AiLogicPilotDraftStore
         return ['status' => 'ok', 'found' => true, 'draftRevision' => (int)($document['revision'] ?? 0)] + $document;
     }
 
+    /**
+     * Administrative recovery lookup. Unlike the editor load it deliberately
+     * does not require the draft's pre-apply content hash to equal the current
+     * version hash. The repair service still performs its own current-version
+     * CAS before any write.
+     */
+    public function loadLatestForRepair(array $request): array
+    {
+        $this->assertAdmin();
+        [$presetId, $versionKey] = $this->identity($request);
+        $appliedAt = trim((string)($request['appliedAt'] ?? ''));
+        if (!is_dir($this->root)) return ['status' => 'ok', 'found' => false, 'revision' => 0];
+        $latest = null;
+        foreach (new \DirectoryIterator($this->root) as $file) {
+            if (!$file->isFile() || strtolower($file->getExtension()) !== 'json') continue;
+            $document = $this->readDocument($file->getPathname());
+            if ($document === null || (int)($document['presetId'] ?? 0) !== $presetId
+                || (string)($document['versionKey'] ?? '') !== $versionKey
+                || ($appliedAt !== '' && strcmp((string)($document['updatedAt'] ?? ''), $appliedAt) > 0)) continue;
+            if ($latest === null || strcmp((string)($document['updatedAt'] ?? ''), (string)($latest['updatedAt'] ?? '')) > 0
+                || ((string)($document['updatedAt'] ?? '') === (string)($latest['updatedAt'] ?? '')
+                    && (int)($document['revision'] ?? 0) > (int)($latest['revision'] ?? 0))) $latest = $document;
+        }
+        if ($latest === null) return ['status' => 'ok', 'found' => false, 'revision' => 0];
+        return ['status' => 'ok', 'found' => true, 'draftRevision' => (int)($latest['revision'] ?? 0)] + $latest;
+    }
+
     public function save(array $request): array
     {
         $userId = $this->assertAdmin();

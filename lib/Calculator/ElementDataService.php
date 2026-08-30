@@ -87,6 +87,14 @@ class ElementDataService
                         $result[] = (new \Prospektweb\Calc\Services\AiLogicPilotMaterializationService())->apply($request);
                         continue 2;
 
+                    case 'inspectAiLogicPilotApplication':
+                        $result[] = (new \Prospektweb\Calc\Services\AiLogicPilotRepairService())->inspect($request);
+                        continue 2;
+
+                    case 'repairAiLogicPilotApplication':
+                        $result[] = (new \Prospektweb\Calc\Services\AiLogicPilotRepairService())->repair($request);
+                        continue 2;
+
                     case 'generateLogicProposal':
                         $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->generateLogicProposal(
                             is_array($request['request'] ?? null) ? $request['request'] : []

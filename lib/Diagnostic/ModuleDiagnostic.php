@@ -84,6 +84,7 @@ class ModuleDiagnostic
         'lib/Services/GlobalCodeRefactorService.php',
         'lib/Services/AiLogicPilotDraftStore.php',
         'lib/Services/AiLogicPilotMaterializationService.php',
+        'lib/Services/AiLogicPilotRepairService.php',
         'lib/Services/GlobalSymbolService.php',
         'lib/Services/CalculatorMutationAuthorityService.php',
         'lib/Services/CalculatorSemanticMutationService.php',

@@ -3,6 +3,7 @@
 $root = dirname(__DIR__);
 $gateway = (string)file_get_contents($root . '/lib/Services/AiGatewayService.php');
 $materialization = (string)file_get_contents($root . '/lib/Services/AiLogicPilotMaterializationService.php');
+$repair = (string)file_get_contents($root . '/lib/Services/AiLogicPilotRepairService.php');
 $bridge = (string)file_get_contents($root . '/install/assets/js/integration.js');
 
 $checks = [
@@ -40,9 +41,20 @@ $checks += [
     'apply requires explicit confirmation' => strpos($materialization, "explicitConfirm") !== false,
     'apply requires idempotency' => strpos($materialization, "idempotencyKey") !== false,
     'variant parent link is persisted' => strpos($materialization, "'CML2_LINK'") !== false,
+    'future materialization reads every link back' => strpos($materialization, 'setAndVerifyPropertyValues') !== false
+        && strpos($materialization, 'Bitrix не сохранил связь AI-пилота') !== false,
+    'historical receipts cannot replay without readback' => strpos($materialization, "['readbackVerified']") !== false
+        && strpos($materialization, 'требует проверки и восстановления связей') !== false,
+    'variant folder ids are never copied across iblocks' => strpos($materialization, "in_array(\$kind, ['materialVariant','operationVariant'], true)\n                        ? ''") !== false,
+    'repair never creates or deletes entities' => strpos($repair, 'CIBlockElement(); $id =') === false
+        && strpos($repair, '->Delete(') === false && strpos($repair, "'ACTIVE'") === false,
+    'repair is hard scoped to wide format preset' => strpos($repair, 'private const TARGET_PRESET_ID = 16488') !== false
+        && strpos($repair, 'private const FORBIDDEN_PRESET_ID = 12740') !== false,
     'bridge exposes candidate transport' => strpos($bridge, 'LOAD_AI_LOGIC_PILOT_REPLACEMENT_CANDIDATES_REQUEST') !== false,
     'bridge exposes manifest preview transport' => strpos($bridge, 'PREVIEW_AI_LOGIC_PILOT_MANIFEST_REQUEST') !== false,
     'bridge exposes manifest apply transport' => strpos($bridge, 'APPLY_AI_LOGIC_PILOT_MANIFEST_REQUEST') !== false,
+    'bridge exposes applied graph inspection' => strpos($bridge, 'INSPECT_AI_LOGIC_PILOT_APPLICATION_REQUEST') !== false,
+    'bridge exposes explicit repair transport' => strpos($bridge, 'REPAIR_AI_LOGIC_PILOT_APPLICATION_REQUEST') !== false,
 ];
 
 foreach ($checks as $label => $ok) {
