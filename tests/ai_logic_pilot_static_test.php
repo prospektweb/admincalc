@@ -41,6 +41,8 @@ $checks = [
     'pilot rejects stages hidden outside the kanban topology' => strpos($gateway, 'Каждый созданный этап размести ровно один раз') !== false
         && strpos($gateway, 'не размещён ни в группе, ни в ветке условия и поэтому не виден в канбане') !== false
         && strpos($gateway, 'размещён в нескольких маршрутах') !== false,
+    'pilot prompt forbids parent group duplication of conditional stages' => strpos($gateway, 'stageDraftIds этой group НЕ ДОЛЖЕН повторять этапы из ветвей condition') !== false
+        && strpos($gateway, 'Один и тот же draftId запрещено указывать в двух любых массивах stageDraftIds') !== false,
     'pilot rejects malformed condition branches before the browser' => strpos($gateway, 'содержит некорректную ветку №') !== false
         && strpos($gateway, "['draftId', 'isElse', 'mode', 'operands', 'stageDraftIds', 'title']") !== false,
     'detailed pilot requires conditions and rejects composite stage cards' => strpos($gateway, 'Для detailed и professional создай хотя бы одно condition') !== false
