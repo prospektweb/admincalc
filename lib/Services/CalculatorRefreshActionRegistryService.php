@@ -26,6 +26,8 @@ final class CalculatorRefreshActionRegistryService
         'getAiBaseProducts',
         'getAiSettings',
         'loadAiLogicPilotDraft',
+        'loadAiLogicPilotReplacementCandidates',
+        'previewAiLogicPilotManifest',
         'getCatalogEntityMeta',
         'getCatalogTree',
         'getDetailWithChildren',
@@ -55,6 +57,7 @@ final class CalculatorRefreshActionRegistryService
         'applyGlobalCodeRefactor',
         'clonePreset',
         'saveAiLogicPilotDraft',
+        'applyAiLogicPilotManifest',
     ];
 
     /** @var string[] */

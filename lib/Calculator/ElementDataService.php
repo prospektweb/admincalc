@@ -75,6 +75,18 @@ class ElementDataService
                         $result[] = (new \Prospektweb\Calc\Services\AiLogicPilotDraftStore())->save($request);
                         continue 2;
 
+                    case 'loadAiLogicPilotReplacementCandidates':
+                        $result[] = (new \Prospektweb\Calc\Services\AiLogicPilotMaterializationService())->replacementCandidates($request);
+                        continue 2;
+
+                    case 'previewAiLogicPilotManifest':
+                        $result[] = (new \Prospektweb\Calc\Services\AiLogicPilotMaterializationService())->preview($request);
+                        continue 2;
+
+                    case 'applyAiLogicPilotManifest':
+                        $result[] = (new \Prospektweb\Calc\Services\AiLogicPilotMaterializationService())->apply($request);
+                        continue 2;
+
                     case 'generateLogicProposal':
                         $result[] = (new \Prospektweb\Calc\Services\AiGatewayService())->generateLogicProposal(
                             is_array($request['request'] ?? null) ? $request['request'] : []

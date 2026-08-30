@@ -59,6 +59,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Services\\CalcServerRequestSigner' => 'lib/Services/CalcServerRequestSigner.php',
     'Prospektweb\\Calc\\Services\\AiGatewayService' => 'lib/Services/AiGatewayService.php',
     'Prospektweb\\Calc\\Services\\AiLogicPilotDraftStore' => 'lib/Services/AiLogicPilotDraftStore.php',
+    'Prospektweb\\Calc\\Services\\AiLogicPilotMaterializationService' => 'lib/Services/AiLogicPilotMaterializationService.php',
     'Prospektweb\\Calc\\Services\\AiFormPilotProposalService' => 'lib/Services/AiFormPilotProposalService.php',
     'Prospektweb\\Calc\\Services\\AiCalculatorContextService' => 'lib/Services/AiCalculatorContextService.php',
     'Prospektweb\\Calc\\Services\\AsproAiPatchManager' => 'lib/Services/AsproAiPatchManager.php',

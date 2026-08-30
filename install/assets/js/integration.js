@@ -239,6 +239,8 @@
                     'GENERATE_STAGE_PREVIEW_REQUEST',
                     'GENERATE_AI_TEXT_REQUEST',
                     'LOAD_AI_LOGIC_PILOT_DRAFT_REQUEST',
+                    'LOAD_AI_LOGIC_PILOT_REPLACEMENT_CANDIDATES_REQUEST',
+                    'PREVIEW_AI_LOGIC_PILOT_MANIFEST_REQUEST',
                     'GENERATE_LOGIC_PROPOSAL_REQUEST',
                     'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST',
                     'GENERATE_LOGIC_AUDIT_REQUEST',
@@ -359,6 +361,15 @@
                     break;
                 case 'SAVE_AI_LOGIC_PILOT_DRAFT_REQUEST':
                     await this.handleSaveAiLogicPilotDraftRequest(message, origin);
+                    break;
+                case 'LOAD_AI_LOGIC_PILOT_REPLACEMENT_CANDIDATES_REQUEST':
+                    await this.handleLoadAiLogicPilotReplacementCandidatesRequest(message, origin);
+                    break;
+                case 'PREVIEW_AI_LOGIC_PILOT_MANIFEST_REQUEST':
+                    await this.handlePreviewAiLogicPilotManifestRequest(message, origin);
+                    break;
+                case 'APPLY_AI_LOGIC_PILOT_MANIFEST_REQUEST':
+                    await this.handleApplyAiLogicPilotManifestRequest(message, origin);
                     break;
                 case 'GENERATE_LOGIC_PROPOSAL_REQUEST':
                     await this.handleGenerateLogicProposalRequest(message, origin);
@@ -515,7 +526,7 @@
                         'CHANGE_EQUIPMENT_REQUEST', 'CHANGE_MATERIAL_VARIANT_REQUEST',
                         'CHANGE_CUSTOM_FIELDS_VALUE_REQUEST', 'CLONE_DETAIL_REQUEST', 'CLONE_SELECTED_DETAILS_REQUEST',
                         'SAVE_SETTINGS_EQUIPMENT_REQUEST', 'CHANGE_STAGE_NAME_REQUEST', 'CHANGE_ENTITY_META_REQUEST',
-                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_AI_TEXT_REQUEST', 'LOAD_AI_LOGIC_PILOT_DRAFT_REQUEST', 'SAVE_AI_LOGIC_PILOT_DRAFT_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_LOGIC_AUDIT_REQUEST', 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST', 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
+                        'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_AI_TEXT_REQUEST', 'LOAD_AI_LOGIC_PILOT_DRAFT_REQUEST', 'SAVE_AI_LOGIC_PILOT_DRAFT_REQUEST', 'LOAD_AI_LOGIC_PILOT_REPLACEMENT_CANDIDATES_REQUEST', 'PREVIEW_AI_LOGIC_PILOT_MANIFEST_REQUEST', 'APPLY_AI_LOGIC_PILOT_MANIFEST_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_LOGIC_AUDIT_REQUEST', 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST', 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
                         'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
@@ -1446,6 +1457,7 @@
                     presetId: Number(payload.presetId || 0),
                     versionKey: String(payload.versionKey || ''),
                     baseCompileHash: String(payload.baseCompileHash || ''),
+                    expectedContentHash: String(payload.expectedContentHash || ''),
                 }]);
                 this.sendPwrtMessage('AI_LOGIC_PILOT_DRAFT_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
             } catch (error) {
@@ -1461,13 +1473,45 @@
                     presetId: Number(payload.presetId || 0),
                     versionKey: String(payload.versionKey || ''),
                     baseCompileHash: String(payload.baseCompileHash || ''),
+                    expectedContentHash: String(payload.expectedContentHash || ''),
                     draft: payload.draft || null,
                     decisions: payload.decisions || {},
+                    replacements: payload.replacements || {},
                     clientRevision: Number(payload.clientRevision || 0),
                 }]);
                 this.sendPwrtMessage('AI_LOGIC_PILOT_DRAFT_RESPONSE', Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
             } catch (error) {
                 this.sendPwrtMessage('AI_LOGIC_PILOT_DRAFT_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сохранить AI-черновик' }, message.requestId, origin);
+            }
+        }
+
+        async handleLoadAiLogicPilotReplacementCandidatesRequest(message, origin) {
+            await this.handleAiLogicPilotMaterializationRequest(message, origin, 'loadAiLogicPilotReplacementCandidates', 'AI_LOGIC_PILOT_REPLACEMENT_CANDIDATES_RESPONSE');
+        }
+
+        async handlePreviewAiLogicPilotManifestRequest(message, origin) {
+            await this.handleAiLogicPilotMaterializationRequest(message, origin, 'previewAiLogicPilotManifest', 'AI_LOGIC_PILOT_MANIFEST_PREVIEW_RESPONSE');
+        }
+
+        async handleApplyAiLogicPilotManifestRequest(message, origin) {
+            await this.handleAiLogicPilotMaterializationRequest(message, origin, 'applyAiLogicPilotManifest', 'AI_LOGIC_PILOT_APPLY_RESPONSE');
+        }
+
+        async handleAiLogicPilotMaterializationRequest(message, origin, action, responseType) {
+            const payload = message.payload || {};
+            try {
+                const result = await this.fetchRefreshData([Object.assign({}, payload, {
+                    action,
+                    presetId: Number(payload.presetId || 0),
+                    versionId: String(payload.versionId || payload.versionKey || ''),
+                    versionKey: String(payload.versionKey || payload.versionId || ''),
+                    baseCompileHash: String(payload.baseCompileHash || ''),
+                    expectedContentHash: String(payload.expectedContentHash || ''),
+                    expectedDraftRevision: Number(payload.expectedDraftRevision || payload.draftRevision || 0),
+                })]);
+                this.sendPwrtMessage(responseType, Array.isArray(result) ? result[0] : { status: 'error' }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage(responseType, { status: 'error', message: error && error.message ? error.message : 'Не удалось обработать AI-пилот' }, message.requestId, origin);
             }
         }
 

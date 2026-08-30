@@ -22,18 +22,22 @@ final class AiLogicPilotDraftStore
     public function load(array $request): array
     {
         $userId = $this->assertAdmin();
-        [$presetId, $versionKey, $baseCompileHash] = $this->identity($request);
+        [$presetId, $versionKey, $baseCompileHash, $expectedContentHash] = $this->identity($request);
         $document = $this->readDocument($this->path($userId, $presetId, $versionKey));
-        if ($document === null || (string)($document['baseCompileHash'] ?? '') !== $baseCompileHash) return ['status' => 'ok', 'found' => false, 'revision' => 0];
-        return ['status' => 'ok', 'found' => true] + $document;
+        if ($document === null || (string)($document['baseCompileHash'] ?? '') !== $baseCompileHash
+            || (string)($document['expectedContentHash'] ?? '') !== $expectedContentHash) {
+            return ['status' => 'ok', 'found' => false, 'revision' => 0];
+        }
+        return ['status' => 'ok', 'found' => true, 'draftRevision' => (int)($document['revision'] ?? 0)] + $document;
     }
 
     public function save(array $request): array
     {
         $userId = $this->assertAdmin();
-        [$presetId, $versionKey, $baseCompileHash] = $this->identity($request);
+        [$presetId, $versionKey, $baseCompileHash, $expectedContentHash] = $this->identity($request);
         $draft = is_array($request['draft'] ?? null) ? $request['draft'] : null;
         $decisions = is_array($request['decisions'] ?? null) ? $request['decisions'] : null;
+        $replacements = is_array($request['replacements'] ?? null) ? $request['replacements'] : [];
         $clientRevision = (int)($request['clientRevision'] ?? 0);
         if ($draft === null || ($draft['schema'] ?? null) !== self::DRAFT_CONTRACT || $decisions === null) {
             throw new \InvalidArgumentException('Некорректный AI-черновик или решения.');
@@ -52,6 +56,18 @@ final class AiLogicPilotDraftStore
                 throw new \InvalidArgumentException('Некорректное решение по AI-черновику.');
             }
         }
+        foreach ($replacements as $draftId => $replacement) {
+            if (!is_string($draftId) || !preg_match('/^draft_[a-z0-9][a-z0-9_-]*$/i', $draftId)
+                || !is_array($replacement)
+                || !in_array((string)($replacement['realKind'] ?? ''), ['directory', 'material', 'materialVariant', 'operation', 'operationVariant', 'equipment', 'customField', 'calculator'], true)
+                || (int)($replacement['realId'] ?? 0) <= 0
+                || !preg_match('/^[a-f0-9]{64}$/', strtolower(trim((string)($replacement['expectedRevision'] ?? ''))))
+                || ((string)($replacement['realKind'] ?? '') === 'directory'
+                    && (!in_array((string)($replacement['catalogKind'] ?? ''), ['material', 'operation', 'equipment', 'customField', 'calculator'], true)
+                        || !preg_match('/^[A-Z0-9_]{3,120}$/', (string)($replacement['iblockCode'] ?? ''))))) {
+                throw new \InvalidArgumentException('Некорректная замена реального объекта AI-черновика.');
+            }
+        }
 
         $this->ensureRoot();
         $path = $this->path($userId, $presetId, $versionKey);
@@ -60,18 +76,20 @@ final class AiLogicPilotDraftStore
         try {
             $current = $this->readDocument($path);
             if ($current !== null && $clientRevision <= (int)($current['clientRevision'] ?? 0)) {
-                return ['status' => 'ok', 'found' => true, 'stale' => true] + $current;
+                return ['status' => 'ok', 'found' => true, 'stale' => true, 'draftRevision' => (int)($current['revision'] ?? 0)] + $current;
             }
             $document = [
                 'contract' => self::CONTRACT,
                 'presetId' => $presetId,
                 'versionKey' => $versionKey,
                 'baseCompileHash' => $baseCompileHash,
+                'expectedContentHash' => $expectedContentHash,
                 'revision' => (int)($current['revision'] ?? 0) + 1,
                 'clientRevision' => $clientRevision,
                 'updatedAt' => gmdate('c'),
                 'draft' => $draft,
                 'decisions' => $decisions,
+                'replacements' => $replacements,
             ];
             $json = json_encode($document, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
             if (strlen($json) > self::MAX_BYTES) throw new \RuntimeException('AI-черновик превышает безопасный размер.');
@@ -85,7 +103,7 @@ final class AiLogicPilotDraftStore
             } finally {
                 if (is_file($temporary)) @unlink($temporary);
             }
-            return ['status' => 'ok', 'found' => true] + $document;
+            return ['status' => 'ok', 'found' => true, 'draftRevision' => (int)$document['revision']] + $document;
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
@@ -97,11 +115,13 @@ final class AiLogicPilotDraftStore
         $presetId = (int)($request['presetId'] ?? 0);
         $versionKey = trim((string)($request['versionKey'] ?? ''));
         $baseCompileHash = strtolower(trim((string)($request['baseCompileHash'] ?? '')));
+        $expectedContentHash = strtolower(trim((string)($request['expectedContentHash'] ?? '')));
         if ($presetId <= 0 || $versionKey === '' || strlen($versionKey) > 180
-            || !preg_match('/^[A-Za-z0-9_.:-]+$/', $versionKey) || !preg_match('/^[a-f0-9]{64}$/', $baseCompileHash)) {
+            || !preg_match('/^[A-Za-z0-9_.:-]+$/', $versionKey) || !preg_match('/^[a-f0-9]{64}$/', $baseCompileHash)
+            || !preg_match('/^[a-f0-9]{64}$/', $expectedContentHash)) {
             throw new \InvalidArgumentException('Некорректный контекст AI-черновика.');
         }
-        return [$presetId, $versionKey, $baseCompileHash];
+        return [$presetId, $versionKey, $baseCompileHash, $expectedContentHash];
     }
 
     private function path(int $userId, int $presetId, string $versionKey): string

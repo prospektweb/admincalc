@@ -2,6 +2,8 @@
 
 $root = dirname(__DIR__);
 $gateway = (string)file_get_contents($root . '/lib/Services/AiGatewayService.php');
+$materialization = (string)file_get_contents($root . '/lib/Services/AiLogicPilotMaterializationService.php');
+$bridge = (string)file_get_contents($root . '/install/assets/js/integration.js');
 
 $checks = [
     'structural pilot zone exists' => strpos($gateway, "'logic_structure_pilot'") !== false,
@@ -15,6 +17,18 @@ $checks = [
     'pilot schema shows branch mode' => strpos($gateway, "'draftId' => 'draft_branch_001', 'title' => '', 'mode' => 'and'") !== false,
     'pilot schema shows symbolic operands' => strpos($gateway, "'kind' => 'variable', 'code' => 'needs_lamination'") !== false,
     'pilot schema shows explicit else branch' => strpos($gateway, "'draftId' => 'draft_branch_else_001'") !== false,
+];
+
+$checks += [
+    'calculator objects materialize to CALC_SETTINGS' => strpos($materialization, "'calculator' => 'CALC_SETTINGS'") !== false,
+    'apply is scoped to wide format preset' => strpos($materialization, 'private const TARGET_PRESET_ID = 16488') !== false,
+    'known sheet preset is explicitly forbidden' => strpos($materialization, 'private const FORBIDDEN_PRESET_ID = 12740') !== false,
+    'apply requires explicit confirmation' => strpos($materialization, "explicitConfirm") !== false,
+    'apply requires idempotency' => strpos($materialization, "idempotencyKey") !== false,
+    'variant parent link is persisted' => strpos($materialization, "'CML2_LINK'") !== false,
+    'bridge exposes candidate transport' => strpos($bridge, 'LOAD_AI_LOGIC_PILOT_REPLACEMENT_CANDIDATES_REQUEST') !== false,
+    'bridge exposes manifest preview transport' => strpos($bridge, 'PREVIEW_AI_LOGIC_PILOT_MANIFEST_REQUEST') !== false,
+    'bridge exposes manifest apply transport' => strpos($bridge, 'APPLY_AI_LOGIC_PILOT_MANIFEST_REQUEST') !== false,
 ];
 
 foreach ($checks as $label => $ok) {
