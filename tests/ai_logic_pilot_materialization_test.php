@@ -80,6 +80,9 @@ $materialCode = $codeMethod->invoke($service, 'material', 'draft_material');
 $assert(preg_match('/^ai_pilot_material_[a-f0-9]{16}$/', $materialCode) === 1
     && $materialCode === $codeMethod->invoke($service, 'material', 'draft_material'),
     'created catalog entities need a deterministic Bitrix symbolic code');
+$assert(preg_match('/^ai_pilot_stage_[a-f0-9]{16}$/', $codeMethod->invoke($service, 'stage', 'draft_stage')) === 1
+    && preg_match('/^ai_pilot_detail_[a-f0-9]{16}$/', $codeMethod->invoke($service, 'detail', 'draft_detail')) === 1,
+    'created structural entities need deterministic Bitrix symbolic codes');
 
 $applyRequest = $request + ['explicitConfirm' => true, 'manifestHash' => $preview['manifestHash'], 'idempotencyKey' => 'pilot-16488-test-0001'];
 $first = $service->apply($applyRequest);

@@ -507,7 +507,14 @@ final class AiLogicPilotMaterializationService
             foreach ($manifest['structure']['details'] as $item) {
                 if (($item['action'] ?? '') !== 'create') continue;
                 $row = $item['data']; $iblockId = (int)$iblocks['CALC_DETAILS']; $element = new \CIBlockElement();
-                $id = (int)$element->Add(['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y', 'NAME' => (string)$row['title'], 'PREVIEW_TEXT' => (string)($row['description'] ?? '')]);
+                $id = (int)$element->Add([
+                    'IBLOCK_ID' => $iblockId,
+                    'ACTIVE' => 'Y',
+                    'NAME' => (string)$row['title'],
+                    'CODE' => $this->elementCode('detail', (string)$item['draftId']),
+                    'PREVIEW_TEXT' => (string)($row['description'] ?? ''),
+                    'PREVIEW_TEXT_TYPE' => 'text',
+                ]);
                 if ($id <= 0) throw new \RuntimeException('Не удалось создать деталь AI-пилота: ' . $element->LAST_ERROR);
                 $type = strtoupper((string)($row['kind'] ?? 'detail')) === 'BINDING' ? 'BINDING' : 'DETAIL';
                 $enum = \CIBlockPropertyEnum::GetList([], ['IBLOCK_ID' => $iblockId, 'CODE' => 'TYPE', 'XML_ID' => $type])->Fetch();
@@ -517,7 +524,14 @@ final class AiLogicPilotMaterializationService
             }
             foreach ($manifest['structure']['stages'] as $item) {
                 $row = $item['data']; $iblockId = (int)$iblocks['CALC_STAGES']; $element = new \CIBlockElement();
-                $id = (int)$element->Add(['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y', 'NAME' => (string)$row['title'], 'PREVIEW_TEXT' => (string)($row['description'] ?? '')]);
+                $id = (int)$element->Add([
+                    'IBLOCK_ID' => $iblockId,
+                    'ACTIVE' => 'Y',
+                    'NAME' => (string)$row['title'],
+                    'CODE' => $this->elementCode('stage', (string)$item['draftId']),
+                    'PREVIEW_TEXT' => (string)($row['description'] ?? ''),
+                    'PREVIEW_TEXT_TYPE' => 'text',
+                ]);
                 if ($id <= 0) throw new \RuntimeException('Не удалось создать этап AI-пилота: ' . $element->LAST_ERROR);
                 $properties = [];
                 foreach (is_array($row['catalogDraftIds'] ?? null) ? $row['catalogDraftIds'] : [] as $catalogDraftId) {
