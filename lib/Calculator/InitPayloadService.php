@@ -243,6 +243,12 @@ class InitPayloadService
             throw new \RuntimeException('Изолированный граф версии не найден.', 409);
         }
 
+        // A version editor must render the graph that is currently owned by
+        // the isolated working preset. Its denormalized preset indexes can be
+        // stale after an atomic graph materialization, so derive them from the
+        // locked structural authority and reload every graph node explicitly.
+        $this->projectVersionEditorStructuralGraphReadOnly($workingPresetId, $preset);
+
         // The stored mappings belong to the public calculator identity. The
         // transient editor runtime is addressed by the working graph identity,
         // therefore only the envelope identity is projected for this INIT.
@@ -907,6 +913,67 @@ class InitPayloadService
     private function elementDataService(): ElementDataService
     {
         return new ElementDataService($this->pinnedRuntimeIblockIds ?? []);
+    }
+
+    /**
+     * Project the authoritative mutable graph into version-editor INIT only.
+     *
+     * @param array<string,mixed> $preset
+     */
+    private function projectVersionEditorStructuralGraphReadOnly(int $workingPresetId, array &$preset): void
+    {
+        $authority = new \Prospektweb\Calc\Services\CalculatorMutationAuthorityService();
+        $projection = $authority->withAuthorityLock(
+            $workingPresetId,
+            function (
+                bool $_protected,
+                array $iblockIds,
+                array $_lockedAuthority
+            ) use ($workingPresetId, $authority): array {
+                $graph = $authority->readLockedPresetGraph($workingPresetId);
+                $loader = new ElementDataService($iblockIds, $authority);
+                $definitions = [
+                    'CALC_DETAILS' => ['iblock' => 'CALC_DETAILS', 'ids' => $graph['detailIds']],
+                    'CALC_STAGES' => ['iblock' => 'CALC_STAGES', 'ids' => $graph['stageIds']],
+                    'CALC_SETTINGS' => ['iblock' => 'CALC_SETTINGS', 'ids' => $graph['settingsIds']],
+                ];
+                $requests = [];
+                foreach ($definitions as $definition) {
+                    $requests[] = [
+                        'iblockId' => (int)$iblockIds[$definition['iblock']],
+                        'iblockType' => null,
+                        'ids' => $definition['ids'],
+                        'includeParent' => false,
+                    ];
+                }
+                $loaded = $loader->prepareRefreshPayload($requests);
+                $store = [];
+                foreach (array_keys($definitions) as $index => $code) {
+                    $expectedIds = array_values(array_map('intval', $definitions[$code]['ids']));
+                    $rows = is_array($loaded[$index]['data'] ?? null) ? $loaded[$index]['data'] : [];
+                    $actualIds = array_values(array_map(
+                        static fn(array $row): int => (int)($row['id'] ?? 0),
+                        $rows
+                    ));
+                    if ($actualIds !== $expectedIds) {
+                        throw new \RuntimeException(
+                            'Изолированный граф версии изменился во время подготовки редактора.',
+                            409
+                        );
+                    }
+                    $store[$code] = $rows;
+                }
+                return ['graph' => $graph, 'store' => $store];
+            }
+        );
+
+        $graph = $projection['graph'];
+        $preset['properties']['CALC_DETAILS'] = $graph['rootDetailIds'];
+        $preset['properties']['CALC_STAGES'] = $graph['stageIds'];
+        $preset['properties']['CALC_SETTINGS'] = $graph['directSettingsIds'];
+        foreach ($projection['store'] as $code => $rows) {
+            $this->elementsStore[$code] = $rows;
+        }
     }
 
     /**
