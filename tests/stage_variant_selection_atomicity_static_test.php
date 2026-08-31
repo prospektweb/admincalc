@@ -12,6 +12,15 @@ $root = dirname(__DIR__);
 $bridge = (string)file_get_contents($root . '/install/assets/js/integration.js');
 $service = (string)file_get_contents($root . '/lib/Calculator/ElementDataService.php');
 
+$assert(
+    !str_contains($service, 'array $authority'),
+    'withAuthorityLock callbacks must not type the authority service object as an array'
+);
+$assert(
+    str_contains($service, "(int)(\$pinnedIblockIds['CALC_GLOBAL_VALUES'] ?? 0)"),
+    'stage activation writes must use the pinned global values iblock ID'
+);
+
 $slice = static function (string $source, string $start, string $end): string {
     $from = strpos($source, $start);
     $to = $from !== false ? strpos($source, $end, $from + strlen($start)) : false;

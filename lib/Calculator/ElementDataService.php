@@ -1753,8 +1753,7 @@ class ElementDataService
                         $mutationAuthority = $this->mutationAuthority();
                         $pricesResult = $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
-                            array $pinnedIblockIds,
-                            array $authority
+                            array $pinnedIblockIds
                         ) use (
                             $mutationAuthority,
                             $presetId,
@@ -1989,8 +1988,7 @@ class ElementDataService
                         $mutationAuthority = $this->mutationAuthority();
                         $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
-                            array $pinnedIblockIds,
-                            array $authority
+                            array $pinnedIblockIds
                         ) use (
                             $mutationAuthority,
                             $presetId,
@@ -2028,7 +2026,7 @@ class ElementDataService
                                     $stageId,
                                     $value,
                                     $protected,
-                                    (int)($authority['globalIblockId'] ?? 0)
+                                    (int)($pinnedIblockIds['CALC_GLOBAL_VALUES'] ?? 0)
                                 );
                             }
                             \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
