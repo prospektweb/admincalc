@@ -2366,14 +2366,6 @@
                     throw new Error(responsePayload.message || 'Не удалось обновить вариант операции');
                 }
 
-                // Очищаем OPTIONS_OPERATION, т.к. старые настройки не актуальны для нового варианта
-                await this.fetchRefreshData([{
-                    action: 'updateStageProperty',
-                    stageId: stageId,
-                    propertyCode: 'OPTIONS_OPERATION',
-                    value: ''
-                }]);
-
                 // Обновляем локальный initData
                 if (responsePayload.initPayload) {
                     this.initData = responsePayload.initPayload;
@@ -2531,14 +2523,6 @@
                 if (responsePayload.status !== 'ok') {
                     throw new Error(responsePayload.message || 'Не удалось обновить вариант материала');
                 }
-
-                // Очищаем OPTIONS_MATERIAL, т.к. старые настройки не актуальны для нового варианта
-                await this.fetchRefreshData([{
-                    action: 'updateStageProperty',
-                    stageId: stageId,
-                    propertyCode: 'OPTIONS_MATERIAL',
-                    value: ''
-                }]);
 
                 // Обновляем локальный initData
                 if (responsePayload.initPayload) {
@@ -3743,6 +3727,9 @@
             
             if (!stageId) {
                 console.warn('[BitrixBridge] CLEAR_OPTIONS_OPERATION: stageId не указан');
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не указан этап для сброса сопоставления операции',
+                }, message.requestId, origin);
                 return;
             }
             
@@ -3763,6 +3750,10 @@
                 
             } catch (error) {
                 console.error('[BitrixBridge] CLEAR_OPTIONS_OPERATION error:', error);
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка сброса сопоставления операции',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
@@ -3777,6 +3768,9 @@
             
             if (!stageId) {
                 console.warn('[BitrixBridge] CLEAR_OPTIONS_MATERIAL: stageId не указан');
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не указан этап для сброса сопоставления материала',
+                }, message.requestId, origin);
                 return;
             }
             
@@ -3797,6 +3791,10 @@
                 
             } catch (error) {
                 console.error('[BitrixBridge] CLEAR_OPTIONS_MATERIAL error:', error);
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка сброса сопоставления материала',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
@@ -3811,6 +3809,9 @@
             const stageId = parseInt(payload.stageId, 10);
             if (!stageId) {
                 console.warn('[BitrixBridge] CLEAR_OPTIONS_EQUIPMENT: stageId не указан');
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не указан этап для сброса сопоставления оборудования',
+                }, message.requestId, origin);
                 return;
             }
             try {
@@ -3824,6 +3825,10 @@
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 console.error('[BitrixBridge] CLEAR_OPTIONS_EQUIPMENT error:', error);
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Ошибка сброса сопоставления оборудования',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 

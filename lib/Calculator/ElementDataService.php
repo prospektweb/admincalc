@@ -658,12 +658,16 @@ class ElementDataService
                                         'operation variant'
                                     );
                                 }
-                                \Prospektweb\Calc\Services\PresetEnrichmentService::updateStagePropertyPinned(
-                                    $stageId,
-                                    'OPERATION_VARIANT',
-                                    $operationVariantId,
-                                    (int)($pinnedIblockIds['CALC_STAGES'] ?? 0)
+                                $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+                                self::assertPinnedPropertyCodesExist(
+                                    $stagesIblockId,
+                                    ['OPERATION_VARIANT', 'OPTIONS_OPERATION'],
+                                    'calculator stage'
                                 );
+                                \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                    'OPERATION_VARIANT' => $operationVariantId > 0 ? $operationVariantId : false,
+                                    'OPTIONS_OPERATION' => false,
+                                ]);
                                 return self::enrichStructuralResultPinned(
                                     ['status' => 'ok'],
                                     $presetId,
@@ -703,12 +707,16 @@ class ElementDataService
                                         'equipment'
                                     );
                                 }
-                                \Prospektweb\Calc\Services\PresetEnrichmentService::updateStagePropertyPinned(
-                                    $stageId,
-                                    'EQUIPMENT',
-                                    $equipmentId,
-                                    (int)($pinnedIblockIds['CALC_STAGES'] ?? 0)
+                                $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+                                self::assertPinnedPropertyCodesExist(
+                                    $stagesIblockId,
+                                    ['EQUIPMENT', 'OPTIONS_EQUIPMENT'],
+                                    'calculator stage'
                                 );
+                                \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                    'EQUIPMENT' => $equipmentId > 0 ? $equipmentId : false,
+                                    'OPTIONS_EQUIPMENT' => false,
+                                ]);
                                 return self::enrichStructuralResultPinned(
                                     ['status' => 'ok'],
                                     $presetId,
@@ -748,12 +756,16 @@ class ElementDataService
                                         'material variant'
                                     );
                                 }
-                                \Prospektweb\Calc\Services\PresetEnrichmentService::updateStagePropertyPinned(
-                                    $stageId,
-                                    'MATERIAL_VARIANT',
-                                    $materialVariantId,
-                                    (int)($pinnedIblockIds['CALC_STAGES'] ?? 0)
+                                $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+                                self::assertPinnedPropertyCodesExist(
+                                    $stagesIblockId,
+                                    ['MATERIAL_VARIANT', 'OPTIONS_MATERIAL'],
+                                    'calculator stage'
                                 );
+                                \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                    'MATERIAL_VARIANT' => $materialVariantId > 0 ? $materialVariantId : false,
+                                    'OPTIONS_MATERIAL' => false,
+                                ]);
                                 return self::enrichStructuralResultPinned(
                                     ['status' => 'ok'],
                                     $presetId,
