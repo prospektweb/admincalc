@@ -4333,6 +4333,11 @@
             formData.append('sessid', this.config.sessid);
             if (expectedSemanticRevision) {
                 formData.append('expectedSemanticRevision', expectedSemanticRevision);
+                if (this.config.versionMode === 'edit') {
+                    formData.append('versionOriginalPresetId', String(this.config.versionOriginalPresetId || ''));
+                    formData.append('versionWorkingPresetId', String(this.config.presetId || ''));
+                    formData.append('versionId', String(this.config.versionId || ''));
+                }
             }
             if (expectedGlobalRevision !== null) {
                 formData.append('expectedGlobalRevision', String(expectedGlobalRevision));

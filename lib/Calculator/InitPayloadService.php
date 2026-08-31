@@ -295,6 +295,58 @@ class InitPayloadService
     }
 
     /**
+     * Rebuild the exact semantic aggregate of an isolated version graph while
+     * it is held by the mutation authority. Unlike a public preset INIT, this
+     * boundary must not require a FrontCalc publication for the internal clone.
+     *
+     * @return array<string,mixed>
+     */
+    public function prepareVersionEditorSemanticReadbackReadOnly(
+        int $calculatorPresetId,
+        int $workingPresetId,
+        string $versionId,
+        \Prospektweb\Calc\Services\CalculatorMutationAuthorityService $authority
+    ): array {
+        $this->ensureBitrixModulesLoaded();
+        $runtimeConfigSnapshot = (new CatalogRuntimeConfigAuthorityService())
+            ->captureCalculatorSnapshot();
+        $this->pinnedRuntimeIblockIds = CatalogRuntimeConfigAuthorityService::runtimeIblockMap(
+            $runtimeConfigSnapshot
+        );
+        $this->assertVersionWorkingPresetAvailableReadOnly(
+            $calculatorPresetId,
+            $workingPresetId,
+            $versionId
+        );
+        $this->elementsStore = [];
+        $preset = $this->loadPreset($workingPresetId);
+        if (!is_array($preset) || (int)($preset['id'] ?? 0) !== $workingPresetId) {
+            throw new \RuntimeException('Изолированный граф версии не найден.', 409);
+        }
+        $this->projectVersionEditorStructuralGraphReadOnly(
+            $workingPresetId,
+            $preset,
+            $authority
+        );
+        $globalSymbols = (new \Prospektweb\Calc\Services\GlobalSymbolService())
+            ->listReadOnlyFromIblockId(
+                $this->resolvePinnedGlobalSymbolIblockId($runtimeConfigSnapshot),
+                $workingPresetId
+            );
+        foreach ($globalSymbols as &$globalSymbol) {
+            if (is_array($globalSymbol)) {
+                $globalSymbol['presetId'] = $calculatorPresetId;
+            }
+        }
+        unset($globalSymbol);
+        return [
+            'preset' => $preset,
+            'elementsStore' => $this->elementsStore,
+            'globalSymbols' => array_values($globalSymbols),
+        ];
+    }
+
+    /**
      * Build a read-only calculator INIT directly from the immutable runtime
      * payload stored in a complete version bundle. No physical working graph
      * is read or created, so testing a saved version cannot mutate it.
@@ -920,12 +972,15 @@ class InitPayloadService
      *
      * @param array<string,mixed> $preset
      */
-    private function projectVersionEditorStructuralGraphReadOnly(int $workingPresetId, array &$preset): void
+    private function projectVersionEditorStructuralGraphReadOnly(
+        int $workingPresetId,
+        array &$preset,
+        ?\Prospektweb\Calc\Services\CalculatorMutationAuthorityService $lockedAuthority = null
+    ): void
     {
-        $authority = new \Prospektweb\Calc\Services\CalculatorMutationAuthorityService();
-        $projection = $authority->withAuthorityLock(
-            $workingPresetId,
-            function (
+        $authority = $lockedAuthority
+            ?? new \Prospektweb\Calc\Services\CalculatorMutationAuthorityService();
+        $project = function (
                 bool $_protected,
                 array $iblockIds,
                 array $_lockedAuthority
@@ -964,8 +1019,10 @@ class InitPayloadService
                     $store[$code] = $rows;
                 }
                 return ['graph' => $graph, 'store' => $store];
-            }
-        );
+            };
+        $projection = $lockedAuthority !== null
+            ? $project(false, $lockedAuthority->lockedIblockIds(), [])
+            : $authority->withAuthorityLock($workingPresetId, $project);
 
         $graph = $projection['graph'];
         $preset['properties']['CALC_DETAILS'] = $graph['rootDetailIds'];

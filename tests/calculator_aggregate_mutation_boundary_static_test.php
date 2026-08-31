@@ -48,6 +48,14 @@ $assert(
     'all registered mutations must pin the INIT preset, submit CAS and advance exact aggregate revision'
 );
 $assert(
+    str_contains($bridge, "formData.append('versionOriginalPresetId'")
+        && str_contains($bridge, "formData.append('versionWorkingPresetId'")
+        && str_contains($bridge, "formData.append('versionId'")
+        && str_contains($endpoint, '$versionReadbackContext')
+        && str_contains($aggregate, 'prepareVersionEditorSemanticReadbackReadOnly'),
+    'version graph mutations must use isolated-graph semantic readback instead of public preset INIT'
+);
+$assert(
     str_contains($aggregate, 'new ElementDataService([], $authority)')
         && str_contains($element, '$this->mutationAuthority()'),
     'structural mutations must reuse the authority held by the aggregate coordinator'

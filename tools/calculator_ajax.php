@@ -343,10 +343,20 @@ function handleRefreshData($request): void
         $siteId = defined('SITE_ID') ? (string)SITE_ID : 's1';
         if ($classification === \Prospektweb\Calc\Services\CalculatorRefreshActionRegistryService::PRESET_MUTATION) {
             $expectedSemanticRevision = strtolower(trim((string)($request->get('expectedSemanticRevision') ?? '')));
+            $versionReadbackContext = [];
+            $versionId = trim((string)($request->get('versionId') ?? ''));
+            if ($versionId !== '') {
+                $versionReadbackContext = [
+                    'calculatorPresetId' => (int)($request->get('versionOriginalPresetId') ?? 0),
+                    'workingPresetId' => (int)($request->get('versionWorkingPresetId') ?? 0),
+                    'versionId' => $versionId,
+                ];
+            }
             $result = (new \Prospektweb\Calc\Services\CalculatorSemanticMutationService())->mutatePayload(
                 $payload,
                 $expectedSemanticRevision,
-                $siteId
+                $siteId,
+                $versionReadbackContext
             );
         } elseif ($classification === \Prospektweb\Calc\Services\CalculatorRefreshActionRegistryService::GLOBAL_MUTATION) {
             $rawRevision = $request->get('expectedGlobalRevision');

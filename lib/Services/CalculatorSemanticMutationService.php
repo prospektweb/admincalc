@@ -100,7 +100,12 @@ final class CalculatorSemanticMutationService
      * @param array<int,array<string,mixed>> $payload
      * @return array<int,array<string,mixed>>
      */
-    public function mutatePayload(array $payload, string $expectedRevision, string $siteId): array
+    public function mutatePayload(
+        array $payload,
+        string $expectedRevision,
+        string $siteId,
+        array $versionReadbackContext = []
+    ): array
     {
         if (!array_is_list($payload) || count($payload) !== 1 || !is_array($payload[0] ?? null)) {
             throw new \InvalidArgumentException(
@@ -120,6 +125,10 @@ final class CalculatorSemanticMutationService
         if ($presetId <= 0) {
             throw new \InvalidArgumentException('Semantic mutation requires an exact preset ID.', 422);
         }
+        $versionReadbackContext = $this->normalizeVersionReadbackContext(
+            $versionReadbackContext,
+            $presetId
+        );
         $lastRevision = '';
 
         $coordinator = isset($this->adapters['coordinator'])
@@ -206,12 +215,24 @@ final class CalculatorSemanticMutationService
                     'initPayload' => $preset['initPayload'] ?? null,
                 ]);
             },
-            function ($authority) use ($presetId, $siteId, &$lastRevision): array {
+            function ($authority) use (
+                $presetId,
+                $siteId,
+                $versionReadbackContext,
+                &$lastRevision
+            ): array {
                 $readback = isset($this->adapters['readback'])
-                    ? call_user_func($this->adapters['readback'], $presetId)
-                    : self::readbackFromInitPayload(
-                        (new InitPayloadService())->preparePresetPayload($presetId, $siteId)
-                    );
+                    ? call_user_func($this->adapters['readback'], $presetId, $versionReadbackContext)
+                    : ($versionReadbackContext !== []
+                        ? (new InitPayloadService())->prepareVersionEditorSemanticReadbackReadOnly(
+                            $versionReadbackContext['calculatorPresetId'],
+                            $versionReadbackContext['workingPresetId'],
+                            $versionReadbackContext['versionId'],
+                            $authority
+                        )
+                        : self::readbackFromInitPayload(
+                            (new InitPayloadService())->preparePresetPayload($presetId, $siteId)
+                        ));
                 if (!is_array($readback)) {
                     throw new \RuntimeException('Semantic aggregate readback is invalid.');
                 }
@@ -228,6 +249,32 @@ final class CalculatorSemanticMutationService
             $result['initPayload']['semanticRevision'] = $lastRevision;
         }
         return [$result];
+    }
+
+    /** @param array<string,mixed> $context @return array<string,mixed> */
+    private function normalizeVersionReadbackContext(array $context, int $presetId): array
+    {
+        if ($context === []) {
+            return [];
+        }
+        $keys = array_keys($context);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['calculatorPresetId', 'versionId', 'workingPresetId']) {
+            throw new \InvalidArgumentException('Version semantic readback context is invalid.', 422);
+        }
+        $calculatorPresetId = (int)($context['calculatorPresetId'] ?? 0);
+        $workingPresetId = (int)($context['workingPresetId'] ?? 0);
+        $versionId = is_string($context['versionId'] ?? null) ? $context['versionId'] : '';
+        if ($calculatorPresetId <= 0
+            || $workingPresetId !== $presetId
+            || preg_match('/^v_[a-f0-9]{16,40}$/D', $versionId) !== 1) {
+            throw new \InvalidArgumentException('Version semantic readback context is invalid.', 422);
+        }
+        return [
+            'calculatorPresetId' => $calculatorPresetId,
+            'workingPresetId' => $workingPresetId,
+            'versionId' => $versionId,
+        ];
     }
 
     /** @param array<string,mixed> $request */

@@ -49,9 +49,11 @@ $coordinator = new PresetMutationCoordinatorService([
     },
 ]);
 
+$readbackContexts = [];
 $service = new CalculatorSemanticMutationService([
     'coordinator' => static fn() => $coordinator,
-    'readback' => static function (int $presetId) use (&$state): array {
+    'readback' => static function (int $presetId, array $context = []) use (&$state, &$readbackContexts): array {
+        $readbackContexts[] = $context;
         return $state;
     },
     'mutation' => static function (string $action, array $request) use (&$state, &$failPresetWrite): array {
@@ -133,6 +135,24 @@ try {
     $multiRejected = str_contains($error->getMessage(), 'exactly one');
 }
 $assert($multiRejected, 'legacy multi-action semantic refresh payload is rejected');
+
+$versionContextRejected = false;
+try {
+    $service->mutatePayload([[
+        'action' => 'saveCalculatorGlobals',
+        'presetId' => 41,
+        'symbols' => [],
+        'variables' => [],
+        'constants' => [],
+    ]], PresetMutationCoordinatorService::hashCanonical($state), 's1', [
+        'calculatorPresetId' => 12740,
+        'workingPresetId' => 42,
+        'versionId' => 'v_0123456789abcdef',
+    ]);
+} catch (InvalidArgumentException $error) {
+    $versionContextRejected = $error->getCode() === 422;
+}
+$assert($versionContextRejected, 'version readback context must target the exact mutated working preset');
 
 $revisionBeforeDomainError = $revision;
 $auditsBeforeDomainError = count($audits);
