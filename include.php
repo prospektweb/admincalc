@@ -14,6 +14,8 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Install\\SnapshotManager' => 'lib/Install/SnapshotManager.php',
     'Prospektweb\\Calc\\Install\\SchemaRepairService' => 'lib/Install/SchemaRepairService.php',
     'Prospektweb\\Calc\\Install\\AssignmentGuardActivationService' => 'lib/Install/AssignmentGuardActivationService.php',
+    'Prospektweb\\Calc\\Deployment\\CatalogSchemaProfileService' => 'lib/Deployment/CatalogSchemaProfileService.php',
+    'Prospektweb\\Calc\\Deployment\\CatalogSchemaDeploymentService' => 'lib/Deployment/CatalogSchemaDeploymentService.php',
     'Prospektweb\\Calc\\Services\\PriceSettingsPresetService' => 'lib/Services/PriceSettingsPresetService.php',
     'Prospektweb\\Calc\\Services\\EntityLoader' => 'lib/Services/EntityLoader.php',
     'Prospektweb\\Calc\\Services\\ValidationService' => 'lib/Services/ValidationService.php',

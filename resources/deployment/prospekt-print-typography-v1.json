@@ -1,0 +1,6648 @@
+{
+  "contract": "prospektweb.bitrix.catalog-profile/v1",
+  "profile": {
+    "id": "prospekt-print-typography-v1",
+    "name": "ПРОСПЕКТ: типографский профиль каталога",
+    "mode": "exact-properties",
+    "source_schema_sha256": "2398f2fe8b7f5d157df6442ce5d29fba45013dec8b054706c6d536e219953a87",
+    "content_included": false,
+    "generated_at": "08/31/2026 20:01:02"
+  },
+  "roles": [
+    {
+      "role": "products",
+      "iblock": {
+        "iblock_type_id": "aspro_premier_catalog",
+        "code": "aspro_premier_catalog",
+        "xml_id": "aspro_premier_catalog_s1",
+        "name": "Каталог товаров"
+      },
+      "properties": [
+        {
+          "key": "code:MINIMUM_PRICE",
+          "fields": {
+            "NAME": "Минимальная цена",
+            "ACTIVE": "Y",
+            "SORT": "1",
+            "CODE": "MINIMUM_PRICE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "4896",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:TR_CASE",
+          "fields": {
+            "NAME": "Склонение наименования",
+            "ACTIVE": "Y",
+            "SORT": "1",
+            "CODE": "TR_CASE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:MAXIMUM_PRICE",
+          "fields": {
+            "NAME": "Максимальная цена",
+            "ACTIVE": "Y",
+            "SORT": "2",
+            "CODE": "MAXIMUM_PRICE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "4897",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:HIT",
+          "fields": {
+            "NAME": "Наши предложения",
+            "ACTIVE": "Y",
+            "SORT": "10",
+            "CODE": "HIT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "C",
+            "MULTIPLE": "Y",
+            "XML_ID": "0004-bestseller",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Хит",
+              "xml_id": "HIT",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "Быстро",
+              "xml_id": "FAST",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "Советуем",
+              "xml_id": "RECOMMEND",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "Выгодно",
+              "xml_id": "PROFIT",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "Новинка",
+              "xml_id": "NEW",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "Наилучшая цветопередача",
+              "xml_id": "BESTQ",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "Акция",
+              "xml_id": "STOCK",
+              "sort": 400,
+              "default": "N"
+            },
+            {
+              "value": "С защитой",
+              "xml_id": "DEFENSE",
+              "sort": 400,
+              "default": "N"
+            }
+          ],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "Y"
+            },
+            {
+              "feature_id": "IN_BASKET",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "Y"
+            }
+          ]
+        },
+        {
+          "key": "code:BRAND",
+          "fields": {
+            "NAME": "Партнёры",
+            "ACTIVE": "Y",
+            "SORT": "50",
+            "CODE": "BRAND",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "1143",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "12",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": "Мы официальный дилер представленных брендов"
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_content",
+            "code": "aspro_premier_brands",
+            "xml_id": "aspro_premier_brands_s1",
+            "name": "Партнёры"
+          },
+          "enums": [],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "IN_BASKET",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "N"
+            }
+          ]
+        },
+        {
+          "key": "code:IN_STOCK",
+          "fields": {
+            "NAME": "В наличии",
+            "ACTIVE": "Y",
+            "SORT": "100",
+            "CODE": "IN_STOCK",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "C",
+            "MULTIPLE": "N",
+            "XML_ID": "92",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Y",
+              "xml_id": "Y",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:EXTENDED_REVIEWS_COUNT",
+          "fields": {
+            "NAME": "Количество отзывов",
+            "ACTIVE": "Y",
+            "SORT": "100",
+            "CODE": "EXTENDED_REVIEWS_COUNT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "1263",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:EXTENDED_REVIEWS_RAITING",
+          "fields": {
+            "NAME": "Рейтинг по отзывам",
+            "ACTIVE": "Y",
+            "SORT": "100",
+            "CODE": "EXTENDED_REVIEWS_RAITING",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "1264",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:STORES_FILTER",
+          "fields": {
+            "NAME": "Наличие в магазинах",
+            "ACTIVE": "Y",
+            "SORT": "100",
+            "CODE": "STORES_FILTER",
+            "DEFAULT_VALUE": "1",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "8f2635fc4c086838dd17f08ffd049440",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "directory",
+            "USER_TYPE_SETTINGS": {
+              "size": 1,
+              "width": 0,
+              "group": "N",
+              "multiple": "N",
+              "TABLE_NAME": "b_hlbd_aspro_premier_stores"
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:LINK_TIZERS",
+          "fields": {
+            "NAME": "Тизеры",
+            "ACTIVE": "Y",
+            "SORT": "100",
+            "CODE": "LINK_TIZERS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "1397",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "3",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_content",
+            "code": "aspro_premier_front_tizers",
+            "xml_id": "aspro_premier_front_tizers_s1",
+            "name": "Тизеры"
+          },
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CALC_METHOD",
+          "fields": {
+            "NAME": "Способ печати",
+            "ACTIVE": "Y",
+            "SORT": "110",
+            "CODE": "CALC_METHOD",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": "Характеристика, определяющая технологию, с помощью которой краска будет переноситься на бумагу, ткань или другой материал. От этого выбора зависят стоимость тиража, скорость изготовления и яркость готового изделия."
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Цифровая печать",
+              "xml_id": "DIGITAL",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "Офсетная печать",
+              "xml_id": "OFSET",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "Сборный тираж",
+              "xml_id": "OFSET_SBORKA",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "УФ-печать",
+              "xml_id": "UF_PECHAT",
+              "sort": 400,
+              "default": "N"
+            },
+            {
+              "value": "Экосольвентная печать",
+              "xml_id": "ECO_SOLVENT",
+              "sort": 410,
+              "default": "N"
+            },
+            {
+              "value": "Шелкография",
+              "xml_id": "SHELKOGRAFIA",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Пресс-ламинация",
+              "xml_id": "PVC",
+              "sort": 600,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_FILLING",
+          "fields": {
+            "NAME": "Заливка в макете",
+            "ACTIVE": "Y",
+            "SORT": "114",
+            "CODE": "CALC_FILLING",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Стандартное заполнение",
+              "xml_id": "standart",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Текст и графика",
+              "xml_id": "text",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PRINT_RESOLUTION",
+          "fields": {
+            "NAME": "Разрешение печати ",
+            "ACTIVE": "Y",
+            "SORT": "115",
+            "CODE": "CALC_PRINT_RESOLUTION",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "1440 DPI",
+              "xml_id": "1440",
+              "sort": 10,
+              "default": "N"
+            },
+            {
+              "value": "1080 DPI",
+              "xml_id": "1080",
+              "sort": 20,
+              "default": "N"
+            },
+            {
+              "value": "720 DPI",
+              "xml_id": "720",
+              "sort": 30,
+              "default": "N"
+            },
+            {
+              "value": "600 DPI",
+              "xml_id": "600",
+              "sort": 40,
+              "default": "N"
+            },
+            {
+              "value": "480 DPI",
+              "xml_id": "480",
+              "sort": 50,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_TYPE_BASE",
+          "fields": {
+            "NAME": "Материал",
+            "ACTIVE": "Y",
+            "SORT": "120",
+            "CODE": "CALC_TYPE_BASE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Бумага",
+              "xml_id": "paper",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "Плёнка",
+              "xml_id": "film",
+              "sort": 150,
+              "default": "N"
+            },
+            {
+              "value": "Картон",
+              "xml_id": "cardboard",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "Пластик",
+              "xml_id": "plastic",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "Стекло",
+              "xml_id": "glass",
+              "sort": 400,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_TYPE_PAPER",
+          "fields": {
+            "NAME": "Тип бумаги",
+            "ACTIVE": "Y",
+            "SORT": "121",
+            "CODE": "CALC_TYPE_PAPER",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": "Характеристика, определяющая внешние свойства и назначение бумаги для печати. От типа бумаги зависит, будет ли изделие глянцевым, матовым, шероховатым или премиальным."
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Офсетная бумага",
+              "xml_id": "vhi-paper",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Мелованный двухсторонний картон",
+              "xml_id": "mel-card-1",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Бумага без покрытия Color Fine",
+              "xml_id": "color-fine",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Самоклеящаяся бумага",
+              "xml_id": "sticker-paper",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Дизайнерская бумага",
+              "xml_id": "design-paper",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Мелованная бумага",
+              "xml_id": "mel-paper",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Мелованный односторонний картон",
+              "xml_id": "mel-card-2",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Мелованная матовая бумага",
+              "xml_id": "mel-mat-paper",
+              "sort": 510,
+              "default": "N"
+            },
+            {
+              "value": "Обложка на мелованной бумаге | Блок на офсетной бумаге",
+              "xml_id": "cover-mel-block-ofset",
+              "sort": 600,
+              "default": "N"
+            },
+            {
+              "value": "Обложка на мелованной бумаге | Блок на мелованной бумаге",
+              "xml_id": "cover-mel-block-mel",
+              "sort": 600,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_TYPE_CARDBOARD",
+          "fields": {
+            "NAME": "Тип картона",
+            "ACTIVE": "Y",
+            "SORT": "122",
+            "CODE": "CALC_TYPE_CARDBOARD",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Упаковочный картон",
+              "xml_id": "packing-cardboard",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Мелованный односторонний картон",
+              "xml_id": "mel-one-side-cardboard",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Мелованный двухсторонний картон",
+              "xml_id": "mel-two-side-cardboard",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Немелованный картон",
+              "xml_id": "uncoated-cardboard",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Переплётный картон",
+              "xml_id": "bookbinding-cardboard",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Дизайнерский картон",
+              "xml_id": "design-cardboard",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_TYPE_FILM",
+          "fields": {
+            "NAME": "Тип плёнки",
+            "ACTIVE": "Y",
+            "SORT": "123",
+            "CODE": "CALC_TYPE_FILM",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Виниловая белая плёнка",
+              "xml_id": "vinyl_film_white",
+              "sort": 10,
+              "default": "N"
+            },
+            {
+              "value": "Виниловая прозрачная плёнка",
+              "xml_id": "vinyl_film_transparent",
+              "sort": 20,
+              "default": "N"
+            },
+            {
+              "value": "Виниловая цветная плёнка",
+              "xml_id": "vinyl_film_color",
+              "sort": 30,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROTECTION",
+          "fields": {
+            "NAME": "Дополнительная защита",
+            "ACTIVE": "Y",
+            "SORT": "130",
+            "CODE": "CALC_PROTECTION",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": "",
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Не предусмотрена",
+              "xml_id": "empty",
+              "sort": 100,
+              "default": "Y"
+            },
+            {
+              "value": "Ламинация пакетная",
+              "xml_id": "lamination-pocket",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Ламинация рулонная",
+              "xml_id": "lamination-rulon",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "УФ-лак",
+              "xml_id": "uf-lak",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_BINDING",
+          "fields": {
+            "NAME": "Сборка",
+            "ACTIVE": "Y",
+            "SORT": "140",
+            "CODE": "CALC_BINDING",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Сборка не требуется",
+              "xml_id": "empty",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "Пружина по длинной стороне",
+              "xml_id": "SPRING-LONG",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Пружина по короткой стороне",
+              "xml_id": "SPRING-SHORT",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Сборка на 2 скобы по длинной стороне",
+              "xml_id": "STAPLE-LONG",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Сборка на 2 скобы по короткой стороне",
+              "xml_id": "STAPLE-SHORT",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_ADD_OPTIONS",
+          "fields": {
+            "NAME": "Опции",
+            "ACTIVE": "Y",
+            "SORT": "140",
+            "CODE": "CALC_ADD_OPTIONS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": "",
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Без опций",
+              "xml_id": "empty",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "Скругление углов",
+              "xml_id": "round-corners",
+              "sort": 110,
+              "default": "N"
+            },
+            {
+              "value": "Биговка",
+              "xml_id": "bigs",
+              "sort": 115,
+              "default": "N"
+            },
+            {
+              "value": "Фальцовка",
+              "xml_id": "falzovka",
+              "sort": 117,
+              "default": "N"
+            },
+            {
+              "value": "Переменные данные",
+              "xml_id": "variable-data",
+              "sort": 120,
+              "default": "N"
+            },
+            {
+              "value": "Нумерация",
+              "xml_id": "numbering",
+              "sort": 125,
+              "default": "N"
+            },
+            {
+              "value": "Индивидуальные QR-коды",
+              "xml_id": "ind-qr",
+              "sort": 130,
+              "default": "N"
+            },
+            {
+              "value": "Круглое отверстие d = 4 мм",
+              "xml_id": "holes",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "Евро отверстие",
+              "xml_id": "euroholes",
+              "sort": 210,
+              "default": "N"
+            },
+            {
+              "value": "Пикколо",
+              "xml_id": "piccolo",
+              "sort": 215,
+              "default": "N"
+            },
+            {
+              "value": "Чипирование",
+              "xml_id": " chipping",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Контурная резка",
+              "xml_id": " contour-cutting",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CUTTING_COMPLEXITY",
+          "fields": {
+            "NAME": "Сложность резки",
+            "ACTIVE": "Y",
+            "SORT": "141",
+            "CODE": "CUTTING_COMPLEXITY",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Низкая",
+              "xml_id": "cutting_low",
+              "sort": 10,
+              "default": "N"
+            },
+            {
+              "value": "Средняя",
+              "xml_id": "cutting_medium",
+              "sort": 20,
+              "default": "N"
+            },
+            {
+              "value": "Высокая",
+              "xml_id": "cutting_high",
+              "sort": 30,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_FROM_CUTTING",
+          "fields": {
+            "NAME": "Форма резки",
+            "ACTIVE": "Y",
+            "SORT": "142",
+            "CODE": "CALC_FROM_CUTTING",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": null,
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Круглая форма",
+              "xml_id": "round-shape",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Овальная форма",
+              "xml_id": "oval-shape",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Прямоугольная форма",
+              "xml_id": "rectangular-shape",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Квадратная форма",
+              "xml_id": "square-shape",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Другая форма",
+              "xml_id": "another-form",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:PARAMETR_VALUES",
+          "fields": {
+            "NAME": "Значения параметров",
+            "ACTIVE": "Y",
+            "SORT": "199",
+            "CODE": "PARAMETR_VALUES",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "1",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "Y",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:LINK_REGION",
+          "fields": {
+            "NAME": "Регион",
+            "ACTIVE": "Y",
+            "SORT": "200",
+            "CODE": "LINK_REGION",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "1517a96959dc08799e12601f9a5b331c",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "1",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_regionality",
+            "code": "aspro_premier_regions",
+            "xml_id": "aspro_premier_regions_s1",
+            "name": "Регионы"
+          },
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:BNR_TOP_UNDER_HEADER",
+          "fields": {
+            "NAME": "С наездом на шапку",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BNR_TOP_UNDER_HEADER",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "C",
+            "MULTIPLE": "N",
+            "XML_ID": "903",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Да",
+              "xml_id": "YES",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:BNR_TOP",
+          "fields": {
+            "NAME": "Баннер сверху",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BNR_TOP",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "C",
+            "MULTIPLE": "N",
+            "XML_ID": "904",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Да",
+              "xml_id": "YES",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:BNR_TOP_IMG",
+          "fields": {
+            "NAME": "Активная картинка",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BNR_TOP_IMG",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "F",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "905",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:BNR_TOP_BG",
+          "fields": {
+            "NAME": "Фоновая картинка",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BNR_TOP_BG",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "F",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "906",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:BNR_TOP_COLOR",
+          "fields": {
+            "NAME": "Цвет шапки и текста",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BNR_TOP_COLOR",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "907",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "темный",
+              "xml_id": "dark",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "светлый",
+              "xml_id": "light",
+              "sort": 500,
+              "default": "Y"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:BUTTON1TEXT",
+          "fields": {
+            "NAME": "Кнопка 1 текст",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BUTTON1TEXT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "908",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:BUTTON1LINK",
+          "fields": {
+            "NAME": "Кнопка 1 ссылка",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BUTTON1LINK",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "909",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:BUTTON1TARGET",
+          "fields": {
+            "NAME": "Кнопка 1 цель",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BUTTON1TARGET",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "910",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Скролл к описанию",
+              "xml_id": "scroll",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Открыть в новой вкладке",
+              "xml_id": "_blank",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Открыть в текущей вкладке",
+              "xml_id": "_self",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:BUTTON1CLASS",
+          "fields": {
+            "NAME": "Кнопка 1 класс",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BUTTON1CLASS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "911",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Залитая",
+              "xml_id": "btn-default",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Полупрозрачная",
+              "xml_id": "btn-transparent",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Прозрачная с бордером",
+              "xml_id": "btn-transparent-bg",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:BUTTON1COLOR",
+          "fields": {
+            "NAME": "Кнопка 1 цвет",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BUTTON1COLOR",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "912",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Красная",
+              "xml_id": "btn-danger",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Салатовая",
+              "xml_id": "btn-info",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Темно-зеленая",
+              "xml_id": "btn-primary",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Светло-зеленая",
+              "xml_id": "btn-success",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Цвет темы",
+              "xml_id": "btn-theme",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Оранжевая",
+              "xml_id": "btn-warning",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Белая",
+              "xml_id": "btn-white",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:BUTTON2TEXT",
+          "fields": {
+            "NAME": "Кнопка 2 текст",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BUTTON2TEXT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "913",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:BUTTON2LINK",
+          "fields": {
+            "NAME": "Кнопка 2 ссылка",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BUTTON2LINK",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "914",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:BUTTON2TARGET",
+          "fields": {
+            "NAME": "Кнопка 2 цель",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BUTTON2TARGET",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "915",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Открыть в новой вкладке",
+              "xml_id": "_blank",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Открыть в текущей вкладке",
+              "xml_id": "_self",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:BUTTON2CLASS",
+          "fields": {
+            "NAME": "Кнопка 2 класс",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BUTTON2CLASS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "916",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Залитая",
+              "xml_id": "btn-default",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Полупрозрачная",
+              "xml_id": "btn-transparent",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Прозрачная с бордером",
+              "xml_id": "btn-transparent-bg",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:BUTTON2COLOR",
+          "fields": {
+            "NAME": "Кнопка 2 цвет",
+            "ACTIVE": "Y",
+            "SORT": "250",
+            "CODE": "BUTTON2COLOR",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "917",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Красная",
+              "xml_id": "btn-danger",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Салатовая",
+              "xml_id": "btn-info",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Темно-зеленая",
+              "xml_id": "btn-primary",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Светло-зеленая",
+              "xml_id": "btn-success",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Цвет темы",
+              "xml_id": "btn-theme",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Оранжевая",
+              "xml_id": "btn-warning",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Белая",
+              "xml_id": "btn-white",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:SUB_TITLE",
+          "fields": {
+            "NAME": "Подпись к товару",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "SUB_TITLE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "1280",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FAVORIT_ITEM",
+          "fields": {
+            "NAME": "Товар дня",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "FAVORIT_ITEM",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "C",
+            "MULTIPLE": "N",
+            "XML_ID": "1325",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Y",
+              "xml_id": "Y",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:VIDEO_YOUTUBE",
+          "fields": {
+            "NAME": "Видео (код iframe из YouTube)",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "VIDEO_YOUTUBE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "4887",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": "Отображается отдельным блоком или табом в карточке товара"
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:MORE_PHOTO",
+          "fields": {
+            "NAME": "Картинки",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "MORE_PHOTO",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "F",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "CML2_PICTURES",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "Y",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": "Отображается в галерее рядом с основным фото товара"
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:INSTRUCTIONS",
+          "fields": {
+            "NAME": "Файлы",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "INSTRUCTIONS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "F",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "CML2_FILES",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "1",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "Y",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:SALE_TEXT",
+          "fields": {
+            "NAME": "Произвольный стикер",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "SALE_TEXT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "84",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:HELP_TEXT",
+          "fields": {
+            "NAME": "Примечание-подсказка",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "HELP_TEXT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "1056",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:PHOTO_GALLERY",
+          "fields": {
+            "NAME": "Фотогалерея",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "PHOTO_GALLERY",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "F",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "832",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": "Отображается отдельным блоком в карточке товара"
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:POPUP_VIDEO",
+          "fields": {
+            "NAME": "Видео в попапе",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "POPUP_VIDEO",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "833",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": "Кнопка воспроизведения отображается рядом с основной галереей товара"
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:LINK_FAQ",
+          "fields": {
+            "NAME": "Вопросы и ответы",
+            "ACTIVE": "Y",
+            "SORT": "400",
+            "CODE": "LINK_FAQ",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "127e6f54d9d91999075defd5fb5ff564",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "8",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_content",
+            "code": "aspro_premier_faq",
+            "xml_id": "aspro_premier_faq_s1",
+            "name": "Вопросы и ответы"
+          },
+          "enums": [],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "Y"
+            },
+            {
+              "feature_id": "IN_BASKET",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "N"
+            }
+          ]
+        },
+        {
+          "key": "code:LINK_SALE",
+          "fields": {
+            "NAME": "Акции",
+            "ACTIVE": "Y",
+            "SORT": "400",
+            "CODE": "LINK_SALE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "942",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "19",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_content",
+            "code": "aspro_premier_sales",
+            "xml_id": "aspro_premier_sales_s1",
+            "name": "Акции"
+          },
+          "enums": [],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "IN_BASKET",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "N"
+            }
+          ]
+        },
+        {
+          "key": "code:ASSOCIATED_FILTER",
+          "fields": {
+            "NAME": "Похожие товары по фильтру",
+            "ACTIVE": "Y",
+            "SORT": "400",
+            "CODE": "ASSOCIATED_FILTER",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "943",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "1",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "SAsproCustomFilterPremier",
+            "USER_TYPE_SETTINGS": {
+              "IBLOCK_ID": 14,
+              "IBLOCK_TYPE_ID": "aspro_premier_catalog",
+              "USE_OFFERS_IBLOCK": "N"
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "N"
+            }
+          ]
+        },
+        {
+          "key": "code:EXPANDABLES_FILTER",
+          "fields": {
+            "NAME": "Аксессуары по фильтру",
+            "ACTIVE": "Y",
+            "SORT": "400",
+            "CODE": "EXPANDABLES_FILTER",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "944",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "1",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "SAsproCustomFilterPremier",
+            "USER_TYPE_SETTINGS": {
+              "IBLOCK_ID": 14,
+              "IBLOCK_TYPE_ID": "aspro_premier_catalog",
+              "USE_OFFERS_IBLOCK": "N"
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "N"
+            }
+          ]
+        },
+        {
+          "key": "code:SERVICES",
+          "fields": {
+            "NAME": "Услуги",
+            "ACTIVE": "Y",
+            "SORT": "400",
+            "CODE": "SERVICES",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "4890",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "20",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_catalog",
+            "code": "aspro_premier_services",
+            "xml_id": "aspro_premier_services_s1",
+            "name": "Услуги"
+          },
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:EXPANDABLES",
+          "fields": {
+            "NAME": "Аксессуары",
+            "ACTIVE": "Y",
+            "SORT": "400",
+            "CODE": "EXPANDABLES",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "1257",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "14",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_catalog",
+            "code": "aspro_premier_catalog",
+            "xml_id": "aspro_premier_catalog_s1",
+            "name": "Каталог товаров"
+          },
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:ASSOCIATED",
+          "fields": {
+            "NAME": "Похожие товары",
+            "ACTIVE": "Y",
+            "SORT": "400",
+            "CODE": "ASSOCIATED",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "1258",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "14",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_catalog",
+            "code": "aspro_premier_catalog",
+            "xml_id": "aspro_premier_catalog_s1",
+            "name": "Каталог товаров"
+          },
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:LINK_ARTICLES",
+          "fields": {
+            "NAME": "Статьи",
+            "ACTIVE": "Y",
+            "SORT": "400",
+            "CODE": "LINK_ARTICLES",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "1069",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "17",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_content",
+            "code": "aspro_premier_articles",
+            "xml_id": "aspro_premier_articles_s1",
+            "name": "Блог"
+          },
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:PODBORKI",
+          "fields": {
+            "NAME": "Подборки",
+            "ACTIVE": "Y",
+            "SORT": "400",
+            "CODE": "PODBORKI",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "835",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "23",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_catalog",
+            "code": "aspro_premier_lookbook",
+            "xml_id": "aspro_premier_lookbook_s1",
+            "name": "Решения"
+          },
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:vote_count",
+          "fields": {
+            "NAME": "Количество проголосовавших",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "vote_count",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "4883",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:vote_sum",
+          "fields": {
+            "NAME": "Сумма оценок",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "vote_sum",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "4884",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:rating",
+          "fields": {
+            "NAME": "Рейтинг",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "rating",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "4885",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FORUM_TOPIC_ID",
+          "fields": {
+            "NAME": "Тема форума для комментариев",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "FORUM_TOPIC_ID",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "4891",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FORUM_MESSAGE_CNT",
+          "fields": {
+            "NAME": "Количество комментариев к элементу",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "FORUM_MESSAGE_CNT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "4892",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CML2_ARTICLE",
+          "fields": {
+            "NAME": "Артикул",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "CML2_ARTICLE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "CML2_ARTICLE",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "N"
+            }
+          ]
+        },
+        {
+          "key": "code:CML2_TRAITS",
+          "fields": {
+            "NAME": "Реквизиты",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "CML2_TRAITS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "CML2_TRAITS",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "1",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "Y",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CML2_BASE_UNIT",
+          "fields": {
+            "NAME": "Базовая единица",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "CML2_BASE_UNIT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "CML2_BASE_UNIT",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CML2_TAXES",
+          "fields": {
+            "NAME": "Ставки налогов",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "CML2_TAXES",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "CML2_TAXES",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "1",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "Y",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CML2_ATTRIBUTES",
+          "fields": {
+            "NAME": "Характеристики",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "CML2_ATTRIBUTES",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "CML2_ATTRIBUTES",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "1",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "Y",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:COLOR_REF2",
+          "fields": {
+            "NAME": "Цвет",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "COLOR_REF2",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "183",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "directory",
+            "USER_TYPE_SETTINGS": {
+              "size": 1,
+              "width": 0,
+              "group": "N",
+              "multiple": "N",
+              "TABLE_NAME": "b_hlbd_aspro_premier_color_reference"
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "N"
+            }
+          ]
+        },
+        {
+          "key": "code:OUT_OF_PRODUCTION",
+          "fields": {
+            "NAME": "Товар снят с производства",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "OUT_OF_PRODUCTION",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "C",
+            "MULTIPLE": "N",
+            "XML_ID": "1326",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Y",
+              "xml_id": "Y",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:PRODUCT_ANALOG",
+          "fields": {
+            "NAME": "Товар аналог",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "PRODUCT_ANALOG",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "C",
+            "MULTIPLE": "N",
+            "XML_ID": "1327",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "14",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_catalog",
+            "code": "aspro_premier_catalog",
+            "xml_id": "aspro_premier_catalog_s1",
+            "name": "Каталог товаров"
+          },
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:PRODUCT_ANALOG_FILTER",
+          "fields": {
+            "NAME": "Ссылка для кнопки «Подобрать аналог»",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "PRODUCT_ANALOG_FILTER",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "C",
+            "MULTIPLE": "N",
+            "XML_ID": "1328",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:BLOG_POST_ID",
+          "fields": {
+            "NAME": "ID поста блога для комментариев",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "BLOG_POST_ID",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "BLOG_POST_ID",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:BLOG_COMMENTS_CNT",
+          "fields": {
+            "NAME": "Количество комментариев",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "BLOG_COMMENTS_CNT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "BLOG_COMMENTS_CNT",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:HOW_TO_PREPARE_LAYOUT",
+          "fields": {
+            "NAME": "Как подготовить макет",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "HOW_TO_PREPARE_LAYOUT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "10",
+            "COL_COUNT": "80",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:PARTNER_GROUPS",
+          "fields": {
+            "NAME": "Группы партнёров",
+            "ACTIVE": "Y",
+            "SORT": "510",
+            "CODE": "PARTNER_GROUPS",
+            "DEFAULT_VALUE": null,
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "ProspektPartnerGroups",
+            "USER_TYPE_SETTINGS": null,
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PRESET",
+          "fields": {
+            "NAME": "Пресет калькуляции",
+            "ACTIVE": "Y",
+            "SORT": "999",
+            "CODE": "CALC_PRESET",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "1",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "1",
+            "LINK_IBLOCK_ID": "41",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "calculator",
+            "code": "CALC_PRESETS",
+            "xml_id": "",
+            "name": "Пресеты"
+          },
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_CONFIG",
+          "fields": {
+            "NAME": "Конфиг калькулятора",
+            "ACTIVE": "Y",
+            "SORT": "999",
+            "CODE": "FRONTCALC_CONFIG",
+            "DEFAULT_VALUE": {
+              "TEXT": "",
+              "TYPE": "HTML"
+            },
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "HTML",
+            "USER_TYPE_SETTINGS": {
+              "height": 200
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        }
+      ]
+    },
+    {
+      "role": "offers",
+      "iblock": {
+        "iblock_type_id": "aspro_premier_catalog",
+        "code": "aspro_premier_sku",
+        "xml_id": "aspro_premier_sku_s1",
+        "name": "Торговые предложения"
+      },
+      "properties": [
+        {
+          "key": "code:MIN_TIME_PRODUCTION_IN_WORK_HOURS",
+          "fields": {
+            "NAME": "Плановый срок готовности",
+            "ACTIVE": "Y",
+            "SORT": "5",
+            "CODE": "MIN_TIME_PRODUCTION_IN_WORK_HOURS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_VOLUME",
+          "fields": {
+            "NAME": "Количество в тираже",
+            "ACTIVE": "Y",
+            "SORT": "10",
+            "CODE": "CALC_PROP_VOLUME",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "1",
+              "xml_id": "1",
+              "sort": 10,
+              "default": "N"
+            },
+            {
+              "value": "2",
+              "xml_id": "2",
+              "sort": 20,
+              "default": "N"
+            },
+            {
+              "value": "3",
+              "xml_id": "3",
+              "sort": 30,
+              "default": "N"
+            },
+            {
+              "value": "4",
+              "xml_id": "4",
+              "sort": 40,
+              "default": "N"
+            },
+            {
+              "value": "5",
+              "xml_id": "5",
+              "sort": 50,
+              "default": "N"
+            },
+            {
+              "value": "10",
+              "xml_id": "10",
+              "sort": 60,
+              "default": "N"
+            },
+            {
+              "value": "15",
+              "xml_id": "15",
+              "sort": 70,
+              "default": "N"
+            },
+            {
+              "value": "20",
+              "xml_id": "20",
+              "sort": 80,
+              "default": "N"
+            },
+            {
+              "value": "30",
+              "xml_id": "30",
+              "sort": 90,
+              "default": "N"
+            },
+            {
+              "value": "40",
+              "xml_id": "40",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "50",
+              "xml_id": "50",
+              "sort": 110,
+              "default": "N"
+            },
+            {
+              "value": "75",
+              "xml_id": "75",
+              "sort": 120,
+              "default": "N"
+            },
+            {
+              "value": "100",
+              "xml_id": "100",
+              "sort": 130,
+              "default": "N"
+            },
+            {
+              "value": "150",
+              "xml_id": "150",
+              "sort": 140,
+              "default": "N"
+            },
+            {
+              "value": "200",
+              "xml_id": "200",
+              "sort": 150,
+              "default": "N"
+            },
+            {
+              "value": "250",
+              "xml_id": "250",
+              "sort": 160,
+              "default": "N"
+            },
+            {
+              "value": "300",
+              "xml_id": "300",
+              "sort": 170,
+              "default": "N"
+            },
+            {
+              "value": "400",
+              "xml_id": "400",
+              "sort": 180,
+              "default": "N"
+            },
+            {
+              "value": "500",
+              "xml_id": "500",
+              "sort": 190,
+              "default": "N"
+            },
+            {
+              "value": "600",
+              "xml_id": "600",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "750",
+              "xml_id": "750",
+              "sort": 210,
+              "default": "N"
+            },
+            {
+              "value": "1 000",
+              "xml_id": "1000",
+              "sort": 220,
+              "default": "N"
+            },
+            {
+              "value": "1 500",
+              "xml_id": "1500",
+              "sort": 230,
+              "default": "N"
+            },
+            {
+              "value": "2 000",
+              "xml_id": "2000",
+              "sort": 240,
+              "default": "N"
+            },
+            {
+              "value": "3 000",
+              "xml_id": "3000",
+              "sort": 250,
+              "default": "N"
+            },
+            {
+              "value": "4 000",
+              "xml_id": "4000",
+              "sort": 260,
+              "default": "N"
+            },
+            {
+              "value": "5 000",
+              "xml_id": "5000",
+              "sort": 270,
+              "default": "N"
+            },
+            {
+              "value": "6 000",
+              "xml_id": "6000",
+              "sort": 280,
+              "default": "N"
+            },
+            {
+              "value": "7 000",
+              "xml_id": "7000",
+              "sort": 290,
+              "default": "N"
+            },
+            {
+              "value": "8 000",
+              "xml_id": "8000",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "9 000",
+              "xml_id": "9000",
+              "sort": 310,
+              "default": "N"
+            },
+            {
+              "value": "10 000",
+              "xml_id": "10000",
+              "sort": 320,
+              "default": "N"
+            },
+            {
+              "value": "12 000",
+              "xml_id": "12000",
+              "sort": 330,
+              "default": "N"
+            },
+            {
+              "value": "15 000",
+              "xml_id": "15000",
+              "sort": 340,
+              "default": "N"
+            },
+            {
+              "value": "20 000",
+              "xml_id": "20000",
+              "sort": 350,
+              "default": "N"
+            },
+            {
+              "value": "24 000",
+              "xml_id": "24000",
+              "sort": 351,
+              "default": "N"
+            },
+            {
+              "value": "36 000",
+              "xml_id": "36000",
+              "sort": 352,
+              "default": "N"
+            },
+            {
+              "value": "48 000",
+              "xml_id": "48000",
+              "sort": 353,
+              "default": "N"
+            },
+            {
+              "value": "25 000",
+              "xml_id": "25000",
+              "sort": 360,
+              "default": "N"
+            },
+            {
+              "value": "30 000",
+              "xml_id": "30000",
+              "sort": 370,
+              "default": "N"
+            },
+            {
+              "value": "35 000",
+              "xml_id": "35000",
+              "sort": 380,
+              "default": "N"
+            },
+            {
+              "value": "40 000",
+              "xml_id": "40000",
+              "sort": 390,
+              "default": "N"
+            },
+            {
+              "value": "45 000",
+              "xml_id": "45000",
+              "sort": 400,
+              "default": "N"
+            },
+            {
+              "value": "50 000",
+              "xml_id": "50000",
+              "sort": 410,
+              "default": "N"
+            },
+            {
+              "value": "60 000",
+              "xml_id": "60000",
+              "sort": 420,
+              "default": "N"
+            },
+            {
+              "value": "70 000",
+              "xml_id": "70000",
+              "sort": 430,
+              "default": "N"
+            },
+            {
+              "value": "80 000",
+              "xml_id": "80000",
+              "sort": 440,
+              "default": "N"
+            },
+            {
+              "value": "90 000",
+              "xml_id": "90000",
+              "sort": 450,
+              "default": "N"
+            },
+            {
+              "value": "100 000",
+              "xml_id": "100000",
+              "sort": 460,
+              "default": "N"
+            },
+            {
+              "value": "120 000",
+              "xml_id": "120000",
+              "sort": 470,
+              "default": "N"
+            },
+            {
+              "value": "150 000",
+              "xml_id": "150000",
+              "sort": 480,
+              "default": "N"
+            },
+            {
+              "value": "180 000",
+              "xml_id": "180000",
+              "sort": 490,
+              "default": "N"
+            },
+            {
+              "value": "200 000",
+              "xml_id": "200000",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "250 000",
+              "xml_id": "250000",
+              "sort": 510,
+              "default": "N"
+            },
+            {
+              "value": "300 000",
+              "xml_id": "300000",
+              "sort": 520,
+              "default": "N"
+            },
+            {
+              "value": "400 000",
+              "xml_id": "400000",
+              "sort": 530,
+              "default": "N"
+            },
+            {
+              "value": "500 000",
+              "xml_id": "500000",
+              "sort": 540,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_FORMAT",
+          "fields": {
+            "NAME": "Формат",
+            "ACTIVE": "Y",
+            "SORT": "100",
+            "CODE": "CALC_PROP_FORMAT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": null,
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "40 × 40 мм",
+              "xml_id": "40x40",
+              "sort": 1,
+              "default": "N"
+            },
+            {
+              "value": "A2 420 × 594 мм",
+              "xml_id": "420x594",
+              "sort": 60,
+              "default": "N"
+            },
+            {
+              "value": "A1 594 × 841 мм",
+              "xml_id": "594x841",
+              "sort": 70,
+              "default": "N"
+            },
+            {
+              "value": "A0 841 × 1188 мм",
+              "xml_id": "841x1188",
+              "sort": 80,
+              "default": "N"
+            },
+            {
+              "value": "1000 × 1000 мм",
+              "xml_id": "1000x1000",
+              "sort": 90,
+              "default": "N"
+            },
+            {
+              "value": "Евро 210 × 99 мм",
+              "xml_id": "210x99",
+              "sort": 110,
+              "default": "N"
+            },
+            {
+              "value": "85 × 55 мм",
+              "xml_id": "85x55",
+              "sort": 399,
+              "default": "N"
+            },
+            {
+              "value": "90 × 50 мм",
+              "xml_id": "90x50",
+              "sort": 400,
+              "default": "N"
+            },
+            {
+              "value": "A7 74 × 105 мм",
+              "xml_id": "74x105",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "A6 105 × 148 мм",
+              "xml_id": "105x148",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "A5 148 × 210 мм",
+              "xml_id": "148x210",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "A4 210 × 297 мм",
+              "xml_id": "210x297",
+              "sort": 500,
+              "default": "Y"
+            },
+            {
+              "value": "A3 297 × 420 мм",
+              "xml_id": "297x420",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "210 × 210 мм",
+              "xml_id": "210x210",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "310 × 440мм",
+              "xml_id": "310x440",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "70 × 70 мм",
+              "xml_id": "70x70",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "63 × 88 мм",
+              "xml_id": "63x88",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "198 × 210 мм",
+              "xml_id": "198x210",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "167 × 209 мм",
+              "xml_id": "167x209",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "160 × 220 мм",
+              "xml_id": "160x220",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "100 × 50 мм",
+              "xml_id": "100x50",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "180 × 80 мм",
+              "xml_id": "180x80",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "176 × 250 мм",
+              "xml_id": "176x250",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_MAKET_FORMAT_WITH_BLEED",
+          "fields": {
+            "NAME": "Размер макета с вылетами",
+            "ACTIVE": "Y",
+            "SORT": "102",
+            "CODE": "CALC_PROP_MAKET_FORMAT_WITH_BLEED",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": null,
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "94 × 54 мм",
+              "xml_id": "94x54",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "89 × 59 мм",
+              "xml_id": "89x59",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "44 × 44 мм",
+              "xml_id": "44x44",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "109 × 152 мм",
+              "xml_id": "109x152",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "214 × 301 мм",
+              "xml_id": "214x301",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "1004 × 1004 мм",
+              "xml_id": "1004x1004",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_PRINT_SIDES",
+          "fields": {
+            "NAME": "Стороны печати",
+            "ACTIVE": "Y",
+            "SORT": "112",
+            "CODE": "CALC_PROP_PRINT_SIDES",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Односторонняя печать",
+              "xml_id": "4+0",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Двухсторонняя печать",
+              "xml_id": "4+4",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_COLOR_SCHEME",
+          "fields": {
+            "NAME": "Красочность печати",
+            "ACTIVE": "Y",
+            "SORT": "113",
+            "CODE": "CALC_PROP_COLOR_SCHEME",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": "Количество красок, используемых для создания изображения. Первая цифра — количество красок на лицевой стороне, вторая — на обороте."
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "4+0",
+              "xml_id": "4+0",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "4+4",
+              "xml_id": "4+4",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "4+1",
+              "xml_id": "4+1",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "1+0",
+              "xml_id": "1+0",
+              "sort": 400,
+              "default": "N"
+            },
+            {
+              "value": "1+1",
+              "xml_id": "1+1",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "2+0",
+              "xml_id": "2+0",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "2+2",
+              "xml_id": "2+2",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_COVER_COLOR_SCHEME",
+          "fields": {
+            "NAME": "Обложка | Красочность печати",
+            "ACTIVE": "Y",
+            "SORT": "116",
+            "CODE": "CALC_PROP_COVER_COLOR_SCHEME",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "4+0",
+              "xml_id": "4+0",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "4+4",
+              "xml_id": "4+4",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "4+1",
+              "xml_id": "4+1",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "1+0",
+              "xml_id": "1+0",
+              "sort": 400,
+              "default": "N"
+            },
+            {
+              "value": "1+1",
+              "xml_id": "1+1",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_BLOCK_COLOR_SCHEME",
+          "fields": {
+            "NAME": "Блок | Красочность печати",
+            "ACTIVE": "Y",
+            "SORT": "118",
+            "CODE": "CALC_PROP_BLOCK_COLOR_SCHEME",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "4+0",
+              "xml_id": "4+0",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "4+4",
+              "xml_id": "4+4",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "4+1",
+              "xml_id": "4+1",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "1+0",
+              "xml_id": "1+0",
+              "sort": 400,
+              "default": "N"
+            },
+            {
+              "value": "1+1",
+              "xml_id": "1+1",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_BRAND",
+          "fields": {
+            "NAME": "Марка материала",
+            "ACTIVE": "Y",
+            "SORT": "122",
+            "CODE": "CALC_PROP_BRAND",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Шайн (Shyne)",
+              "xml_id": "shyne",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Аквeрелло (Acquerello)",
+              "xml_id": "acquerello",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "МайПлайк (myPlike)",
+              "xml_id": "myPlike",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "СиЭмПиСи Нейчерал Крафт (CMPC Natural Kraft)",
+              "xml_id": "cmpc_natural_kraft",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Гмунд Коттон (Gmund Cotton)",
+              "xml_id": "gmund_cotton",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_COLOR",
+          "fields": {
+            "NAME": "Цвет",
+            "ACTIVE": "Y",
+            "SORT": "123",
+            "CODE": "CALC_PROP_COLOR",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "directory",
+            "USER_TYPE_SETTINGS": {
+              "size": 1,
+              "width": 0,
+              "group": "N",
+              "multiple": "N",
+              "TABLE_NAME": "b_hlbd_basecolors"
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_DENSITY_PAPER",
+          "fields": {
+            "NAME": "Плотность бумаги",
+            "ACTIVE": "Y",
+            "SORT": "124",
+            "CODE": "CALC_PROP_DENSITY_PAPER",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": "Этот показатель определяет толщину, прочность и жесткость листа. Чем выше значение, тем плотнее и тяжелее бумага, и тем меньше она просвечивает."
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Тонкая",
+              "xml_id": "LOW",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "Средняя",
+              "xml_id": "MEDIUM",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "Плотная",
+              "xml_id": "HIGH",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "Очень плотная",
+              "xml_id": "MAX",
+              "sort": 400,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_DENSITY_INTERVAL",
+          "fields": {
+            "NAME": "Диапазон плотности",
+            "ACTIVE": "Y",
+            "SORT": "125",
+            "CODE": "CALC_PROP_DENSITY_INTERVAL",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "C",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "70 г/м²",
+              "xml_id": "70",
+              "sort": 70,
+              "default": "N"
+            },
+            {
+              "value": "80 г/м²",
+              "xml_id": "80",
+              "sort": 80,
+              "default": "N"
+            },
+            {
+              "value": "90 г/м²",
+              "xml_id": "90",
+              "sort": 90,
+              "default": "N"
+            },
+            {
+              "value": "105 г/м²",
+              "xml_id": "105",
+              "sort": 105,
+              "default": "N"
+            },
+            {
+              "value": "115 г/м²",
+              "xml_id": "115",
+              "sort": 115,
+              "default": "N"
+            },
+            {
+              "value": "120 г/м²",
+              "xml_id": "120",
+              "sort": 120,
+              "default": "N"
+            },
+            {
+              "value": "130 г/м²",
+              "xml_id": "130",
+              "sort": 130,
+              "default": "N"
+            },
+            {
+              "value": "135 г/м²",
+              "xml_id": "135",
+              "sort": 135,
+              "default": "N"
+            },
+            {
+              "value": "140 г/м²",
+              "xml_id": "140",
+              "sort": 140,
+              "default": "N"
+            },
+            {
+              "value": "150 г/м²",
+              "xml_id": "150",
+              "sort": 150,
+              "default": "N"
+            },
+            {
+              "value": "160 г/м²",
+              "xml_id": "160",
+              "sort": 160,
+              "default": "N"
+            },
+            {
+              "value": "170 г/м²",
+              "xml_id": "170",
+              "sort": 170,
+              "default": "N"
+            },
+            {
+              "value": "180 г/м²",
+              "xml_id": "180",
+              "sort": 180,
+              "default": "N"
+            },
+            {
+              "value": "200 г/м²",
+              "xml_id": "200",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "230 г/м²",
+              "xml_id": "230",
+              "sort": 230,
+              "default": "N"
+            },
+            {
+              "value": "240 г/м²",
+              "xml_id": "240",
+              "sort": 240,
+              "default": "N"
+            },
+            {
+              "value": "250 г/м²",
+              "xml_id": "250",
+              "sort": 250,
+              "default": "N"
+            },
+            {
+              "value": "270 г/м²",
+              "xml_id": "270",
+              "sort": 270,
+              "default": "N"
+            },
+            {
+              "value": "280 г/м²",
+              "xml_id": "280",
+              "sort": 280,
+              "default": "N"
+            },
+            {
+              "value": "285 г/м²",
+              "xml_id": "285",
+              "sort": 285,
+              "default": "N"
+            },
+            {
+              "value": "290 г/м²",
+              "xml_id": "290",
+              "sort": 290,
+              "default": "N"
+            },
+            {
+              "value": "300 г/м²",
+              "xml_id": "300",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "330 г/м²",
+              "xml_id": "330",
+              "sort": 330,
+              "default": "N"
+            },
+            {
+              "value": "350 г/м²",
+              "xml_id": "350",
+              "sort": 350,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_COVER_DENSITY_PAPER",
+          "fields": {
+            "NAME": "Обложка | Плотность бумаги",
+            "ACTIVE": "Y",
+            "SORT": "126",
+            "CODE": "CALC_PROP_COVER_DENSITY_PAPER",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Тонкая",
+              "xml_id": "LOW",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "Средняя",
+              "xml_id": "MEDIUM",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "Плотная",
+              "xml_id": "HIGH",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "Очень плотная",
+              "xml_id": "MAX",
+              "sort": 400,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_BLOCK_DENSITY_PAPER",
+          "fields": {
+            "NAME": "Блок | Плотность бумаги",
+            "ACTIVE": "Y",
+            "SORT": "128",
+            "CODE": "CALC_PROP_BLOCK_DENSITY_PAPER",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Тонкая",
+              "xml_id": "LOW",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "Средняя",
+              "xml_id": "MEDIUM",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "Плотная",
+              "xml_id": "HIGH",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "Очень плотная",
+              "xml_id": "MAX",
+              "sort": 400,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_LAMINATION",
+          "fields": {
+            "NAME": "Тип ламинации",
+            "ACTIVE": "Y",
+            "SORT": "132",
+            "CODE": "CALC_PROP_LAMINATION",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Матовая стандарт",
+              "xml_id": "mat-low",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Матовая плотная",
+              "xml_id": "mat-medium",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Глянцевая стандарт",
+              "xml_id": "gloss-low",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Глянцевая плотная",
+              "xml_id": "glow-medium",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Бархатная Soft-Touch",
+              "xml_id": "soft-touch",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Матовая Ultra Bond",
+              "xml_id": "ultra-bond",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_LAMINATION_THICKNESS",
+          "fields": {
+            "NAME": "Диапазон толщины",
+            "ACTIVE": "Y",
+            "SORT": "133",
+            "CODE": "CALC_PROP_LAMINATION_THICKNESS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "30 мкм",
+              "xml_id": "30",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "34 мкм",
+              "xml_id": "34",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "43 мкм",
+              "xml_id": "43",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "75 мкм",
+              "xml_id": "75",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_LAMINATION_SIDES",
+          "fields": {
+            "NAME": "Стороны ламинации",
+            "ACTIVE": "Y",
+            "SORT": "134",
+            "CODE": "CALC_PROP_LAMINATION_SIDES",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Односторонняя ламинация",
+              "xml_id": "1",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Двухсторонняя ламинация",
+              "xml_id": "2",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_SHEETS",
+          "fields": {
+            "NAME": "Количество листов",
+            "ACTIVE": "Y",
+            "SORT": "150",
+            "CODE": "CALC_PROP_SHEETS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "10",
+              "xml_id": "10",
+              "sort": 1,
+              "default": "N"
+            },
+            {
+              "value": "20",
+              "xml_id": "20",
+              "sort": 2,
+              "default": "N"
+            },
+            {
+              "value": "30",
+              "xml_id": "30",
+              "sort": 3,
+              "default": "N"
+            },
+            {
+              "value": "40",
+              "xml_id": "40",
+              "sort": 4,
+              "default": "N"
+            },
+            {
+              "value": "50",
+              "xml_id": "50",
+              "sort": 5,
+              "default": "N"
+            },
+            {
+              "value": "60",
+              "xml_id": "60",
+              "sort": 6,
+              "default": "N"
+            },
+            {
+              "value": "70",
+              "xml_id": "70",
+              "sort": 7,
+              "default": "N"
+            },
+            {
+              "value": "80",
+              "xml_id": "80",
+              "sort": 8,
+              "default": "N"
+            },
+            {
+              "value": "90",
+              "xml_id": "90",
+              "sort": 9,
+              "default": "N"
+            },
+            {
+              "value": "100",
+              "xml_id": "100",
+              "sort": 10,
+              "default": "N"
+            },
+            {
+              "value": "120",
+              "xml_id": "120",
+              "sort": 11,
+              "default": "N"
+            },
+            {
+              "value": "150",
+              "xml_id": "150",
+              "sort": 12,
+              "default": "N"
+            },
+            {
+              "value": "200",
+              "xml_id": "200",
+              "sort": 13,
+              "default": "N"
+            },
+            {
+              "value": "206",
+              "xml_id": "206",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "73",
+              "xml_id": "73",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "137",
+              "xml_id": "137",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "12",
+              "xml_id": "12",
+              "sort": 610,
+              "default": "N"
+            },
+            {
+              "value": "18",
+              "xml_id": "18",
+              "sort": 612,
+              "default": "N"
+            },
+            {
+              "value": "24",
+              "xml_id": "24",
+              "sort": 614,
+              "default": "N"
+            },
+            {
+              "value": "36",
+              "xml_id": "36",
+              "sort": 616,
+              "default": "N"
+            },
+            {
+              "value": "48",
+              "xml_id": "48",
+              "sort": 618,
+              "default": "N"
+            },
+            {
+              "value": "96",
+              "xml_id": "96",
+              "sort": 624,
+              "default": "N"
+            },
+            {
+              "value": "Другое",
+              "xml_id": "value",
+              "sort": 999,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_PROP_STRIPS",
+          "fields": {
+            "NAME": "Количество страниц",
+            "ACTIVE": "Y",
+            "SORT": "152",
+            "CODE": "CALC_PROP_STRIPS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "4",
+              "xml_id": "4",
+              "sort": 104,
+              "default": "N"
+            },
+            {
+              "value": "8",
+              "xml_id": "8",
+              "sort": 108,
+              "default": "N"
+            },
+            {
+              "value": "12",
+              "xml_id": "12",
+              "sort": 112,
+              "default": "N"
+            },
+            {
+              "value": "16",
+              "xml_id": "16",
+              "sort": 116,
+              "default": "N"
+            },
+            {
+              "value": "20",
+              "xml_id": "20",
+              "sort": 120,
+              "default": "N"
+            },
+            {
+              "value": "24",
+              "xml_id": "24",
+              "sort": 124,
+              "default": "N"
+            },
+            {
+              "value": "28",
+              "xml_id": "28",
+              "sort": 128,
+              "default": "N"
+            },
+            {
+              "value": "32",
+              "xml_id": "32",
+              "sort": 132,
+              "default": "N"
+            },
+            {
+              "value": "36",
+              "xml_id": "36",
+              "sort": 136,
+              "default": "N"
+            },
+            {
+              "value": "40",
+              "xml_id": "40",
+              "sort": 140,
+              "default": "N"
+            },
+            {
+              "value": "44",
+              "xml_id": "44",
+              "sort": 144,
+              "default": "N"
+            },
+            {
+              "value": "48",
+              "xml_id": "48",
+              "sort": 148,
+              "default": "N"
+            },
+            {
+              "value": "52",
+              "xml_id": "52",
+              "sort": 152,
+              "default": "N"
+            },
+            {
+              "value": "56",
+              "xml_id": "56",
+              "sort": 156,
+              "default": "N"
+            },
+            {
+              "value": "60",
+              "xml_id": "60",
+              "sort": 160,
+              "default": "N"
+            },
+            {
+              "value": "64",
+              "xml_id": "64",
+              "sort": 164,
+              "default": "N"
+            },
+            {
+              "value": "68",
+              "xml_id": "68",
+              "sort": 168,
+              "default": "N"
+            },
+            {
+              "value": "72",
+              "xml_id": "72",
+              "sort": 172,
+              "default": "N"
+            },
+            {
+              "value": "76",
+              "xml_id": "76",
+              "sort": 176,
+              "default": "N"
+            },
+            {
+              "value": "80",
+              "xml_id": "80",
+              "sort": 180,
+              "default": "N"
+            },
+            {
+              "value": "84",
+              "xml_id": "84",
+              "sort": 184,
+              "default": "N"
+            },
+            {
+              "value": "88",
+              "xml_id": "88",
+              "sort": 188,
+              "default": "N"
+            },
+            {
+              "value": "92",
+              "xml_id": "92",
+              "sort": 192,
+              "default": "N"
+            },
+            {
+              "value": "96",
+              "xml_id": "96",
+              "sort": 196,
+              "default": "N"
+            },
+            {
+              "value": "100",
+              "xml_id": "100",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "146",
+              "xml_id": "146",
+              "sort": 204,
+              "default": "N"
+            },
+            {
+              "value": "137",
+              "xml_id": "137",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Другое",
+              "xml_id": "value",
+              "sort": 999,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_QTY_ITEMS",
+          "fields": {
+            "NAME": "Количество карточек в комплекте",
+            "ACTIVE": "Y",
+            "SORT": "154",
+            "CODE": "CALC_QTY_ITEMS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "24",
+              "xml_id": "24",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "32",
+              "xml_id": "32",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "36",
+              "xml_id": "36",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "52",
+              "xml_id": "52",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "54",
+              "xml_id": "54",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "78",
+              "xml_id": "78",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_CHIP_TYPE",
+          "fields": {
+            "NAME": "Тип чипа",
+            "ACTIVE": "Y",
+            "SORT": "155",
+            "CODE": "CALC_CHIP_TYPE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Em Marine (чтение)",
+              "xml_id": "CHIP_EMMARINE",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Mifare (чтение и запись)",
+              "xml_id": "CHIP_MIFARE",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_TEXTURE_TYPE",
+          "fields": {
+            "NAME": "Тип фактуры",
+            "ACTIVE": "Y",
+            "SORT": "156",
+            "CODE": "CALC_TEXTURE_TYPE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "directory",
+            "USER_TYPE_SETTINGS": {
+              "size": 1,
+              "width": 0,
+              "group": "N",
+              "multiple": "N",
+              "TABLE_NAME": "b_hlbd_texture"
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CALC_SURFACE_TYPE",
+          "fields": {
+            "NAME": "Тип поверхности",
+            "ACTIVE": "Y",
+            "SORT": "157",
+            "CODE": "CALC_SURFACE_TYPE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Глянцевая",
+              "xml_id": "surface_gloss",
+              "sort": 10,
+              "default": "N"
+            },
+            {
+              "value": "Матовая",
+              "xml_id": "surface_ matte",
+              "sort": 20,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_FILM_COLOR",
+          "fields": {
+            "NAME": "Цвет плёнки",
+            "ACTIVE": "Y",
+            "SORT": "158",
+            "CODE": "CALC_FILM_COLOR",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "directory",
+            "USER_TYPE_SETTINGS": {
+              "size": 1,
+              "width": 0,
+              "group": "N",
+              "multiple": "N",
+              "TABLE_NAME": "b_hlbd_filmcolors"
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CALC_FILM_THICKNESS",
+          "fields": {
+            "NAME": "Толщина плёнки",
+            "ACTIVE": "Y",
+            "SORT": "159",
+            "CODE": "CALC_FILM_THICKNESS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "80 мкм",
+              "xml_id": "film80",
+              "sort": 10,
+              "default": "N"
+            },
+            {
+              "value": "90 мкм",
+              "xml_id": "film90",
+              "sort": 20,
+              "default": "N"
+            },
+            {
+              "value": "100 мкм",
+              "xml_id": "film100",
+              "sort": 30,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:CALC_UV_OPTION",
+          "fields": {
+            "NAME": "Опция УФ-печати",
+            "ACTIVE": "Y",
+            "SORT": "160",
+            "CODE": "CALC_UV_OPTION",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Без подложки",
+              "xml_id": "UV_notwhite",
+              "sort": 10,
+              "default": "N"
+            },
+            {
+              "value": "С белой подложкой",
+              "xml_id": "UV_white",
+              "sort": 20,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:STORES_FILTER",
+          "fields": {
+            "NAME": "Наличие в магазинах",
+            "ACTIVE": "Y",
+            "SORT": "200",
+            "CODE": "STORES_FILTER",
+            "DEFAULT_VALUE": "1",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "1049",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "directory",
+            "USER_TYPE_SETTINGS": {
+              "size": 1,
+              "width": 0,
+              "group": "N",
+              "multiple": "N",
+              "TABLE_NAME": "b_hlbd_aspro_premier_stores"
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CML2_LINK",
+          "fields": {
+            "NAME": "Элемент каталога",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "CML2_LINK",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "E",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "CML2_LINK",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "14",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "Y",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "SKU",
+            "USER_TYPE_SETTINGS": {
+              "VIEW": "A",
+              "SHOW_ADD": "N",
+              "MAX_WIDTH": 0,
+              "MIN_HEIGHT": 24,
+              "MAX_HEIGHT": 1000,
+              "BAN_SYM": ",;",
+              "REP_SYM": " ",
+              "OTHER_REP_SYM": "",
+              "IBLOCK_MESS": "N"
+            },
+            "HINT": ""
+          },
+          "link_target": {
+            "iblock_type_id": "aspro_premier_catalog",
+            "code": "aspro_premier_catalog",
+            "xml_id": "aspro_premier_catalog_s1",
+            "name": "Каталог товаров"
+          },
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:MORE_PHOTO",
+          "fields": {
+            "NAME": "Картинки",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "MORE_PHOTO",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "F",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": "182",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:POPUP_VIDEO",
+          "fields": {
+            "NAME": "Видео в попапе",
+            "ACTIVE": "Y",
+            "SORT": "300",
+            "CODE": "POPUP_VIDEO",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "834",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:COLOR_REF",
+          "fields": {
+            "NAME": "Цвет",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "COLOR_REF",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "179",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "directory",
+            "USER_TYPE_SETTINGS": {
+              "size": 1,
+              "width": 0,
+              "group": "N",
+              "multiple": "N",
+              "TABLE_NAME": "b_hlbd_aspro_premier_color_reference"
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "Y"
+            },
+            {
+              "feature_id": "IN_BASKET",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "Y"
+            },
+            {
+              "feature_id": "OFFER_TREE",
+              "is_enabled": "Y"
+            }
+          ]
+        },
+        {
+          "key": "code:ARTICLE",
+          "fields": {
+            "NAME": "Артикул",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "ARTICLE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "180",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "IN_BASKET",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "N"
+            }
+          ]
+        },
+        {
+          "key": "code:SIZES",
+          "fields": {
+            "NAME": "Размер",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "SIZES",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "178",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "XS",
+              "xml_id": "c77d0f5e66de18c6ef6f2accff168bfa",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "S",
+              "xml_id": "e107a0fb778805aeba0a42f6c3c07b99",
+              "sort": 110,
+              "default": "N"
+            },
+            {
+              "value": "M",
+              "xml_id": "d2af8594503c6a4991c1d394f73bbc6a",
+              "sort": 120,
+              "default": "N"
+            },
+            {
+              "value": "L",
+              "xml_id": "85938a37c65831ea58b02ad3fb1c66e3",
+              "sort": 130,
+              "default": "N"
+            },
+            {
+              "value": "XL",
+              "xml_id": "4cf340c1f4a6a3cf877e74cf64ee87bd",
+              "sort": 140,
+              "default": "N"
+            },
+            {
+              "value": "XXL",
+              "xml_id": "3812fdadd669b56218e49e4503eb0132",
+              "sort": 150,
+              "default": "N"
+            },
+            {
+              "value": "XXXL",
+              "xml_id": "e6f4e4cadcf95b046f796aa67b794cdd",
+              "sort": 160,
+              "default": "N"
+            },
+            {
+              "value": "44",
+              "xml_id": "44",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "42",
+              "xml_id": "42",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "40",
+              "xml_id": "40",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "38",
+              "xml_id": "28",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "Y"
+            },
+            {
+              "feature_id": "IN_BASKET",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "Y"
+            },
+            {
+              "feature_id": "OFFER_TREE",
+              "is_enabled": "Y"
+            }
+          ]
+        },
+        {
+          "key": "code:VOLUME",
+          "fields": {
+            "NAME": "Объём",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "VOLUME",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "85",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "10 мл",
+              "xml_id": "3456",
+              "sort": 100,
+              "default": "N"
+            },
+            {
+              "value": "30 мл",
+              "xml_id": "3547",
+              "sort": 200,
+              "default": "N"
+            },
+            {
+              "value": "50 мл",
+              "xml_id": "98",
+              "sort": 300,
+              "default": "N"
+            },
+            {
+              "value": "80 мл",
+              "xml_id": "1f058c8cf91715bcb8fa3d237c2489cd",
+              "sort": 400,
+              "default": "N"
+            },
+            {
+              "value": "100 мл",
+              "xml_id": "192c187c9a87fed8b3c5f0125cb24b69",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:FRELITE",
+          "fields": {
+            "NAME": "Раздел",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "FRELITE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "647",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "IN_BASKET",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "Y"
+            }
+          ]
+        },
+        {
+          "key": "code:FRLINE",
+          "fields": {
+            "NAME": "Линия",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "FRLINE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "648",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRCOLLECTION",
+          "fields": {
+            "NAME": "Коллекция",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "FRCOLLECTION",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "649",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRTYPE",
+          "fields": {
+            "NAME": "Тип",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "FRTYPE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "651",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "Тестер",
+              "xml_id": "dkfjk",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Туалетные духи",
+              "xml_id": "dsfsdf",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "Аромасвеча",
+              "xml_id": "sdfsdfsf",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:FRMADEIN",
+          "fields": {
+            "NAME": "Производство",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "FRMADEIN",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "652",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:WEIGHT",
+          "fields": {
+            "NAME": "Вес",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "WEIGHT",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "856",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "5 кг",
+              "xml_id": "1",
+              "sort": 1,
+              "default": "N"
+            },
+            {
+              "value": "15 кг",
+              "xml_id": "2",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "20 кг",
+              "xml_id": "3",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "25 кг",
+              "xml_id": "4",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "50 кг",
+              "xml_id": "5",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:SIZES2",
+          "fields": {
+            "NAME": "Диаметр",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "SIZES2",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "855",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "22 мм",
+              "xml_id": "1",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "42 мм",
+              "xml_id": "2",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:SIZES3",
+          "fields": {
+            "NAME": "Размер обуви",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "SIZES3",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "914",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "40",
+              "xml_id": "1",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "41",
+              "xml_id": "2",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "42",
+              "xml_id": "3",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "43",
+              "xml_id": "4",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "Y"
+            },
+            {
+              "feature_id": "IN_BASKET",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "Y"
+            },
+            {
+              "feature_id": "OFFER_TREE",
+              "is_enabled": "Y"
+            }
+          ]
+        },
+        {
+          "key": "code:SIZES4",
+          "fields": {
+            "NAME": "Размер обуви",
+            "ACTIVE": "Y",
+            "SORT": "500",
+            "CODE": "SIZES4",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": "915",
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "Y",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "36",
+              "xml_id": "1",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "37",
+              "xml_id": "2",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "38",
+              "xml_id": "3",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "39",
+              "xml_id": "4",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": [
+            {
+              "feature_id": "DETAIL_PAGE_SHOW",
+              "is_enabled": "Y"
+            },
+            {
+              "feature_id": "IN_BASKET",
+              "is_enabled": "N"
+            },
+            {
+              "feature_id": "LIST_PAGE_SHOW",
+              "is_enabled": "Y"
+            },
+            {
+              "feature_id": "OFFER_TREE",
+              "is_enabled": "Y"
+            }
+          ]
+        },
+        {
+          "key": "code:CALC_PRINT_RESOLUTION",
+          "fields": {
+            "NAME": "Разрешение печати",
+            "ACTIVE": "N",
+            "SORT": "500",
+            "CODE": "CALC_PRINT_RESOLUTION",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "L",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [
+            {
+              "value": "1440 DPI",
+              "xml_id": "63c6f8e5ae21657b53eb7c0d722286e6",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "1080 DPI",
+              "xml_id": "c8f23f87b571ad9c0c3893c6ec257ad1",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "720 DPI",
+              "xml_id": "c087f9ab211a0657c305b7452f9da138",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "600 DPI",
+              "xml_id": "510e9b2e43276279893037e834e4e584",
+              "sort": 500,
+              "default": "N"
+            },
+            {
+              "value": "480 DPI",
+              "xml_id": "3a8473d3edce48882abd4e1b91a76bec",
+              "sort": 500,
+              "default": "N"
+            }
+          ],
+          "features": []
+        },
+        {
+          "key": "code:PARAMETR_VALUES",
+          "fields": {
+            "NAME": "Значения параметров",
+            "ACTIVE": "Y",
+            "SORT": "510",
+            "CODE": "PARAMETR_VALUES",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "1",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "Y",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:COMPLETED_CALCS",
+          "fields": {
+            "NAME": "Завершённые расчёты",
+            "ACTIVE": "Y",
+            "SORT": "600",
+            "CODE": "COMPLETED_CALCS",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "Y",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "1",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": "directory",
+            "USER_TYPE_SETTINGS": {
+              "size": 1,
+              "width": 0,
+              "group": "N",
+              "multiple": "N",
+              "TABLE_NAME": "prospektcalc_offer_history"
+            },
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:CALC_STATE_HASH",
+          "fields": {
+            "NAME": "Хеш состояния расчёта",
+            "ACTIVE": "Y",
+            "SORT": "900",
+            "CODE": "CALC_STATE_HASH",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_CALCULATION_HASH",
+          "fields": {
+            "NAME": "FRONTCALC_CALCULATION_HASH",
+            "ACTIVE": "Y",
+            "SORT": "1020",
+            "CODE": "FRONTCALC_CALCULATION_HASH",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_TECHNICAL",
+          "fields": {
+            "NAME": "Техническое предложение FrontCalc",
+            "ACTIVE": "Y",
+            "SORT": "9800",
+            "CODE": "FRONTCALC_TECHNICAL",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_PRESET_ID",
+          "fields": {
+            "NAME": "Пресет FrontCalc",
+            "ACTIVE": "Y",
+            "SORT": "9810",
+            "CODE": "FRONTCALC_PRESET_ID",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_CONFIG_HASH",
+          "fields": {
+            "NAME": "Отпечаток конфигурации FrontCalc",
+            "ACTIVE": "Y",
+            "SORT": "9820",
+            "CODE": "FRONTCALC_CONFIG_HASH",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_SCHEMA_HASH",
+          "fields": {
+            "NAME": "Отпечаток публикации FrontCalc",
+            "ACTIVE": "Y",
+            "SORT": "9830",
+            "CODE": "FRONTCALC_SCHEMA_HASH",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_PRICE_REVISION",
+          "fields": {
+            "NAME": "Ревизия цены FrontCalc",
+            "ACTIVE": "Y",
+            "SORT": "9840",
+            "CODE": "FRONTCALC_PRICE_REVISION",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_SOURCE_VERSION",
+          "fields": {
+            "NAME": "Версия расчётного источника FrontCalc",
+            "ACTIVE": "Y",
+            "SORT": "9850",
+            "CODE": "FRONTCALC_SOURCE_VERSION",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_CATALOG_GROUP_ID",
+          "fields": {
+            "NAME": "Тип цены FrontCalc",
+            "ACTIVE": "Y",
+            "SORT": "9860",
+            "CODE": "FRONTCALC_CATALOG_GROUP_ID",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_TARGET_QUANTITY",
+          "fields": {
+            "NAME": "Тираж FrontCalc",
+            "ACTIVE": "Y",
+            "SORT": "9870",
+            "CODE": "FRONTCALC_TARGET_QUANTITY",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "N",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        },
+        {
+          "key": "code:FRONTCALC_DEADLINE_CODE",
+          "fields": {
+            "NAME": "Код срока FrontCalc",
+            "ACTIVE": "Y",
+            "SORT": "9880",
+            "CODE": "FRONTCALC_DEADLINE_CODE",
+            "DEFAULT_VALUE": "",
+            "PROPERTY_TYPE": "S",
+            "ROW_COUNT": "1",
+            "COL_COUNT": "30",
+            "LIST_TYPE": "L",
+            "MULTIPLE": "N",
+            "XML_ID": null,
+            "FILE_TYPE": "",
+            "MULTIPLE_CNT": "5",
+            "LINK_IBLOCK_ID": "0",
+            "WITH_DESCRIPTION": "N",
+            "SEARCHABLE": "N",
+            "FILTRABLE": "N",
+            "IS_REQUIRED": "N",
+            "VERSION": "1",
+            "USER_TYPE": null,
+            "USER_TYPE_SETTINGS": [],
+            "HINT": ""
+          },
+          "link_target": null,
+          "enums": [],
+          "features": []
+        }
+      ]
+    }
+  ]
+}

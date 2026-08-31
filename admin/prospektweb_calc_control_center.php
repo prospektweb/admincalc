@@ -50,6 +50,7 @@ $controlCenterEndpoints = [
     'batch' => '/bitrix/tools/prospektweb.calc/batch_recalculate.php',
     'modules' => '/bitrix/tools/prospektweb.calc/control_center_modules.php',
     'editors' => '/bitrix/tools/prospektweb.calc/control_center_editors.php',
+    'deployment' => '/bitrix/tools/prospektweb.calc/control_center_deployment.php',
     'partners' => '/bitrix/tools/prospektweb/partnermanager/control_center.php',
 ];
 $controlCenterCapabilities = [
@@ -58,6 +59,7 @@ $controlCenterCapabilities = [
     'batch' => true,
     'modules' => true,
     'editors' => true,
+    'deployment' => true,
     'partners' => ModuleManager::isModuleInstalled('prospektweb.partnermanager'),
 ];
 

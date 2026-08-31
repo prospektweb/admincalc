@@ -147,15 +147,6 @@ if (!empty($catalogIblockIds)) {
             </td>
         </tr>
 
-        <tr>
-            <td>
-                <label for="IMPORT_SNAPSHOT_FILE">Импорт данных (snapshot)</label>
-            </td>
-            <td>
-                <input type="file" name="IMPORT_SNAPSHOT_FILE" id="IMPORT_SNAPSHOT_FILE" accept=".json,.txt,application/json,text/plain">
-                <div style="color:#777;font-size:11px;margin-top:6px;">Необязательно. Если файл не выбран — установка будет выполнена начисто.</div>
-            </td>
-        </tr>
     </table>
 
     <div class="adm-info-message install-step1-info">

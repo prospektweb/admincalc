@@ -10,7 +10,7 @@
  * - Шаг 1: Создание типов инфоблоков (calculator, calculator_catalog)
  * - Шаг 2: Создание инфоблоков с свойствами
  * - Шаг 3: Настройка SKU-связей
- * - Шаг 4: Сохранение настроек + импорт snapshot (опционально)
+ * - Шаг 4: Сохранение настроек и пустой схемы модуля
  * - Шаг 5: Установка файлов и событий
  * 
  * @version 2.0.0
@@ -18,7 +18,6 @@
 
 use Bitrix\Main\Loader;
 use Bitrix\Main\Config\Option;
-use Prospektweb\Calc\Install\SnapshotManager;
 use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
 
 if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true) {
@@ -38,7 +37,6 @@ if (! isset($_SESSION['PROSPEKTWEB_CALC_INSTALL'])) {
         'products_iblock_id' => (int)($_REQUEST['PRODUCTS_IBLOCK_ID'] ?? 0),
         'offers_iblock_id' => (int)($_REQUEST['OFFERS_IBLOCK_ID'] ?? 0),
         'current_step' => 1,
-        'import_snapshot_path' => (string)($_REQUEST['IMPORT_SNAPSHOT_PATH'] ?? ''),
         'iblock_ids' => [],
         'log' => [],
         'errors' => [],
@@ -48,10 +46,6 @@ if (! isset($_SESSION['PROSPEKTWEB_CALC_INSTALL'])) {
 $installData = &$_SESSION['PROSPEKTWEB_CALC_INSTALL'];
 $currentStep = (int)($_REQUEST['install_step'] ?? $installData['current_step']);
 
-
-if (!empty($_REQUEST['IMPORT_SNAPSHOT_PATH'])) {
-    $installData['import_snapshot_path'] = (string)$_REQUEST['IMPORT_SNAPSHOT_PATH'];
-}
 
 // Очищаем лог для нового шага
 $installData['log'] = [];
@@ -1934,46 +1928,10 @@ switch ($currentStep) {
 
         ensureSkuCalculatorProperties((int)($installData['offers_iblock_id'] ?? 0));
         
-        // Импорт данных из snapshot (если файл загружен)
-        $snapshotPath = (string)($installData['import_snapshot_path'] ?? '');
-        if ($snapshotPath !== '') {
-            installLog('');
-            installLog('Импорт данных из snapshot...', 'header');
-
-            if (!is_file($snapshotPath)) {
-                $message = 'Snapshot файл не найден: ' . $snapshotPath;
-                installLog($message, 'error');
-                $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $message;
-            } else {
-                $snapshotManagerPath = __DIR__ . '/../lib/Install/SnapshotManager.php';
-                if (!class_exists('\Prospektweb\\Calc\\Install\\SnapshotManager') && file_exists($snapshotManagerPath)) {
-                    require_once $snapshotManagerPath;
-                }
-
-                if (!class_exists('\Prospektweb\\Calc\\Install\\SnapshotManager')) {
-                    $message = 'Класс SnapshotManager не найден: ' . $snapshotManagerPath;
-                    installLog($message, 'error');
-                    $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $message;
-                    break;
-                }
-
-                $snapshotManager = new SnapshotManager();
-                $importResult = $snapshotManager->importFromFile($snapshotPath, $installData['iblock_ids']);
-
-                foreach (($importResult['created'] ?? []) as $createdMessage) {
-                    installLog($createdMessage, 'success');
-                }
-
-                foreach (($importResult['errors'] ?? []) as $errorMessage) {
-                    installLog($errorMessage, 'error');
-                    $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $errorMessage;
-                }
-
-                installLog('Импорт завершён. Создано: ' . count($importResult['created'] ?? []), 'success');
-            }
-        } else {
-            installLog('Snapshot не загружен: установка выполнена начисто.', 'info');
-        }
+        installLog(
+            'Импорт снимков и демо-данных в установщике запрещён. Управляемые снимки запускаются только из Центра управления.',
+            'info'
+        );
 
         installLog("--- Шаг 4 выполнен ---", 'header');
         break;
