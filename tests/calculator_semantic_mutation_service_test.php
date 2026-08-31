@@ -89,6 +89,23 @@ $assert(
 $assert($revision === 6 && count($audits) === 1, 'aggregate advances and audits exactly once');
 $assert($events === ['begin:41', 'commit:6'], 'aggregate owns one transaction envelope');
 
+$versionBefore = PresetMutationCoordinatorService::hashCanonical($state);
+$versionResult = $service->mutatePayload([[
+    'action' => 'saveCalculatorGlobals',
+    'presetId' => 41,
+    'symbols' => [['id' => 4, 'code' => 'version-next']],
+    'variables' => [['VALUE' => 'version-next']],
+    'constants' => [],
+]], $versionBefore, 's1', [
+    'calculatorPresetId' => 12740,
+    'workingPresetId' => 41,
+    'versionId' => 'v_0123456789abcdef',
+]);
+$assert(
+    ($versionResult[0]['semanticReadback'] ?? null) === $state,
+    'version mutation returns the authoritative working-graph readback for immediate UI reconciliation'
+);
+
 $mutationsBeforeStale = $state;
 $staleRejected = false;
 try {
@@ -108,6 +125,7 @@ $failPresetWrite = true;
 $currentRevision = PresetMutationCoordinatorService::hashCanonical($state);
 $failedState = $state;
 $failedCoordinatorRevision = $revision;
+$auditsBeforeFailure = count($audits);
 $failed = false;
 try {
     $service->mutatePayload([[
@@ -121,7 +139,8 @@ try {
     $failed = str_contains($error->getMessage(), 'second aggregate');
 }
 $assert(
-    $failed && $state === $failedState && $revision === $failedCoordinatorRevision && count($audits) === 1,
+    $failed && $state === $failedState && $revision === $failedCoordinatorRevision
+        && count($audits) === $auditsBeforeFailure,
     'failure of the second semantic write rolls back the first write, audit and revision'
 );
 

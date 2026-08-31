@@ -61,6 +61,35 @@ bridge.updateSettingsPropertyInInitDataWithDescriptions = () => {};
 bridge.updateStagePropertyInInitDataWithDescriptions = () => {};
 bridge.sendPwrtMessage = () => {};
 
+bridge.initData = {
+  preset: { id: 12740, marker: 'before' },
+  elementsStore: {
+    CALC_STAGES: [{
+      id: 601,
+      properties: {
+        OPTIONS_MATERIAL: { VALUE: 'stale', '~VALUE': 'stale' },
+      },
+    }],
+  },
+  globalSymbols: [{ code: 'before' }],
+  untouched: 'keep',
+};
+assert.equal(bridge.applySemanticReadback({
+  semanticRevision: 'revision-next',
+  semanticReadback: {
+    preset: { id: 12740, marker: 'after' },
+    elementsStore: bridge.initData.elementsStore,
+    globalSymbols: [{ code: 'after' }],
+  },
+}), true, 'version-aware semantic readback must be accepted');
+assert.equal(bridge.initData.preset.marker, 'after');
+assert.equal(bridge.initData.globalSymbols[0].code, 'after');
+assert.equal(bridge.initData.semanticRevision, 'revision-next');
+assert.equal(bridge.initData.untouched, 'keep', 'unrelated INIT data must survive partial readback');
+bridge.updateStagePropertyInInitData(601, 'OPTIONS_MATERIAL', '');
+assert.equal(bridge.initData.elementsStore.CALC_STAGES[0].properties.OPTIONS_MATERIAL.VALUE, '');
+assert.equal(bridge.initData.elementsStore.CALC_STAGES[0].properties.OPTIONS_MATERIAL['~VALUE'], '');
+
 (async () => {
   await bridge.handleSaveCalcLogicRequest({
     requestId: 'logic-1',

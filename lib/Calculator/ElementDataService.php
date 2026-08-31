@@ -11,13 +11,17 @@ class ElementDataService
 
     private ?\Prospektweb\Calc\Services\CalculatorMutationAuthorityService $mutationAuthority;
 
+    private bool $deferInitPayloadToSemanticReadback;
+
     /** @param array<string,int> $pinnedRuntimeIblockIds */
     public function __construct(
         array $pinnedRuntimeIblockIds = [],
-        ?\Prospektweb\Calc\Services\CalculatorMutationAuthorityService $mutationAuthority = null
+        ?\Prospektweb\Calc\Services\CalculatorMutationAuthorityService $mutationAuthority = null,
+        bool $deferInitPayloadToSemanticReadback = false
     ) {
         $this->pinnedRuntimeIblockIds = $pinnedRuntimeIblockIds;
         $this->mutationAuthority = $mutationAuthority;
+        $this->deferInitPayloadToSemanticReadback = $deferInitPayloadToSemanticReadback;
         $this->ensureBitrixModulesLoaded();
     }
 
@@ -636,7 +640,7 @@ class ElementDataService
                             throw new \RuntimeException('Stage ID is required.', 409);
                         }
                         $mutationAuthority = $this->mutationAuthority();
-                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, function (
                                 bool $_unusedProtection,
                                 array $pinnedIblockIds
                             ) use ($mutationAuthority, $stageId, $operationVariantId, $presetId, $request): array {
@@ -668,7 +672,7 @@ class ElementDataService
                                     'OPERATION_VARIANT' => $operationVariantId > 0 ? $operationVariantId : false,
                                     'OPTIONS_OPERATION' => false,
                                 ]);
-                                return self::enrichStructuralResultPinned(
+                                return $this->completeStructuralMutationPinned(
                                     ['status' => 'ok'],
                                     $presetId,
                                     $pinnedIblockIds
@@ -685,7 +689,7 @@ class ElementDataService
                             throw new \RuntimeException('Stage ID is required.', 409);
                         }
                         $mutationAuthority = $this->mutationAuthority();
-                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, function (
                                 bool $_unusedProtection,
                                 array $pinnedIblockIds
                             ) use ($mutationAuthority, $stageId, $equipmentId, $presetId, $request): array {
@@ -717,7 +721,7 @@ class ElementDataService
                                     'EQUIPMENT' => $equipmentId > 0 ? $equipmentId : false,
                                     'OPTIONS_EQUIPMENT' => false,
                                 ]);
-                                return self::enrichStructuralResultPinned(
+                                return $this->completeStructuralMutationPinned(
                                     ['status' => 'ok'],
                                     $presetId,
                                     $pinnedIblockIds
@@ -734,7 +738,7 @@ class ElementDataService
                             throw new \RuntimeException('Stage ID is required.', 409);
                         }
                         $mutationAuthority = $this->mutationAuthority();
-                        $result[] = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $result[] = $mutationAuthority->withAuthorityLock($presetId, function (
                                 bool $_unusedProtection,
                                 array $pinnedIblockIds
                             ) use ($mutationAuthority, $stageId, $materialVariantId, $presetId, $request): array {
@@ -766,7 +770,7 @@ class ElementDataService
                                     'MATERIAL_VARIANT' => $materialVariantId > 0 ? $materialVariantId : false,
                                     'OPTIONS_MATERIAL' => false,
                                 ]);
-                                return self::enrichStructuralResultPinned(
+                                return $this->completeStructuralMutationPinned(
                                     ['status' => 'ok'],
                                     $presetId,
                                     $pinnedIblockIds
@@ -2382,6 +2386,47 @@ class ElementDataService
                 $presetId,
                 defined('SITE_ID') ? (string)SITE_ID : 's1'
             );
+        }
+        return $operationResult;
+    }
+
+    /**
+     * Finish a direct stage-variant selection without invoking the public INIT
+     * loader for an inactive version-working preset. The semantic mutation
+     * boundary performs the exact version-aware readback after this callback.
+     *
+     * @param array<string,mixed> $operationResult
+     * @param array<string,int> $pinnedIblockIds
+     * @return array<string,mixed>
+     */
+    private function completeStructuralMutationPinned(
+        array $operationResult,
+        int $presetId,
+        array $pinnedIblockIds
+    ): array {
+        if (!$this->deferInitPayloadToSemanticReadback) {
+            return self::enrichStructuralResultPinned($operationResult, $presetId, $pinnedIblockIds);
+        }
+        if (($operationResult['status'] ?? 'error') !== 'ok') {
+            throw new \RuntimeException(
+                trim((string)($operationResult['message'] ?? 'Structural preset mutation failed.')),
+                409
+            );
+        }
+        if ($presetId <= 0) {
+            return $operationResult;
+        }
+        $enrichment = new \Prospektweb\Calc\Services\PresetEnrichmentService($pinnedIblockIds);
+        $rootDetailIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            is_array($operationResult['rootDetailIds'] ?? null)
+                ? $operationResult['rootDetailIds']
+                : $enrichment->getRootsFromPreset($presetId)
+        ))));
+        if ($rootDetailIds !== []) {
+            $enrichment->rebuildPresetIndexesFromRoots($presetId, $rootDetailIds);
+        } else {
+            $enrichment->clearPreset($presetId);
         }
         return $operationResult;
     }

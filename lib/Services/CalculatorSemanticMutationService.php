@@ -130,6 +130,7 @@ final class CalculatorSemanticMutationService
             $presetId
         );
         $lastRevision = '';
+        $lastReadback = [];
 
         $coordinator = isset($this->adapters['coordinator'])
             ? call_user_func($this->adapters['coordinator'])
@@ -189,7 +190,7 @@ final class CalculatorSemanticMutationService
                 }
 
                 if ($action !== 'saveCalculatorGlobals') {
-                    $rows = (new ElementDataService([], $authority))->prepareRefreshPayload([$request]);
+                    $rows = (new ElementDataService([], $authority, true))->prepareRefreshPayload([$request]);
                     if (count($rows) !== 1 || !is_array($rows[0] ?? null)) {
                         throw new \RuntimeException('Calculator mutation returned an invalid result.');
                     }
@@ -219,7 +220,8 @@ final class CalculatorSemanticMutationService
                 $presetId,
                 $siteId,
                 $versionReadbackContext,
-                &$lastRevision
+                &$lastRevision,
+                &$lastReadback
             ): array {
                 $readback = isset($this->adapters['readback'])
                     ? call_user_func($this->adapters['readback'], $presetId, $versionReadbackContext)
@@ -237,6 +239,7 @@ final class CalculatorSemanticMutationService
                     throw new \RuntimeException('Semantic aggregate readback is invalid.');
                 }
                 $lastRevision = PresetMutationCoordinatorService::hashCanonical($readback);
+                $lastReadback = $readback;
                 return $readback;
             }
         );
@@ -245,6 +248,9 @@ final class CalculatorSemanticMutationService
             throw new \RuntimeException('Semantic mutation receipt is invalid.');
         }
         $result['semanticRevision'] = $lastRevision;
+        if ($versionReadbackContext !== []) {
+            $result['semanticReadback'] = $lastReadback;
+        }
         if (is_array($result['initPayload'] ?? null)) {
             $result['initPayload']['semanticRevision'] = $lastRevision;
         }

@@ -633,6 +633,10 @@
                         stage.properties[propertyCode] = {};
                     }
                     stage.properties[propertyCode].VALUE = value;
+                    // The React transformer deliberately prefers the raw Bitrix
+                    // value. Keep both representations coherent so a reset is
+                    // visible immediately instead of only after page reload.
+                    stage.properties[propertyCode]['~VALUE'] = value;
                     
                     console.log('[BitrixBridge] updateStagePropertyInInitData: обновлён этап', {
                         stageId: stageId,
@@ -1453,6 +1457,22 @@
                     message: error && error.message ? error.message : 'Не удалось сформировать проект логики этапа',
                 }, message.requestId, origin);
             }
+        }
+
+        applySemanticReadback(responsePayload) {
+            const readback = responsePayload && responsePayload.semanticReadback;
+            if (!readback || typeof readback !== 'object' || Array.isArray(readback) || !this.initData) {
+                return false;
+            }
+            for (const key of ['preset', 'elementsStore', 'globalSymbols']) {
+                if (Object.prototype.hasOwnProperty.call(readback, key)) {
+                    this.initData[key] = readback[key];
+                }
+            }
+            if (typeof responsePayload.semanticRevision === 'string') {
+                this.initData.semanticRevision = responsePayload.semanticRevision;
+            }
+            return true;
         }
 
         async handleLoadAiLogicPilotDraftRequest(message, origin) {
@@ -2367,7 +2387,9 @@
                 }
 
                 // Обновляем локальный initData
-                if (responsePayload.initPayload) {
+                if (this.applySemanticReadback(responsePayload)) {
+                    // Version-aware authoritative state merged into the current INIT.
+                } else if (responsePayload.initPayload) {
                     this.initData = responsePayload.initPayload;
                 }
 
@@ -2446,7 +2468,9 @@
                 }
 
                 // Обновляем локальный initData
-                if (responsePayload.initPayload) {
+                if (this.applySemanticReadback(responsePayload)) {
+                    // Version-aware authoritative state merged into the current INIT.
+                } else if (responsePayload.initPayload) {
                     this.initData = responsePayload.initPayload;
                 }
 
@@ -2525,7 +2549,9 @@
                 }
 
                 // Обновляем локальный initData
-                if (responsePayload.initPayload) {
+                if (this.applySemanticReadback(responsePayload)) {
+                    // Version-aware authoritative state merged into the current INIT.
+                } else if (responsePayload.initPayload) {
                     this.initData = responsePayload.initPayload;
                 }
 
@@ -3735,12 +3761,19 @@
             
             try {
                 // 1. Очищаем на сервере
-                await this.fetchRefreshData([{
+                const result = await this.fetchRefreshData([{
                     action: 'updateStageProperty',
                     stageId: stageId,
                     propertyCode: 'OPTIONS_OPERATION',
                     value: ''
                 }]);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Пустой ответ сервера' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось сбросить сопоставление варианта операции');
+                }
+                this.applySemanticReadback(responsePayload);
                 
                 // 2. Лёгкое обогащение
                 this.updateStagePropertyInInitData(stageId, 'OPTIONS_OPERATION', '');
@@ -3776,12 +3809,19 @@
             
             try {
                 // 1. Очищаем на сервере
-                await this.fetchRefreshData([{
+                const result = await this.fetchRefreshData([{
                     action: 'updateStageProperty',
                     stageId: stageId,
                     propertyCode: 'OPTIONS_MATERIAL',
                     value: ''
                 }]);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Пустой ответ сервера' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось сбросить сопоставление варианта материала');
+                }
+                this.applySemanticReadback(responsePayload);
                 
                 // 2. Лёгкое обогащение
                 this.updateStagePropertyInInitData(stageId, 'OPTIONS_MATERIAL', '');
@@ -3815,12 +3855,19 @@
                 return;
             }
             try {
-                await this.fetchRefreshData([{
+                const result = await this.fetchRefreshData([{
                     action: 'updateStageProperty',
                     stageId: stageId,
                     propertyCode: 'OPTIONS_EQUIPMENT',
                     value: ''
                 }]);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0]
+                    : { status: 'error', message: 'Пустой ответ сервера' };
+                if (responsePayload.status !== 'ok') {
+                    throw new Error(responsePayload.message || 'Не удалось сбросить сопоставление оборудования');
+                }
+                this.applySemanticReadback(responsePayload);
                 this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', '');
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {

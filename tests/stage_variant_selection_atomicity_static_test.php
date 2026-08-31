@@ -57,6 +57,10 @@ foreach ($clientHandlers as $handlerName => $endHandlerName) {
             && !str_contains($handler, "action: 'updateStageProperty'"),
         $handlerName . ' must not advance the semantic revision with a second mapping-clear request'
     );
+    $assert(
+        str_contains($handler, 'this.applySemanticReadback(responsePayload)'),
+        $handlerName . ' must reconcile the version-aware authoritative response without a page reload'
+    );
 }
 
 foreach ([
@@ -69,7 +73,23 @@ foreach ([
         substr_count($handler, "this.sendPwrtMessage('ERROR'") >= 2,
         $handlerName . ' must return correlated errors for an invalid request and a rejected server mutation'
     );
+    $assert(
+        str_contains($handler, "responsePayload.status !== 'ok'")
+            && str_contains($handler, 'this.applySemanticReadback(responsePayload)'),
+        $handlerName . ' must verify the server result and reconcile the authoritative reset before success'
+    );
 }
+
+$assert(
+    str_contains($bridge, "stage.properties[propertyCode]['~VALUE'] = value"),
+    'local stage-property reconciliation must update the raw Bitrix value preferred by the React transformer'
+);
+
+$assert(
+    str_contains($service, 'bool $deferInitPayloadToSemanticReadback = false')
+        && str_contains($service, 'rebuildPresetIndexesFromRoots'),
+    'version working-preset selections must defer public INIT construction to the semantic readback boundary'
+);
 
 $updateStageProperty = $slice(
     $service,

@@ -96,6 +96,23 @@ class PresetEnrichmentService
      */
     public function rebuildPresetFromRoots(int $presetId, array $rootDetailIds): array
     {
+        $this->rebuildPresetIndexesFromRoots($presetId, $rootDetailIds);
+
+        return (new InitPayloadService())->preparePresetPayload(
+            $presetId,
+            defined('SITE_ID') ? (string)SITE_ID : 's1'
+        );
+    }
+
+    /**
+     * Rebuild only the denormalized preset links.
+     *
+     * Version editor working presets are intentionally inactive and therefore
+     * cannot be passed through the public/neutral INIT loader. Their
+     * authoritative response is assembled by CalculatorSemanticMutationService.
+     */
+    public function rebuildPresetIndexesFromRoots(int $presetId, array $rootDetailIds): void
+    {
         $rootDetailIds = array_values(array_unique(array_filter(array_map('intval', $rootDetailIds))));
         if ($presetId <= 0 || empty($rootDetailIds)) {
             throw new \InvalidArgumentException('Некорректная структура калькулятора');
@@ -111,11 +128,6 @@ class PresetEnrichmentService
         }
         $linkedElements['details'] = $rootDetailIds;
         $this->updatePresetProperties($presetId, $linkedElements);
-
-        return (new InitPayloadService())->preparePresetPayload(
-            $presetId,
-            defined('SITE_ID') ? (string)SITE_ID : 's1'
-        );
     }
 
     /** Synchronize preset custom-field links from all currently linked root details. */
