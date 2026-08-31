@@ -2029,8 +2029,11 @@ class ElementDataService
                                     (int)($pinnedIblockIds['CALC_GLOBAL_VALUES'] ?? 0)
                                 );
                             }
+                            // Bitrix does not reliably remove a single-value property when an
+                            // empty string is written.  A mapping reset is a deletion, so use the
+                            // canonical false sentinel that SetPropertyValuesEx understands.
                             \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                $propertyCode => $value,
+                                $propertyCode => $value === '' ? false : $value,
                             ]);
                         });
                         $result[] = [

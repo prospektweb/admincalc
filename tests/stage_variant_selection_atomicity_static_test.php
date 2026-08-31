@@ -71,4 +71,15 @@ foreach ([
     );
 }
 
+$updateStageProperty = $slice(
+    $service,
+    "case 'updateStageProperty':",
+    "case 'inspectCalculatorContract':"
+);
+$assert(
+    $updateStageProperty !== ''
+        && str_contains($updateStageProperty, "\$propertyCode => \$value === '' ? false : \$value"),
+    'an empty OPTIONS_* value must delete the Bitrix property instead of persisting an empty string'
+);
+
 echo "Stage variant selection atomicity static tests passed\n";
