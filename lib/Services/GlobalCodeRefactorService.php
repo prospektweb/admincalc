@@ -180,6 +180,35 @@ final class GlobalCodeRefactorService
         return $state;
     }
 
+    /**
+     * Historical duplicate rows outside the requested rename set must not
+     * block an otherwise unambiguous refactor. The authoritative registry
+     * save that follows can then remove those stale rows. A duplicate that is
+     * itself a rename source or target remains unsafe because ownership of the
+     * identifier cannot be determined uniquely.
+     *
+     * @param array<string,array<int,bool>> $registryCodeOwners
+     * @param array<int,array<string,mixed>> $renames
+     */
+    private function assertNoAmbiguousDuplicateCodes(array $registryCodeOwners, array $renames): void
+    {
+        $affectedCodes = [];
+        foreach ($renames as $rename) {
+            $oldCode = strtolower((string)($rename['oldCode'] ?? ''));
+            $newCode = strtolower((string)($rename['newCode'] ?? ''));
+            if ($oldCode !== '') $affectedCodes[$oldCode] = true;
+            if ($newCode !== '') $affectedCodes[$newCode] = true;
+        }
+        foreach ($registryCodeOwners as $canonicalCode => $owners) {
+            if (count($owners) > 1 && isset($affectedCodes[$canonicalCode])) {
+                throw new \RuntimeException(
+                    'Global registry contains duplicate case-insensitive code ' . $canonicalCode . '.',
+                    409
+                );
+            }
+        }
+    }
+
     private function buildPlan(array $request, ?array $pinnedAuthority = null): array
     {
         $renames = $this->normalizeRenames($request['renames'] ?? []);
@@ -208,14 +237,7 @@ final class GlobalCodeRefactorService
             $allGlobalCodes[$canonicalCode] = true;
             $registryCodeOwners[$canonicalCode][(int)$row['id']] = true;
         }
-        foreach ($registryCodeOwners as $canonicalCode => $owners) {
-            if (count($owners) > 1) {
-                throw new \RuntimeException(
-                    'Global registry contains duplicate case-insensitive code ' . $canonicalCode . '.',
-                    409
-                );
-            }
-        }
+        $this->assertNoAmbiguousDuplicateCodes($registryCodeOwners, $renames);
         foreach (array_keys($legacyCodes) as $legacyCode) {
             $allGlobalCodes[strtolower((string)$legacyCode)] = true;
         }

@@ -26,6 +26,29 @@ if (strpos($bridgeSource, 'expectedGlobalRevision: Number(payload.expectedGlobal
 $replace = new ReflectionMethod($service, 'replaceIdentifiers');
 $replace->setAccessible(true);
 
+$duplicates = new ReflectionMethod($service, 'assertNoAmbiguousDuplicateCodes');
+$duplicates->setAccessible(true);
+$owners = [
+    'stale_duplicate' => [10 => true, 11 => true],
+    'rename_source' => [20 => true],
+];
+$duplicates->invoke($service, $owners, [[
+    'oldCode' => 'rename_source',
+    'newCode' => 'rename_target',
+]]);
+try {
+    $duplicates->invoke($service, $owners, [[
+        'oldCode' => 'stale_duplicate',
+        'newCode' => 'canonical_code',
+    ]]);
+    fwrite(STDERR, "FAILED: duplicate rename source must remain blocked\n");
+    exit(1);
+} catch (ReflectionException $error) {
+    throw $error;
+} catch (Throwable $error) {
+    // Expected: the requested rename would have ambiguous ownership.
+}
+
 $formula = 'paper_price + get("paper_price") + \'paper_price\' + paper_price_extra';
 $actual = $replace->invoke($service, $formula, ['paper_price' => 'paper_sheet_price']);
 $expected = 'paper_sheet_price + get("paper_price") + \'paper_price\' + paper_price_extra';
