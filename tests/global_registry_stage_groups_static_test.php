@@ -48,6 +48,9 @@ $checks = [
     'global registry persists the exact submitted order through Bitrix SORT' => strpos($globals, 'foreach ($rows as $rowIndex => $row)') !== false
         && strpos($globals, "'SORT' => 100 + ((int)\$rowIndex * 10)") !== false
         && strpos($globals, "['SORT' => 'ASC', 'ID' => 'ASC']") !== false,
+    'global registry treats the submitted preset list as authoritative and deletes omitted rows' => strpos($globals, 'removedElementIds($existingRows, array_keys($retainedIds))') !== false
+        && strpos($globals, '\\CIBlockElement::Delete($deletedId)') !== false
+        && strpos($globals, 'Удалённое глобальное значение осталось в реестре') !== false,
     'global registry resolves property and generated element codes with exact scoped filters' => substr_count($globals, "'CODE' => \$code") === 1
         && substr_count($globals, "'=CODE' => \$code") === 1,
     'AI audit is a dedicated contract' => strpos($gateway, 'LOGIC_AUDIT_PROPOSAL_SCHEMA') !== false,

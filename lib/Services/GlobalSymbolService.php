@@ -134,10 +134,14 @@ final class GlobalSymbolService
                 'INITIAL_VALUE' => $this->propertyId($iblockId, 'INITIAL_VALUE'),
                 'PRESET_ID' => $this->propertyId($iblockId, 'PRESET_ID'),
             ];
+            $existingRows = $this->readRows($iblockId, $presetId);
+            $existingRowsById = [];
             $reservedCodes = $this->collectCalculatorNamespaceCodes($pinnedIblockIds);
-            foreach ($this->readRows($iblockId, $presetId) as $existingRow) {
+            foreach ($existingRows as $existingRow) {
+                $existingRowsById[(int)$existingRow['id']] = $existingRow;
                 $reservedCodes[strtolower((string)$existingRow['code'])] = true;
             }
+            $retainedIds = [];
             foreach ($rows as $rowIndex => $row) {
                 if (!is_array($row)) {
                     throw new \InvalidArgumentException('Глобальное значение должно быть объектом');
@@ -175,16 +179,20 @@ final class GlobalSymbolService
                     'SORT' => 100 + ((int)$rowIndex * 10),
                 ];
                 if ($id > 0) {
-                    $existing = \CIBlockElement::GetList([], ['ID' => $id, 'IBLOCK_ID' => $iblockId, '=PROPERTY_PRESET_ID' => $presetId], false, ['nTopCount' => 1], ['ID', 'CODE'])->Fetch();
-                    if (!$existing) {
+                    if (isset($retainedIds[$id])) {
+                        throw new \InvalidArgumentException('Глобальное значение передано повторно');
+                    }
+                    $existing = $existingRowsById[$id] ?? null;
+                    if (!is_array($existing)) {
                         throw new \RuntimeException('Глобальное значение для обновления не найдено');
                     }
-                    if ($requestedCode !== '' && $requestedCode !== (string)($existing['CODE'] ?? '')) {
+                    if ($requestedCode !== '' && $requestedCode !== (string)($existing['code'] ?? '')) {
                         throw new \RuntimeException('Существующий код можно изменить только через безопасное переименование со списком затронутых ссылок');
                     }
                     if (!$elementApi->Update($id, $fields)) {
                         throw new \RuntimeException('Не удалось обновить глобальное значение');
                     }
+                    $retainedIds[$id] = true;
                 } else {
                     $fields['CODE'] = $requestedCode !== '' ? $requestedCode : $this->generateCode($title, $iblockId, $reservedCodes);
                     if ($requestedCode !== '' && isset($reservedCodes[strtolower($requestedCode)])) {
@@ -247,8 +255,43 @@ final class GlobalSymbolService
                 }
             }
 
-            return ['status' => 'ok', 'symbols' => $this->readRows($iblockId, $presetId)];
+            $deletedIds = self::removedElementIds($existingRows, array_keys($retainedIds));
+            foreach ($deletedIds as $deletedId) {
+                if (!\CIBlockElement::Delete($deletedId)) {
+                    throw new \RuntimeException('Не удалось удалить глобальное значение #' . $deletedId);
+                }
+            }
+
+            $storedRows = $this->readRows($iblockId, $presetId);
+            $storedIds = array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $storedRows);
+            if (array_intersect($deletedIds, $storedIds) !== []) {
+                throw new \RuntimeException('Удалённое глобальное значение осталось в реестре');
+            }
+
+            return ['status' => 'ok', 'symbols' => $storedRows];
         }
+
+    /**
+     * The submitted registry is authoritative for the current preset. Values
+     * omitted from it are intentionally removed without reference analysis;
+     * formula validation remains the responsibility of the consuming editor.
+     *
+     * @param array<int,array<string,mixed>> $existingRows
+     * @param array<int,int> $retainedIds
+     * @return array<int,int>
+     */
+    private static function removedElementIds(array $existingRows, array $retainedIds): array
+    {
+        $retained = array_fill_keys(array_filter(array_map('intval', $retainedIds)), true);
+        $removed = [];
+        foreach ($existingRows as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0 && !isset($retained[$id])) {
+                $removed[] = $id;
+            }
+        }
+        return $removed;
+    }
 
     private function clearInitialValueStorageDirect(int $iblockId, int $propertyId, int $elementId): void
     {

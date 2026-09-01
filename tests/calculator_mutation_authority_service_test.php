@@ -50,6 +50,17 @@ $normalize = new ReflectionMethod(GlobalSymbolService::class, 'normalizeRequeste
 $normalize->setAccessible(true);
 $globalService = new GlobalSymbolService();
 
+$removedElementIds = new ReflectionMethod(GlobalSymbolService::class, 'removedElementIds');
+$removedElementIds->setAccessible(true);
+$assert(
+    $removedElementIds->invoke(null, [
+        ['id' => 701, 'code' => 'keep'],
+        ['id' => 702, 'code' => 'remove'],
+        ['id' => 703, 'code' => 'remove_too'],
+    ], [701]) === [702, 703],
+    'omitted global symbols must be planned for deletion without a reference gate'
+);
+
 foreach ($reserved as $code) {
     $assert(CalculatorMutationAuthorityService::isReservedIdentifier($code), 'Authority must reserve ' . $code);
     try {
