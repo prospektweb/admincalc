@@ -23,6 +23,14 @@ if (strpos($bridgeSource, 'expectedGlobalRevision: Number(payload.expectedGlobal
     fwrite(STDERR, "FAILED: global-code refactor apply must carry the exact preview revision\n");
     exit(1);
 }
+if (substr_count($bridgeSource, 'presetId: Number(this.initData?.preset?.id || 0)') < 2
+    || strpos($serviceSource, "\$filter['=PROPERTY_PRESET_ID'] = \$presetId") === false
+    || strpos($serviceSource, "foreach (\$graph['settingsIds'] as \$elementId)") === false
+    || strpos($serviceSource, "foreach (\$graph['stageIds'] as \$elementId)") === false
+    || strpos($serviceSource, "'affected_preset_ids' => [\$requestedPresetId]") === false) {
+    fwrite(STDERR, "FAILED: global-code refactor must remain scoped to the exact current preset graph\n");
+    exit(1);
+}
 $replace = new ReflectionMethod($service, 'replaceIdentifiers');
 $replace->setAccessible(true);
 

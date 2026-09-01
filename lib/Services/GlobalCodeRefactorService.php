@@ -33,6 +33,7 @@ final class GlobalCodeRefactorService
     public function apply(array $request): array
     {
         $this->assertAdmin();
+        $requestedPresetId = $this->normalizePresetId($request['presetId'] ?? 0);
         $expected = trim((string)($request['fingerprint'] ?? ''));
         if (!preg_match('/^sha256:[a-f0-9]{64}$/', $expected)) {
             throw new \InvalidArgumentException('Не передан корректный fingerprint предварительной проверки');
@@ -52,7 +53,7 @@ final class GlobalCodeRefactorService
         return (new GlobalCalculatorMutationCoordinatorService())->mutate(
             $expectedGlobalRevision,
             $expected,
-            function ($authority, $connection) use ($request, $plan): array {
+            function ($authority, $connection) use ($request, $plan, $requestedPresetId): array {
                 if (!is_array($authority) || !is_object($connection)) {
                     throw new \RuntimeException('Global refactor authority is unavailable.', 409);
                 }
@@ -72,7 +73,7 @@ final class GlobalCodeRefactorService
                     throw new \RuntimeException('Global refactor has no mutations to apply.', 409);
                 }
                 $before = $this->mutationState($lockedPlan['mutations'], 'before');
-                $lockedRegistry = $this->loadRegistry($lockedGlobalIblockId);
+                $lockedRegistry = $this->loadRegistry($lockedGlobalIblockId, $requestedPresetId);
                 $prospectiveRegistryRows = $this->buildProspectiveRegistryRows(
                     $lockedRegistry['rows'],
                     $lockedPlan['mutations']
@@ -102,24 +103,24 @@ final class GlobalCodeRefactorService
                 )) {
                     throw new \RuntimeException('Global refactor authoritative readback failed.', 409);
                 }
-                $readBackRegistryRows = $this->loadRegistry($lockedGlobalIblockId)['rows'];
+                $readBackRegistryRows = $this->loadRegistry($lockedGlobalIblockId, $requestedPresetId)['rows'];
                 if (!hash_equals(
                     $this->registryFingerprint($prospectiveRegistryRows),
                     $this->registryFingerprint($readBackRegistryRows)
                 )) {
                     throw new \RuntimeException('Global-symbol refactor read-back verification failed.', 409);
                 }
-                $presetIblockId = (int)(($authority['iblockIds'] ?? [])['CALC_PRESETS'] ?? 0);
                 return [
                     'before' => $before,
                     'after' => $after,
-                    'affected_preset_ids' => $this->elementIds($presetIblockId),
+                    'affected_preset_ids' => [$requestedPresetId],
                     'result' => [
                         'status' => 'ok',
                         'renames' => $lockedPlan['renames'],
                         'summary' => $lockedPlan['summary'],
                         'symbols' => (new GlobalSymbolService())->listReadOnlyFromIblockId(
-                            $lockedGlobalIblockId
+                            $lockedGlobalIblockId,
+                            $requestedPresetId
                         ),
                     ],
                 ];
@@ -212,6 +213,7 @@ final class GlobalCodeRefactorService
     private function buildPlan(array $request, ?array $pinnedAuthority = null): array
     {
         $renames = $this->normalizeRenames($request['renames'] ?? []);
+        $requestedPresetId = $this->normalizePresetId($request['presetId'] ?? 0);
         $map = [];
         foreach ($renames as $rename) $map[$rename['oldCode']] = $rename['newCode'];
 
@@ -220,16 +222,17 @@ final class GlobalCodeRefactorService
         }
         $iblockIds = (array)($pinnedAuthority['iblockIds'] ?? []);
         $registryId = (int)($pinnedAuthority['globalIblockId'] ?? 0);
-        $presetId = (int)($iblockIds['CALC_PRESETS'] ?? 0);
+        $presetIblockId = (int)($iblockIds['CALC_PRESETS'] ?? 0);
         $settingsId = (int)($iblockIds['CALC_SETTINGS'] ?? 0);
         $stagesId = (int)($iblockIds['CALC_STAGES'] ?? 0);
-        if ($registryId <= 0 || $presetId <= 0 || $settingsId <= 0 || $stagesId <= 0) {
+        if ($registryId <= 0 || $presetIblockId <= 0 || $settingsId <= 0 || $stagesId <= 0) {
             throw new \RuntimeException('Pinned refactor storages are invalid.', 409);
         }
         $mutations = [];
+        $graph = $this->loadPresetGraphIds($iblockIds, $requestedPresetId);
 
-        $registry = $this->loadRegistry($registryId);
-        $legacyCodes = $this->loadLegacyCodes($presetId);
+        $registry = $this->loadRegistry($registryId, $requestedPresetId);
+        $legacyCodes = $this->loadLegacyCodes($presetIblockId, $requestedPresetId);
         $allGlobalCodes = [];
         $registryCodeOwners = [];
         foreach ($registry['rows'] as $row) {
@@ -267,7 +270,7 @@ final class GlobalCodeRefactorService
                 throw new \InvalidArgumentException('Код ' . $new . ' уже занят другим глобальным значением');
             }
         }
-        $this->assertNoCalculatorNamespaceConflicts($settingsId, $map);
+        $this->assertNoCalculatorNamespaceConflicts($settingsId, $map, $graph['settingsIds']);
 
         foreach ($renames as $rename) {
             if ($rename['source'] !== 'registry' || $rename['oldCode'] === $rename['newCode']) continue;
@@ -290,17 +293,15 @@ final class GlobalCodeRefactorService
             $this->planTextProperty($mutations, 'registry', $registryId, $row['id'], 'INITIAL_VALUE', $map, 'formula', $row['title']);
         }
 
-        foreach ($this->elementIds($presetId) as $elementId) {
-            foreach (['GLOBAL_CONSTANTS', 'GLOBAL_VARIABLES'] as $propertyCode) {
-                $this->planDescribedGlobals($mutations, $presetId, $elementId, $propertyCode, $map);
-            }
-            $this->planJsonProperty($mutations, 'presets', $presetId, $elementId, 'STAGE_GROUPS', $map, 'condition');
+        foreach (['GLOBAL_CONSTANTS', 'GLOBAL_VARIABLES'] as $propertyCode) {
+            $this->planDescribedGlobals($mutations, $presetIblockId, $requestedPresetId, $propertyCode, $map);
         }
-        foreach ($this->elementIds($settingsId) as $elementId) {
+        $this->planJsonProperty($mutations, 'presets', $presetIblockId, $requestedPresetId, 'STAGE_GROUPS', $map, 'condition');
+        foreach ($graph['settingsIds'] as $elementId) {
             $this->planJsonProperty($mutations, 'calculators', $settingsId, $elementId, 'LOGIC_JSON', $map, 'logic');
             $this->planExactListProperty($mutations, 'calculators', $settingsId, $elementId, 'GLOBAL_DEPENDENCIES', $map);
         }
-        foreach ($this->elementIds($stagesId) as $elementId) {
+        foreach ($graph['stageIds'] as $elementId) {
             $this->planJsonProperty($mutations, 'stages', $stagesId, $elementId, 'ACTIVATION_CONDITION', $map, 'condition', 'scalar');
             $this->planDescribedSources($mutations, $stagesId, $elementId, 'OUTPUTS', $map);
             $this->planDescribedSources($mutations, $stagesId, $elementId, 'REFERENCE', $map);
@@ -318,7 +319,7 @@ final class GlobalCodeRefactorService
         ], $mutations);
         $byStorage = [];
         foreach ($impacts as $impact) $byStorage[$impact['storage']] = ($byStorage[$impact['storage']] ?? 0) + 1;
-        $fingerprintPayload = ['renames' => $renames, 'mutations' => $mutations];
+        $fingerprintPayload = ['presetId' => $requestedPresetId, 'renames' => $renames, 'mutations' => $mutations];
 
         return [
             'renames' => $renames,
@@ -361,14 +362,14 @@ final class GlobalCodeRefactorService
         return $result;
     }
 
-    private function assertNoCalculatorNamespaceConflicts(int $iblockId, array $map): void
+    private function assertNoCalculatorNamespaceConflicts(int $iblockId, array $map, array $settingsIds): void
     {
         if ($iblockId <= 0) return;
         $targets = [];
         foreach (array_values($map) as $target) {
             $targets[strtolower((string)$target)] = true;
         }
-        foreach ($this->elementIds($iblockId) as $elementId) {
+        foreach ($settingsIds as $elementId) {
             foreach ($this->readPropertyRows($iblockId, $elementId, 'PARAMS') as $row) {
                 $code = trim($row['value']);
                 if (isset($targets[strtolower($code)])) throw new \RuntimeException('Новый глобальный код ' . $code . ' конфликтует с входным параметром калькулятора #' . $elementId);
@@ -385,15 +386,19 @@ final class GlobalCodeRefactorService
         }
     }
 
-    private function loadRegistry(int $iblockId): array
+    private function loadRegistry(int $iblockId, int $presetId = 0): array
     {
         $rows = [];
         $byId = [];
         $byCode = [];
         if ($iblockId <= 0) return compact('rows', 'byId', 'byCode');
+        $filter = ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'];
+        if ($presetId > 0) {
+            $filter['=PROPERTY_PRESET_ID'] = $presetId;
+        }
         $iterator = \CIBlockElement::GetList(
             ['ID' => 'ASC'],
-            ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'],
+            $filter,
             false,
             false,
             ['ID', 'NAME', 'CODE', 'ACTIVE']
@@ -426,18 +431,91 @@ final class GlobalCodeRefactorService
         return compact('rows', 'byId', 'byCode');
     }
 
-    private function loadLegacyCodes(int $iblockId): array
+    private function loadLegacyCodes(int $iblockId, int $presetId): array
     {
         $codes = [];
-        foreach ($this->elementIds($iblockId) as $elementId) {
-            foreach (['GLOBAL_CONSTANTS', 'GLOBAL_VARIABLES'] as $propertyCode) {
-                foreach ($this->readPropertyRows($iblockId, $elementId, $propertyCode) as $row) {
-                    $code = trim($row['value']);
-                    if (preg_match(self::CODE_PATTERN, $code)) $codes[$code] = true;
-                }
+        foreach (['GLOBAL_CONSTANTS', 'GLOBAL_VARIABLES'] as $propertyCode) {
+            foreach ($this->readPropertyRows($iblockId, $presetId, $propertyCode) as $row) {
+                $code = trim($row['value']);
+                if (preg_match(self::CODE_PATTERN, $code)) $codes[$code] = true;
             }
         }
         return $codes;
+    }
+
+    private function normalizePresetId($value): int
+    {
+        $presetId = (int)$value;
+        if ($presetId <= 0) {
+            throw new \InvalidArgumentException('Для переименования глобального кода требуется точный пресет', 422);
+        }
+        return $presetId;
+    }
+
+    /** @param array<string,int> $iblockIds @return array{stageIds:array<int,int>,settingsIds:array<int,int>} */
+    private function loadPresetGraphIds(array $iblockIds, int $presetId): array
+    {
+        $presetIblockId = (int)($iblockIds['CALC_PRESETS'] ?? 0);
+        $detailsIblockId = (int)($iblockIds['CALC_DETAILS'] ?? 0);
+        $stagesIblockId = (int)($iblockIds['CALC_STAGES'] ?? 0);
+        $settingsIblockId = (int)($iblockIds['CALC_SETTINGS'] ?? 0);
+        if ($presetIblockId <= 0 || $detailsIblockId <= 0 || $stagesIblockId <= 0 || $settingsIblockId <= 0) {
+            throw new \RuntimeException('Pinned calculator graph storages are invalid.', 409);
+        }
+        $preset = \CIBlockElement::GetList(
+            [],
+            ['ID' => $presetId, 'IBLOCK_ID' => $presetIblockId],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'IBLOCK_ID']
+        )->Fetch();
+        if (!is_array($preset)
+            || (int)($preset['ID'] ?? 0) !== $presetId
+            || (int)($preset['IBLOCK_ID'] ?? 0) !== $presetIblockId) {
+            throw new \RuntimeException('Calculator preset graph root was not found.', 409);
+        }
+
+        $queue = $this->linkedIds($presetIblockId, $presetId, 'CALC_DETAILS');
+        $stageIds = array_fill_keys($this->linkedIds($presetIblockId, $presetId, 'CALC_STAGES'), true);
+        $settingsIds = array_fill_keys($this->linkedIds($presetIblockId, $presetId, 'CALC_SETTINGS'), true);
+        $visitedDetails = [];
+        while ($queue !== []) {
+            $detailId = (int)array_shift($queue);
+            if ($detailId <= 0 || isset($visitedDetails[$detailId])) continue;
+            if (count($visitedDetails) >= 10000) {
+                throw new \RuntimeException('Calculator graph exceeds its safe node limit.', 409);
+            }
+            $visitedDetails[$detailId] = true;
+            foreach ($this->linkedIds($detailsIblockId, $detailId, 'DETAILS') as $childId) {
+                if (!isset($visitedDetails[$childId])) $queue[] = $childId;
+            }
+            foreach ($this->linkedIds($detailsIblockId, $detailId, 'CALC_STAGES') as $stageId) {
+                $stageIds[$stageId] = true;
+            }
+        }
+        foreach (array_keys($stageIds) as $stageId) {
+            foreach ($this->linkedIds($stagesIblockId, (int)$stageId, 'CALC_SETTINGS') as $settingsId) {
+                $settingsIds[$settingsId] = true;
+            }
+        }
+        $stageList = array_map('intval', array_keys($stageIds));
+        $settingsList = array_map('intval', array_keys($settingsIds));
+        sort($stageList, SORT_NUMERIC);
+        sort($settingsList, SORT_NUMERIC);
+        return ['stageIds' => $stageList, 'settingsIds' => $settingsList];
+    }
+
+    /** @return array<int,int> */
+    private function linkedIds(int $iblockId, int $elementId, string $propertyCode): array
+    {
+        $ids = [];
+        foreach ($this->readPropertyRows($iblockId, $elementId, $propertyCode) as $row) {
+            $id = (int)($row['value'] ?? 0);
+            if ($id > 0) $ids[$id] = true;
+        }
+        $result = array_map('intval', array_keys($ids));
+        sort($result, SORT_NUMERIC);
+        return $result;
     }
 
     private function planDescribedGlobals(array &$mutations, int $iblockId, int $elementId, string $propertyCode, array $map): void
