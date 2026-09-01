@@ -301,7 +301,7 @@ final class SupplierDirectorySchemaService
                 }
             }
 
-            Option::set(self::MODULE_ID, self::OPTION_NAME, (string)$supplierId);
+            $this->writeCanonicalRuntimeOption($connection, self::OPTION_NAME, (string)$supplierId);
 
             $after = $this->analyze();
             if ($after['blockers'] !== [] || $after['operations'] !== []) {
@@ -332,6 +332,70 @@ final class SupplierDirectorySchemaService
             } catch (\Throwable $ignored) {
                 // The database releases named locks when the connection closes.
             }
+        }
+    }
+
+    /**
+     * Runtime authority is deliberately binary-exact. Bitrix Option::set()
+     * lower-cases option names on some installations, so authority-owned
+     * options must be persisted with their canonical identity directly.
+     * Existing folded rows are upgraded in place only when unambiguous.
+     *
+     * @param object $connection
+     */
+    private function writeCanonicalRuntimeOption($connection, string $name, string $value): void
+    {
+        $helper = $connection->getSqlHelper();
+        $moduleSql = $helper->forSql(self::MODULE_ID);
+        $nameSql = $helper->forSql($name);
+        $foldedModuleSql = $helper->forSql(strtolower(self::MODULE_ID));
+        $foldedNameSql = $helper->forSql(strtolower($name));
+        $cursor = $connection->query(
+            "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE "
+            . "LOWER(MODULE_ID)='" . $foldedModuleSql . "' AND LOWER(NAME)='" . $foldedNameSql . "' "
+            . "AND (SITE_ID IS NULL OR SITE_ID='') FOR UPDATE"
+        );
+        $rows = [];
+        while (($row = $cursor->fetch()) !== false) {
+            if (!is_array($row)) {
+                throw new \RuntimeException('Supplier runtime option candidate is invalid.', 409);
+            }
+            $rows[] = $row;
+        }
+        if (count($rows) > 1) {
+            throw new \RuntimeException('Supplier runtime option authority is ambiguous.', 409);
+        }
+
+        $valueSql = $helper->forSql($value);
+        if ($rows === []) {
+            $connection->queryExecute(
+                "INSERT INTO b_option (MODULE_ID, NAME, VALUE, SITE_ID) VALUES ('"
+                . $moduleSql . "','" . $nameSql . "','" . $valueSql . "',NULL)"
+            );
+        } else {
+            $row = $rows[0];
+            $existingModule = (string)($row['MODULE_ID'] ?? $row['module_id'] ?? '');
+            $existingName = (string)($row['NAME'] ?? $row['name'] ?? '');
+            $connection->queryExecute(
+                "UPDATE b_option SET MODULE_ID='" . $moduleSql . "',NAME='" . $nameSql
+                . "',VALUE='" . $valueSql . "',SITE_ID=NULL WHERE BINARY MODULE_ID='"
+                . $helper->forSql($existingModule) . "' AND BINARY NAME='"
+                . $helper->forSql($existingName) . "' AND (SITE_ID IS NULL OR SITE_ID='')"
+            );
+        }
+
+        $readback = $connection->query(
+            "SELECT MODULE_ID, NAME, VALUE, SITE_ID FROM b_option WHERE BINARY MODULE_ID='"
+            . $moduleSql . "' AND BINARY NAME='" . $nameSql . "' AND SITE_ID IS NULL"
+        );
+        $selected = [];
+        while (($row = $readback->fetch()) !== false) {
+            if (is_array($row)) {
+                $selected[] = $row;
+            }
+        }
+        if (count($selected) !== 1 || !hash_equals($value, (string)($selected[0]['VALUE'] ?? ''))) {
+            throw new \RuntimeException('Supplier runtime option canonical readback mismatch.', 409);
         }
     }
 

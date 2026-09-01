@@ -143,5 +143,11 @@ $assert(
         && str_contains($installer, '$expected = 12;'),
     'fresh calc installer invokes the same supplier schema service'
 );
+$assert(
+    str_contains($source, 'writeCanonicalRuntimeOption')
+        && str_contains($source, "UPDATE b_option SET MODULE_ID='")
+        && !str_contains($source, 'Option::set(self::MODULE_ID, self::OPTION_NAME'),
+    'supplier runtime option is written with binary-exact canonical identity'
+);
 
 echo "supplier_directory_schema_service_test: OK\n";
