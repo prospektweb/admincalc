@@ -1671,7 +1671,7 @@
             try {
                 const result = await this.fetchRefreshData([{
                     action: 'previewGlobalCodeRefactor',
-                    presetId: Number(this.config?.presetId || this.initData?.preset?.id || 0),
+                    presetId: Number(payload.presetId || this.config?.presetId || this.initData?.preset?.id || 0),
                     renames: Array.isArray(payload.renames) ? payload.renames : [],
                 }]);
                 this.sendPwrtMessage(
@@ -1693,7 +1693,7 @@
             try {
                 const result = await this.fetchRefreshData([{
                     action: 'applyGlobalCodeRefactor',
-                    presetId: Number(this.config?.presetId || this.initData?.preset?.id || 0),
+                    presetId: Number(payload.presetId || this.config?.presetId || this.initData?.preset?.id || 0),
                     renames: Array.isArray(payload.renames) ? payload.renames : [],
                     fingerprint: String(payload.fingerprint || ''),
                     expectedGlobalRevision: Number(payload.expectedGlobalRevision),

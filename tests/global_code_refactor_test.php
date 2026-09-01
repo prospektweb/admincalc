@@ -23,7 +23,7 @@ if (strpos($bridgeSource, 'expectedGlobalRevision: Number(payload.expectedGlobal
     fwrite(STDERR, "FAILED: global-code refactor apply must carry the exact preview revision\n");
     exit(1);
 }
-if (substr_count($bridgeSource, 'presetId: Number(this.config?.presetId || this.initData?.preset?.id || 0)') < 2
+if (substr_count($bridgeSource, 'presetId: Number(payload.presetId || this.config?.presetId || this.initData?.preset?.id || 0)') < 2
     || strpos($serviceSource, "\$filter['=PROPERTY_PRESET_ID'] = \$presetId") === false
     || strpos($serviceSource, "foreach (\$graph['settingsIds'] as \$elementId)") === false
     || strpos($serviceSource, "foreach (\$graph['stageIds'] as \$elementId)") === false
