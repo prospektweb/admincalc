@@ -816,7 +816,11 @@ class InitPayloadService
             ['ID', 'IBLOCK_ID']
         )->Fetch();
         if (!is_array($row) || (int)($row['ID'] ?? 0) !== $presetId) {
-            throw new \RuntimeException('Активный пресет не найден в настроенном инфоблоке.', 409);
+            throw new \RuntimeException(
+                'Калькулятор #' . $presetId . ' не опубликован или отсутствует в разделе пресетов. '
+                . 'Опубликуйте нужную версию и повторите запуск.',
+                409
+            );
         }
     }
 

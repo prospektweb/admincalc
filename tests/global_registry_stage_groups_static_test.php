@@ -110,6 +110,24 @@ $checks = [
         && strpos($integration, "symbols: Array.isArray(payload.symbols)") !== false
         && strpos($integration, "variables: Array.isArray(payload.variables)") !== false
         && strpos($integration, "constants: Array.isArray(payload.constants)") !== false,
+    'global declaration save never invokes the public active-preset loader' => preg_match(
+        '/public function savePresetGlobalsLocked[\\s\\S]*?return \\[\\s*\'status\' => \'ok\',[\\s\\S]*?\'presetId\' => \\$presetId,[\\s\\S]*?\\];[\\s\\S]*?public function saveCalcLogicLocked/',
+        $service
+    ) === 1
+        && preg_match(
+            '/public function savePresetGlobalsLocked[\\s\\S]*?enrichStructuralResultPinned[\\s\\S]*?public function saveCalcLogicLocked/',
+            $service
+        ) === 0,
+    'browser bridge reconciles every semantic mutation from authoritative readback' => strpos(
+        $integration,
+        'const semanticReadback = data?.data?.[0]?.semanticReadback;'
+    ) !== false
+        && strpos($integration, 'data.data[0].initPayload = this.initData;') !== false,
+    'public preset launch error is operator-facing and hides iblock internals' => strpos(
+        $init,
+        'Опубликуйте нужную версию и повторите запуск.'
+    ) !== false
+        && strpos($init, 'Активный пресет не найден в настроенном инфоблоке.') === false,
     'ajax error mapper accepts every throwable without corrupting JSON errors' => strpos($ajax, 'function resolveErrorType(\\Throwable $e)') !== false,
 ];
 

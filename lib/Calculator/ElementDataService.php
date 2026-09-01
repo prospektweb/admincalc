@@ -3532,11 +3532,15 @@ class ElementDataService
             'GLOBAL_CONSTANTS' => $preparedConstants ?: false,
         ]);
 
-        return self::enrichStructuralResultPinned(
-            ['status' => 'ok'],
-            $presetId,
-            $pinnedIblockIds
-        );
+        // Global declarations do not change the structural graph. Their
+        // authoritative state is read back once by
+        // CalculatorSemanticMutationService under the same transaction. Do
+        // not invoke the public active-preset INIT loader here: an isolated
+        // working preset of a calculator version is deliberately inactive.
+        return [
+            'status' => 'ok',
+            'presetId' => $presetId,
+        ];
     }
 
     /**

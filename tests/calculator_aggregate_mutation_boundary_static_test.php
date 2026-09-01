@@ -44,8 +44,10 @@ $assert(
     str_contains($bridge, 'mutationItems.length > 0')
         && substr_count($bridge, 'this.presetMutationActions()') === 2
         && str_contains($bridge, "formData.append('expectedSemanticRevision', expectedSemanticRevision)")
-        && str_contains($bridge, 'this.initData.semanticRevision = resultingSemanticRevision'),
-    'all registered mutations must pin the INIT preset, submit CAS and advance exact aggregate revision'
+        && str_contains($bridge, 'this.initData = Object.assign({}, this.initData, semanticReadback')
+        && str_contains($bridge, 'semanticRevision: resultingSemanticRevision')
+        && str_contains($bridge, 'data.data[0].initPayload = this.initData;'),
+    'all registered mutations must pin the INIT preset, submit CAS and reconcile exact aggregate readback'
 );
 $assert(
     str_contains($bridge, "formData.append('versionOriginalPresetId'")

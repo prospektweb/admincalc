@@ -86,6 +86,10 @@ $assert(
     ($result[0]['semanticRevision'] ?? '') === PresetMutationCoordinatorService::hashCanonical($state),
     'aggregate receipt carries exact authoritative readback SHA'
 );
+$assert(
+    ($result[0]['semanticReadback'] ?? null) === $state,
+    'every semantic receipt carries the exact post-write aggregate for client reconciliation'
+);
 $assert($revision === 6 && count($audits) === 1, 'aggregate advances and audits exactly once');
 $assert($events === ['begin:41', 'commit:6'], 'aggregate owns one transaction envelope');
 

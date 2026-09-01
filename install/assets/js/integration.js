@@ -4450,8 +4450,18 @@
                     if (!/^[a-f0-9]{64}$/.test(resultingSemanticRevision)) {
                         throw new Error('Сервер не вернул подтверждённую ревизию семантики калькулятора.');
                     }
+                    const semanticReadback = data?.data?.[0]?.semanticReadback;
+                    if (!semanticReadback || typeof semanticReadback !== 'object'
+                        || !semanticReadback.preset || typeof semanticReadback.preset !== 'object'
+                        || !semanticReadback.elementsStore || typeof semanticReadback.elementsStore !== 'object'
+                        || !Array.isArray(semanticReadback.globalSymbols)) {
+                        throw new Error('Сервер не вернул подтверждённое состояние калькулятора после сохранения.');
+                    }
                     if (this.initData) {
-                        this.initData.semanticRevision = resultingSemanticRevision;
+                        this.initData = Object.assign({}, this.initData, semanticReadback, {
+                            semanticRevision: resultingSemanticRevision,
+                        });
+                        data.data[0].initPayload = this.initData;
                     }
                 }
                 if (globalMutationItems.length === 1) {

@@ -248,9 +248,10 @@ final class CalculatorSemanticMutationService
             throw new \RuntimeException('Semantic mutation receipt is invalid.');
         }
         $result['semanticRevision'] = $lastRevision;
-        if ($versionReadbackContext !== []) {
-            $result['semanticReadback'] = $lastReadback;
-        }
+        // Every semantic receipt carries the exact post-write aggregate. The
+        // browser bridge merges it into the current INIT, including for an
+        // inactive version-working preset where a public INIT is invalid.
+        $result['semanticReadback'] = $lastReadback;
         if (is_array($result['initPayload'] ?? null)) {
             $result['initPayload']['semanticRevision'] = $lastRevision;
         }
