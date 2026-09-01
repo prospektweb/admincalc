@@ -52,6 +52,11 @@ class ModuleDiagnostic
         'CALC_OPERATIONS' => ['UNIT', 'DESCRIPTION'],
     ];
 
+    private const IBLOCK_EXPECTED_TYPES = [
+        'CALC_MATERIALS' => 'calculator_catalog',
+        'CALC_MATERIALS_VARIANTS' => 'calculator_catalog',
+    ];
+
     private const CRITICAL_FILES = [
         'install/index.php',
         'install/version.php',
@@ -400,6 +405,22 @@ class ModuleDiagnostic
             ];
             if (!$codeMatches) {
                 $errors[] = 'Инфоблок ' . $code . ': CODE не совпадает (ожидался "' . $code . '", найден "' . $actualCode . '")';
+            }
+
+            if (isset(self::IBLOCK_EXPECTED_TYPES[$code])) {
+                $expectedType = self::IBLOCK_EXPECTED_TYPES[$code];
+                $actualType = (string)($iblock['IBLOCK_TYPE_ID'] ?? '');
+                $typeMatches = $actualType === $expectedType;
+                $checks[] = [
+                    'label' => $code . ' (TYPE)',
+                    'status' => $typeMatches ? 'ok' : 'error',
+                    'value' => $typeMatches
+                        ? 'Совпадает: ' . $actualType
+                        : 'Расхождение: ожидался "' . $expectedType . '", найден "' . $actualType . '"',
+                ];
+                if (!$typeMatches) {
+                    $errors[] = 'Инфоблок ' . $code . ': IBLOCK_TYPE_ID должен быть "' . $expectedType . '"';
+                }
             }
         }
 

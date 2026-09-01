@@ -30,5 +30,11 @@ $assert(strpos($diagnosticTool, "case 'fix_files':") === false, 'diagnostic endp
 $assert(strpos($options, "pwCalcDiagFix('fix_schema'") === false, 'module options have no runtime schema repair button');
 $assert(strpos($include, 'SchemaRepairService') !== false, 'schema repair service is registered for autoload');
 $assert(strpos($diagnostic, 'SchemaRepairService::getPropertySchema()') !== false, 'diagnostic uses repair schema');
+$assert(
+    strpos($diagnostic, 'IBLOCK_EXPECTED_TYPES') !== false
+        && substr_count($diagnostic, "'CALC_MATERIALS_VARIANTS' => 'calculator_catalog'") === 1
+        && strpos($diagnostic, "'label' => \$code . ' (TYPE)'") !== false,
+    'diagnostic permanently detects material iblock type drift'
+);
 
 echo "OK\n";

@@ -16,8 +16,8 @@ use Bitrix\Main\Loader;
  */
 final class SupplierDirectorySchemaService
 {
-    public const CONTRACT = 'prospektweb.calc.supplier-directory-schema/v1';
-    public const SCHEMA_VERSION = 1;
+    public const CONTRACT = 'prospektweb.calc.supplier-directory-schema/v2';
+    public const SCHEMA_VERSION = 2;
     public const MODULE_ID = 'prospektweb.calc';
     public const IBLOCK_TYPE = 'calculator_catalog';
     public const IBLOCK_CODE = 'CALC_SUPPLIERS';
@@ -145,6 +145,27 @@ final class SupplierDirectorySchemaService
                 || (int)($target['ID'] ?? 0) <= 0
                 || (string)($target['CODE'] ?? '') !== $code) {
                 $blockers[] = 'Не найден точный владеющий инфоблок ' . $code . '.';
+                continue;
+            }
+
+            $candidates = $state['targetCandidates'][$code] ?? [$target];
+            if (!is_array($candidates) || count($candidates) !== 1) {
+                $blockers[] = 'Обнаружены дубли инфоблока ' . $code . '.';
+                continue;
+            }
+            $candidate = reset($candidates);
+            if (!is_array($candidate) || (int)($candidate['ID'] ?? 0) !== (int)$target['ID']) {
+                $blockers[] = 'Владеющий ID ' . $code . ' не совпадает с единственным инфоблоком с этим CODE.';
+                continue;
+            }
+            if ((string)($target['IBLOCK_TYPE_ID'] ?? '') !== self::IBLOCK_TYPE) {
+                $operations[] = [
+                    'action' => 'update_iblock_type',
+                    'iblock' => $code,
+                    'iblockId' => (int)$target['ID'],
+                    'from' => (string)($target['IBLOCK_TYPE_ID'] ?? ''),
+                    'to' => self::IBLOCK_TYPE,
+                ];
             }
         }
 
@@ -285,6 +306,9 @@ final class SupplierDirectorySchemaService
             }
 
             $targetIds = $this->targetIds();
+            foreach ($targetIds as $code => $id) {
+                $this->ensureTargetIblockType($id, $code);
+            }
             $supplierId = (int)$lockedPlan['supplierIblockId'];
             if ($supplierId <= 0) {
                 $supplierId = $this->createSupplierIblock();
@@ -427,9 +451,19 @@ final class SupplierDirectorySchemaService
         }
 
         $targets = [];
+        $targetCandidates = [];
         foreach ($this->targetIds() as $code => $id) {
             $row = \CIBlock::GetList([], ['ID' => $id, 'CHECK_PERMISSIONS' => 'N'])->Fetch();
             $targets[$code] = is_array($row) ? self::normalizeIblock($row) : null;
+
+            $targetCandidates[$code] = [];
+            $rsCandidates = \CIBlock::GetList(
+                ['ID' => 'ASC'],
+                ['CODE' => $code, 'CHECK_PERMISSIONS' => 'N']
+            );
+            while ($candidate = $rsCandidates->Fetch()) {
+                $targetCandidates[$code][] = self::normalizeIblock($candidate);
+            }
         }
 
         $supplierCandidates = [];
@@ -504,6 +538,7 @@ final class SupplierDirectorySchemaService
         return [
             'configuredSupplierId' => $configuredSupplierId,
             'targets' => $targets,
+            'targetCandidates' => $targetCandidates,
             'supplierCandidates' => array_values($supplierCandidates),
             'properties' => $properties,
             'counts' => $counts,
@@ -680,6 +715,46 @@ final class SupplierDirectorySchemaService
             throw new \RuntimeException('Не удалось создать CALC_SUPPLIERS: ' . self::bitrixError());
         }
         return $id;
+    }
+
+    private function ensureTargetIblockType(int $iblockId, string $code): void
+    {
+        if ($iblockId <= 0) {
+            throw new \RuntimeException('Не задан владеющий ID для ' . $code . '.', 409);
+        }
+
+        $candidates = [];
+        $rsCandidates = \CIBlock::GetList(
+            ['ID' => 'ASC'],
+            ['CODE' => $code, 'CHECK_PERMISSIONS' => 'N']
+        );
+        while ($candidate = $rsCandidates->Fetch()) {
+            $candidates[] = self::normalizeIblock($candidate);
+        }
+        if (count($candidates) !== 1 || (int)$candidates[0]['ID'] !== $iblockId) {
+            throw new \RuntimeException('Неоднозначная stable identity инфоблока ' . $code . '.', 409);
+        }
+        if ((string)$candidates[0]['IBLOCK_TYPE_ID'] === self::IBLOCK_TYPE) {
+            return;
+        }
+
+        $iblock = new \CIBlock();
+        if (!$iblock->Update($iblockId, ['IBLOCK_TYPE_ID' => self::IBLOCK_TYPE])) {
+            throw new \RuntimeException(
+                'Не удалось исправить тип ' . $code . ': ' . self::bitrixError(),
+                409
+            );
+        }
+
+        $readback = \CIBlock::GetList([], [
+            'ID' => $iblockId,
+            'CHECK_PERMISSIONS' => 'N',
+        ])->Fetch();
+        if (!is_array($readback)
+            || (string)($readback['CODE'] ?? '') !== $code
+            || (string)($readback['IBLOCK_TYPE_ID'] ?? '') !== self::IBLOCK_TYPE) {
+            throw new \RuntimeException('Не прошла readback-проверка типа ' . $code . '.', 409);
+        }
     }
 
     private function ensureProperty(int $iblockId, string $code, array $definition): int

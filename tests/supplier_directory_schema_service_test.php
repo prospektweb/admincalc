@@ -54,6 +54,17 @@ $assert(
 $assert(
     count(array_filter(
         $fresh['operations'],
+        static fn(array $operation): bool => ($operation['action'] ?? '') === 'update_iblock_type'
+            && ($operation['iblock'] ?? '') === 'CALC_MATERIALS_VARIANTS'
+            && ($operation['iblockId'] ?? 0) === 45
+            && ($operation['from'] ?? '') === 'calculator'
+            && ($operation['to'] ?? '') === 'calculator_catalog'
+    )) === 1,
+    'legacy material variants type is repaired in place without changing its ID'
+);
+$assert(
+    count(array_filter(
+        $fresh['operations'],
         static fn(array $operation): bool => ($operation['action'] ?? '') === 'create_property'
     )) === 12,
     'fresh plan creates eight supplier fields and two fields on each material iblock'
@@ -116,6 +127,11 @@ $completeState = [
     ],
     'counts' => ['suppliers' => 0, 'materialLinks' => 0, 'variantLinks' => 0],
 ];
+$completeState['targets']['CALC_MATERIALS_VARIANTS']['IBLOCK_TYPE_ID'] = SupplierDirectorySchemaService::IBLOCK_TYPE;
+$completeState['targetCandidates'] = [
+    'CALC_MATERIALS' => [$completeState['targets']['CALC_MATERIALS']],
+    'CALC_MATERIALS_VARIANTS' => [$completeState['targets']['CALC_MATERIALS_VARIANTS']],
+];
 $complete = (new SupplierDirectorySchemaService([
     'state' => static fn(): array => $completeState,
 ]))->analyze();
@@ -142,6 +158,25 @@ $assert(
         && str_contains($installer, "['iblock_ids']['CALC_SUPPLIERS']")
         && str_contains($installer, '$expected = 12;'),
     'fresh calc installer invokes the same supplier schema service'
+);
+$assert(
+    str_contains($installer, "['CODE' => \$code, 'CHECK_PERMISSIONS' => 'N']")
+        && !str_contains($installer, "['CODE' => \$code, 'TYPE' => \$typeId]")
+        && str_contains($installer, 'count($iblockCandidates) > 1')
+        && str_contains($installer, "'IBLOCK_TYPE_ID' => \$typeId"),
+    'installer adopts a unique stable CODE, rejects duplicates and reconciles the expected type'
+);
+$duplicateState = $completeState;
+$duplicateState['targetCandidates']['CALC_MATERIALS_VARIANTS'][] = array_merge(
+    $completeState['targets']['CALC_MATERIALS_VARIANTS'],
+    ['ID' => 145]
+);
+$duplicate = (new SupplierDirectorySchemaService([
+    'state' => static fn(): array => $duplicateState,
+]))->analyze();
+$assert(
+    count(array_filter($duplicate['blockers'], static fn(string $value): bool => str_contains($value, 'дубли'))) === 1,
+    'duplicate stable material iblock code fails closed'
 );
 $assert(
     str_contains($source, 'writeCanonicalRuntimeOption')

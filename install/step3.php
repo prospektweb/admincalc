@@ -278,17 +278,47 @@ function createIblockWithLog(string $typeId, string $code, string $name, array $
     
     $codeFieldSettings = getCodeFieldSettings();
 
-    $rsIBlock = \CIBlock::GetList([], ['CODE' => $code, 'TYPE' => $typeId]);
-    if ($arIBlock = $rsIBlock->Fetch()) {
+    $iblockCandidates = [];
+    $rsIBlock = \CIBlock::GetList(['ID' => 'ASC'], ['CODE' => $code, 'CHECK_PERMISSIONS' => 'N']);
+    while ($arIBlock = $rsIBlock->Fetch()) {
+        $iblockCandidates[] = $arIBlock;
+    }
+    if (count($iblockCandidates) > 1) {
+        $error = "Обнаружены дубли инфоблока '{$code}'. Установка остановлена без изменения данных.";
+        installLog($error, 'error');
+        $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $error;
+        return 0;
+    }
+    if (count($iblockCandidates) === 1) {
+        $arIBlock = $iblockCandidates[0];
         $id = (int)$arIBlock['ID'];
 
         $iblockApi = new \CIBlock();
-        $updated = $iblockApi->Update($id, ['FIELDS' => $codeFieldSettings]);
-        if ($updated) {
-            installLog("Инфоблок '{$code}' уже существует (ID: {$id}), настройки символьного кода обновлены", 'warning');
-        } else {
-            installLog("Инфоблок '{$code}' уже существует (ID: {$id}), не удалось обновить настройки символьного кода: " . getBitrixError(), 'warning');
+        $updated = $iblockApi->Update($id, [
+            'IBLOCK_TYPE_ID' => $typeId,
+            'FIELDS' => $codeFieldSettings,
+        ]);
+        if (!$updated) {
+            $error = "Не удалось выровнять схему инфоблока '{$code}' (ID: {$id}): " . getBitrixError();
+            installLog($error, 'error');
+            $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $error;
+            return 0;
         }
+
+        $readback = \CIBlock::GetList([], ['ID' => $id, 'CHECK_PERMISSIONS' => 'N'])->Fetch();
+        if (!is_array($readback)
+            || (string)($readback['CODE'] ?? '') !== $code
+            || (string)($readback['IBLOCK_TYPE_ID'] ?? '') !== $typeId) {
+            $error = "Не прошла readback-проверка инфоблока '{$code}' (ID: {$id}).";
+            installLog($error, 'error');
+            $_SESSION['PROSPEKTWEB_CALC_INSTALL']['errors'][] = $error;
+            return 0;
+        }
+
+        installLog(
+            "Инфоблок '{$code}' принят по stable CODE (ID: {$id}), тип '{$typeId}' и настройки кода проверены",
+            'warning'
+        );
 
         ensureIblockPropertiesWithLog($id, $properties);
         return $id;
