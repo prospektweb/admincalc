@@ -19,7 +19,9 @@ if ($requestMethod === 'POST') {
     }
 }
 if (isset($request['sessid']) && is_scalar($request['sessid'])) {
-    $_REQUEST['sessid'] = (string)$request['sessid'];
+    $requestSessid = (string)$request['sessid'];
+    $_REQUEST['sessid'] = $requestSessid;
+    $_POST['sessid'] = $requestSessid;
 }
 
 require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_before.php';
