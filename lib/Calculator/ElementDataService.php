@@ -433,7 +433,7 @@ class ElementDataService
                     case 'duplicateStage':
                         $presetId = (int)($request['presetId'] ?? 0);
                         $mutationAuthority = $this->mutationAuthority();
-                        $duplicateResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $duplicateResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use ($request, $presetId, $mutationAuthority): array {
@@ -465,7 +465,7 @@ class ElementDataService
                                     (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0)
                                 );
                             }
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 $duplicate,
                                 $presetId,
                                 $pinnedIblockIds

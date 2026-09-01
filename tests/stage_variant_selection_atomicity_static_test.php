@@ -91,6 +91,18 @@ $assert(
     'version working-preset selections must defer public INIT construction to the semantic readback boundary'
 );
 
+$duplicateStage = $slice(
+    $service,
+    "case 'duplicateStage':",
+    "case 'deleteStage':"
+);
+$assert(
+    $duplicateStage !== ''
+        && str_contains($duplicateStage, 'return $this->completeStructuralMutationPinned(')
+        && !str_contains($duplicateStage, 'return self::enrichStructuralResultPinned('),
+    'stage duplication in a version working preset must defer public INIT to version-aware semantic readback'
+);
+
 $updateStageProperty = $slice(
     $service,
     "case 'updateStageProperty':",
