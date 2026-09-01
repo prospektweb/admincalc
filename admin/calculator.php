@@ -291,8 +291,11 @@ if (isset($_GET['open_calculation_panel']) && (string)$_GET['open_calculation_pa
 }
 $appIframeUrl = '/local/apps/prospektweb.calc/index.html?' . http_build_query($appIframeQuery);
 
-// Подключение JS интеграции
-Asset::getInstance()->addJs('/local/js/prospektweb.calc/integration.js');
+// Подключение JS интеграции с cache key фактически развёрнутого файла.
+$integrationPath = '/local/js/prospektweb.calc/integration.js';
+$integrationFile = Application::getDocumentRoot() . $integrationPath;
+$integrationVersion = is_file($integrationFile) ? (string)filemtime($integrationFile) : '1';
+Asset::getInstance()->addJs($integrationPath . '?v=' . $integrationVersion);
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php');
 ?>
