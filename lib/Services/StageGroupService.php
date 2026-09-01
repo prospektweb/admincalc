@@ -168,9 +168,14 @@ final class StageGroupService
                     }
                     $operands = [];
                     foreach (is_array($branch['operands'] ?? null) ? $branch['operands'] : [] as $operand) {
-                        $operandKind = ($operand['kind'] ?? null) === 'variable' ? 'variable' : (($operand['kind'] ?? null) === 'constant' ? 'constant' : null);
+                        $operandKind = ($operand['kind'] ?? null) === 'input'
+                            ? 'input'
+                            : (($operand['kind'] ?? null) === 'variable' ? 'variable' : (($operand['kind'] ?? null) === 'constant' ? 'constant' : null));
                         $code = trim((string)($operand['code'] ?? ''));
-                        if (!$operandKind || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $code)) {
+                        $validCode = $operandKind === 'input'
+                            ? preg_match('/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/', $code) === 1 && strlen($code) <= 120
+                            : preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $code) === 1;
+                        if (!$operandKind || !$validCode) {
                             throw new \InvalidArgumentException('Некорректное глобальное значение в условии ветки');
                         }
                         $operands[] = ['kind' => $operandKind, 'code' => $code];

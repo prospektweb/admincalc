@@ -473,6 +473,9 @@ final class GlobalCodeRefactorService
 
     private function rewriteCondition(array $value, array $map): array
     {
+        if (($value['kind'] ?? null) === 'input') {
+            return $value;
+        }
         foreach ($value as $key => &$nested) {
             if ($key === 'code' && is_string($nested)) {
                 $nested = $map[$nested] ?? $nested;

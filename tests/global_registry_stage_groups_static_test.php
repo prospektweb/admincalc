@@ -74,6 +74,10 @@ $checks = [
         && strpos($groups, "'branches' => \$branches") !== false
         && strpos($groups, "\$elseCount !== 1") !== false
         && strpos($groups, "['version' => 3") !== false,
+    'stage conditions accept form input constants with the neutral field-id contract' => strpos($groups, "=== 'input'") !== false
+        && strpos($groups, "(?:[._-][a-z0-9]+)*") !== false
+        && strpos($groups, "strlen(\$code) <= 120") !== false,
+    'global refactor never rewrites form input constant identifiers' => strpos($refactor, "(\$value['kind'] ?? null) === 'input'") !== false,
     'every condition branch may remain empty while its condition is configured' => strpos($groups, "if (!\$isElse && \$branchStageIds === [])") === false
         && strpos($groups, "\$kind === 'condition' && count(\$stageIds) < 1") === false
         && strpos($groups, "\$container = \$stageIds === [] ? null") !== false,
@@ -81,7 +85,8 @@ $checks = [
         && strpos($groups, "array_filter(\$branches, static fn(array \$branch): bool => \$branch['isElse'])") !== false,
     'stage activation bridge writes multiple AND OR operands' => strpos($integration, "version: 2") !== false
         && strpos($integration, "mode: condition.mode === 'and' ? 'and' : 'or'") !== false
-        && strpos($integration, "operands: operands") !== false,
+        && strpos($integration, "operands: operands") !== false
+        && strpos($integration, "item.kind === 'input'") !== false,
     'new services are registered in Bitrix autoload map' => strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalSymbolService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalCodeRefactorService'") !== false
         && strpos($autoload, "'Prospektweb\\\\Calc\\\\Services\\\\GlobalCalculatorMutationCoordinatorService'") !== false

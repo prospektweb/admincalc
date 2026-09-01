@@ -3437,7 +3437,7 @@
                 const operands = (Array.isArray(condition.operands)
                     ? condition.operands
                     : condition.kind && condition.code ? [{ kind: condition.kind, code: condition.code }] : [])
-                    .filter(item => item && (item.kind === 'variable' || item.kind === 'constant') && String(item.code || '').trim())
+                    .filter(item => item && (item.kind === 'input' || item.kind === 'variable' || item.kind === 'constant') && String(item.code || '').trim())
                     .map(item => ({ kind: item.kind, code: String(item.code).trim() }));
                 const value = JSON.stringify({
                     version: 2,
