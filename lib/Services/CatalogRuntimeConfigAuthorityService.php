@@ -18,7 +18,7 @@ use Bitrix\Main\Loader;
  */
 final class CatalogRuntimeConfigAuthorityService
 {
-    public const CONTRACT = 'prospektweb.calc.catalog-runtime-config/v1';
+    public const CONTRACT = 'prospektweb.calc.catalog-runtime-config/v2';
 
     private const ADMIN_MODULE_ID = 'prospektweb.calc';
     private const FRONT_MODULE_ID = 'prospektweb.frontcalc';
@@ -38,6 +38,7 @@ final class CatalogRuntimeConfigAuthorityService
         'IBLOCK_CALC_CUSTOM_FIELDS',
         'IBLOCK_CALC_MATERIALS',
         'IBLOCK_CALC_MATERIALS_VARIANTS',
+        'IBLOCK_CALC_SUPPLIERS',
         'IBLOCK_CALC_OPERATIONS',
         'IBLOCK_CALC_OPERATIONS_VARIANTS',
         'IBLOCK_CALC_EQUIPMENT',
@@ -59,6 +60,7 @@ final class CatalogRuntimeConfigAuthorityService
         'CALC_CUSTOM_FIELDS',
         'CALC_MATERIALS',
         'CALC_MATERIALS_VARIANTS',
+        'CALC_SUPPLIERS',
         'CALC_OPERATIONS',
         'CALC_OPERATIONS_VARIANTS',
         'CALC_EQUIPMENT',

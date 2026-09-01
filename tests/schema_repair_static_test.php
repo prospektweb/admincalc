@@ -23,7 +23,7 @@ $assert(strpos($service, "'CUSTOM_FIELDS'") !== false, 'stage-owned CUSTOM_FIELD
 $assert(strpos($service, 'migrateLegacyStageOwnership') === false, 'legacy stage ownership is never migrated by a runtime repair');
 $assert(strpos($service, 'repairMissingProperties') === false, 'schema registry has no incremental runtime writer');
 $assert(strpos($service, 'ensureOfferNamingAndMarginSchema') === false, 'schema registry has no hidden runtime currency/property writer');
-$assert(substr_count($service, "'SOURCE_LINKS'") === 3, 'SOURCE_LINKS is registered for three iblocks');
+$assert(substr_count($service, "'SOURCE_LINKS'") === 4, 'SOURCE_LINKS is registered for materials, variants, equipment and suppliers');
 $assert(strpos($service, '\\CIBlockProperty::') === false, 'read-only schema registry never mutates Bitrix properties');
 $assert(strpos($diagnosticTool, "case 'fix_schema':") === false, 'diagnostic endpoint is read-only for schema state');
 $assert(strpos($diagnosticTool, "case 'fix_files':") === false, 'diagnostic endpoint cannot overwrite installed files');

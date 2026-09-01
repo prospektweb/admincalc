@@ -13,6 +13,7 @@ Loader::registerAutoloadClasses('prospektweb.calc', [
     'Prospektweb\\Calc\\Config\\SettingsManager' => 'lib/Config/SettingsManager.php',
     'Prospektweb\\Calc\\Install\\SnapshotManager' => 'lib/Install/SnapshotManager.php',
     'Prospektweb\\Calc\\Install\\SchemaRepairService' => 'lib/Install/SchemaRepairService.php',
+    'Prospektweb\\Calc\\Install\\SupplierDirectorySchemaService' => 'lib/Install/SupplierDirectorySchemaService.php',
     'Prospektweb\\Calc\\Install\\AssignmentGuardActivationService' => 'lib/Install/AssignmentGuardActivationService.php',
     'Prospektweb\\Calc\\Deployment\\CatalogSchemaProfileService' => 'lib/Deployment/CatalogSchemaProfileService.php',
     'Prospektweb\\Calc\\Deployment\\CatalogSchemaDeploymentService' => 'lib/Deployment/CatalogSchemaDeploymentService.php',

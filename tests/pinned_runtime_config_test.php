@@ -43,6 +43,7 @@ namespace {
         'CALC_CUSTOM_FIELDS',
         'CALC_MATERIALS',
         'CALC_MATERIALS_VARIANTS',
+        'CALC_SUPPLIERS',
         'CALC_OPERATIONS',
         'CALC_OPERATIONS_VARIANTS',
         'CALC_EQUIPMENT',

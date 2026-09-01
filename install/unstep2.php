@@ -87,6 +87,7 @@ try {
         // Порядок важен: сначала варианты (SKU), потом родительские
         $iblockCodes = [
             'CALC_MATERIALS_VARIANTS',
+            'CALC_SUPPLIERS',
             'CALC_OPERATIONS_VARIANTS',
             'CALC_STAGES',
             'CALC_MATERIALS',

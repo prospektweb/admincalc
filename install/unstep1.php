@@ -24,6 +24,7 @@ if (Loader::includeModule('iblock')) {
         'CALC_SETTINGS' => 'Калькуляторы',
         'CALC_MATERIALS' => 'Материалы',
         'CALC_MATERIALS_VARIANTS' => 'Варианты материалов',
+        'CALC_SUPPLIERS' => 'Поставщики материалов',
         'CALC_OPERATIONS' => 'Операции',
         'CALC_OPERATIONS_VARIANTS' => 'Варианты операций',
         'CALC_EQUIPMENT' => 'Оборудование',

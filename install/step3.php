@@ -18,6 +18,7 @@
 
 use Bitrix\Main\Loader;
 use Bitrix\Main\Config\Option;
+use Prospektweb\Calc\Install\SupplierDirectorySchemaService;
 use Prospektweb\Calc\Services\CatalogRuntimeConfigAuthorityService;
 
 if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true) {
@@ -1327,8 +1328,28 @@ switch ($currentStep) {
         );
         $installData['iblock_ids']['CALC_DETAILS'] = createIblockWithLog('calculator_catalog', 'CALC_DETAILS', 'Детали', $detailsProps);
 
+        require_once dirname(__DIR__) . '/lib/Install/SupplierDirectorySchemaService.php';
+        $supplierSchema = new SupplierDirectorySchemaService([
+            'target_ids' => [
+                'CALC_MATERIALS' => (int)$installData['iblock_ids']['CALC_MATERIALS'],
+                'CALC_MATERIALS_VARIANTS' => (int)$installData['iblock_ids']['CALC_MATERIALS_VARIANTS'],
+            ],
+        ]);
+        try {
+            $supplierSchemaResult = $supplierSchema->apply();
+            $installData['iblock_ids']['CALC_SUPPLIERS'] = (int)$supplierSchemaResult['supplierIblockId'];
+            installLog(
+                "Создана/проверена пустая схема поставщиков CALC_SUPPLIERS (ID: {$installData['iblock_ids']['CALC_SUPPLIERS']})",
+                'success'
+            );
+        } catch (\Throwable $supplierSchemaError) {
+            $installData['iblock_ids']['CALC_SUPPLIERS'] = 0;
+            installLog('Ошибка схемы поставщиков: ' . $supplierSchemaError->getMessage(), 'error');
+            $installData['errors'][] = 'CALC_SUPPLIERS: ' . $supplierSchemaError->getMessage();
+        }
+
         $created = count(array_filter($installData['iblock_ids'], fn($id) => $id > 0));
-        $expected = 11;
+        $expected = 12;
         installLog("Создано инфоблоков: {$created}/{$expected}", $created === $expected ? 'success' : 'warning');
         
         // Обновление свойств CALC_STAGES с привязками к инфоблокам

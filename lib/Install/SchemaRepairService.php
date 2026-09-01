@@ -126,9 +126,23 @@ class SchemaRepairService
             ],
             'CALC_MATERIALS' => [
                 'SOURCE_LINKS' => self::sourceLinksProperty(),
+                'ENTITY_KEY' => self::entityKeyProperty('материала'),
+                'SUPPLIERS' => self::suppliersProperty(),
             ],
             'CALC_MATERIALS_VARIANTS' => [
                 'SOURCE_LINKS' => self::sourceLinksProperty(),
+                'ENTITY_KEY' => self::entityKeyProperty('варианта материала'),
+                'SUPPLIERS' => self::suppliersProperty(),
+            ],
+            'CALC_SUPPLIERS' => [
+                'ENTITY_KEY' => ['NAME' => 'Стабильный ключ поставщика', 'TYPE' => 'S', 'SORT' => 100],
+                'LEGAL_NAME' => ['NAME' => 'Юридическое наименование', 'TYPE' => 'S', 'SORT' => 200],
+                'INN' => ['NAME' => 'ИНН', 'TYPE' => 'S', 'SORT' => 210],
+                'KPP' => ['NAME' => 'КПП', 'TYPE' => 'S', 'SORT' => 220],
+                'STATUS' => ['NAME' => 'Статус', 'TYPE' => 'L', 'SORT' => 300],
+                'WEBSITE_URL' => ['NAME' => 'Сайт поставщика', 'TYPE' => 'S', 'SORT' => 400],
+                'SOURCE_LINKS' => self::sourceLinksProperty(),
+                'NOTES' => ['NAME' => 'Внутренняя закупочная заметка', 'TYPE' => 'S', 'USER_TYPE' => 'HTML', 'SORT' => 600],
             ],
             'CALC_EQUIPMENT' => [
                 'SOURCE_LINKS' => self::sourceLinksProperty(),
@@ -148,6 +162,30 @@ class SchemaRepairService
             'MULTIPLE_CNT' => 1,
             'WITH_DESCRIPTION' => 'Y',
             'SORT' => 510,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private static function entityKeyProperty(string $subject): array
+    {
+        return [
+            'NAME' => 'Стабильный ключ ' . $subject,
+            'TYPE' => 'S',
+            'SORT' => 515,
+            'HINT' => 'Переносимый ключ; заполняется отдельной управляемой миграцией',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private static function suppliersProperty(): array
+    {
+        return [
+            'NAME' => 'Поставщики',
+            'TYPE' => 'E',
+            'MULTIPLE' => 'Y',
+            'MULTIPLE_CNT' => 1,
+            'SORT' => 520,
+            'LINK_IBLOCK_CODE' => 'CALC_SUPPLIERS',
         ];
     }
 
