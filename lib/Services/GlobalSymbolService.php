@@ -11,6 +11,8 @@ final class GlobalSymbolService
     private const TYPES = ['auto', 'string', 'number', 'boolean', 'array', 'object'];
     private const KINDS = ['constant', 'variable'];
     private const CODE_PATTERN = '/^[A-Za-z_][A-Za-z0-9_]*$/';
+    private const FORM_OPTION_MANAGER = 'form-option-constants/v1';
+    private const MANAGED_XML_ID_PREFIX = 'prospektweb-managed:';
 
     /**
      * Read an explicitly pinned registry iblock. No CODE search is allowed:
@@ -44,11 +46,12 @@ final class GlobalSymbolService
             $filter,
             false,
             false,
-            ['ID', 'NAME', 'CODE', 'PREVIEW_TEXT', 'IBLOCK_ID', 'ACTIVE']
+            ['ID', 'NAME', 'CODE', 'XML_ID', 'PREVIEW_TEXT', 'IBLOCK_ID', 'ACTIVE']
         );
         while ($element = $iterator->GetNextElement()) {
             $fields = $element->GetFields();
             $properties = $element->GetProperties();
+            $managedMetadata = self::managedMetadataFromXmlId((string)($fields['XML_ID'] ?? ''));
             $kind = (string)($properties['KIND']['VALUE'] ?? '');
             $dataType = (string)($properties['DATA_TYPE']['VALUE'] ?? '');
             $result[] = [
@@ -59,6 +62,8 @@ final class GlobalSymbolService
                 'code' => (string)$fields['CODE'],
                 'title' => (string)$fields['NAME'],
                 'description' => (string)($fields['~PREVIEW_TEXT'] ?? $fields['PREVIEW_TEXT'] ?? ''),
+                'managedBy' => $managedMetadata['managedBy'],
+                'managedId' => $managedMetadata['managedId'],
                 // Runtime/save guards must observe the stored authority
                 // exactly; normalizing corrupt metadata could make an invalid
                 // required identity appear contract-compliant.
@@ -153,6 +158,8 @@ final class GlobalSymbolService
                 $kind = (string)($row['kind'] ?? 'constant');
                 $dataType = (string)($row['dataType'] ?? 'auto');
                 $initialValue = (string)($row['initialValue'] ?? '');
+                $managedBy = $this->normalizeManagedBy($row['managedBy'] ?? '');
+                $managedId = $this->normalizeManagedId($row['managedId'] ?? '', $managedBy);
                 CalculatorMutationAuthorityService::assertFormula(
                     $initialValue,
                     'global symbol ' . ($requestedCode ?: '#' . ($rowIndex + 1))
@@ -178,6 +185,9 @@ final class GlobalSymbolService
                     'ACTIVE' => 'Y',
                     'SORT' => 100 + ((int)$rowIndex * 10),
                 ];
+                if ($managedBy !== '') {
+                    $fields['XML_ID'] = self::managedXmlId($managedBy, $managedId);
+                }
                 if ($id > 0) {
                     if (isset($retainedIds[$id])) {
                         throw new \InvalidArgumentException('Глобальное значение передано повторно');
@@ -229,8 +239,9 @@ final class GlobalSymbolService
                     ['ID' => $id, 'IBLOCK_ID' => $iblockId],
                     false,
                     ['nTopCount' => 1],
-                    ['ID', 'IBLOCK_ID']
+                    ['ID', 'IBLOCK_ID', 'XML_ID']
                 )->GetNextElement();
+                $storedFields = $storedElement ? $storedElement->GetFields() : [];
                 $storedProperties = $storedElement ? $storedElement->GetProperties() : [];
                 $stored = [
                     'KIND' => (string)($storedProperties['KIND']['VALUE'] ?? ''),
@@ -239,10 +250,15 @@ final class GlobalSymbolService
                         ?? $storedProperties['INITIAL_VALUE']['VALUE']['TEXT']
                         ?? $storedProperties['INITIAL_VALUE']['VALUE']
                         ?? ''),
+                    'MANAGED' => self::managedMetadataFromXmlId((string)($storedFields['XML_ID'] ?? '')),
                 ];
                 if (($stored['KIND'] ?? '') !== $kind
                     || ($stored['DATA_TYPE'] ?? '') !== $dataType
-                    || ($stored['INITIAL_VALUE'] ?? '') !== $initialValue) {
+                    || ($stored['INITIAL_VALUE'] ?? '') !== $initialValue
+                    || ($managedBy !== '' && (
+                        ($stored['MANAGED']['managedBy'] ?? '') !== $managedBy
+                        || ($stored['MANAGED']['managedId'] ?? '') !== $managedId
+                    ))) {
                     throw new \RuntimeException(sprintf(
                         'Глобальное значение не было полностью записано (вид: %s/%s; тип: %s/%s; длина значения: %d/%d)',
                         $stored['KIND'] ?? '',
@@ -336,6 +352,47 @@ final class GlobalSymbolService
             throw new \InvalidArgumentException('Код ' . $code . ' зарезервирован языком формул');
         }
         return $code;
+    }
+
+    private function normalizeManagedBy($value): string
+    {
+        $managedBy = trim((string)$value);
+        if ($managedBy === '') {
+            return '';
+        }
+        if ($managedBy !== self::FORM_OPTION_MANAGER) {
+            throw new \InvalidArgumentException('Некорректный владелец программного глобального значения');
+        }
+        return $managedBy;
+    }
+
+    private function normalizeManagedId($value, string $managedBy): string
+    {
+        $managedId = strtolower(trim((string)$value));
+        if ($managedBy === '' && $managedId === '') {
+            return '';
+        }
+        if ($managedBy === ''
+            || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D', $managedId)) {
+            throw new \InvalidArgumentException('Некорректная идентичность программного глобального значения');
+        }
+        return $managedId;
+    }
+
+    private static function managedXmlId(string $managedBy, string $managedId): string
+    {
+        return self::MANAGED_XML_ID_PREFIX . $managedBy . ':' . $managedId;
+    }
+
+    /** @return array{managedBy:string,managedId:string} */
+    private static function managedMetadataFromXmlId(string $xmlId): array
+    {
+        $pattern = '/^' . preg_quote(self::MANAGED_XML_ID_PREFIX . self::FORM_OPTION_MANAGER . ':', '/')
+            . '([0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/Di';
+        if (!preg_match($pattern, $xmlId, $matches)) {
+            return ['managedBy' => '', 'managedId' => ''];
+        }
+        return ['managedBy' => self::FORM_OPTION_MANAGER, 'managedId' => strtolower((string)$matches[1])];
     }
 
     private function propertyId(int $iblockId, string $code): int

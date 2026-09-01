@@ -49,6 +49,27 @@ $reserved = [
 $normalize = new ReflectionMethod(GlobalSymbolService::class, 'normalizeRequestedCode');
 $normalize->setAccessible(true);
 $globalService = new GlobalSymbolService();
+$normalizeManagedBy = new ReflectionMethod(GlobalSymbolService::class, 'normalizeManagedBy');
+$normalizeManagedBy->setAccessible(true);
+$assert(
+    $normalizeManagedBy->invoke($globalService, 'form-option-constants/v1') === 'form-option-constants/v1',
+    'form option constants have one explicit supported manager identity'
+);
+$normalizeManagedId = new ReflectionMethod(GlobalSymbolService::class, 'normalizeManagedId');
+$normalizeManagedId->setAccessible(true);
+$managedId = '37c8d13c-2f42-5b12-85ee-4179d3af235e';
+$assert(
+    $normalizeManagedId->invoke($globalService, strtoupper($managedId), 'form-option-constants/v1') === $managedId,
+    'managed form option identity must be a canonical UUIDv5'
+);
+try {
+    $normalizeManagedBy->invoke($globalService, 'unknown-generator/v1');
+    throw new RuntimeException('Unknown global manager identity was accepted');
+} catch (ReflectionException $error) {
+    throw $error;
+} catch (Throwable $error) {
+    $assert($error instanceof InvalidArgumentException, 'unknown global manager identity must be rejected');
+}
 
 $removedElementIds = new ReflectionMethod(GlobalSymbolService::class, 'removedElementIds');
 $removedElementIds->setAccessible(true);
@@ -510,6 +531,12 @@ $assert(
     str_contains($saveSlice, 'withAuthorityLock($presetId')
         && !str_contains($saveSlice, 'startTransaction()'),
     'global symbol saves must share the preset authority transaction without nesting another transaction'
+);
+$assert(
+    str_contains($globalSource, "\$fields['XML_ID'] = self::managedXmlId(\$managedBy, \$managedId)")
+        && str_contains($globalSource, "self::managedMetadataFromXmlId")
+        && str_contains($globalSource, "private const FORM_OPTION_MANAGER = 'form-option-constants/v1'"),
+    'managed form constants must persist explicit owner and stable UUIDv5 identity in the registry element XML_ID'
 );
 
 echo "Calculator mutation authority tests passed\n";
