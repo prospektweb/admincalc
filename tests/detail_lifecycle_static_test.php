@@ -81,7 +81,7 @@ if (
 $cloneAction = $slice($elementDataService, "case 'cloneDetail':", "case 'changeProductType':");
 if (
     $cloneAction === ''
-    || substr_count($cloneAction, 'enrichStructuralResultPinned') !== 2
+    || substr_count($cloneAction, 'completeStructuralMutationPinned') !== 2
 ) {
     throw new RuntimeException('Cloning must atomically return the complete updated topology');
 }
@@ -150,7 +150,7 @@ if (
     $removeAction === ''
     || strpos($removeAction, 'removeTopLevelDetail') === false
     || strpos($removeAction, 'getPresetRootDetailIds') === false
-    || strpos($removeAction, 'enrichStructuralResultPinned') === false
+    || strpos($removeAction, 'completeStructuralMutationPinned') === false
     || strpos($removeAction, 'rebuildPresetFromRoot') !== false
     || strpos($elementDataService, 'rebuildPresetFromRoots') === false
 ) {

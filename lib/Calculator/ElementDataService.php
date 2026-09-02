@@ -241,7 +241,7 @@ class ElementDataService
                         $presetId = (int)($request['presetId'] ?? 0);
                         $mutationAuthority = $this->mutationAuthority();
                         $addResult = $mutationAuthority
-                            ->withAuthorityLock($presetId, static function (
+                            ->withAuthorityLock($presetId, function (
                                 bool $protected,
                                 array $pinnedIblockIds
                             ) use ($request, $presetId, $mutationAuthority): array {
@@ -253,7 +253,7 @@ class ElementDataService
                                 );
                                 $created = (new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds))
                                     ->addDetail($request);
-                                return self::enrichStructuralResultPinned(
+                                return $this->completeStructuralMutationPinned(
                                     $created,
                                     $presetId,
                                     $pinnedIblockIds
@@ -265,7 +265,7 @@ class ElementDataService
                     case 'cloneDetail':
                         $presetId = (int)($request['presetId'] ?? 0);
                         $mutationAuthority = $this->mutationAuthority();
-                        $cloneResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $cloneResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use ($request, $presetId, $mutationAuthority): array {
@@ -277,7 +277,7 @@ class ElementDataService
                             );
                             $clone = (new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds))
                                 ->cloneDetail($request);
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 $clone,
                                 $presetId,
                                 $pinnedIblockIds
@@ -289,7 +289,7 @@ class ElementDataService
                     case 'cloneDetails':
                         $presetId = (int)($request['presetId'] ?? 0);
                         $mutationAuthority = $this->mutationAuthority();
-                        $cloneResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $cloneResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use ($request, $presetId, $mutationAuthority): array {
@@ -301,7 +301,7 @@ class ElementDataService
                             );
                             $clone = (new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds))
                                 ->cloneDetails($request);
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 $clone,
                                 $presetId,
                                 $pinnedIblockIds
@@ -314,7 +314,7 @@ class ElementDataService
                         $presetId = (int)($request['presetId'] ?? 0);
                         $mutationAuthority = $this->mutationAuthority();
                         $changeResult = $mutationAuthority
-                            ->withAuthorityLock($presetId, static function (
+                            ->withAuthorityLock($presetId, function (
                                 bool $protected,
                                 array $pinnedIblockIds
                             ) use ($request, $presetId, $mutationAuthority): array {
@@ -343,7 +343,7 @@ class ElementDataService
                                 }
                                 $changed = (new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds))
                                     ->changeProductType($request);
-                                return self::enrichStructuralResultPinned(
+                                return $this->completeStructuralMutationPinned(
                                     $changed,
                                     $presetId,
                                     $pinnedIblockIds
@@ -394,7 +394,7 @@ class ElementDataService
                     case 'addStage':
                         $presetId = (int)($request['presetId'] ?? 0);
                         $mutationAuthority = $this->mutationAuthority();
-                        $addResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $addResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use ($request, $presetId, $mutationAuthority): array {
@@ -420,7 +420,7 @@ class ElementDataService
                                     (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0)
                                 );
                             }
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 $created,
                                 $presetId,
                                 $pinnedIblockIds
@@ -511,7 +511,7 @@ class ElementDataService
                                         (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0)
                                     );
                                 }
-                                return self::enrichStructuralResultPinned(
+                                return $this->completeStructuralMutationPinned(
                                     ['status' => 'ok', 'stageId' => $stageId],
                                     $presetId,
                                     $pinnedIblockIds
@@ -526,7 +526,7 @@ class ElementDataService
                         $presetId = (int)($request['presetId'] ?? 0);
                         $mutationAuthority = $this->mutationAuthority();
                         $removeResult = $mutationAuthority
-                            ->withAuthorityLock($presetId, static function (
+                            ->withAuthorityLock($presetId, function (
                                 bool $protected,
                                 array $pinnedIblockIds
                             ) use ($parentId, $detailId, $presetId, $request, $mutationAuthority): array {
@@ -553,7 +553,7 @@ class ElementDataService
                                 if (($removed['status'] ?? 'error') === 'ok') {
                                     $removed['rootDetailIds'] = $handler->getPresetRootDetailIds($presetId);
                                 }
-                                return self::enrichStructuralResultPinned(
+                                return $this->completeStructuralMutationPinned(
                                     $removed,
                                     $presetId,
                                     $pinnedIblockIds
@@ -593,7 +593,7 @@ class ElementDataService
                             // this exact link. Validate and write under the same ACTIVE
                             // authority lock so cut-over cannot race the attachment.
                             $mutationAuthority = $this->mutationAuthority();
-                            $settingsResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                            $settingsResult = $mutationAuthority->withAuthorityLock($presetId, function (
                                 bool $active,
                                 array $pinnedIblockIds
                                 ) use (
@@ -615,7 +615,7 @@ class ElementDataService
                                     $settingsId,
                                     (int)($pinnedIblockIds['CALC_STAGES'] ?? 0)
                                 );
-                                return self::enrichStructuralResultPinned(
+                                return $this->completeStructuralMutationPinned(
                                     ['status' => 'ok'],
                                     $presetId,
                                     $pinnedIblockIds
@@ -822,7 +822,7 @@ class ElementDataService
                             }
 
                             $mutationAuthority = $this->mutationAuthority();
-                            $globalsResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                            $globalsResult = $mutationAuthority->withAuthorityLock($presetId, function (
                                 bool $active,
                                 array $pinnedIblockIds
                             ) use (
@@ -855,7 +855,7 @@ class ElementDataService
                                     'GLOBAL_VARIABLES' => $preparedVariables ?: false,
                                     'GLOBAL_CONSTANTS' => $preparedConstants ?: false,
                                 ]);
-                                return self::enrichStructuralResultPinned(
+                                return $this->completeStructuralMutationPinned(
                                     ['status' => 'ok'],
                                     $presetId,
                                     $pinnedIblockIds
@@ -1412,7 +1412,7 @@ class ElementDataService
                         $name = trim((string)($request['name'] ?? ''));
                         $mutationAuthority = $this->mutationAuthority();
                         $addResult = $mutationAuthority
-                            ->withAuthorityLock($presetId, static function (
+                            ->withAuthorityLock($presetId, function (
                                 bool $protected,
                                 array $pinnedIblockIds
                             ) use ($parentId, $presetId, $name, $request, $mutationAuthority): array {
@@ -1424,7 +1424,7 @@ class ElementDataService
                                 );
                                 $created = (new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds))
                                     ->addDetailToBinding($parentId, $name);
-                                return self::enrichStructuralResultPinned(
+                                return $this->completeStructuralMutationPinned(
                                     $created,
                                     $presetId,
                                     $pinnedIblockIds
@@ -1440,7 +1440,7 @@ class ElementDataService
                         $sorting = $request['sorting'] ?? [];
                         $presetId = (int)($request['presetId'] ?? 0);
                         $mutationAuthority = $this->mutationAuthority();
-                        $sortResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $sortResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
@@ -1464,7 +1464,7 @@ class ElementDataService
                                     $parentId,
                                     is_array($sorting) ? $sorting : []
                                 );
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 $changed,
                                 $presetId,
                                 $pinnedIblockIds
@@ -1483,7 +1483,7 @@ class ElementDataService
                         $presetId = (int)($request['presetId'] ?? 0);
                         
                         $mutationAuthority = $this->mutationAuthority();
-                        $levelResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $levelResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
@@ -1508,7 +1508,7 @@ class ElementDataService
                                     $toParentId,
                                     is_array($sorting) ? $sorting : []
                                 );
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 $changed,
                                 $presetId,
                                 $pinnedIblockIds
@@ -1523,7 +1523,7 @@ class ElementDataService
                         $sorting = is_array($request['sorting'] ?? null) ? $request['sorting'] : [];
                         $presetId = (int)($request['presetId'] ?? 0);
                         $mutationAuthority = $this->mutationAuthority();
-                        $stageResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $stageResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
@@ -1541,7 +1541,7 @@ class ElementDataService
                             );
                             $changed = (new \Prospektweb\Calc\Services\DetailHandler($pinnedIblockIds))
                                 ->changeSortStage($detailId, $sorting, false);
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 $changed,
                                 $presetId,
                                 $pinnedIblockIds
@@ -1563,7 +1563,7 @@ class ElementDataService
                         }
 
                         $mutationAuthority = $this->mutationAuthority();
-                        $sortResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $sortResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
@@ -1627,7 +1627,7 @@ class ElementDataService
                             if ($readRootIds() !== $sorting) {
                                 throw new \RuntimeException('Битрикс не сохранил точный порядок колонок');
                             }
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 [
                                     'status' => 'ok',
                                     'presetId' => $presetId,
@@ -1653,7 +1653,7 @@ class ElementDataService
                             ? $request['targetSorting']
                             : [];
                         $mutationAuthority = $this->mutationAuthority();
-                        $stageResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $stageResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $lockedIblockIds
                         ) use (
@@ -1681,7 +1681,7 @@ class ElementDataService
                                 $targetSorting,
                                 false
                             );
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 $moved,
                                 $presetId,
                                 $lockedIblockIds
@@ -1701,7 +1701,7 @@ class ElementDataService
                             );
                         }
                         $mutationAuthority = $this->mutationAuthority();
-                        $addDetailsResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $addDetailsResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
@@ -1737,7 +1737,7 @@ class ElementDataService
                                 'detailIds' => $detailIds,
                                 'rootDetailIds' => $mutationAuthority->presetRootDetailIds($presetId),
                             ];
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 $attached,
                                 $presetId,
                                 $pinnedIblockIds
@@ -1755,7 +1755,7 @@ class ElementDataService
                             ? $request['priceProfilePolicy']
                             : null;
                         $mutationAuthority = $this->mutationAuthority();
-                        $pricesResult = $mutationAuthority->withAuthorityLock($presetId, static function (
+                        $pricesResult = $mutationAuthority->withAuthorityLock($presetId, function (
                             bool $protected,
                             array $pinnedIblockIds
                         ) use (
@@ -1771,7 +1771,7 @@ class ElementDataService
                                     is_array($prices) ? $prices : [],
                                     $priceProfilePolicy
                                 );
-                            return self::enrichStructuralResultPinned(
+                            return $this->completeStructuralMutationPinned(
                                 $changed,
                                 $presetId,
                                 $pinnedIblockIds
@@ -2391,9 +2391,10 @@ class ElementDataService
     }
 
     /**
-     * Finish a direct stage-variant selection without invoking the public INIT
-     * loader for an inactive version-working preset. The semantic mutation
-     * boundary performs the exact version-aware readback after this callback.
+     * Finish a preset-owned mutation without invoking the public INIT loader
+     * for an inactive version-working preset. The semantic mutation boundary
+     * performs one exact version-aware readback after this callback. Legacy
+     * direct callers retain their product-neutral INIT response.
      *
      * @param array<string,mixed> $operationResult
      * @param array<string,int> $pinnedIblockIds

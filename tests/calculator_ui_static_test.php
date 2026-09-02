@@ -298,7 +298,7 @@ $changeSettingsHandler = $changeSettingsStart !== false && $changeSettingsEnd !=
     : '';
 if (
     $changeSettingsHandler === ''
-    || strpos($changeSettingsHandler, 'enrichStructuralResultPinned') === false
+    || strpos($changeSettingsHandler, 'completeStructuralMutationPinned') === false
     || strpos($changeSettingsHandler, 'getFirstDetailFromPreset') !== false
     || strpos($changeSettingsHandler, 'rebuildPresetFromRoot') !== false
     || strpos($elementDataService, 'getRootsFromPreset') === false
@@ -314,7 +314,7 @@ $addDetailHandler = $addDetailStart !== false && $addDetailEnd !== false
     : '';
 if (
     $addDetailHandler === ''
-    || strpos($addDetailHandler, 'enrichStructuralResultPinned') === false
+    || strpos($addDetailHandler, 'completeStructuralMutationPinned') === false
     || strpos($addDetailHandler, 'rebuildPresetFromRoot') !== false
 ) {
     throw new RuntimeException('Creating a detail must append it without replacing the calculator root topology');

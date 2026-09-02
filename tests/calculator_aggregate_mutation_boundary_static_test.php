@@ -63,6 +63,11 @@ $assert(
     'structural mutations must reuse the authority held by the aggregate coordinator'
 );
 $assert(
+    substr_count($element, 'return self::enrichStructuralResultPinned(') === 1
+        && substr_count($element, 'return $this->completeStructuralMutationPinned(') >= 17,
+    'every preset-owned mutation must defer public INIT to the aggregate readback boundary'
+);
+$assert(
     str_contains($authority, 'if ($this->lockedPresetId > 0)')
         && str_contains($authority, 'Nested calculator mutation targets a different preset.'),
     'the injected authority may be reused only for the exact locked preset'
