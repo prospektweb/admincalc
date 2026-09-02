@@ -3303,8 +3303,15 @@
                     throw new Error(responsePayload.message || 'Не удалось сохранить сопоставление варианта материала');
                 }
                 
-                // 2. Лёгкое обогащение
-                this.updateStagePropertyInInitData(stageId, 'OPTIONS_MATERIAL', responsePayload.value ?? json);
+                // 2. fetchRefreshData already installed the authoritative semantic
+                // readback, including every material referenced by the saved tree.
+                // Keep the local fallback only for legacy direct callers.
+                if (!responsePayload.initPayload) {
+                    this.updateStagePropertyInInitData(stageId, 'OPTIONS_MATERIAL', responsePayload.value ?? json);
+                    if (responsePayload.clearedPropertyCode === 'MATERIAL_VARIANT') {
+                        this.updateStagePropertyInInitData(stageId, 'MATERIAL_VARIANT', '');
+                    }
+                }
                 
                 // 3. Отправляем модифицированный INIT
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);

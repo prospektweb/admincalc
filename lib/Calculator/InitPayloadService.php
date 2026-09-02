@@ -2669,6 +2669,7 @@ class InitPayloadService
                 $result[$elementId]['parameters'][$code] = [
                     'code' => $code,
                     'title' => trim((string)($description[1] ?? '')) ?: $code,
+                    'description' => trim((string)($description[2] ?? '')),
                     'value' => $valueType === 'number' ? (float)$numeric : $rawValue,
                     'valueType' => $valueType,
                 ];

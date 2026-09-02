@@ -49,6 +49,60 @@ $assert(
     && $service->materialReferencesFromJson($service->encode($materialSelection)) === $materialSelection['candidate_refs'],
     'material selection v2 must preserve terminal material and variant references'
 );
+$materialDecisionTree = [
+    'contract' => StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT,
+    'tree' => [
+        'kind' => 'condition',
+        'source' => ['kind' => 'form_field', 'field_id' => 'material.type'],
+        'matcher' => ['kind' => 'parameter', 'code' => 'TYPE'],
+        'branches' => [
+            [
+                'option_id' => 'paper',
+                'material_value' => 'Бумага',
+                'child' => [
+                    'kind' => 'result',
+                    'result' => ['entity_type' => 'variant', 'entity_id' => 601],
+                    'resolution' => 'automatic',
+                ],
+            ],
+            [
+                'option_id' => 'board',
+                'material_value' => 'Картон',
+                'child' => [
+                    'kind' => 'result',
+                    'result' => ['entity_type' => 'material', 'entity_id' => 501],
+                    'resolution' => 'manual',
+                ],
+            ],
+        ],
+    ],
+];
+$materialDecisionTreeJson = $service->encode($materialDecisionTree);
+$assert(
+    $service->normalizeJson($materialDecisionTreeJson) === $materialDecisionTreeJson
+    && $service->variantIdsFromJson($materialDecisionTreeJson) === [601]
+    && $service->materialReferencesFromJson($materialDecisionTreeJson) === [
+        ['entity_type' => 'variant', 'entity_id' => 601],
+        ['entity_type' => 'material', 'entity_id' => 501],
+    ],
+    'material decision tree v3 must round-trip and expose every referenced terminal'
+);
+$repeatedSourceTree = $materialDecisionTree;
+$repeatedSourceTree['tree']['branches'][0]['child'] = [
+    'kind' => 'condition',
+    'source' => ['kind' => 'form_field', 'field_id' => 'material.type'],
+    'matcher' => ['kind' => 'parameter', 'code' => 'GRAMMAGE_G_M2'],
+    'branches' => [[
+        'option_id' => 'paper',
+        'material_value' => 'Бумага',
+        'child' => [
+            'kind' => 'result',
+            'result' => ['entity_type' => 'variant', 'entity_id' => 601],
+            'resolution' => 'automatic',
+        ],
+    ]],
+];
+$rejects(static fn() => $service->encode($repeatedSourceTree), 'repeats source field');
 $document = [
     'contract' => StageVariantMappingService::CONTRACT,
     'input_field_ids' => ['method', 'paper.type'],

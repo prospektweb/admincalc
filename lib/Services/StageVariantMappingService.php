@@ -13,6 +13,7 @@ final class StageVariantMappingService
 {
     public const CONTRACT = 'prospektweb.calc.stage-variant-mapping/v1';
     public const MATERIAL_SELECTION_CONTRACT = 'prospektweb.calc.stage-material-selection/v2';
+    public const MATERIAL_DECISION_TREE_CONTRACT = 'prospektweb.calc.stage-material-selection/v3';
 
     private const MAX_SAFE_INTEGER = 9007199254740991;
     private const MAX_FIELD_IDS = 50;
@@ -50,7 +51,16 @@ final class StageVariantMappingService
         }
 
         $decodedNode = json_decode($raw);
-        $this->assertJsonNodeShape($decodedNode);
+        if (!$decodedNode instanceof \stdClass) {
+            throw new \InvalidArgumentException('Stage variant mapping must be a JSON object.');
+        }
+        if (($decodedNode->contract ?? null) === self::MATERIAL_DECISION_TREE_CONTRACT) {
+            if (!($decodedNode->tree ?? null) instanceof \stdClass) {
+                throw new \InvalidArgumentException('Material decision tree must be a JSON object.');
+            }
+        } else {
+            $this->assertJsonNodeShape($decodedNode);
+        }
         $decoded = json_decode($raw, true);
         if (!is_array($decoded) || self::isList($decoded)) {
             throw new \InvalidArgumentException('Stage variant mapping must be a JSON object.');
@@ -70,6 +80,9 @@ final class StageVariantMappingService
      */
     public function normalize(array $document): array
     {
+        if (($document['contract'] ?? null) === self::MATERIAL_DECISION_TREE_CONTRACT) {
+            return $this->normalizeMaterialDecisionTree($document);
+        }
         if (($document['contract'] ?? null) === self::MATERIAL_SELECTION_CONTRACT) {
             return $this->normalizeMaterialSelection($document);
         }
@@ -188,7 +201,11 @@ final class StageVariantMappingService
         }
         $decoded = json_decode($this->normalizeJson($raw), true);
         $ids = [];
-        if (($decoded['contract'] ?? null) === self::MATERIAL_SELECTION_CONTRACT) {
+        if (($decoded['contract'] ?? null) === self::MATERIAL_DECISION_TREE_CONTRACT) {
+            foreach ($this->materialReferencesFromTree((array)($decoded['tree'] ?? [])) as $reference) {
+                if ($reference['entity_type'] === 'variant') $ids[$reference['entity_id']] = true;
+            }
+        } elseif (($decoded['contract'] ?? null) === self::MATERIAL_SELECTION_CONTRACT) {
             foreach ((array)($decoded['candidate_refs'] ?? []) as $reference) {
                 if (($reference['entity_type'] ?? null) === 'variant') $ids[(int)$reference['entity_id']] = true;
             }
@@ -206,6 +223,9 @@ final class StageVariantMappingService
     {
         if ($raw === '') return [];
         $decoded = json_decode($this->normalizeJson($raw), true);
+        if (($decoded['contract'] ?? null) === self::MATERIAL_DECISION_TREE_CONTRACT) {
+            return $this->materialReferencesFromTree((array)($decoded['tree'] ?? []));
+        }
         if (($decoded['contract'] ?? null) !== self::MATERIAL_SELECTION_CONTRACT) {
             return array_map(static fn(int $id): array => ['entity_type' => 'variant', 'entity_id' => $id], $this->variantIdsFromJson($raw));
         }
@@ -269,6 +289,109 @@ final class StageVariantMappingService
             'metric_keys' => $common['metric_keys'],
             'rules' => $normalizedRules,
         ];
+    }
+
+    /** @param array<string,mixed> $document
+     *  @return array<string,mixed>
+     */
+    private function normalizeMaterialDecisionTree(array $document): array
+    {
+        self::assertExactKeys($document, ['contract', 'tree'], 'mapping');
+        $nodes = 0;
+        return [
+            'contract' => self::MATERIAL_DECISION_TREE_CONTRACT,
+            'tree' => $this->normalizeMaterialDecisionNode($document['tree'], 'tree', 1, $nodes, []),
+        ];
+    }
+
+    /** @param mixed $node
+     *  @param array<string,bool> $sourcePath
+     *  @return array<string,mixed>
+     */
+    private function normalizeMaterialDecisionNode($node, string $path, int $depth, int &$nodes, array $sourcePath): array
+    {
+        $nodes++;
+        if ($nodes > 2000) throw new \InvalidArgumentException('Material decision tree contains too many nodes.');
+        if ($depth > 12) throw new \InvalidArgumentException('Material decision tree exceeds maximum depth.');
+        if (!is_array($node) || self::isList($node)) throw new \InvalidArgumentException($path . ' must be an object.');
+        $kind = (string)($node['kind'] ?? '');
+        if ($kind === 'result') {
+            self::assertExactKeys($node, ['kind', 'result', 'resolution'], $path);
+            $resolution = (string)$node['resolution'];
+            if (!in_array($resolution, ['automatic', 'manual'], true)) throw new \InvalidArgumentException($path . '.resolution is invalid.');
+            return [
+                'kind' => 'result',
+                'result' => self::normalizeMaterialReference($node['result'], $path . '.result'),
+                'resolution' => $resolution,
+            ];
+        }
+        if ($kind !== 'condition') throw new \InvalidArgumentException($path . '.kind is invalid.');
+        self::assertExactKeys($node, ['kind', 'source', 'matcher', 'branches'], $path);
+        $source = $node['source'];
+        if (!is_array($source) || self::isList($source)) throw new \InvalidArgumentException($path . '.source must be an object.');
+        self::assertExactKeys($source, ['kind', 'field_id'], $path . '.source');
+        $fieldId = (string)($source['field_id'] ?? '');
+        if (($source['kind'] ?? null) !== 'form_field' || preg_match('/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/D', $fieldId) !== 1) {
+            throw new \InvalidArgumentException($path . '.source is invalid.');
+        }
+        if (isset($sourcePath[$fieldId])) throw new \InvalidArgumentException($path . ' repeats source field ' . $fieldId . '.');
+        $sourcePath[$fieldId] = true;
+
+        $matcher = $node['matcher'];
+        if (!is_array($matcher) || self::isList($matcher)) throw new \InvalidArgumentException($path . '.matcher must be an object.');
+        self::assertExactKeys($matcher, ['kind', 'code'], $path . '.matcher');
+        $code = (string)($matcher['code'] ?? '');
+        if (($matcher['kind'] ?? null) !== 'parameter' || strlen($code) < 1 || strlen($code) > 120 || preg_match('/^[A-Za-z0-9_.-]+$/D', $code) !== 1) {
+            throw new \InvalidArgumentException($path . '.matcher is invalid.');
+        }
+
+        $branches = $node['branches'];
+        if (!is_array($branches) || !self::isList($branches) || $branches === [] || count($branches) > self::MAX_RULES) {
+            throw new \InvalidArgumentException($path . '.branches must contain between 1 and 500 entries.');
+        }
+        $seen = [];
+        $normalizedBranches = [];
+        foreach ($branches as $index => $branch) {
+            $branchPath = $path . '.branches[' . $index . ']';
+            if (!is_array($branch) || self::isList($branch)) throw new \InvalidArgumentException($branchPath . ' must be an object.');
+            self::assertExactKeys($branch, ['option_id', 'material_value', 'child'], $branchPath);
+            $optionId = (string)$branch['option_id'];
+            $materialValue = (string)$branch['material_value'];
+            if (trim($optionId) === '' || strlen($optionId) > self::MAX_OPTION_ID_BYTES) throw new \InvalidArgumentException($branchPath . '.option_id is invalid.');
+            if (trim($materialValue) === '' || strlen($materialValue) > self::MAX_OPTION_ID_BYTES) throw new \InvalidArgumentException($branchPath . '.material_value is invalid.');
+            if (isset($seen[$optionId])) throw new \InvalidArgumentException($path . '.branches contains duplicate ' . $optionId . '.');
+            $seen[$optionId] = true;
+            $normalizedBranches[] = [
+                'option_id' => $optionId,
+                'material_value' => $materialValue,
+                'child' => $this->normalizeMaterialDecisionNode($branch['child'], $branchPath . '.child', $depth + 1, $nodes, $sourcePath),
+            ];
+        }
+        return [
+            'kind' => 'condition',
+            'source' => ['kind' => 'form_field', 'field_id' => $fieldId],
+            'matcher' => ['kind' => 'parameter', 'code' => $code],
+            'branches' => $normalizedBranches,
+        ];
+    }
+
+    /** @param array<string,mixed> $tree
+     *  @return array<int,array{entity_type:string,entity_id:int}>
+     */
+    private function materialReferencesFromTree(array $tree): array
+    {
+        $references = [];
+        $visit = function (array $node) use (&$visit, &$references): void {
+            if (($node['kind'] ?? null) === 'result') {
+                $reference = (array)($node['result'] ?? []);
+                $key = ($reference['entity_type'] ?? '') . ':' . (int)($reference['entity_id'] ?? 0);
+                if (($reference['entity_id'] ?? 0) > 0) $references[$key] = $reference;
+                return;
+            }
+            foreach ((array)($node['branches'] ?? []) as $branch) $visit((array)($branch['child'] ?? []));
+        };
+        $visit($tree);
+        return array_values($references);
     }
 
     /** @param mixed $reference
@@ -363,7 +486,7 @@ final class StageVariantMappingService
         // PHP associative decoding represents both {} and [] as an empty
         // array. These two rule members are always JSON objects, including
         // when their declared key set is empty.
-        foreach ($value['rules'] as $index => $rule) {
+        foreach (($value['rules'] ?? []) as $index => $rule) {
             if ($rule['input_values'] === []) {
                 $value['rules'][$index]['input_values'] = new \stdClass();
             }

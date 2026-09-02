@@ -1976,6 +1976,12 @@ class ElementDataService
                                 throw new \InvalidArgumentException($error->getMessage(), 422, $error);
                             }
                         }
+                        $clearDirectMaterialSelection = false;
+                        if ($propertyCode === 'OPTIONS_MATERIAL' && $value !== '') {
+                            $normalizedMapping = json_decode($value, true);
+                            $clearDirectMaterialSelection = is_array($normalizedMapping)
+                                && ($normalizedMapping['contract'] ?? '') === 'prospektweb.calc.stage-material-selection/v3';
+                        }
                         $mutationAuthority = $this->mutationAuthority();
                         $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
@@ -1985,7 +1991,8 @@ class ElementDataService
                             $presetId,
                             $stageId,
                             $propertyCode,
-                            $value
+                            $value,
+                            $clearDirectMaterialSelection
                         ): void {
                             $mutationAuthority->assertStageStructuralMutationAllowed(
                                 $presetId,
@@ -2002,6 +2009,13 @@ class ElementDataService
                                 throw new \RuntimeException(
                                     'Stage property ' . $propertyCode . ' must be provisioned before authoring.',
                                     409
+                                );
+                            }
+                            if ($propertyCode === 'OPTIONS_MATERIAL' && $value !== '') {
+                                self::assertPinnedPropertyCodesExist(
+                                    $stagesIblockId,
+                                    ['MATERIAL_VARIANT', 'OPTIONS_MATERIAL'],
+                                    'calculator stage'
                                 );
                             }
                             if ($propertyCode === 'INPUTS') {
@@ -2023,14 +2037,22 @@ class ElementDataService
                             // Bitrix does not reliably remove a single-value property when an
                             // empty string is written.  A mapping reset is a deletion, so use the
                             // canonical false sentinel that SetPropertyValuesEx understands.
-                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
-                                $propertyCode => $value === '' ? false : $value,
-                            ]);
+                            $propertyValues = [$propertyCode => $value === '' ? false : $value];
+                            // OPTIONS_MATERIAL is an alternative selection mode, not an
+                            // additional fallback. Persisting it must atomically remove the
+                            // direct variant reference so runtime has one authoritative source.
+                            if ($clearDirectMaterialSelection) {
+                                $propertyValues['MATERIAL_VARIANT'] = false;
+                            }
+                            \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, $propertyValues);
                         });
                         $result[] = [
                             'status' => 'ok',
                             'propertyCode' => $propertyCode,
                             'value' => $value,
+                            'clearedPropertyCode' => $clearDirectMaterialSelection
+                                ? 'MATERIAL_VARIANT'
+                                : null,
                         ];
                         continue 2;
 

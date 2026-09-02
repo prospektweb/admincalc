@@ -21,6 +21,30 @@ $assert(
     str_contains($fetchSource, 'items = this.withAuthoritativePreset(items);'),
     'Every refresh-data property write must cross the authoritative preset injector.'
 );
+
+$optionsCaseStart = strpos($service, "case 'updateStageProperty':");
+$optionsCaseEnd = strpos($service, "case 'inspectCalculatorContract':", $optionsCaseStart ?: 0);
+$optionsCase = $optionsCaseStart !== false && $optionsCaseEnd !== false
+    ? substr($service, $optionsCaseStart, $optionsCaseEnd - $optionsCaseStart)
+    : '';
+$assert(
+    str_contains($optionsCase, "prospektweb.calc.stage-material-selection/v3")
+        && str_contains($optionsCase, "if (\$clearDirectMaterialSelection)")
+        && str_contains($optionsCase, "\$propertyValues['MATERIAL_VARIANT'] = false")
+        && substr_count($optionsCase, '\\CIBlockElement::SetPropertyValuesEx(') === 1,
+    'Saving v3 OPTIONS_MATERIAL must atomically clear MATERIAL_VARIANT without changing v1/v2 fallback semantics.'
+);
+$materialHandlerStart = strpos($bridge, 'async handleChangeOptionsMaterial');
+$materialHandlerEnd = strpos($bridge, 'async handleChangeOptionsEquipment', $materialHandlerStart ?: 0);
+$materialHandler = $materialHandlerStart !== false && $materialHandlerEnd !== false
+    ? substr($bridge, $materialHandlerStart, $materialHandlerEnd - $materialHandlerStart)
+    : '';
+$assert(
+    str_contains($materialHandler, 'if (!responsePayload.initPayload)')
+        && str_contains($materialHandler, "responsePayload.clearedPropertyCode === 'MATERIAL_VARIANT'")
+        && str_contains($materialHandler, "updateStagePropertyInInitData(stageId, 'MATERIAL_VARIANT', '')"),
+    'The bridge must prefer authoritative readback and retain a legacy direct-call fallback.'
+);
 foreach (['updateStageProperty', 'updateSettingsProperty', 'saveCalcLogic'] as $action) {
     $assert(
         str_contains($bridge, "'" . $action . "',")

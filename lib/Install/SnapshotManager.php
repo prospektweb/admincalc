@@ -730,7 +730,10 @@ class SnapshotManager
                         $description,
                         $targetMap,
                         (array)($elementIdMapsByCode['CALC_DETAILS'] ?? []),
-                        (array)($elementIdMapsByCode['CALC_STAGES'] ?? [])
+                        (array)($elementIdMapsByCode['CALC_STAGES'] ?? []),
+                        (string)$code === 'OPTIONS_MATERIAL'
+                            ? (array)($elementIdMapsByCode['CALC_MATERIALS'] ?? [])
+                            : []
                     );
                 }
 
@@ -982,7 +985,25 @@ class SnapshotManager
         }
         $data = json_decode($canonical, true);
 
-        if (($data['contract'] ?? null) === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_SELECTION_CONTRACT) {
+        if (($data['contract'] ?? null) === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT) {
+            $remapTree = function (array $node) use (&$remapTree, $variantIdMap, $parentMaterialIdMap): array {
+                if (($node['kind'] ?? null) === 'result') {
+                    $reference = (array)($node['result'] ?? []);
+                    $oldId = (int)($reference['entity_id'] ?? 0);
+                    $map = ($reference['entity_type'] ?? null) === 'material' ? $parentMaterialIdMap : $variantIdMap;
+                    if ($oldId <= 0 || !isset($map[$oldId])) {
+                        throw new \RuntimeException('Snapshot material decision tree references an element outside the restored catalog.');
+                    }
+                    $node['result']['entity_id'] = (int)$map[$oldId];
+                    return $node;
+                }
+                foreach ((array)($node['branches'] ?? []) as $index => $branch) {
+                    $node['branches'][$index]['child'] = $remapTree((array)($branch['child'] ?? []));
+                }
+                return $node;
+            };
+            $data['tree'] = $remapTree((array)($data['tree'] ?? []));
+        } elseif (($data['contract'] ?? null) === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_SELECTION_CONTRACT) {
             foreach ((array)($data['candidate_refs'] ?? []) as $idx => $reference) {
                 $oldId = (int)($reference['entity_id'] ?? 0);
                 $map = ($reference['entity_type'] ?? null) === 'material' ? $parentMaterialIdMap : $variantIdMap;
