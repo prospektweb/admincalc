@@ -657,7 +657,8 @@ class SnapshotManager
                         (array)($elementIdMapsByCode['CALC_STAGES'] ?? []),
                         (string)$code === 'OPTIONS_MATERIAL'
                             ? (array)($elementIdMapsByCode['CALC_MATERIALS'] ?? [])
-                            : []
+                            : [],
+                        (string)$code
                     );
                 }
 
@@ -733,7 +734,8 @@ class SnapshotManager
                         (array)($elementIdMapsByCode['CALC_STAGES'] ?? []),
                         (string)$code === 'OPTIONS_MATERIAL'
                             ? (array)($elementIdMapsByCode['CALC_MATERIALS'] ?? [])
-                            : []
+                            : [],
+                        (string)$code
                     );
                 }
 
@@ -961,7 +963,8 @@ class SnapshotManager
         array $variantIdMap,
         array $detailIdMap,
         array $stageIdMap,
-        array $parentMaterialIdMap = []
+        array $parentMaterialIdMap = [],
+        string $propertyCode = ''
     )
     {
         $htmlValue = null;
@@ -975,9 +978,10 @@ class SnapshotManager
 
         $mappingService = new \Prospektweb\Calc\Services\StageVariantMappingService();
         try {
-            $canonical = $mappingService->normalizeJson(
-                html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8')
-            );
+            $decodedRaw = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $canonical = $propertyCode === 'OPTIONS_MATERIAL'
+                ? $mappingService->normalizeMaterialJson($decodedRaw)
+                : $mappingService->normalizeJson($decodedRaw);
         } catch (\InvalidArgumentException $error) {
             // Snapshot restore must not resurrect the removed property-code
             // mapping model. An invalid/legacy slot is restored as unset.
@@ -1003,18 +1007,6 @@ class SnapshotManager
                 return $node;
             };
             $data['tree'] = $remapTree((array)($data['tree'] ?? []));
-        } elseif (($data['contract'] ?? null) === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_SELECTION_CONTRACT) {
-            foreach ((array)($data['candidate_refs'] ?? []) as $idx => $reference) {
-                $oldId = (int)($reference['entity_id'] ?? 0);
-                $map = ($reference['entity_type'] ?? null) === 'material' ? $parentMaterialIdMap : $variantIdMap;
-                if ($oldId > 0 && isset($map[$oldId])) $data['candidate_refs'][$idx]['entity_id'] = (int)$map[$oldId];
-            }
-            foreach ((array)($data['rules'] ?? []) as $idx => $rule) {
-                $reference = (array)($rule['result'] ?? []);
-                $oldId = (int)($reference['entity_id'] ?? 0);
-                $map = ($reference['entity_type'] ?? null) === 'material' ? $parentMaterialIdMap : $variantIdMap;
-                if ($oldId > 0 && isset($map[$oldId])) $data['rules'][$idx]['result']['entity_id'] = (int)$map[$oldId];
-            }
         } else {
             foreach ((array)($data['rules'] ?? []) as $idx => $rule) {
                 $oldVariantId = (int)($rule['variant_id'] ?? 0);

@@ -28,11 +28,26 @@ $optionsCase = $optionsCaseStart !== false && $optionsCaseEnd !== false
     ? substr($service, $optionsCaseStart, $optionsCaseEnd - $optionsCaseStart)
     : '';
 $assert(
-    str_contains($optionsCase, "prospektweb.calc.stage-material-selection/v3")
+    str_contains($optionsCase, "prospektweb.calc.stage-material-selection/v4")
+        && str_contains($optionsCase, 'normalizeMaterialJson(')
+        && str_contains($optionsCase, 'assertMaterialDecisionReferences(')
         && str_contains($optionsCase, "if (\$clearDirectMaterialSelection)")
         && str_contains($optionsCase, "\$propertyValues['MATERIAL_VARIANT'] = false")
         && substr_count($optionsCase, '\\CIBlockElement::SetPropertyValuesEx(') === 1,
-    'Saving v3 OPTIONS_MATERIAL must atomically clear MATERIAL_VARIANT without changing v1/v2 fallback semantics.'
+    'Saving v4 OPTIONS_MATERIAL must validate exact catalog refs and atomically clear MATERIAL_VARIANT.'
+);
+$referenceGuardStart = strpos($service, 'private static function assertMaterialDecisionReferences');
+$referenceGuardEnd = strpos($service, 'private function normalizeIds', $referenceGuardStart ?: 0);
+$referenceGuard = $referenceGuardStart !== false && $referenceGuardEnd !== false
+    ? substr($service, $referenceGuardStart, $referenceGuardEnd - $referenceGuardStart)
+    : '';
+$assert(
+    str_contains($referenceGuard, "'IBLOCK_ID' => \$iblockId, 'ID' => \$entityId")
+        && str_contains($referenceGuard, "'PROPERTY_CML2_LINK' => \$entityId")
+        && str_contains($referenceGuard, 'PROPERTY_CML2_LINK_VALUE')
+        && str_contains($referenceGuard, 'has variants; select a concrete variant')
+        && str_contains($referenceGuard, 'is not linked to a material'),
+    'Material decision references must belong to pinned catalogs and preserve the parent/variant boundary.'
 );
 $materialHandlerStart = strpos($bridge, 'async handleChangeOptionsMaterial');
 $materialHandlerEnd = strpos($bridge, 'async handleChangeOptionsEquipment', $materialHandlerStart ?: 0);

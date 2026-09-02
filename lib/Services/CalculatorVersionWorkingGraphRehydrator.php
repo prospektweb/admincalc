@@ -1126,11 +1126,17 @@ final class CalculatorVersionWorkingGraphRehydrator
         }
         try {
             $mappingService = new StageVariantMappingService();
-            $canonical = $mappingService->normalizeJson(
-                html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8')
-            );
+            $decodedRaw = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $canonical = $propertyCode === 'OPTIONS_MATERIAL'
+                ? $mappingService->normalizeMaterialJson($decodedRaw)
+                : $mappingService->normalizeJson($decodedRaw);
             $data = json_decode($canonical, true, 512, JSON_THROW_ON_ERROR);
         } catch (\Throwable $error) {
+            if ($propertyCode === 'OPTIONS_MATERIAL') {
+                // Material v1-v3 were deliberately retired. Rehydration must
+                // not restore an executable-looking legacy document.
+                return '';
+            }
             throw new \RuntimeException(
                 'Saved stage variant mapping is invalid: ' . $propertyCode,
                 409,

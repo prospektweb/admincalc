@@ -1970,8 +1970,10 @@ class ElementDataService
                                 );
                             }
                             try {
-                                $value = (new \Prospektweb\Calc\Services\StageVariantMappingService())
-                                    ->normalizeJson($value);
+                                $mappingService = new \Prospektweb\Calc\Services\StageVariantMappingService();
+                                $value = $propertyCode === 'OPTIONS_MATERIAL'
+                                    ? $mappingService->normalizeMaterialJson($value)
+                                    : $mappingService->normalizeJson($value);
                             } catch (\InvalidArgumentException $error) {
                                 throw new \InvalidArgumentException($error->getMessage(), 422, $error);
                             }
@@ -1979,8 +1981,14 @@ class ElementDataService
                         $clearDirectMaterialSelection = false;
                         if ($propertyCode === 'OPTIONS_MATERIAL' && $value !== '') {
                             $normalizedMapping = json_decode($value, true);
-                            $clearDirectMaterialSelection = is_array($normalizedMapping)
-                                && ($normalizedMapping['contract'] ?? '') === 'prospektweb.calc.stage-material-selection/v3';
+                            if (!is_array($normalizedMapping)
+                                || ($normalizedMapping['contract'] ?? '') !== 'prospektweb.calc.stage-material-selection/v4') {
+                                throw new \InvalidArgumentException(
+                                    'OPTIONS_MATERIAL supports only prospektweb.calc.stage-material-selection/v4.',
+                                    422
+                                );
+                            }
+                            $clearDirectMaterialSelection = true;
                         }
                         $mutationAuthority = $this->mutationAuthority();
                         $mutationAuthority->withAuthorityLock($presetId, static function (
@@ -2016,6 +2024,11 @@ class ElementDataService
                                     $stagesIblockId,
                                     ['MATERIAL_VARIANT', 'OPTIONS_MATERIAL'],
                                     'calculator stage'
+                                );
+                                self::assertMaterialDecisionReferences(
+                                    $value,
+                                    (int)($pinnedIblockIds['CALC_MATERIALS'] ?? 0),
+                                    (int)($pinnedIblockIds['CALC_MATERIALS_VARIANTS'] ?? 0)
                                 );
                             }
                             if ($propertyCode === 'INPUTS') {
@@ -3363,6 +3376,69 @@ class ElementDataService
                     ucfirst($surface) . ' property ' . $code . ' must be provisioned before authoring.',
                     409
                 );
+            }
+        }
+    }
+
+    private static function assertMaterialDecisionReferences(
+        string $mappingJson,
+        int $materialsIblockId,
+        int $variantsIblockId
+    ): void {
+        if ($materialsIblockId <= 0 || $variantsIblockId <= 0) {
+            throw new \RuntimeException('Pinned material catalog authority is invalid.', 409);
+        }
+        $references = (new \Prospektweb\Calc\Services\StageVariantMappingService())
+            ->materialReferencesFromJson($mappingJson);
+        foreach ($references as $reference) {
+            $entityType = (string)($reference['entity_type'] ?? '');
+            $entityId = (int)($reference['entity_id'] ?? 0);
+            $iblockId = $entityType === 'material' ? $materialsIblockId : $variantsIblockId;
+            $element = \CIBlockElement::GetList(
+                [],
+                ['IBLOCK_ID' => $iblockId, 'ID' => $entityId],
+                false,
+                ['nTopCount' => 1],
+                ['ID', 'PROPERTY_CML2_LINK']
+            )->Fetch();
+            if (!is_array($element)) {
+                throw new \InvalidArgumentException(
+                    'Material decision tree references a missing or wrong-type entity: '
+                        . $entityType . ':' . $entityId . '.',
+                    422
+                );
+            }
+            if ($entityType === 'material') {
+                $variant = \CIBlockElement::GetList(
+                    [],
+                    ['IBLOCK_ID' => $variantsIblockId, 'PROPERTY_CML2_LINK' => $entityId],
+                    false,
+                    ['nTopCount' => 1],
+                    ['ID']
+                )->Fetch();
+                if (is_array($variant)) {
+                    throw new \InvalidArgumentException(
+                        'Material ' . $entityId . ' has variants; select a concrete variant.',
+                        422
+                    );
+                }
+            } else {
+                $parentMaterialId = (int)($element['PROPERTY_CML2_LINK_VALUE'] ?? 0);
+                $parentMaterial = $parentMaterialId > 0
+                    ? \CIBlockElement::GetList(
+                        [],
+                        ['IBLOCK_ID' => $materialsIblockId, 'ID' => $parentMaterialId],
+                        false,
+                        ['nTopCount' => 1],
+                        ['ID']
+                    )->Fetch()
+                    : false;
+                if (!is_array($parentMaterial)) {
+                    throw new \InvalidArgumentException(
+                        'Material variant ' . $entityId . ' is not linked to a material.',
+                        422
+                    );
+                }
             }
         }
     }
