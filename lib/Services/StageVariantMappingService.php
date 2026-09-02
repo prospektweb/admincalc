@@ -12,6 +12,7 @@ namespace Prospektweb\Calc\Services;
 final class StageVariantMappingService
 {
     public const CONTRACT = 'prospektweb.calc.stage-variant-mapping/v1';
+    public const MATERIAL_SELECTION_CONTRACT = 'prospektweb.calc.stage-material-selection/v2';
 
     private const MAX_SAFE_INTEGER = 9007199254740991;
     private const MAX_FIELD_IDS = 50;
@@ -69,6 +70,9 @@ final class StageVariantMappingService
      */
     public function normalize(array $document): array
     {
+        if (($document['contract'] ?? null) === self::MATERIAL_SELECTION_CONTRACT) {
+            return $this->normalizeMaterialSelection($document);
+        }
         self::assertExactKeys($document, self::DOCUMENT_KEYS, 'mapping');
         if (($document['contract'] ?? null) !== self::CONTRACT) {
             throw new \InvalidArgumentException('Unsupported stage variant mapping contract.');
@@ -184,11 +188,99 @@ final class StageVariantMappingService
         }
         $decoded = json_decode($this->normalizeJson($raw), true);
         $ids = [];
-        foreach ((array)($decoded['rules'] ?? []) as $rule) {
-            $ids[(int)$rule['variant_id']] = true;
+        if (($decoded['contract'] ?? null) === self::MATERIAL_SELECTION_CONTRACT) {
+            foreach ((array)($decoded['candidate_refs'] ?? []) as $reference) {
+                if (($reference['entity_type'] ?? null) === 'variant') $ids[(int)$reference['entity_id']] = true;
+            }
+        } else {
+            foreach ((array)($decoded['rules'] ?? []) as $rule) {
+                $ids[(int)$rule['variant_id']] = true;
+            }
         }
 
         return array_map('intval', array_keys($ids));
+    }
+
+    /** @return array<int,array{entity_type:string,entity_id:int}> */
+    public function materialReferencesFromJson(string $raw): array
+    {
+        if ($raw === '') return [];
+        $decoded = json_decode($this->normalizeJson($raw), true);
+        if (($decoded['contract'] ?? null) !== self::MATERIAL_SELECTION_CONTRACT) {
+            return array_map(static fn(int $id): array => ['entity_type' => 'variant', 'entity_id' => $id], $this->variantIdsFromJson($raw));
+        }
+        return array_values((array)$decoded['candidate_refs']);
+    }
+
+    /** @param array<string,mixed> $document
+     *  @return array<string,mixed>
+     */
+    private function normalizeMaterialSelection(array $document): array
+    {
+        self::assertExactKeys($document, ['contract', 'candidate_refs', 'input_field_ids', 'metric_source', 'metric_keys', 'rules'], 'mapping');
+        $candidateRefs = $document['candidate_refs'];
+        if (!is_array($candidateRefs) || !self::isList($candidateRefs) || $candidateRefs === [] || count($candidateRefs) > self::MAX_RULES) {
+            throw new \InvalidArgumentException('candidate_refs must contain between 1 and 500 entries.');
+        }
+        $normalizedCandidates = [];
+        $candidateKeys = [];
+        foreach ($candidateRefs as $index => $reference) {
+            $normalized = self::normalizeMaterialReference($reference, 'candidate_refs[' . $index . ']');
+            $key = $normalized['entity_type'] . ':' . $normalized['entity_id'];
+            if (isset($candidateKeys[$key])) throw new \InvalidArgumentException('candidate_refs contains duplicate ' . $key . '.');
+            $candidateKeys[$key] = true;
+            $normalizedCandidates[] = $normalized;
+        }
+        $rules = $document['rules'];
+        if (!is_array($rules) || !self::isList($rules)) throw new \InvalidArgumentException('rules must be a list.');
+        $v1Rules = [];
+        $normalizedResults = [];
+        foreach ($rules as $index => $rule) {
+            if (!is_array($rule) || self::isList($rule)) throw new \InvalidArgumentException('rules[' . $index . '] must be an object.');
+            self::assertExactKeys($rule, ['input_values', 'metric_ranges', 'result'], 'rules[' . $index . ']');
+            $result = self::normalizeMaterialReference($rule['result'], 'rules[' . $index . '].result');
+            $key = $result['entity_type'] . ':' . $result['entity_id'];
+            if (!isset($candidateKeys[$key])) throw new \InvalidArgumentException('rules[' . $index . '].result must belong to candidate_refs.');
+            $normalizedResults[] = $result;
+            $v1Rules[] = [
+                'input_values' => $rule['input_values'],
+                'metric_ranges' => $rule['metric_ranges'],
+                'variant_id' => $result['entity_id'],
+            ];
+        }
+        $common = $this->normalize([
+            'contract' => self::CONTRACT,
+            'input_field_ids' => $document['input_field_ids'],
+            'metric_source' => $document['metric_source'],
+            'metric_keys' => $document['metric_keys'],
+            'rules' => $v1Rules,
+        ]);
+        $normalizedRules = [];
+        foreach ($common['rules'] as $index => $rule) {
+            unset($rule['variant_id']);
+            $rule['result'] = $normalizedResults[$index];
+            $normalizedRules[] = $rule;
+        }
+        return [
+            'contract' => self::MATERIAL_SELECTION_CONTRACT,
+            'candidate_refs' => $normalizedCandidates,
+            'input_field_ids' => $common['input_field_ids'],
+            'metric_source' => $common['metric_source'],
+            'metric_keys' => $common['metric_keys'],
+            'rules' => $normalizedRules,
+        ];
+    }
+
+    /** @param mixed $reference
+     *  @return array{entity_type:string,entity_id:int}
+     */
+    private static function normalizeMaterialReference($reference, string $path): array
+    {
+        if (!is_array($reference) || self::isList($reference)) throw new \InvalidArgumentException($path . ' must be an object.');
+        self::assertExactKeys($reference, ['entity_type', 'entity_id'], $path);
+        $type = (string)$reference['entity_type'];
+        if (!in_array($type, ['material', 'variant'], true)) throw new \InvalidArgumentException($path . '.entity_type is invalid.');
+        return ['entity_type' => $type, 'entity_id' => self::positiveSafeInteger($reference['entity_id'], $path . '.entity_id')];
     }
 
     /** @param mixed $value */

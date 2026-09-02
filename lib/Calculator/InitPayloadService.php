@@ -2200,6 +2200,39 @@ class InitPayloadService
             $store['CALC_EQUIPMENT'] = array_values($equipmentById);
         }
 
+        // Material selection v2 may contain candidates from many material
+        // families and may terminate at a parent material without variants.
+        // Preload every explicit candidate into its owning store; do not rely
+        // on the static stage variant's sibling family.
+        $materialReferences = self::extractMappedMaterialReferencesFromStages($store['CALC_STAGES'] ?? []);
+        foreach ([
+            'material' => 'CALC_MATERIALS',
+            'variant' => 'CALC_MATERIALS_VARIANTS',
+        ] as $entityType => $storeCode) {
+            $candidateIds = [];
+            foreach ($materialReferences as $reference) {
+                if (($reference['entity_type'] ?? null) === $entityType) {
+                    $candidateIds[] = (int)$reference['entity_id'];
+                }
+            }
+            $loadedIds = array_map(static fn(array $item): int => (int)($item['id'] ?? 0), $store[$storeCode] ?? []);
+            $missingIds = array_values(array_diff(array_values(array_unique($candidateIds)), $loadedIds));
+            $iblockId = $this->runtimeIblockId($storeCode);
+            if ($iblockId <= 0 || $missingIds === []) continue;
+            $payload = $elementDataService->prepareRefreshPayload([[
+                'iblockId' => $iblockId,
+                'iblockType' => null,
+                'ids' => $missingIds,
+                'includeParent' => $entityType === 'variant',
+            ]]);
+            $byId = [];
+            foreach (array_merge($store[$storeCode] ?? [], $payload[0]['data'] ?? []) as $entity) {
+                $entityId = (int)($entity['id'] ?? 0);
+                if ($entityId > 0) $byId[$entityId] = $entity;
+            }
+            $store[$storeCode] = array_values($byId);
+        }
+
         return $store;
     }
 
@@ -2245,6 +2278,31 @@ class InitPayloadService
         return array_map('intval', array_keys($ids));
     }
 
+    /** @param array<int,array<string,mixed>> $stages
+     *  @return array<int,array{entity_type:string,entity_id:int}>
+     */
+    private static function extractMappedMaterialReferencesFromStages(array $stages): array
+    {
+        $references = [];
+        $mappingService = new \Prospektweb\Calc\Services\StageVariantMappingService();
+        foreach ($stages as $stage) {
+            $property = $stage['properties']['OPTIONS_MATERIAL'] ?? null;
+            if (!is_array($property)) continue;
+            $rawValue = $property['~VALUE'] ?? $property['VALUE'] ?? null;
+            if (is_array($rawValue) && array_key_exists('TEXT', $rawValue)) $rawValue = $rawValue['TEXT'];
+            if (!is_string($rawValue) || trim($rawValue) === '') continue;
+            try {
+                foreach ($mappingService->materialReferencesFromJson(html_entity_decode($rawValue, ENT_QUOTES | ENT_HTML5, 'UTF-8')) as $reference) {
+                    $key = $reference['entity_type'] . ':' . $reference['entity_id'];
+                    $references[$key] = $reference;
+                }
+            } catch (\InvalidArgumentException $error) {
+                continue;
+            }
+        }
+        return array_values($references);
+    }
+
     /**
      * Собрать дерево данных всех инфоблоков модуля для MultiLevelSelect
      * 
@@ -2273,7 +2331,8 @@ class InitPayloadService
         if ($calcMaterialsId > 0) {
             $trees['calcMaterials'] = $this->buildCatalogTree(
                 $calcMaterialsId,
-                $calcMaterialsVariantsId
+                $calcMaterialsVariantsId,
+                true
             );
         }
         
@@ -2285,6 +2344,11 @@ class InitPayloadService
                 $calcOperationsId,
                 $calcOperationsVariantsId
             );
+        }
+
+        $calcSuppliersId = $this->findIblockIdByCode($iblocks, 'CALC_SUPPLIERS');
+        if ($calcSuppliersId > 0) {
+            $trees['calcSuppliers'] = $this->buildIblockTree($calcSuppliersId);
         }
 
         return $trees;
@@ -2372,7 +2436,7 @@ class InitPayloadService
      * @param int $variantsIblockId ID инфоблока вариантов
      * @return array
      */
-    private function buildCatalogTree(int $parentIblockId, int $variantsIblockId): array
+    private function buildCatalogTree(int $parentIblockId, int $variantsIblockId, bool $includeSelectionFacts = false): array
     {
         if ($parentIblockId <= 0) {
             return [];
@@ -2380,13 +2444,20 @@ class InitPayloadService
 
         $sections = $this->getSections($parentIblockId);
         $elements = $this->getElements($parentIblockId);
+        if ($includeSelectionFacts) {
+            $factsById = $this->loadMaterialSelectionFactsForIds(array_column($elements, 'id'), $parentIblockId);
+            foreach ($elements as &$element) {
+                $element['selectionFacts'] = $factsById[(int)$element['id']] ?? self::emptyMaterialSelectionFacts();
+            }
+            unset($element);
+        }
 
         // Получаем варианты для элементов
         $parentIds = array_column($elements, 'id');
         $variants = [];
         
         if ($variantsIblockId > 0 && !empty($parentIds)) {
-            $variantsData = $this->getVariants($variantsIblockId, $parentIds);
+            $variantsData = $this->getVariants($variantsIblockId, $parentIds, $includeSelectionFacts);
             
             foreach ($variantsData as $variant) {
                 $parentId = $variant['parentId'];
@@ -2491,7 +2562,7 @@ class InitPayloadService
      * @param array $parentIds Массив ID родительских элементов
      * @return array
      */
-    private function getVariants(int $variantsIblockId, array $parentIds): array
+    private function getVariants(int $variantsIblockId, array $parentIds, bool $includeSelectionFacts = false): array
     {
         if ($variantsIblockId <= 0 || empty($parentIds)) {
             return [];
@@ -2515,7 +2586,7 @@ class InitPayloadService
                 ? (int)$fields['PROPERTY_CML2_LINK_VALUE']
                 : 0;
 
-            $variants[] = [
+            $variant = [
                 'type' => 'child',
                 'id' => (int)$fields['ID'],
                 'name' => $fields['NAME'] ?? '',
@@ -2528,9 +2599,102 @@ class InitPayloadService
                 'timestamp_x' => $fields['TIMESTAMP_X'] ?? null,
                 'modified_by' => isset($fields['MODIFIED_BY']) ? (int)$fields['MODIFIED_BY'] : null,
             ];
+            $variants[] = $variant;
+        }
+
+        if ($includeSelectionFacts && $variants !== []) {
+            $factsById = $this->loadMaterialSelectionFactsForIds(array_column($variants, 'id'), $variantsIblockId);
+            foreach ($variants as &$variant) {
+                $variant['selectionFacts'] = $factsById[(int)$variant['id']] ?? self::emptyMaterialSelectionFacts();
+            }
+            unset($variant);
         }
 
         return $variants;
+    }
+
+    /** @return array<string,mixed> */
+    private static function emptyMaterialSelectionFacts(): array
+    {
+        return [
+            'parameters' => [],
+            'catalog' => [
+                'purchasingPrice' => null,
+                'basePrice' => null,
+                'weight' => null,
+                'length' => null,
+                'width' => null,
+                'height' => null,
+            ],
+            'supplierIds' => [],
+        ];
+    }
+
+    /** @param int[] $elementIds
+     *  @return array<int,array<string,mixed>>
+     */
+    private function loadMaterialSelectionFactsForIds(array $elementIds, int $iblockId): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $elementIds), static fn(int $id): bool => $id > 0)));
+        if ($ids === []) return [];
+        $result = [];
+        foreach ($ids as $id) $result[$id] = self::emptyMaterialSelectionFacts();
+
+        // Both multiple properties are loaded in one query. The result may
+        // contain repeated rows, therefore parameters and suppliers are keyed.
+        $cursor = \CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, 'ID' => $ids], false, false, [
+            'ID', 'PROPERTY_PARAMETRS', 'PROPERTY_PARAMETRS_DESCRIPTION', 'PROPERTY_SUPPLIERS',
+        ]);
+        $supplierSets = [];
+        while ($row = $cursor->Fetch()) {
+            $elementId = (int)($row['ID'] ?? 0);
+            if (!isset($result[$elementId])) continue;
+            $code = trim((string)($row['PROPERTY_PARAMETRS_VALUE'] ?? ''));
+            if ($code !== '') {
+                $description = explode('|', (string)($row['PROPERTY_PARAMETRS_DESCRIPTION'] ?? ''), 3);
+                $rawValue = trim((string)($description[0] ?? ''));
+                $numeric = str_replace(',', '.', $rawValue);
+                $valueType = is_numeric($numeric) ? 'number' : (in_array(strtoupper($rawValue), ['Y', 'N', 'YES', 'NO', 'TRUE', 'FALSE'], true) ? 'boolean' : 'string');
+                $result[$elementId]['parameters'][$code] = [
+                    'code' => $code,
+                    'title' => trim((string)($description[1] ?? '')) ?: $code,
+                    'value' => $valueType === 'number' ? (float)$numeric : $rawValue,
+                    'valueType' => $valueType,
+                ];
+            }
+            $supplierId = (int)($row['PROPERTY_SUPPLIERS_VALUE'] ?? 0);
+            if ($supplierId > 0) $supplierSets[$elementId][$supplierId] = true;
+        }
+
+        $products = \Bitrix\Catalog\ProductTable::getList([
+            'filter' => ['@ID' => $ids],
+            'select' => ['ID', 'PURCHASING_PRICE', 'WEIGHT', 'LENGTH', 'WIDTH', 'HEIGHT'],
+        ]);
+        while ($product = $products->fetch()) {
+            $elementId = (int)($product['ID'] ?? 0);
+            if (!isset($result[$elementId])) continue;
+            foreach (['PURCHASING_PRICE' => 'purchasingPrice', 'WEIGHT' => 'weight', 'LENGTH' => 'length', 'WIDTH' => 'width', 'HEIGHT' => 'height'] as $source => $target) {
+                $result[$elementId]['catalog'][$target] = isset($product[$source]) && $product[$source] !== '' ? (float)$product[$source] : null;
+            }
+        }
+
+        $baseGroup = \CCatalogGroup::GetBaseGroup();
+        if (!empty($baseGroup['ID'])) {
+            $prices = \Bitrix\Catalog\PriceTable::getList([
+                'filter' => ['@PRODUCT_ID' => $ids, '=CATALOG_GROUP_ID' => (int)$baseGroup['ID']],
+                'select' => ['PRODUCT_ID', 'PRICE'],
+            ]);
+            while ($price = $prices->fetch()) {
+                $elementId = (int)($price['PRODUCT_ID'] ?? 0);
+                if (isset($result[$elementId])) $result[$elementId]['catalog']['basePrice'] = isset($price['PRICE']) ? (float)$price['PRICE'] : null;
+            }
+        }
+
+        foreach ($result as $elementId => &$facts) {
+            $facts['supplierIds'] = array_map('intval', array_keys($supplierSets[$elementId] ?? []));
+        }
+        unset($facts);
+        return $result;
     }
 
     /**

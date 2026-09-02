@@ -30,6 +30,9 @@ final class CatalogMetaService
         $iblocks = $this->getIblocks($type);
         $supportsExtendedMetadata = $type !== 'calculator';
         $catalogOptions = $supportsExtendedMetadata ? $this->getCatalogOptions() : ['vatRates' => []];
+        if ($type === 'material') {
+            $catalogOptions['suppliers'] = $this->loadSupplierOptions();
+        }
         if ($id <= 0) {
             return ['status' => 'ok', 'entityType' => $type, 'parent' => null, 'variants' => [], 'catalogOptions' => $catalogOptions];
         }
@@ -92,7 +95,7 @@ final class CatalogMetaService
                     ? $this->normalizeSourceLinks((array)($entity['sourceLinks'] ?? []))
                     : [];
                 if ($supportsExtendedMetadata) {
-                    \CIBlockElement::SetPropertyValuesEx($id, (int)$loaded['iblockId'], [
+                    $propertyValues = [
                         'PARAMETRS' => $parameters ? array_map(static function (array $parameter): array {
                             return [
                                 'VALUE' => $parameter['code'],
@@ -105,7 +108,13 @@ final class CatalogMetaService
                                 'DESCRIPTION' => implode('|', [$source['title'], $source['description']]),
                             ];
                         }, $sourceLinks) : false,
-                    ]);
+                    ];
+                    $supplierIds = [];
+                    if ($type === 'material') {
+                        $supplierIds = $this->normalizeSupplierIds((array)($entity['supplierIds'] ?? []));
+                        $propertyValues['SUPPLIERS'] = $supplierIds ?: false;
+                    }
+                    \CIBlockElement::SetPropertyValuesEx($id, (int)$loaded['iblockId'], $propertyValues);
                 }
                 $catalog = $supportsExtendedMetadata
                     ? $this->saveCatalog($id, (array)($entity['catalog'] ?? []))
@@ -118,6 +127,7 @@ final class CatalogMetaService
                     'parameters' => $parameters,
                     'sourceLinks' => $sourceLinks,
                     'catalog' => $catalog,
+                    'supplierIds' => $type === 'material' ? $supplierIds : [],
                 ];
             }
         } catch (\Throwable $exception) {
@@ -259,7 +269,83 @@ final class CatalogMetaService
             'parameters' => $supportsExtendedMetadata ? $this->loadParameters((int)$row['ID'], (int)$row['IBLOCK_ID']) : [],
             'sourceLinks' => $supportsExtendedMetadata ? $this->loadSourceLinks((int)$row['ID'], (int)$row['IBLOCK_ID']) : [],
             'catalog' => $supportsExtendedMetadata ? $this->loadCatalog((int)$row['ID']) : [],
+            'supplierIds' => $supportsExtendedMetadata ? $this->loadSupplierIds((int)$row['ID'], (int)$row['IBLOCK_ID']) : [],
         ];
+    }
+
+    /** @return int[] */
+    private function loadSupplierIds(int $elementId, int $iblockId): array
+    {
+        $result = [];
+        $cursor = \CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc', 'id' => 'asc'], ['CODE' => 'SUPPLIERS']);
+        while ($property = $cursor->Fetch()) {
+            $supplierId = (int)($property['VALUE'] ?? 0);
+            if ($supplierId > 0) $result[$supplierId] = true;
+        }
+        return array_map('intval', array_keys($result));
+    }
+
+    /** @return array<int,array{id:int,name:string,code:string,entityKey:string,active:bool}> */
+    private function loadSupplierOptions(): array
+    {
+        $supplierIblockId = $this->getSupplierIblockId();
+        $result = [];
+        $cursor = \CIBlockElement::GetList(
+            ['SORT' => 'ASC', 'NAME' => 'ASC', 'ID' => 'ASC'],
+            ['IBLOCK_ID' => $supplierIblockId],
+            false,
+            false,
+            ['ID', 'NAME', 'CODE', 'ACTIVE', 'PROPERTY_ENTITY_KEY']
+        );
+        while ($row = $cursor->Fetch()) {
+            $result[] = [
+                'id' => (int)$row['ID'],
+                'name' => (string)($row['NAME'] ?? ''),
+                'code' => (string)($row['CODE'] ?? ''),
+                'entityKey' => (string)($row['PROPERTY_ENTITY_KEY_VALUE'] ?? ''),
+                'active' => ($row['ACTIVE'] ?? 'N') === 'Y',
+            ];
+        }
+        return $result;
+    }
+
+    /** @param array<int,mixed> $values
+     *  @return int[]
+     */
+    private function normalizeSupplierIds(array $values): array
+    {
+        $ids = [];
+        foreach ($values as $value) {
+            $id = (int)$value;
+            if ($id > 0) $ids[$id] = true;
+        }
+        if ($ids === []) return [];
+
+        $allowed = [];
+        $cursor = \CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => $this->getSupplierIblockId(), 'ID' => array_keys($ids)],
+            false,
+            false,
+            ['ID']
+        );
+        while ($row = $cursor->Fetch()) $allowed[(int)$row['ID']] = true;
+        if (count($allowed) !== count($ids)) {
+            throw new \InvalidArgumentException('Выбрана отсутствующая связь с поставщиком материалов');
+        }
+        return array_map('intval', array_keys($ids));
+    }
+
+    private function getSupplierIblockId(): int
+    {
+        $id = (int)($this->pinnedIblockIds['CALC_SUPPLIERS'] ?? 0);
+        if ($id <= 0 && $this->pinnedIblockIds === []) {
+            $id = (new ConfigManager())->getIblockId('CALC_SUPPLIERS');
+        }
+        if ($id <= 0) {
+            throw new \RuntimeException('Инфоблок поставщиков материалов не настроен', 409);
+        }
+        return $id;
     }
 
     private function buildAdminUrl(int $iblockId, int $elementId): string

@@ -21,6 +21,34 @@ $rejects = static function (callable $callback, string $needle) use ($assert): v
 };
 
 $service = new StageVariantMappingService();
+
+$materialSelection = $service->normalize([
+    'contract' => StageVariantMappingService::MATERIAL_SELECTION_CONTRACT,
+    'candidate_refs' => [
+        ['entity_type' => 'material', 'entity_id' => 501],
+        ['entity_type' => 'variant', 'entity_id' => 601],
+    ],
+    'input_field_ids' => ['paper.kind'],
+    'metric_source' => null,
+    'metric_keys' => [],
+    'rules' => [
+        [
+            'input_values' => ['paper.kind' => 'cardboard'],
+            'metric_ranges' => [],
+            'result' => ['entity_type' => 'material', 'entity_id' => 501],
+        ],
+        [
+            'input_values' => ['paper.kind' => 'coated'],
+            'metric_ranges' => [],
+            'result' => ['entity_type' => 'variant', 'entity_id' => 601],
+        ],
+    ],
+]);
+$assert(
+    ($materialSelection['rules'][0]['result']['entity_type'] ?? null) === 'material'
+    && $service->materialReferencesFromJson($service->encode($materialSelection)) === $materialSelection['candidate_refs'],
+    'material selection v2 must preserve terminal material and variant references'
+);
 $document = [
     'contract' => StageVariantMappingService::CONTRACT,
     'input_field_ids' => ['method', 'paper.type'],

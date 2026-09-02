@@ -654,7 +654,10 @@ class SnapshotManager
                         $value,
                         $targetMap,
                         (array)($elementIdMapsByCode['CALC_DETAILS'] ?? []),
-                        (array)($elementIdMapsByCode['CALC_STAGES'] ?? [])
+                        (array)($elementIdMapsByCode['CALC_STAGES'] ?? []),
+                        (string)$code === 'OPTIONS_MATERIAL'
+                            ? (array)($elementIdMapsByCode['CALC_MATERIALS'] ?? [])
+                            : []
                     );
                 }
 
@@ -954,7 +957,8 @@ class SnapshotManager
         $raw,
         array $variantIdMap,
         array $detailIdMap,
-        array $stageIdMap
+        array $stageIdMap,
+        array $parentMaterialIdMap = []
     )
     {
         $htmlValue = null;
@@ -978,10 +982,24 @@ class SnapshotManager
         }
         $data = json_decode($canonical, true);
 
-        foreach ((array)($data['rules'] ?? []) as $idx => $rule) {
-            $oldVariantId = (int)($rule['variant_id'] ?? 0);
-            if ($oldVariantId > 0 && isset($variantIdMap[$oldVariantId])) {
-                $data['rules'][$idx]['variant_id'] = (int)$variantIdMap[$oldVariantId];
+        if (($data['contract'] ?? null) === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_SELECTION_CONTRACT) {
+            foreach ((array)($data['candidate_refs'] ?? []) as $idx => $reference) {
+                $oldId = (int)($reference['entity_id'] ?? 0);
+                $map = ($reference['entity_type'] ?? null) === 'material' ? $parentMaterialIdMap : $variantIdMap;
+                if ($oldId > 0 && isset($map[$oldId])) $data['candidate_refs'][$idx]['entity_id'] = (int)$map[$oldId];
+            }
+            foreach ((array)($data['rules'] ?? []) as $idx => $rule) {
+                $reference = (array)($rule['result'] ?? []);
+                $oldId = (int)($reference['entity_id'] ?? 0);
+                $map = ($reference['entity_type'] ?? null) === 'material' ? $parentMaterialIdMap : $variantIdMap;
+                if ($oldId > 0 && isset($map[$oldId])) $data['rules'][$idx]['result']['entity_id'] = (int)$map[$oldId];
+            }
+        } else {
+            foreach ((array)($data['rules'] ?? []) as $idx => $rule) {
+                $oldVariantId = (int)($rule['variant_id'] ?? 0);
+                if ($oldVariantId > 0 && isset($variantIdMap[$oldVariantId])) {
+                    $data['rules'][$idx]['variant_id'] = (int)$variantIdMap[$oldVariantId];
+                }
             }
         }
         if (is_array($data['metric_source'] ?? null)) {
