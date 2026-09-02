@@ -923,11 +923,7 @@ class ElementDataService
                             ]);
                             return ['status' => 'ok', 'stageId' => $stageId];
                         });
-                        $changeResponse['initPayload'] = (new InitPayloadService())->preparePresetPayload(
-                            $presetId,
-                            defined('SITE_ID') ? (string)SITE_ID : 's1'
-                        );
-                        $result[] = $changeResponse;
+                        $result[] = $this->completePresetOwnedMutation($changeResponse, $presetId);
                         continue 2;
                         
                     case 'selectFields':
@@ -977,12 +973,7 @@ class ElementDataService
                             });
                         }
 
-                        $selectResponse = ['status' => 'ok'];
-                        $selectResponse['initPayload'] = (new InitPayloadService())->preparePresetPayload(
-                            $presetId,
-                            defined('SITE_ID') ? (string)SITE_ID : 's1'
-                        );
-                        $result[] = $selectResponse;
+                        $result[] = $this->completePresetOwnedMutation(['status' => 'ok'], $presetId);
                         continue 2;
 
                     case 'createCustomField':
@@ -1016,11 +1007,7 @@ class ElementDataService
                                 ->synchronizePresetCustomFields($presetId);
                             return ['status' => 'ok'] + $created;
                         });
-                        $response['initPayload'] = (new InitPayloadService())->preparePresetPayload(
-                            $presetId,
-                            defined('SITE_ID') ? (string)SITE_ID : 's1'
-                        );
-                        $result[] = $response;
+                        $result[] = $this->completePresetOwnedMutation($response, $presetId);
                         continue 2;
 
                     case 'saveSettingsEquipment':
@@ -2089,13 +2076,9 @@ class ElementDataService
                                     (string)($request['message'] ?? '')
                                 );
                         });
-                        if (($response['status'] ?? null) === 'ok') {
-                            $response['initPayload'] = (new InitPayloadService())->preparePresetPayload(
-                                $currentPresetId,
-                                defined('SITE_ID') ? (string)SITE_ID : 's1'
-                            );
-                        }
-                        $result[] = $response;
+                        $result[] = ($response['status'] ?? null) === 'ok'
+                            ? $this->completePresetOwnedMutation($response, $currentPresetId)
+                            : $response;
                         continue 2;
 
                     case 'saveStageUsedEntities':
@@ -2139,11 +2122,7 @@ class ElementDataService
                             ]);
                             return ['status' => 'ok', 'stageId' => $stageId];
                         });
-                        $response['initPayload'] = (new InitPayloadService())->preparePresetPayload(
-                            $presetId,
-                            defined('SITE_ID') ? (string)SITE_ID : 's1'
-                        );
-                        $result[] = $response;
+                        $result[] = $this->completePresetOwnedMutation($response, $presetId);
                         continue 2;
                         
                     case 'updateSettingsProperty':
@@ -2327,10 +2306,10 @@ class ElementDataService
             $siteId = 's1';
         }
         $mutationAuthority = $this->mutationAuthority();
-        return $mutationAuthority->withAuthorityLock($presetId, static function (
+        $response = $mutationAuthority->withAuthorityLock($presetId, static function (
             bool $protected,
             array $pinnedIblockIds
-        ) use ($mutationAuthority, $presetId, $siteId): array {
+        ) use ($mutationAuthority, $presetId): array {
             $mutationAuthority->assertStructuralMutationAllowed(
                 $presetId,
                 [],
@@ -2339,11 +2318,34 @@ class ElementDataService
             );
             (new \Prospektweb\Calc\Services\PresetEnrichmentService($pinnedIblockIds))
                 ->clearPreset($presetId);
-            return [
-                'status' => 'ok',
-                'initPayload' => (new InitPayloadService())->preparePresetPayload($presetId, $siteId),
-            ];
+            return ['status' => 'ok'];
         });
+        return $this->completePresetOwnedMutation($response, $presetId, $siteId);
+    }
+
+    /**
+     * Attach the legacy public INIT only for product-neutral direct callers.
+     * Version-working mutations receive an exact version-aware readback from
+     * CalculatorSemanticMutationService and must never invoke the public INIT
+     * loader for an inactive working preset.
+     *
+     * @param array<string,mixed> $operationResult
+     * @return array<string,mixed>
+     */
+    private function completePresetOwnedMutation(
+        array $operationResult,
+        int $presetId,
+        ?string $siteId = null
+    ): array {
+        if ($this->deferInitPayloadToSemanticReadback || $presetId <= 0) {
+            return $operationResult;
+        }
+        $resolvedSiteId = trim((string)($siteId ?? (defined('SITE_ID') ? SITE_ID : 's1')));
+        $operationResult['initPayload'] = (new InitPayloadService())->preparePresetPayload(
+            $presetId,
+            $resolvedSiteId !== '' ? $resolvedSiteId : 's1'
+        );
+        return $operationResult;
     }
 
     /**

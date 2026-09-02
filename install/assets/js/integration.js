@@ -904,9 +904,13 @@
                     replace: payload.replace === true,
                 }]);
                 const selectPayload = Array.isArray(selectResult) ? selectResult[0] : null;
+                if (this.applySemanticReadback(selectPayload)) {
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                    return;
+                }
                 if (selectPayload?.initPayload) {
                     this.initData = selectPayload.initPayload;
-                    this.sendPwrtMessage('INIT', selectPayload.initPayload, message.requestId, origin);
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
                     return;
                 }
                 console.warn('[BitrixBridge] selectFields completed without INIT payload; data will be repaired on the next load');
@@ -1268,9 +1272,11 @@
                 if (!response || response.status !== 'ok') {
                     throw new Error(response?.message || 'Не удалось создать дополнительный параметр');
                 }
-                if (response.initPayload) {
+                if (this.applySemanticReadback(response)) {
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                } else if (response.initPayload) {
                     this.initData = response.initPayload;
-                    this.sendPwrtMessage('INIT', response.initPayload, message.requestId, origin);
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
                 }
                 this.sendPwrtMessage('CREATE_CUSTOM_FIELD_RESPONSE', response, message.requestId, origin);
             } catch (error) {
@@ -2622,7 +2628,9 @@
                     throw new Error(responsePayload.message || 'Change custom fields value failed');
                 }
 
-                if (responsePayload.initPayload) {
+                if (this.applySemanticReadback(responsePayload)) {
+                    this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+                } else if (responsePayload.initPayload) {
                     this.initData = responsePayload.initPayload;
                     this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
                 } else {
