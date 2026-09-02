@@ -2649,9 +2649,20 @@ class InitPayloadService
         while ($row = $cursor->Fetch()) {
             $elementId = (int)($row['ID'] ?? 0);
             if (!isset($result[$elementId])) continue;
-            $code = trim((string)($row['PROPERTY_PARAMETRS_VALUE'] ?? ''));
-            if ($code !== '') {
-                $description = explode('|', (string)($row['PROPERTY_PARAMETRS_DESCRIPTION'] ?? ''), 3);
+            $parameterValues = self::normalizeMultiplePropertyValues($row['PROPERTY_PARAMETRS_VALUE'] ?? null);
+            $parameterDescriptions = self::normalizeMultiplePropertyValues($row['PROPERTY_PARAMETRS_DESCRIPTION'] ?? null);
+            $descriptionsByPosition = array_values($parameterDescriptions);
+            $parameterPosition = 0;
+            foreach ($parameterValues as $propertyValueId => $propertyValue) {
+                $code = trim((string)$propertyValue);
+                if ($code === '') {
+                    $parameterPosition++;
+                    continue;
+                }
+                $descriptionRaw = $parameterDescriptions[$propertyValueId]
+                    ?? $descriptionsByPosition[$parameterPosition]
+                    ?? '';
+                $description = explode('|', (string)$descriptionRaw, 3);
                 $rawValue = trim((string)($description[0] ?? ''));
                 $numeric = str_replace(',', '.', $rawValue);
                 $valueType = is_numeric($numeric) ? 'number' : (in_array(strtoupper($rawValue), ['Y', 'N', 'YES', 'NO', 'TRUE', 'FALSE'], true) ? 'boolean' : 'string');
@@ -2661,9 +2672,12 @@ class InitPayloadService
                     'value' => $valueType === 'number' ? (float)$numeric : $rawValue,
                     'valueType' => $valueType,
                 ];
+                $parameterPosition++;
             }
-            $supplierId = (int)($row['PROPERTY_SUPPLIERS_VALUE'] ?? 0);
-            if ($supplierId > 0) $supplierSets[$elementId][$supplierId] = true;
+            foreach (self::normalizeMultiplePropertyValues($row['PROPERTY_SUPPLIERS_VALUE'] ?? null) as $supplierValue) {
+                $supplierId = (int)$supplierValue;
+                if ($supplierId > 0) $supplierSets[$elementId][$supplierId] = true;
+            }
         }
 
         $products = \Bitrix\Catalog\ProductTable::getList([
@@ -2694,6 +2708,32 @@ class InitPayloadService
             $facts['supplierIds'] = array_map('intval', array_keys($supplierSets[$elementId] ?? []));
         }
         unset($facts);
+        return $result;
+    }
+
+    /**
+     * CIBlockElement::GetList returns a scalar for a single property row and
+     * an associative array keyed by property-value ID for multiple values.
+     * Normalizing both shapes prevents PHP's "Array" string cast from leaking
+     * into material-filter codes and supplier IDs.
+     *
+     * @return array<int|string,mixed>
+     */
+    private static function normalizeMultiplePropertyValues($value): array
+    {
+        if ($value === null || $value === '' || $value === false) return [];
+        if (!is_array($value)) return [$value];
+        if (array_key_exists('VALUE', $value)) return self::normalizeMultiplePropertyValues($value['VALUE']);
+
+        $result = [];
+        foreach ($value as $key => $item) {
+            if (is_array($item) && array_key_exists('VALUE', $item)) {
+                $nested = self::normalizeMultiplePropertyValues($item['VALUE']);
+                foreach ($nested as $nestedKey => $nestedValue) $result[$nestedKey === 0 ? $key : $nestedKey] = $nestedValue;
+                continue;
+            }
+            if (!is_array($item) && $item !== null && $item !== '') $result[$key] = $item;
+        }
         return $result;
     }
 
