@@ -46,6 +46,24 @@
             return null;
         }
 
+        static elevateOpenedSidePanel(hostWindow) {
+            const hostDocument = hostWindow && hostWindow.document;
+            if (!hostDocument || typeof hostDocument.querySelectorAll !== 'function') {
+                return false;
+            }
+            const containers = hostDocument.querySelectorAll('.side-panel-container.--open');
+            const overlays = hostDocument.querySelectorAll('.side-panel-overlay.--open');
+            const container = containers[containers.length - 1];
+            const overlay = overlays[overlays.length - 1];
+            if (!container) return false;
+            // The control-center shell intentionally sits at z-index 100000.
+            // A nested Bitrix slider therefore needs an explicit top layer to
+            // remain visible above the full-screen calculator workspace.
+            if (overlay) overlay.style.zIndex = '2147483645';
+            container.style.zIndex = '2147483646';
+            return true;
+        }
+
         constructor(config) {
             this.config = {
                 iframe: config.iframe || null,
@@ -1049,6 +1067,11 @@
                 const {hostWindow, sidePanel} = sidePanelHost;
                 const width = Math.max(960, Math.floor(Number(hostWindow.innerWidth || 1440) * 0.96));
                 sidePanel.open(targetUrl, {cacheable: false, width: width});
+                CalcIntegration.elevateOpenedSidePanel(hostWindow);
+                if (typeof hostWindow.setTimeout === 'function') {
+                    hostWindow.setTimeout(() => CalcIntegration.elevateOpenedSidePanel(hostWindow), 0);
+                    hostWindow.setTimeout(() => CalcIntegration.elevateOpenedSidePanel(hostWindow), 100);
+                }
                 this.sendPwrtMessage('RESPONSE', {
                     requestType: 'OPEN_FORM_EDITOR_REQUEST',
                     status: 'success',

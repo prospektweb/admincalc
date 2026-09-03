@@ -62,6 +62,7 @@ $checks = [
     [$integration, "typeof topSidePanel.open === 'function'", 'The form editor must use the top manager only when it can open a slider'],
     [$integration, 'catch (_error)', 'The form editor must retain its local fallback when a cross-origin top window is unreadable'],
     [$integration, 'sidePanel.open(targetUrl', 'The form editor must open as a native Bitrix slider above the material tree'],
+    [$integration, 'elevateOpenedSidePanel(hostWindow)', 'The form editor slider must rise above the full-screen control-center shell'],
     [$integration, "case 'REFRESH_EDITOR_CONTEXT_REQUEST'", 'The material tree must request an authoritative form and catalog refresh'],
     [$integration, "action: 'version_logic_launch'", 'Refresh must reacquire the exact mutable version context before INIT'],
     [$integration, "String(data.versionId || '') !== this.config.versionId", 'Refresh must reject a response for another calculator version'],

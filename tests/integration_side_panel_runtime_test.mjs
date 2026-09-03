@@ -41,3 +41,24 @@ test('visible side panel resolver ignores a partially initialized top manager', 
   assert.equal(resolved.hostWindow, window)
   assert.equal(resolved.sidePanel, local)
 })
+
+test('opened form slider is elevated above the full-screen control-center shell', () => {
+  const container = { style: {} }
+  const overlay = { style: {} }
+  const window = {
+    ...sidePanelWindow({ open() {} }),
+    top: null,
+    document: {
+      querySelectorAll(selector) {
+        if (selector === '.side-panel-container.--open') return [container]
+        if (selector === '.side-panel-overlay.--open') return [overlay]
+        return []
+      },
+    },
+  }
+  window.top = window
+  const Integration = loadIntegration(window)
+  assert.equal(Integration.elevateOpenedSidePanel(window), true)
+  assert.equal(container.style.zIndex, '2147483646')
+  assert.equal(overlay.style.zIndex, '2147483645')
+})
