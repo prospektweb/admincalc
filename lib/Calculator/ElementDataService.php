@@ -1981,14 +1981,21 @@ class ElementDataService
                         $clearDirectMaterialSelection = false;
                         if ($propertyCode === 'OPTIONS_MATERIAL' && $value !== '') {
                             $normalizedMapping = json_decode($value, true);
-                            if (!is_array($normalizedMapping)
-                                || ($normalizedMapping['contract'] ?? '') !== 'prospektweb.calc.stage-material-selection/v4') {
+                            if (!is_array($normalizedMapping) || !in_array(
+                                (string)($normalizedMapping['contract'] ?? ''),
+                                [
+                                    \Prospektweb\Calc\Services\StageVariantMappingService::CONTRACT,
+                                    \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT,
+                                ],
+                                true
+                            )) {
                                 throw new \InvalidArgumentException(
-                                    'OPTIONS_MATERIAL supports only prospektweb.calc.stage-material-selection/v4.',
+                                    'OPTIONS_MATERIAL has an unsupported selection contract.',
                                     422
                                 );
                             }
-                            $clearDirectMaterialSelection = true;
+                            $clearDirectMaterialSelection = ($normalizedMapping['contract'] ?? '')
+                                === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT;
                         }
                         $mutationAuthority = $this->mutationAuthority();
                         $mutationAuthority->withAuthorityLock($presetId, static function (
@@ -2000,7 +2007,8 @@ class ElementDataService
                             $stageId,
                             $propertyCode,
                             $value,
-                            $clearDirectMaterialSelection
+                            $clearDirectMaterialSelection,
+                            $request
                         ): void {
                             $mutationAuthority->assertStageStructuralMutationAllowed(
                                 $presetId,
@@ -2017,6 +2025,20 @@ class ElementDataService
                                 throw new \RuntimeException(
                                     'Stage property ' . $propertyCode . ' must be provisioned before authoring.',
                                     409
+                                );
+                            }
+                            if (in_array($propertyCode, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT'], true)
+                                && $value !== ''
+                                && (json_decode($value, true)['contract'] ?? '')
+                                    === \Prospektweb\Calc\Services\StageVariantMappingService::CONTRACT) {
+                                $siteId = (string)($request['siteId'] ?? (defined('SITE_ID') ? SITE_ID : 's1'));
+                                $sourcePayload = (new InitPayloadService())->preparePresetPayload($presetId, $siteId);
+                                (new \Prospektweb\Calc\Services\StageVariantMappingService())->assertSemanticSources(
+                                    $value,
+                                    is_array($sourcePayload['editorRuntime']['formDefinition']['fields'] ?? null)
+                                        ? $sourcePayload['editorRuntime']['formDefinition']['fields']
+                                        : [],
+                                    is_array($sourcePayload['globalSymbols'] ?? null) ? $sourcePayload['globalSymbols'] : []
                                 );
                             }
                             if ($propertyCode === 'OPTIONS_MATERIAL' && $value !== '') {

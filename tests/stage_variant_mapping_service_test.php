@@ -75,7 +75,7 @@ $repeatedSourceTree['tree']['branches'][0]['child'] = [
 ];
 $rejects(static fn() => $service->encode($repeatedSourceTree), 'repeats source field');
 foreach ([
-    'prospektweb.calc.stage-variant-mapping/v1',
+    'prospektweb.calc.stage-material-selection/v1',
     'prospektweb.calc.stage-material-selection/v2',
     'prospektweb.calc.stage-material-selection/v3',
 ] as $retiredMaterialContract) {
@@ -94,6 +94,47 @@ foreach ([
         'supports only'
     );
 }
+$materialRuleMappingJson = json_encode([
+    'contract' => StageVariantMappingService::CONTRACT,
+    'input_field_ids' => ['global.constant.PRINT_SITE', 'global.variable.RunMode'],
+    'metric_source' => null,
+    'metric_keys' => [],
+    'rules' => [[
+        'input_values' => [
+            'global.constant.PRINT_SITE' => 'main',
+            'global.variable.RunMode' => 'true',
+        ],
+        'metric_ranges' => new stdClass(),
+        'variant_id' => 601,
+    ]],
+], JSON_UNESCAPED_SLASHES);
+$normalizedMaterialRuleMapping = $service->normalizeMaterialJson($materialRuleMappingJson);
+$assert(
+    json_decode($normalizedMaterialRuleMapping, true)['contract'] === StageVariantMappingService::CONTRACT
+    && $service->materialReferencesFromJson($normalizedMaterialRuleMapping) === [
+        ['entity_type' => 'variant', 'entity_id' => 601],
+    ],
+    'material rule mapping accepts scalar global sources and exposes variant references'
+);
+$service->assertSemanticSources($normalizedMaterialRuleMapping, [], [
+    ['kind' => 'constant', 'code' => 'PRINT_SITE', 'dataType' => 'string'],
+    ['kind' => 'variable', 'code' => 'RunMode', 'dataType' => 'boolean'],
+]);
+$rejects(
+    static fn() => $service->assertSemanticSources($normalizedMaterialRuleMapping, [], [
+        ['kind' => 'constant', 'code' => 'PRINT_SITE', 'dataType' => 'string'],
+    ]),
+    'missing semantic source'
+);
+$invalidBooleanMapping = json_decode($normalizedMaterialRuleMapping, true);
+$invalidBooleanMapping['rules'][0]['input_values']['global.variable.RunMode'] = 'Y';
+$rejects(
+    static fn() => $service->assertSemanticSources($service->encode($invalidBooleanMapping), [], [
+        ['kind' => 'constant', 'code' => 'PRINT_SITE', 'dataType' => 'string'],
+        ['kind' => 'variable', 'code' => 'RunMode', 'dataType' => 'boolean'],
+    ]),
+    'invalid boolean global value'
+);
 $document = [
     'contract' => StageVariantMappingService::CONTRACT,
     'input_field_ids' => ['method', 'paper.type'],

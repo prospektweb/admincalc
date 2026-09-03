@@ -65,8 +65,8 @@ final class StageVariantMappingService
         return self::encodeCanonical($this->normalize($decoded));
     }
 
-    /** Validate an OPTIONS_MATERIAL value. Retired material contracts must not
-     *  be accepted through the generic operation/equipment v1 parser. */
+    /** Validate an OPTIONS_MATERIAL value. It supports both the ordered rule
+     *  mapping used by operations and the dedicated material decision tree. */
     public function normalizeMaterialJson(string $raw): string
     {
         if ($raw === '') return '';
@@ -74,11 +74,14 @@ final class StageVariantMappingService
             throw new \InvalidArgumentException('Material decision tree must be canonical JSON or an empty string.');
         }
         $decodedNode = json_decode($raw);
+        if ($decodedNode instanceof \stdClass && ($decodedNode->contract ?? null) === self::CONTRACT) {
+            return $this->normalizeJson($raw);
+        }
         if (!$decodedNode instanceof \stdClass
             || ($decodedNode->contract ?? null) !== self::MATERIAL_DECISION_TREE_CONTRACT
             || !($decodedNode->tree ?? null) instanceof \stdClass) {
             throw new \InvalidArgumentException(
-                'OPTIONS_MATERIAL supports only ' . self::MATERIAL_DECISION_TREE_CONTRACT . '.'
+                'OPTIONS_MATERIAL supports only ' . self::CONTRACT . ' or ' . self::MATERIAL_DECISION_TREE_CONTRACT . '.'
             );
         }
         $decoded = json_decode($raw, true);
@@ -111,7 +114,7 @@ final class StageVariantMappingService
             $document['input_field_ids'],
             self::MAX_FIELD_IDS,
             'input_field_ids',
-            static fn(string $value): bool => preg_match('/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/D', $value) === 1
+            static fn(string $value): bool => preg_match('/^(?:[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*|global\.(?:constant|variable)\.[A-Za-z_][A-Za-z0-9_]*)$/D', $value) === 1
         );
         $metricKeys = self::normalizeIdentifierList(
             $document['metric_keys'],
@@ -235,7 +238,68 @@ final class StageVariantMappingService
     {
         if ($raw === '') return [];
         $decoded = json_decode($this->normalizeMaterialJson($raw), true);
+        if (($decoded['contract'] ?? null) === self::CONTRACT) {
+            return array_map(
+                static fn(int $id): array => ['entity_type' => 'variant', 'entity_id' => $id],
+                $this->variantIdsFromJson($raw)
+            );
+        }
         return $this->materialReferencesFromTree((array)($decoded['tree'] ?? []));
+    }
+
+    /**
+     * Fail closed when a persisted rule references a field, option or scalar
+     * global that does not belong to the current preset authoring document.
+     *
+     * @param array<int,array<string,mixed>> $formFields
+     * @param array<int,array<string,mixed>> $globalSymbols
+     */
+    public function assertSemanticSources(string $raw, array $formFields, array $globalSymbols): void
+    {
+        if ($raw === '') return;
+        $mapping = json_decode($this->normalizeJson($raw), true);
+        $formOptions = [];
+        foreach ($formFields as $field) {
+            $fieldId = is_array($field) ? (string)($field['fieldId'] ?? '') : '';
+            $options = is_array($field['options'] ?? null) ? $field['options'] : [];
+            if ($fieldId === '' || $options === []) continue;
+            $formOptions[$fieldId] = array_fill_keys(array_values(array_filter(
+                array_map(static fn($option): string => is_array($option) ? (string)($option['id'] ?? '') : '', $options),
+                static fn(string $optionId): bool => $optionId !== ''
+            )), true);
+        }
+        $globals = [];
+        foreach ($globalSymbols as $symbol) {
+            if (!is_array($symbol)) continue;
+            $kind = (string)($symbol['kind'] ?? '');
+            $code = (string)($symbol['code'] ?? '');
+            $dataType = (string)($symbol['dataType'] ?? 'auto');
+            if (!in_array($kind, ['constant', 'variable'], true)
+                || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $code) !== 1
+                || in_array($dataType, ['array', 'object'], true)) continue;
+            $globals['global.' . $kind . '.' . $code] = $dataType;
+        }
+        foreach ((array)$mapping['input_field_ids'] as $fieldId) {
+            if (isset($formOptions[$fieldId])) {
+                foreach ((array)$mapping['rules'] as $rule) {
+                    if (!isset($formOptions[$fieldId][(string)$rule['input_values'][$fieldId]])) {
+                        throw new \InvalidArgumentException('Stage variant mapping references a missing form option.');
+                    }
+                }
+                continue;
+            }
+            if (isset($globals[$fieldId])) {
+                if ($globals[$fieldId] === 'boolean') {
+                    foreach ((array)$mapping['rules'] as $rule) {
+                        if (!in_array((string)$rule['input_values'][$fieldId], ['true', 'false'], true)) {
+                            throw new \InvalidArgumentException('Stage variant mapping contains an invalid boolean global value.');
+                        }
+                    }
+                }
+                continue;
+            }
+            throw new \InvalidArgumentException('Stage variant mapping references a missing semantic source.');
+        }
     }
 
     /** @param array<string,mixed> $document

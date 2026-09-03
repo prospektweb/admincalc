@@ -28,13 +28,15 @@ $optionsCase = $optionsCaseStart !== false && $optionsCaseEnd !== false
     ? substr($service, $optionsCaseStart, $optionsCaseEnd - $optionsCaseStart)
     : '';
 $assert(
-    str_contains($optionsCase, "prospektweb.calc.stage-material-selection/v4")
+    str_contains($optionsCase, 'StageVariantMappingService::CONTRACT')
+        && str_contains($optionsCase, 'StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT')
         && str_contains($optionsCase, 'normalizeMaterialJson(')
+        && str_contains($optionsCase, "=== \\Prospektweb\\Calc\\Services\\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT")
         && str_contains($optionsCase, 'assertMaterialDecisionReferences(')
         && str_contains($optionsCase, "if (\$clearDirectMaterialSelection)")
         && str_contains($optionsCase, "\$propertyValues['MATERIAL_VARIANT'] = false")
         && substr_count($optionsCase, '\\CIBlockElement::SetPropertyValuesEx(') === 1,
-    'Saving v4 OPTIONS_MATERIAL must validate exact catalog refs and atomically clear MATERIAL_VARIANT.'
+    'Saving supported OPTIONS_MATERIAL mappings must validate exact catalog refs and atomically clear MATERIAL_VARIANT.'
 );
 $referenceGuardStart = strpos($service, 'private static function assertMaterialDecisionReferences');
 $referenceGuardEnd = strpos($service, 'private function normalizeIds', $referenceGuardStart ?: 0);

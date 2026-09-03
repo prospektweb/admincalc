@@ -1019,7 +1019,10 @@
                 const targetUrl = '/bitrix/admin/prospektweb_calc_control_center.php?'
                     + query.toString()
                     + '#/presets/' + originalPresetId + '/form' + formQuery;
-                const hostWindow = window.top || window;
+                const topWindow = window.top || window;
+                const hostWindow = window.BX && window.BX.SidePanel && window.BX.SidePanel.Instance
+                    ? window
+                    : topWindow;
                 const sidePanel = hostWindow.BX && hostWindow.BX.SidePanel && hostWindow.BX.SidePanel.Instance;
                 if (!sidePanel || typeof sidePanel.open !== 'function') {
                     throw new Error('Слайдер Bitrix недоступен в текущем контексте.');
