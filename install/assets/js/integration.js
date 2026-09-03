@@ -52,7 +52,7 @@
                 return false;
             }
             const containers = hostDocument.querySelectorAll('.side-panel-container');
-            const overlays = hostDocument.querySelectorAll('.side-panel-overlay.--open');
+            const overlays = hostDocument.querySelectorAll('.side-panel-overlay');
             const container = containers[containers.length - 1];
             const overlay = overlays[overlays.length - 1];
             if (!container) return false;
@@ -1099,8 +1099,9 @@
                 sidePanel.open(targetUrl, {cacheable: false, width: width});
                 CalcIntegration.elevateOpenedSidePanel(hostWindow);
                 if (typeof hostWindow.setTimeout === 'function') {
-                    hostWindow.setTimeout(() => CalcIntegration.elevateOpenedSidePanel(hostWindow), 0);
-                    hostWindow.setTimeout(() => CalcIntegration.elevateOpenedSidePanel(hostWindow), 100);
+                    [0, 100, 250, 500, 1000, 2000].forEach((delay) => {
+                        hostWindow.setTimeout(() => CalcIntegration.elevateOpenedSidePanel(hostWindow), delay);
+                    });
                 }
                 this.sendPwrtMessage('RESPONSE', {
                     requestType: 'OPEN_FORM_EDITOR_REQUEST',

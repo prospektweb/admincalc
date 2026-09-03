@@ -60,7 +60,7 @@ test('opened form slider is elevated above the full-screen control-center shell'
       createElement(tagName) { return { tagName, id: '', textContent: '' } },
       querySelectorAll(selector) {
         if (selector === '.side-panel-container') return [container]
-        if (selector === '.side-panel-overlay.--open') return [overlay]
+        if (selector === '.side-panel-overlay') return [overlay]
         return []
       },
     },
