@@ -11,6 +11,8 @@ const fakeWindow = {
   location: { origin: 'https://example.test', href: 'https://example.test/admin' },
   addEventListener() {},
   removeEventListener() {},
+  setTimeout,
+  clearTimeout,
   console,
 };
 vm.runInNewContext(source, {
@@ -59,6 +61,57 @@ bridge.escapeHtmlValue = value => value;
 bridge.updateSettingsPropertyInInitDataWithRaw = () => {};
 bridge.updateSettingsPropertyInInitDataWithDescriptions = () => {};
 bridge.updateStagePropertyInInitDataWithDescriptions = () => {};
+bridge.sendPwrtMessage = () => {};
+
+let parentFormMessage = null;
+let formBridgeReply = null;
+fakeWindow.parent = {
+  postMessage(message, origin) {
+    parentFormMessage = { message, origin };
+  },
+};
+bridge.config = {
+  presetId: 0,
+  versionOriginalPresetId: 12740,
+  versionId: 'v_3caf71f29edbb97234c4',
+  editorInstanceId: '0123456789abcdef0123456789abcdef',
+};
+bridge.sendPwrtMessage = (type, payload, requestId, origin) => {
+  formBridgeReply = { type, payload, requestId, origin };
+};
+bridge.handleOpenFormEditorRequest({ requestId: 'form-1' }, 'https://example.test');
+assert.equal(parentFormMessage.origin, 'https://example.test');
+assert.deepEqual(JSON.parse(JSON.stringify(parentFormMessage.message.payload)), {
+  editorInstanceId: '0123456789abcdef0123456789abcdef',
+  presetId: 12740,
+  versionId: 'v_3caf71f29edbb97234c4',
+});
+assert.equal(parentFormMessage.message.type, 'OPEN_CONTROL_CENTER_FORM_EDITOR');
+assert.equal(formBridgeReply, null, 'the child must not receive success before the control center acknowledges visibility');
+bridge.handleMessage({
+  source: fakeWindow.parent,
+  origin: 'https://example.test',
+  data: {
+    protocol: 'pwrt-v1',
+    source: 'bitrix',
+    target: 'prospektweb.calc',
+    type: 'CONTROL_CENTER_FORM_EDITOR_OPENED',
+    requestId: parentFormMessage.message.requestId,
+    payload: { editorInstanceId: '0123456789abcdef0123456789abcdef' },
+  },
+});
+assert.equal(formBridgeReply.type, 'RESPONSE');
+assert.equal(formBridgeReply.payload.status, 'success');
+
+bridge.config.editorInstanceId = '';
+parentFormMessage = null;
+formBridgeReply = null;
+bridge.handleOpenFormEditorRequest({ requestId: 'form-2' }, 'https://example.test');
+assert.equal(parentFormMessage, null, 'an unowned calculator page must not open the control-center form');
+assert.equal(formBridgeReply.type, 'ERROR');
+assert.match(formBridgeReply.payload.details, /только из Центра управления/);
+
+bridge.config = { presetId: 12740, siteId: 's1', sessid: 'test' };
 bridge.sendPwrtMessage = () => {};
 
 bridge.initData = {

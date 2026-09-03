@@ -371,6 +371,7 @@ document.addEventListener('DOMContentLoaded', function() {
         versionOriginalPresetId: <?= json_encode($versionOriginalPresetId) ?>,
         versionContentHash: <?= json_encode($versionContentHash) ?>,
         versionLogicHash: <?= json_encode($versionLogicHash) ?>,
+        editorInstanceId: <?= json_encode($editorInstanceId) ?>,
         siteId: '<?= SITE_ID ?>',
         sessid: '<?= bitrix_sessid() ?>',
         onClose: function() {

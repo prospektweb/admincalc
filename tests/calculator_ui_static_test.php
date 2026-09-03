@@ -3,6 +3,7 @@
 $integration = file_get_contents(__DIR__ . '/../install/assets/js/integration.js');
 $calculator = file_get_contents(__DIR__ . '/../install/assets/js/calculator.js');
 $calculatorPage = file_get_contents(__DIR__ . '/../admin/calculator.php');
+$controlCenterPage = file_get_contents(__DIR__ . '/../admin/prospektweb_calc_control_center.php');
 $elementDataService = file_get_contents(__DIR__ . '/../lib/Calculator/ElementDataService.php');
 $detailHandler = file_get_contents(__DIR__ . '/../lib/Services/DetailHandler.php');
 $customFieldsService = file_get_contents(__DIR__ . '/../lib/Services/CustomFieldsService.php');
@@ -19,7 +20,7 @@ $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/in
 $engineBundlePath = __DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js';
 $engineBundle = is_file($engineBundlePath) ? file_get_contents($engineBundlePath) : $appBundle;
 
-if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($offerUpdateService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($stageVariantMappingService) || !is_string($appIndex) || !is_string($appBundle) || !is_string($engineBundle)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($controlCenterPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($offerUpdateService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($stageVariantMappingService) || !is_string($appIndex) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
 }
 
@@ -27,6 +28,11 @@ $integration = str_replace("\r\n", "\n", $integration);
 
 if (strpos($integration, 'SAVE_OPTIONAL_STAGE_REQUEST') !== false) {
     throw new RuntimeException('The bridge must reject the removed optional-stage compatibility message');
+}
+
+if (strpos($integration, 'prospektweb_calc_control_center.php') !== false
+    || strpos($integration, 'sidePanel.open(targetUrl') !== false) {
+    throw new RuntimeException('Form fields must not recursively start another complete control center');
 }
 
 $checks = [
@@ -46,8 +52,8 @@ $checks = [
     [$calculatorPage, "\$appIframeQuery['version_id'] = \$versionId;", 'The embedded editor app must receive the exact version identity'],
     [$calculatorPage, "\$appIframeQuery['version_content_hash'] = \$versionContentHash;", 'The embedded editor app must receive the full bundle content hash'],
     [$calculatorPage, "\$appIframeQuery['original_preset_id'] = \$versionOriginalPresetId;", 'The embedded editor app must keep the canonical preset identity instead of the temporary working preset'],
-    [$appIndex, "assets/index.js?v=a459d7a374f5", 'App HTML must load the current JavaScript bundle without stale asset cache'],
-    [$appIndex, "assets/style.css?v=a459d7a374f5", 'App HTML must load the current stylesheet without stale asset cache'],
+    [$appIndex, "assets/index.js?v=35f3e8af0176", 'App HTML must load the current JavaScript bundle without stale asset cache'],
+    [$appIndex, "assets/style.css?v=35f3e8af0176", 'App HTML must load the current stylesheet without stale asset cache'],
     [$calculatorPage, "overflow: hidden !important;", 'Standalone calculator page must not expose the taller Bitrix admin document scrollbar'],
     [$calculatorPage, 'z-index: 2147483647;', 'Standalone calculator must cover every Bitrix admin chrome layer'],
     [$calculatorPage, "document.body.appendChild(container);", 'Standalone calculator must escape the Bitrix workarea stacking context'],
@@ -57,15 +63,18 @@ $checks = [
     [$integration, "SAVE_SETTINGS_EQUIPMENT_RESPONSE", 'Equipment saves must report completion to the iframe'],
     [$integration, "case 'SAVE_USER_THEME_REQUEST'", 'The iframe bridge must persist the editor theme for the current Bitrix user'],
     [$integration, "case 'OPEN_FORM_EDITOR_REQUEST'", 'The material tree must open the existing form editor through the trusted host bridge'],
-    [$integration, "#/presets/' + originalPresetId + '/form'", 'The form editor bridge must target the exact calculator form route'],
-    [$integration, 'resolveVisibleSidePanelHost(currentWindow)', 'The form editor must resolve its visible Bitrix slider stack through the guarded helper'],
-    [$integration, "typeof topSidePanel.open === 'function'", 'The form editor must use the top manager only when it can open a slider'],
-    [$integration, 'catch (_error)', 'The form editor must retain its local fallback when a cross-origin top window is unreadable'],
-    [$integration, 'sidePanel.open(targetUrl', 'The form editor must open as a native Bitrix slider above the material tree'],
-    [$integration, 'elevateSidePanelByUrl(hostWindow, sidePanel, targetUrl)', 'The exact form editor slider must rise above the full-screen control-center shell'],
-    [$integration, "getElementById('calc-container')", 'Standalone form editor must temporarily lower the full-screen calculator shell'],
-    [$integration, 'restoreOpenedSidePanel(slider)', 'Form editor layer changes must be restored when its slider closes'],
-    [$integration, 'onDestroyComplete: restore', 'Forced SidePanel destruction must also restore the calculator shell layer'],
+    [$integration, "type: 'OPEN_CONTROL_CENTER_FORM_EDITOR'", 'The calculator host must ask its owning control center to reveal the existing form workspace'],
+    [$integration, "editorInstanceId: editorInstanceId", 'The form request must be scoped to the exact owned editor instance'],
+    [$calculatorPage, 'editorInstanceId: <?= json_encode($editorInstanceId) ?>', 'The trusted editor identity must reach the bridge configuration'],
+    [$controlCenterPage, "message.type === 'OPEN_CONTROL_CENTER_FORM_EDITOR'", 'The owning control center must accept the scoped form request from its exact editor iframe'],
+    [$controlCenterPage, "sendToControlCenter('CONTROL_CENTER_OPEN_FORM_WORKSPACE'", 'The host must ask the already loaded control-center iframe to open the exact calculator form'],
+    [$controlCenterPage, "message.type === 'CONTROL_CENTER_FORM_WORKSPACE_OPENED'", 'The calculation editor must stay visible until the form workspace confirms its rendered route'],
+    [$controlCenterPage, 'formWorkspaceState = pending;', 'Opening form fields must preserve the route behind the calculation editor'],
+    [$controlCenterPage, "sendToEditorHost('CONTROL_CENTER_FORM_EDITOR_OPENED'", 'The tree must receive success only after the existing form workspace is visible'],
+    [$controlCenterPage, "sendToControlCenter('CONTROL_CENTER_CANCEL_FORM_WORKSPACE'", 'Timeout and editor close must cancel a partially opened form workspace'],
+    [$controlCenterPage, "sendToControlCenter('CONTROL_CENTER_FORM_WORKSPACE_CLOSED'", 'Returning from the form must acknowledge closure before CalcConfig clears its session'],
+    [$controlCenterPage, 'lastClosedFormWorkspace = state;', 'A repeated close must receive an idempotent acknowledgement if the first response was lost'],
+    [$controlCenterPage, 'closeControlCenterFormEditor', 'The operator must be able to return to the preserved material tree'],
     [$integration, "case 'REFRESH_EDITOR_CONTEXT_REQUEST'", 'The material tree must request an authoritative form and catalog refresh'],
     [$integration, "action: 'version_logic_launch'", 'Refresh must reacquire the exact mutable version context before INIT'],
     [$integration, "String(data.versionId || '') !== this.config.versionId", 'Refresh must reject a response for another calculator version'],

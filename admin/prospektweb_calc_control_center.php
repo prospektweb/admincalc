@@ -245,6 +245,9 @@ body {
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     var activeEditor = null;
     var launchPending = false;
+    var formWorkspaceState = null;
+    var pendingFormWorkspaceRequest = null;
+    var lastClosedFormWorkspace = null;
     var calculatorWorkspaceHashPattern = /^#\/presets(?:\/[1-9]\d*\/(?:overview|form|logic|storefront|mappings|usage|products|deadline|versions))?(?:\?.*)?$/;
 
     function normalizeCalculatorWorkspaceHash(hash) {
@@ -303,7 +306,7 @@ body {
         }).join('');
     }
 
-    function sendToControlCenter(type, payload) {
+    function sendToControlCenter(type, payload, requestId) {
         if (!iframe || !iframe.contentWindow) {
             return;
         }
@@ -313,6 +316,7 @@ body {
             source: 'bitrix',
             target: 'prospektweb.calc',
             type: type,
+            requestId: requestId,
             payload: Object.assign({controlCenterInstanceId: controlCenterInstanceId}, payload || {}),
             timestamp: Date.now()
         }, window.location.origin);
@@ -324,6 +328,19 @@ body {
         }
 
         var closedEditor = activeEditor;
+        var closingFormWorkspace = formWorkspaceState || pendingFormWorkspaceRequest;
+        if (closingFormWorkspace) {
+            sendToControlCenter('CONTROL_CENTER_CANCEL_FORM_WORKSPACE', {
+                editorInstanceId: closingFormWorkspace.editorInstanceId,
+                requestId: closingFormWorkspace.requestId
+            }, closingFormWorkspace.requestId);
+        }
+        if (pendingFormWorkspaceRequest && pendingFormWorkspaceRequest.timeoutId !== null) {
+            window.clearTimeout(pendingFormWorkspaceRequest.timeoutId);
+        }
+        pendingFormWorkspaceRequest = null;
+        formWorkspaceState = null;
+        lastClosedFormWorkspace = null;
         activeEditor = null;
         editorOverlay.hidden = true;
         editorOverlay.setAttribute('aria-hidden', 'true');
@@ -348,10 +365,146 @@ body {
         var editorInstanceId = createEditorInstanceId();
         targetUrl.searchParams.set('editor_instance_id', editorInstanceId);
         targetUrl.searchParams.set('_cc_nonce', editorInstanceId);
-        activeEditor = {id: editorInstanceId, type: editorType};
+        activeEditor = {
+            id: editorInstanceId,
+            type: editorType,
+            presetId: Number(targetUrl.searchParams.get('original_preset_id') || targetUrl.searchParams.get('preset_id') || 0),
+            versionId: String(targetUrl.searchParams.get('version_id') || '')
+        };
         editorIframe.src = targetUrl.pathname + targetUrl.search;
         editorOverlay.hidden = false;
         editorOverlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function sendToEditorHost(type, payload, requestId) {
+        if (!editorIframe || !editorIframe.contentWindow) {
+            return;
+        }
+        editorIframe.contentWindow.postMessage({
+            protocol: 'pwrt-v1',
+            source: 'bitrix',
+            target: 'prospektweb.calc',
+            type: type,
+            requestId: requestId,
+            payload: payload,
+            timestamp: Date.now()
+        }, window.location.origin);
+    }
+
+    function rejectFormWorkspaceRequest(payload, requestId, message) {
+        sendToEditorHost('CONTROL_CENTER_FORM_EDITOR_ERROR', {
+            editorInstanceId: payload && typeof payload.editorInstanceId === 'string'
+                ? payload.editorInstanceId : '',
+            message: message
+        }, requestId);
+    }
+
+    function requestControlCenterFormEditor(payload, requestId) {
+        if (typeof requestId !== 'string' || requestId.length === 0 || requestId.length > 160) {
+            return;
+        }
+        if (!activeEditor || !editorOverlay || pendingFormWorkspaceRequest || formWorkspaceState
+            || !hasExactPayloadKeys(payload, ['editorInstanceId', 'presetId', 'versionId'])
+            || payload.editorInstanceId !== activeEditor.id
+            || payload.presetId !== activeEditor.presetId
+            || payload.versionId !== activeEditor.versionId) {
+            rejectFormWorkspaceRequest(payload, requestId, 'Контекст редактора изменился. Повторно откройте дерево материалов.');
+            return;
+        }
+        var pending = {
+            requestId: requestId,
+            editorInstanceId: payload.editorInstanceId,
+            presetId: payload.presetId,
+            versionId: payload.versionId,
+            timeoutId: null
+        };
+        lastClosedFormWorkspace = null;
+        pending.timeoutId = window.setTimeout(function () {
+            if (pendingFormWorkspaceRequest !== pending) {
+                return;
+            }
+            sendToControlCenter('CONTROL_CENTER_CANCEL_FORM_WORKSPACE', {
+                editorInstanceId: pending.editorInstanceId,
+                requestId: pending.requestId
+            }, pending.requestId);
+            pendingFormWorkspaceRequest = null;
+            rejectFormWorkspaceRequest(payload, requestId, 'Редактор формы не подтвердил открытие.');
+        }, 15000);
+        pendingFormWorkspaceRequest = pending;
+        sendToControlCenter('CONTROL_CENTER_OPEN_FORM_WORKSPACE', {
+            editorInstanceId: payload.editorInstanceId,
+            presetId: payload.presetId,
+            versionId: payload.versionId
+        }, requestId);
+    }
+
+    function confirmControlCenterFormEditor(payload, requestId) {
+        var pending = pendingFormWorkspaceRequest;
+        if (!pending || requestId !== pending.requestId
+            || !hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'editorInstanceId', 'presetId', 'versionId'])
+            || payload.controlCenterInstanceId !== controlCenterInstanceId
+            || payload.editorInstanceId !== pending.editorInstanceId
+            || payload.presetId !== pending.presetId
+            || payload.versionId !== pending.versionId) {
+            return;
+        }
+        window.clearTimeout(pending.timeoutId);
+        pendingFormWorkspaceRequest = null;
+        formWorkspaceState = pending;
+        editorOverlay.hidden = true;
+        editorOverlay.setAttribute('aria-hidden', 'true');
+        if (iframe.contentWindow) {
+            iframe.contentWindow.focus();
+        }
+        sendToEditorHost('CONTROL_CENTER_FORM_EDITOR_OPENED', {
+            editorInstanceId: pending.editorInstanceId
+        }, pending.requestId);
+    }
+
+    function failControlCenterFormEditor(payload, requestId) {
+        var pending = pendingFormWorkspaceRequest;
+        if (!pending || requestId !== pending.requestId
+            || !hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'editorInstanceId', 'message'])
+            || payload.controlCenterInstanceId !== controlCenterInstanceId
+            || payload.editorInstanceId !== pending.editorInstanceId) {
+            return;
+        }
+        window.clearTimeout(pending.timeoutId);
+        pendingFormWorkspaceRequest = null;
+        rejectFormWorkspaceRequest(payload, requestId, payload.message || 'Редактор формы отклонил запрос.');
+    }
+
+    function closeControlCenterFormEditor(payload) {
+        var state = formWorkspaceState;
+        if (!state && lastClosedFormWorkspace
+            && hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'editorInstanceId', 'requestId'])
+            && payload.controlCenterInstanceId === controlCenterInstanceId
+            && payload.editorInstanceId === lastClosedFormWorkspace.editorInstanceId
+            && payload.requestId === lastClosedFormWorkspace.requestId) {
+            sendToControlCenter('CONTROL_CENTER_FORM_WORKSPACE_CLOSED', {
+                editorInstanceId: lastClosedFormWorkspace.editorInstanceId,
+                requestId: lastClosedFormWorkspace.requestId
+            }, lastClosedFormWorkspace.requestId);
+            return;
+        }
+        if (!state || !activeEditor
+            || !hasExactPayloadKeys(payload, ['controlCenterInstanceId', 'editorInstanceId', 'requestId'])
+            || payload.controlCenterInstanceId !== controlCenterInstanceId
+            || payload.editorInstanceId !== state.editorInstanceId
+            || payload.requestId !== state.requestId) {
+            return;
+        }
+        formWorkspaceState = null;
+        lastClosedFormWorkspace = state;
+        editorOverlay.hidden = false;
+        editorOverlay.setAttribute('aria-hidden', 'false');
+        if (editorIframe.contentWindow) {
+            editorIframe.contentWindow.focus();
+        }
+        sendToControlCenter('CONTROL_CENTER_FORM_WORKSPACE_CLOSED', {
+            editorInstanceId: state.editorInstanceId,
+            requestId: state.requestId
+        }, state.requestId);
     }
 
     function postEditorAction(action, payload) {
@@ -523,6 +676,10 @@ body {
         }
 
         if (editorIframe && event.source === editorIframe.contentWindow) {
+            if (message.type === 'OPEN_CONTROL_CENTER_FORM_EDITOR') {
+                requestControlCenterFormEditor(message.payload, message.requestId);
+                return;
+            }
             if (message.type === 'CLOSE_CONTROL_CENTER_EDITOR'
                 && activeEditor
                 && hasExactPayloadKeys(message.payload, ['editorInstanceId'])
@@ -533,6 +690,21 @@ body {
         }
 
         if (!iframe || event.source !== iframe.contentWindow) {
+            return;
+        }
+
+        if (message.type === 'CONTROL_CENTER_FORM_WORKSPACE_OPENED') {
+            confirmControlCenterFormEditor(message.payload, message.requestId);
+            return;
+        }
+
+        if (message.type === 'CONTROL_CENTER_FORM_WORKSPACE_ERROR') {
+            failControlCenterFormEditor(message.payload, message.requestId);
+            return;
+        }
+
+        if (message.type === 'CONTROL_CENTER_CLOSE_FORM_WORKSPACE') {
+            closeControlCenterFormEditor(message.payload);
             return;
         }
 

@@ -27,131 +27,6 @@
      * Класс для интеграции с React-калькулятором
      */
     class CalcIntegration {
-        static resolveVisibleSidePanelHost(currentWindow) {
-            try {
-                const topWindow = currentWindow.top || currentWindow;
-                const topSidePanel = topWindow.BX && topWindow.BX.SidePanel && topWindow.BX.SidePanel.Instance;
-                if (topSidePanel && typeof topSidePanel.open === 'function') {
-                    return {hostWindow: topWindow, sidePanel: topSidePanel};
-                }
-            } catch (_error) {
-                // A sandboxed or cross-origin parent is not readable. The local
-                // Bitrix manager remains a valid fallback when it is available.
-            }
-
-            const localSidePanel = currentWindow.BX && currentWindow.BX.SidePanel && currentWindow.BX.SidePanel.Instance;
-            if (localSidePanel && typeof localSidePanel.open === 'function') {
-                return {hostWindow: currentWindow, sidePanel: localSidePanel};
-            }
-            return null;
-        }
-
-        static restoreOpenedSidePanel(slider) {
-            const state = slider && slider.__prospektwebFormEditorLayerState;
-            if (!state) return false;
-            if (state.observer && typeof state.observer.disconnect === 'function') {
-                state.observer.disconnect();
-            }
-            state.snapshots.forEach(({element, value, priority}) => {
-                if (!element || !element.style) return;
-                if (value === '' && typeof element.style.removeProperty === 'function') {
-                    element.style.removeProperty('z-index');
-                } else if (typeof element.style.setProperty === 'function') {
-                    element.style.setProperty('z-index', value, priority);
-                } else {
-                    element.style.zIndex = value;
-                }
-                if (element.classList && typeof element.classList.remove === 'function') {
-                    element.classList.remove('prospektweb-form-editor-layer');
-                }
-            });
-            delete slider.__prospektwebFormEditorLayerState;
-            return true;
-        }
-
-        static elevateOpenedSidePanel(hostWindow, slider) {
-            const hostDocument = hostWindow && hostWindow.document;
-            if (!hostDocument || !slider
-                || typeof slider.getContainer !== 'function'
-                || typeof slider.getOverlay !== 'function') {
-                return false;
-            }
-            const container = slider.getContainer();
-            const overlay = slider.getOverlay();
-            if (!container || !overlay) return false;
-            let state = slider.__prospektwebFormEditorLayerState;
-            const readStyle = (element) => ({
-                element,
-                value: element.style && typeof element.style.getPropertyValue === 'function'
-                    ? element.style.getPropertyValue('z-index') : String(element.style?.zIndex || ''),
-                priority: element.style && typeof element.style.getPropertyPriority === 'function'
-                    ? element.style.getPropertyPriority('z-index') : '',
-            });
-            const ensureLayer = (element, value) => {
-                if (element.classList && typeof element.classList.add === 'function') {
-                    element.classList.add('prospektweb-form-editor-layer');
-                }
-                if (element.style && typeof element.style.setProperty === 'function') {
-                    const currentValue = typeof element.style.getPropertyValue === 'function'
-                        ? element.style.getPropertyValue('z-index') : '';
-                    const currentPriority = typeof element.style.getPropertyPriority === 'function'
-                        ? element.style.getPropertyPriority('z-index') : '';
-                    if (currentValue !== value || currentPriority !== 'important') {
-                        element.style.setProperty('z-index', value, 'important');
-                    }
-                } else if (element.style) {
-                    element.style.zIndex = value;
-                }
-            };
-            if (!state) {
-                const shell = typeof hostDocument.getElementById === 'function'
-                    ? hostDocument.getElementById('calc-container') : null;
-                const snapshots = [readStyle(overlay), readStyle(container)];
-                if (shell && shell !== container) snapshots.push(readStyle(shell));
-                state = {snapshots, observer: null, shell};
-                slider.__prospektwebFormEditorLayerState = state;
-                const Observer = hostWindow.MutationObserver;
-                if (typeof Observer === 'function') {
-                    state.observer = new Observer(() => {
-                        if (overlay.classList && overlay.classList.contains('--closing')) {
-                            CalcIntegration.restoreOpenedSidePanel(slider);
-                            return;
-                        }
-                        ensureLayer(overlay, '2147483645');
-                        ensureLayer(container, '2147483646');
-                    });
-                    state.observer.observe(overlay, {attributes: true, attributeFilter: ['class', 'style']});
-                    state.observer.observe(container, {attributes: true, attributeFilter: ['class', 'style']});
-                }
-            }
-            // The standalone calculator shell uses the maximum browser z-index.
-            // Temporarily lower only that exact shell while this exact slider is open.
-            if (state.shell) ensureLayer(state.shell, '2147483644');
-            ensureLayer(overlay, '2147483645');
-            ensureLayer(container, '2147483646');
-            return true;
-        }
-
-        static elevateSidePanelByUrl(hostWindow, sidePanel, targetUrl) {
-            if (!sidePanel || typeof sidePanel.getSlider !== 'function') return false;
-            const slider = sidePanel.getSlider(targetUrl);
-            if (!slider || (typeof slider.isOpen === 'function' && !slider.isOpen())) return false;
-            return CalcIntegration.elevateOpenedSidePanel(hostWindow, slider);
-        }
-
-        static restoreSidePanelByUrl(sidePanel, targetUrl) {
-            if (!sidePanel || typeof sidePanel.getSlider !== 'function') return false;
-            return CalcIntegration.restoreOpenedSidePanel(sidePanel.getSlider(targetUrl));
-        }
-
-        static createSidePanelLayerEvents(sidePanel, targetUrl) {
-            const restore = () => CalcIntegration.restoreSidePanelByUrl(sidePanel, targetUrl);
-            return {
-                onClosing: restore,
-                onDestroyComplete: restore,
-            };
-        }
-
         constructor(config) {
             this.config = {
                 iframe: config.iframe || null,
@@ -165,6 +40,7 @@
                 versionOriginalPresetId: Number.isSafeInteger(config.versionOriginalPresetId) ? config.versionOriginalPresetId : 0,
                 versionContentHash: typeof config.versionContentHash === 'string' ? config.versionContentHash : '',
                 versionLogicHash: typeof config.versionLogicHash === 'string' ? config.versionLogicHash : '',
+                editorInstanceId: typeof config.editorInstanceId === 'string' ? config.editorInstanceId : '',
                 siteId: config.siteId || '',
                 sessid: config.sessid || '',
                 onClose: config.onClose || null,
@@ -180,6 +56,7 @@
             this.targetOrigin = window.location.origin;
             this.readyOrigin = null;
             this.pendingRequests = {};
+            this.pendingFormEditorRequest = null;
             this.initData = null;
             this.currentSelectionItems = null;
 
@@ -252,6 +129,9 @@
          * @param {MessageEvent} event
          */
         handleMessage(event) {
+            if (this.handleControlCenterFormEditorResponse(event)) {
+                return;
+            }
             if (event.source !== this.iframeWindow || event.origin !== this.targetOrigin) {
                 this.logBridge('[BitrixBridge] ignored message outside the bound iframe channel', {
                     origin: event.origin,
@@ -1128,6 +1008,46 @@
             }
         }
 
+        handleControlCenterFormEditorResponse(event) {
+            const pending = this.pendingFormEditorRequest;
+            if (!pending || window.parent === window
+                || event.source !== window.parent || event.origin !== window.location.origin) {
+                return false;
+            }
+            const message = event.data;
+            if (!message || typeof message !== 'object' || Array.isArray(message)
+                || message.protocol !== MODULE_PROTOCOL
+                || message.source !== MODULE_SOURCE
+                || message.target !== MODULE_TARGET
+                || message.requestId !== pending.requestId
+                || (message.type !== 'CONTROL_CENTER_FORM_EDITOR_OPENED'
+                    && message.type !== 'CONTROL_CENTER_FORM_EDITOR_ERROR')) {
+                return false;
+            }
+            const payload = message.payload;
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+                || payload.editorInstanceId !== this.config.editorInstanceId) {
+                return false;
+            }
+            if (pending.timeoutId !== null && typeof window.clearTimeout === 'function') {
+                window.clearTimeout(pending.timeoutId);
+            }
+            this.pendingFormEditorRequest = null;
+            if (message.type === 'CONTROL_CENTER_FORM_EDITOR_OPENED') {
+                this.sendPwrtMessage('RESPONSE', {
+                    requestType: 'OPEN_FORM_EDITOR_REQUEST',
+                    status: 'success',
+                }, pending.childRequestId, pending.childOrigin);
+            } else {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось открыть редактор полей формы',
+                    details: typeof payload.message === 'string' && payload.message !== ''
+                        ? payload.message : 'Центр управления отклонил запрос.',
+                }, pending.childRequestId, pending.childOrigin);
+            }
+            return true;
+        }
+
         handleOpenFormEditorRequest(message, origin) {
             try {
                 const originalPresetId = Number(this.config.versionOriginalPresetId || this.config.presetId || 0);
@@ -1138,43 +1058,49 @@
                 if (versionId !== '' && !/^v_[a-f0-9]{16,40}$/.test(versionId)) {
                     throw new Error('Редактор не содержит корректную версию формы.');
                 }
-                const lang = String(this.initData?.context?.lang || 'ru').replace(/[^a-z]/gi, '') || 'ru';
-                const query = new URLSearchParams({ lang: lang });
-                const formQuery = versionId ? ('?version=' + encodeURIComponent(versionId)) : '';
-                const targetUrl = '/bitrix/admin/prospektweb_calc_control_center.php?'
-                    + query.toString()
-                    + '#/presets/' + originalPresetId + '/form' + formQuery;
-                // The logic editor itself is already hosted in a Bitrix slider.
-                // Opening another slider from this iframe places it below the
-                // full-screen material tree in Edge. The top manager owns the
-                // visible slider stack and therefore must be preferred.
-                const sidePanelHost = CalcIntegration.resolveVisibleSidePanelHost(window);
-                if (!sidePanelHost) {
-                    throw new Error('Слайдер Bitrix недоступен в текущем контексте.');
+                const editorInstanceId = String(this.config.editorInstanceId || '');
+                if (!/^[a-f0-9]{32}$/.test(editorInstanceId) || window.parent === window) {
+                    throw new Error('Редактор формы доступен только из Центра управления.');
                 }
-                const {hostWindow, sidePanel} = sidePanelHost;
-                const width = Math.max(960, Math.floor(Number(hostWindow.innerWidth || 1440) * 0.96));
-                const opened = sidePanel.open(targetUrl, {
-                    cacheable: false,
-                    width: width,
-                    events: CalcIntegration.createSidePanelLayerEvents(sidePanel, targetUrl),
-                });
-                if (opened === false) {
-                    throw new Error('Слайдер редактора полей формы не открылся.');
+                if (this.pendingFormEditorRequest) {
+                    throw new Error('Редактор полей формы уже открывается.');
                 }
-                CalcIntegration.elevateSidePanelByUrl(hostWindow, sidePanel, targetUrl);
-                if (typeof hostWindow.setTimeout === 'function') {
-                    [0, 100, 250, 500, 1000, 2000].forEach((delay) => {
-                        hostWindow.setTimeout(
-                            () => CalcIntegration.elevateSidePanelByUrl(hostWindow, sidePanel, targetUrl),
-                            delay,
-                        );
-                    });
-                }
-                this.sendPwrtMessage('RESPONSE', {
-                    requestType: 'OPEN_FORM_EDITOR_REQUEST',
-                    status: 'success',
-                }, message.requestId, origin);
+                const parentRequestId = 'form_workspace_' + Date.now() + '_'
+                    + Math.random().toString(36).slice(2, 8);
+                const timeoutId = typeof window.setTimeout === 'function'
+                    ? window.setTimeout(() => {
+                        const pending = this.pendingFormEditorRequest;
+                        if (!pending || pending.requestId !== parentRequestId) return;
+                        this.pendingFormEditorRequest = null;
+                        this.sendPwrtMessage('ERROR', {
+                            message: 'Не удалось открыть редактор полей формы',
+                            details: 'Центр управления не подтвердил открытие редактора.',
+                        }, pending.childRequestId, pending.childOrigin);
+                    }, 18000)
+                    : null;
+                this.pendingFormEditorRequest = {
+                    requestId: parentRequestId,
+                    childRequestId: message.requestId,
+                    childOrigin: origin,
+                    timeoutId: timeoutId,
+                };
+                // Reuse the already loaded control-center application behind the
+                // calculation editor. Starting a second complete control center in
+                // a nested Bitrix SidePanel duplicates the React workspace and can
+                // exhaust the Edge renderer on large calculator payloads.
+                window.parent.postMessage({
+                    protocol: MODULE_PROTOCOL,
+                    source: MODULE_TARGET,
+                    target: MODULE_SOURCE,
+                    type: 'OPEN_CONTROL_CENTER_FORM_EDITOR',
+                    requestId: parentRequestId,
+                    payload: {
+                        editorInstanceId: editorInstanceId,
+                        presetId: originalPresetId,
+                        versionId: versionId,
+                    },
+                    timestamp: Date.now(),
+                }, window.location.origin);
             } catch (error) {
                 this.sendPwrtMessage('ERROR', {
                     message: 'Не удалось открыть редактор полей формы',
@@ -5346,6 +5272,12 @@
          */
         destroy() {
             window.removeEventListener('message', this.boundHandleMessage);
+
+            if (this.pendingFormEditorRequest?.timeoutId !== null
+                && typeof window.clearTimeout === 'function') {
+                window.clearTimeout(this.pendingFormEditorRequest.timeoutId);
+            }
+            this.pendingFormEditorRequest = null;
 
             if (this.iframe && this.iframe.__calcIntegrationInstance === this) {
                 delete this.iframe.__calcIntegrationInstance;
