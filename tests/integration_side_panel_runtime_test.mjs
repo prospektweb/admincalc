@@ -47,12 +47,17 @@ test('opened form slider is elevated above the full-screen control-center shell'
     values: {},
     setProperty(name, value, priority) { this.values[name] = { value, priority } },
   })
-  const container = { style: style() }
-  const overlay = { style: style() }
+  const classes = () => ({ values: [], add(value) { this.values.push(value) } })
+  const container = { style: style(), classList: classes() }
+  const overlay = { style: style(), classList: classes() }
+  const appended = []
   const window = {
     ...sidePanelWindow({ open() {} }),
     top: null,
     document: {
+      head: { appendChild(node) { appended.push(node) } },
+      getElementById() { return null },
+      createElement(tagName) { return { tagName, id: '', textContent: '' } },
       querySelectorAll(selector) {
         if (selector === '.side-panel-container') return [container]
         if (selector === '.side-panel-overlay.--open') return [overlay]
@@ -65,4 +70,8 @@ test('opened form slider is elevated above the full-screen control-center shell'
   assert.equal(Integration.elevateOpenedSidePanel(window), true)
   assert.deepEqual(container.style.values['z-index'], { value: '2147483646', priority: 'important' })
   assert.deepEqual(overlay.style.values['z-index'], { value: '2147483645', priority: 'important' })
+  assert.deepEqual(container.classList.values, ['prospektweb-form-editor-layer'])
+  assert.deepEqual(overlay.classList.values, ['prospektweb-form-editor-layer'])
+  assert.equal(appended.length, 1)
+  assert.match(appended[0].textContent, /side-panel-overlay\.prospektweb-form-editor-layer/)
 })

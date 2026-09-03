@@ -60,12 +60,35 @@
             // A nested Bitrix slider therefore needs an explicit top layer to
             // remain visible above the full-screen calculator workspace.
             const setLayer = (element, value) => {
+                if (element.classList && typeof element.classList.add === 'function') {
+                    element.classList.add('prospektweb-form-editor-layer');
+                }
                 if (element.style && typeof element.style.setProperty === 'function') {
                     element.style.setProperty('z-index', value, 'important');
                 } else if (element.style) {
                     element.style.zIndex = value;
                 }
             };
+            // Bitrix rewrites the overlay's inline z-index again while its open
+            // animation is running. A scoped author-level !important rule keeps
+            // this one nested form editor above the full-screen workspace even
+            // after that late mutation, without affecting ordinary sliders.
+            if (
+                typeof hostDocument.getElementById === 'function'
+                && typeof hostDocument.createElement === 'function'
+                && !hostDocument.getElementById('prospektweb-form-editor-layer-style')
+            ) {
+                const layerStyle = hostDocument.createElement('style');
+                layerStyle.id = 'prospektweb-form-editor-layer-style';
+                layerStyle.textContent = [
+                    '.side-panel-overlay.prospektweb-form-editor-layer{z-index:2147483645!important}',
+                    '.side-panel-container.prospektweb-form-editor-layer{z-index:2147483646!important}',
+                ].join('');
+                const styleHost = hostDocument.head || hostDocument.documentElement;
+                if (styleHost && typeof styleHost.appendChild === 'function') {
+                    styleHost.appendChild(layerStyle);
+                }
+            }
             if (overlay) setLayer(overlay, '2147483645');
             setLayer(container, '2147483646');
             return true;
