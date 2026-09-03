@@ -47,6 +47,7 @@ $checks = [
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
     [$calculator, "index.html?v=a459d7a374f5", 'Embedded calculator must load the current frontend release without stale HTML cache'],
     [$calculatorPage, "\$appVersion = is_file(\$appIndexPath) ? (string)filemtime(\$appIndexPath) : '1';", 'Standalone calculator page must derive its cache key from the deployed app'],
+    [$calculatorPage, 'use Bitrix\\Main\\Application;', 'Standalone calculator must import the Bitrix Application class used for cache versioning'],
     [$calculatorPage, "\$integrationVersion = is_file(\$integrationFile) ? (string)filemtime(\$integrationFile) : '1';", 'Standalone calculator page must invalidate the bridge cache after deployment'],
     [$calculatorPage, "\$appIframeQuery['open_calculation_panel'] = 'Y';", 'A trusted direct calculation launch must reach the embedded app'],
     [$calculatorPage, "\$appIframeQuery['version_id'] = \$versionId;", 'The embedded editor app must receive the exact version identity'],
