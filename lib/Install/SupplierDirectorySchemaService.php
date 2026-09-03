@@ -16,8 +16,8 @@ use Bitrix\Main\Loader;
  */
 final class SupplierDirectorySchemaService
 {
-    public const CONTRACT = 'prospektweb.calc.supplier-directory-schema/v2';
-    public const SCHEMA_VERSION = 2;
+    public const CONTRACT = 'prospektweb.calc.supplier-directory-schema/v3';
+    public const SCHEMA_VERSION = 3;
     public const MODULE_ID = 'prospektweb.calc';
     public const IBLOCK_TYPE = 'calculator_catalog';
     public const IBLOCK_CODE = 'CALC_SUPPLIERS';
@@ -95,6 +95,27 @@ final class SupplierDirectorySchemaService
                 'WITH_DESCRIPTION' => 'Y',
                 'IS_REQUIRED' => 'N',
                 'SORT' => 500,
+            ],
+            'DOCUMENTS' => [
+                'NAME' => 'Документы',
+                'PROPERTY_TYPE' => 'F',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 1,
+                'WITH_DESCRIPTION' => 'Y',
+                'IS_REQUIRED' => 'N',
+                'SORT' => 540,
+                'HINT' => 'Сертификаты, лицензии, прайс-листы и другие документы поставщика',
+            ],
+            'LINK_MATERIALS' => [
+                'NAME' => 'Материалы',
+                'PROPERTY_TYPE' => 'E',
+                'MULTIPLE' => 'Y',
+                'MULTIPLE_CNT' => 1,
+                'IS_REQUIRED' => 'N',
+                'SORT' => 550,
+                'SEARCHABLE' => 'N',
+                'FILTRABLE' => 'N',
+                'HINT' => 'Обратное импортируемое представление канонической связи CALC_MATERIALS.SUPPLIERS',
             ],
             'NOTES' => [
                 'NAME' => 'Внутренняя закупочная заметка',
@@ -200,17 +221,24 @@ final class SupplierDirectorySchemaService
             $blockers[] = 'Нельзя однозначно принять существующий CALC_SUPPLIERS по полной stable identity.';
         }
 
+        $supplierSchema = self::supplierPropertySchema();
+        $materialsIblockId = (int)($state['targets']['CALC_MATERIALS']['ID'] ?? 0);
+        if ($materialsIblockId > 0) {
+            $supplierSchema['LINK_MATERIALS']['LINK_IBLOCK_ID'] = $materialsIblockId;
+        }
+
         if ($supplierId > 0) {
             $this->planProperties(
                 'CALC_SUPPLIERS',
                 $supplierId,
-                self::supplierPropertySchema(),
+                $supplierSchema,
                 $state['properties']['CALC_SUPPLIERS'] ?? [],
                 $operations,
-                $blockers
+                $blockers,
+                $materialsIblockId === 0
             );
         } elseif ($supplierRows === []) {
-            foreach (array_keys(self::supplierPropertySchema()) as $propertyCode) {
+            foreach (array_keys($supplierSchema) as $propertyCode) {
                 $operations[] = [
                     'action' => 'create_property',
                     'iblock' => 'CALC_SUPPLIERS',
@@ -264,7 +292,7 @@ final class SupplierDirectorySchemaService
             'counts' => $state['counts'] ?? [],
             'definitions' => [
                 'iblock' => self::iblockDefinition(),
-                'supplierProperties' => self::supplierPropertySchema(),
+                'supplierProperties' => $supplierSchema,
                 'materialProperties' => self::materialPropertySchema(),
             ],
         ];
@@ -314,7 +342,9 @@ final class SupplierDirectorySchemaService
                 $supplierId = $this->createSupplierIblock();
             }
 
-            foreach (self::supplierPropertySchema() as $code => $definition) {
+            $supplierDefinitions = self::supplierPropertySchema();
+            $supplierDefinitions['LINK_MATERIALS']['LINK_IBLOCK_ID'] = (int)$targetIds['CALC_MATERIALS'];
+            foreach ($supplierDefinitions as $code => $definition) {
                 $this->ensureProperty($supplierId, $code, $definition);
             }
             foreach (['CALC_MATERIALS', 'CALC_MATERIALS_VARIANTS'] as $iblockCode) {

@@ -66,8 +66,8 @@ $assert(
     count(array_filter(
         $fresh['operations'],
         static fn(array $operation): bool => ($operation['action'] ?? '') === 'create_property'
-    )) === 12,
-    'fresh plan creates eight supplier fields and two fields on each material iblock'
+    )) === 14,
+    'fresh plan creates ten supplier fields and two fields on each material iblock'
 );
 
 $supplierId = 77;
@@ -98,7 +98,9 @@ $propertyRow = static function (string $code, array $definition, int $id) use ($
 
 $supplierProperties = [];
 $id = 100;
-foreach (SupplierDirectorySchemaService::supplierPropertySchema() as $code => $definition) {
+$supplierSchema = SupplierDirectorySchemaService::supplierPropertySchema();
+$supplierSchema['LINK_MATERIALS']['LINK_IBLOCK_ID'] = (int)$targets['CALC_MATERIALS']['ID'];
+foreach ($supplierSchema as $code => $definition) {
     $supplierProperties[$code] = $propertyRow($code, $definition, $id++);
 }
 $materialProperties = [];
@@ -136,6 +138,18 @@ $complete = (new SupplierDirectorySchemaService([
     'state' => static fn(): array => $completeState,
 ]))->analyze();
 $assert($complete['operations'] === [] && $complete['blockers'] === [], 'repeat analyze has zero diff');
+$assert(
+    ($complete['definitions']['supplierProperties']['DOCUMENTS']['PROPERTY_TYPE'] ?? '') === 'F'
+        && ($complete['definitions']['supplierProperties']['DOCUMENTS']['MULTIPLE'] ?? '') === 'Y'
+        && ($complete['definitions']['supplierProperties']['DOCUMENTS']['WITH_DESCRIPTION'] ?? '') === 'Y',
+    'supplier documents use a described multiple file property'
+);
+$assert(
+    ($complete['definitions']['supplierProperties']['LINK_MATERIALS']['PROPERTY_TYPE'] ?? '') === 'E'
+        && ($complete['definitions']['supplierProperties']['LINK_MATERIALS']['MULTIPLE'] ?? '') === 'Y'
+        && (int)($complete['definitions']['supplierProperties']['LINK_MATERIALS']['LINK_IBLOCK_ID'] ?? 0) === 44,
+    'supplier material projection links to the exact material iblock'
+);
 
 $wrongLinkState = $completeState;
 $wrongLinkState['properties']['CALC_MATERIALS']['SUPPLIERS']['LINK_IBLOCK_ID'] = 88;
