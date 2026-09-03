@@ -96,7 +96,10 @@ test('opened form slider is elevated by its exact URL and standalone shell is re
   assert.equal(overlay.classList.contains('prospektweb-form-editor-layer'), true)
   assert.equal(observations.length, 2)
 
-  assert.equal(Integration.restoreOpenedSidePanel(slider), true)
+  const lifecycle = Integration.createSidePanelLayerEvents(sidePanel, '/target')
+  assert.equal(typeof lifecycle.onClosing, 'function')
+  assert.equal(typeof lifecycle.onDestroyComplete, 'function')
+  assert.equal(lifecycle.onClosing(), true)
   assert.equal(container.style.getPropertyValue('z-index'), '')
   assert.equal(overlay.style.getPropertyValue('z-index'), '1050')
   assert.equal(shell.style.getPropertyValue('z-index'), '')
@@ -110,4 +113,5 @@ test('exact URL lookup does not elevate another open slider', () => {
   window.top = window
   const Integration = loadIntegration(window)
   assert.equal(Integration.elevateSidePanelByUrl(window, sidePanel, '/missing'), false)
+  assert.equal(Integration.restoreSidePanelByUrl(sidePanel, '/missing'), false)
 })

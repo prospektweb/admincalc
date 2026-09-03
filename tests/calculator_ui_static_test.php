@@ -65,6 +65,7 @@ $checks = [
     [$integration, 'elevateSidePanelByUrl(hostWindow, sidePanel, targetUrl)', 'The exact form editor slider must rise above the full-screen control-center shell'],
     [$integration, "getElementById('calc-container')", 'Standalone form editor must temporarily lower the full-screen calculator shell'],
     [$integration, 'restoreOpenedSidePanel(slider)', 'Form editor layer changes must be restored when its slider closes'],
+    [$integration, 'onDestroyComplete: restore', 'Forced SidePanel destruction must also restore the calculator shell layer'],
     [$integration, "case 'REFRESH_EDITOR_CONTEXT_REQUEST'", 'The material tree must request an authoritative form and catalog refresh'],
     [$integration, "action: 'version_logic_launch'", 'Refresh must reacquire the exact mutable version context before INIT'],
     [$integration, "String(data.versionId || '') !== this.config.versionId", 'Refresh must reject a response for another calculator version'],

@@ -139,6 +139,19 @@
             return CalcIntegration.elevateOpenedSidePanel(hostWindow, slider);
         }
 
+        static restoreSidePanelByUrl(sidePanel, targetUrl) {
+            if (!sidePanel || typeof sidePanel.getSlider !== 'function') return false;
+            return CalcIntegration.restoreOpenedSidePanel(sidePanel.getSlider(targetUrl));
+        }
+
+        static createSidePanelLayerEvents(sidePanel, targetUrl) {
+            const restore = () => CalcIntegration.restoreSidePanelByUrl(sidePanel, targetUrl);
+            return {
+                onClosing: restore,
+                onDestroyComplete: restore,
+            };
+        }
+
         constructor(config) {
             this.config = {
                 iframe: config.iframe || null,
@@ -1141,7 +1154,11 @@
                 }
                 const {hostWindow, sidePanel} = sidePanelHost;
                 const width = Math.max(960, Math.floor(Number(hostWindow.innerWidth || 1440) * 0.96));
-                const opened = sidePanel.open(targetUrl, {cacheable: false, width: width});
+                const opened = sidePanel.open(targetUrl, {
+                    cacheable: false,
+                    width: width,
+                    events: CalcIntegration.createSidePanelLayerEvents(sidePanel, targetUrl),
+                });
                 if (opened === false) {
                     throw new Error('Слайдер редактора полей формы не открылся.');
                 }
