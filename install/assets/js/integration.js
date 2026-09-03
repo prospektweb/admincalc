@@ -249,6 +249,8 @@
                     'CHECK_CALC_CONTRACT_REQUEST',
                     'PREVIEW_CATALOG_WRITE_REQUEST',
                     'SAVE_USER_THEME_REQUEST',
+                    'OPEN_FORM_EDITOR_REQUEST',
+                    'REFRESH_EDITOR_CONTEXT_REQUEST',
                     'CLOSE_REQUEST',
                     'UNSAVED_CHANGES_CHANGED',
                 ]);
@@ -271,6 +273,12 @@
                     break;
                 case 'SELECT_FIELDS_REQUEST':
                     await this.handleSelectFieldsRequest(message, origin);
+                    break;
+                case 'OPEN_FORM_EDITOR_REQUEST':
+                    this.handleOpenFormEditorRequest(message, origin);
+                    break;
+                case 'REFRESH_EDITOR_CONTEXT_REQUEST':
+                    await this.handleRefreshEditorContextRequest(message, origin);
                     break;
                 case 'CREATE_CUSTOM_FIELD_REQUEST':
                     await this.handleCreateCustomFieldRequest(message, origin);
@@ -526,6 +534,7 @@
                     console.warn('[BitrixBridge][DEBUG] Unknown pwrt message type:', message.type);
                     console.warn('[BitrixBridge][DEBUG] Known types:', [
                         'SELECT_REQUEST', 'SELECT_DETAILS_REQUEST', 'SELECT_FIELDS_REQUEST', 'SELECT_DETAILS_TO_BINDING_REQUEST',
+                        'OPEN_FORM_EDITOR_REQUEST', 'REFRESH_EDITOR_CONTEXT_REQUEST',
                         'ADD_DETAIL_REQUEST', 'ADD_DETAIL_TO_BINDING_REQUEST',
                         'ADD_STAGE_REQUEST', 'DUPLICATE_STAGE_REQUEST', 'DELETE_STAGE_REQUEST', 'SAVE_STAGE_ACTIVATION_REQUEST', 'REMOVE_DETAIL_REQUEST',
                         'RENAME_DETAIL_REQUEST', 'CHANGE_PRODUCT_TYPE_REQUEST', 'CHANGE_SETTINGS_REQUEST', 'CHANGE_OPERATION_VARIANT_REQUEST',
@@ -991,6 +1000,103 @@
             } catch (error) {
                 console.error('[CalcIntegration] Error during refresh request', error);
                 this.sendPwrtMessage('REFRESH_RESULT', [], message.requestId, origin);
+            }
+        }
+
+        handleOpenFormEditorRequest(message, origin) {
+            try {
+                const originalPresetId = Number(this.config.versionOriginalPresetId || this.config.presetId || 0);
+                if (!Number.isSafeInteger(originalPresetId) || originalPresetId <= 0) {
+                    throw new Error('Редактор не содержит идентификатор калькулятора.');
+                }
+                const versionId = String(this.config.versionId || '');
+                if (versionId !== '' && !/^v_[a-f0-9]{16,40}$/.test(versionId)) {
+                    throw new Error('Редактор не содержит корректную версию формы.');
+                }
+                const lang = String(this.initData?.context?.lang || 'ru').replace(/[^a-z]/gi, '') || 'ru';
+                const query = new URLSearchParams({ lang: lang });
+                const formQuery = versionId ? ('?version=' + encodeURIComponent(versionId)) : '';
+                const targetUrl = '/bitrix/admin/prospektweb_calc_control_center.php?'
+                    + query.toString()
+                    + '#/presets/' + originalPresetId + '/form' + formQuery;
+                const hostWindow = window.top || window;
+                const sidePanel = hostWindow.BX && hostWindow.BX.SidePanel && hostWindow.BX.SidePanel.Instance;
+                if (!sidePanel || typeof sidePanel.open !== 'function') {
+                    throw new Error('Слайдер Bitrix недоступен в текущем контексте.');
+                }
+                const width = Math.max(960, Math.floor(Number(hostWindow.innerWidth || 1440) * 0.96));
+                sidePanel.open(targetUrl, {cacheable: false, width: width});
+                this.sendPwrtMessage('RESPONSE', {
+                    requestType: 'OPEN_FORM_EDITOR_REQUEST',
+                    status: 'success',
+                }, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось открыть редактор полей формы',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
+            }
+        }
+
+        async refreshVersionLaunchContext() {
+            if (this.config.versionMode !== 'edit' && this.config.versionMode !== 'readonly') {
+                return;
+            }
+            const originalPresetId = Number(this.config.versionOriginalPresetId || 0);
+            if (!Number.isSafeInteger(originalPresetId) || originalPresetId <= 0
+                || !/^v_[a-f0-9]{16,40}$/.test(this.config.versionId)) {
+                throw new Error('Редактор не содержит точный контекст версии.');
+            }
+            const body = new URLSearchParams();
+            body.set('sessid', this.config.sessid);
+            body.set('payload', JSON.stringify({
+                action: 'version_logic_launch',
+                presetId: originalPresetId,
+                versionId: this.config.versionId,
+                mode: this.config.versionMode,
+                foundationMode: '',
+            }));
+            const response = await fetch(this.config.versionAjaxEndpoint, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: body.toString(),
+                cache: 'no-store',
+            });
+            const result = await response.json().catch(function () { return null; });
+            const data = result && result.success === true ? result.data : null;
+            const focusPresetId = Number(data && data.focusPresetId || 0);
+            const returnedPresetId = Number(data && data.presetId || 0);
+            if (!response.ok || !data
+                || returnedPresetId !== originalPresetId
+                || String(data.versionId || '') !== this.config.versionId
+                || String(data.mode || '') !== this.config.versionMode
+                || !Number.isSafeInteger(focusPresetId) || focusPresetId <= 0
+                || !/^[a-f0-9]{64}$/.test(String(data.contentHash || ''))
+                || !/^[a-f0-9]{64}$/.test(String(data.logicHash || ''))) {
+                throw new Error(result && (result.error || result.message)
+                    ? String(result.error || result.message)
+                    : 'Сервер не вернул актуальный контекст версии.');
+            }
+            this.config.presetId = focusPresetId;
+            this.config.versionContentHash = String(data.contentHash);
+            this.config.versionLogicHash = String(data.logicHash);
+        }
+
+        async handleRefreshEditorContextRequest(message, origin) {
+            try {
+                await this.refreshVersionLaunchContext();
+                const initData = await this.fetchInitData();
+                this.initData = initData;
+                this.sendPwrtMessage('INIT', initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось обновить контекст редактора',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
