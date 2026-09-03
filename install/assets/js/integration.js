@@ -59,8 +59,15 @@
             // The control-center shell intentionally sits at z-index 100000.
             // A nested Bitrix slider therefore needs an explicit top layer to
             // remain visible above the full-screen calculator workspace.
-            if (overlay) overlay.style.zIndex = '2147483645';
-            container.style.zIndex = '2147483646';
+            const setLayer = (element, value) => {
+                if (element.style && typeof element.style.setProperty === 'function') {
+                    element.style.setProperty('z-index', value, 'important');
+                } else if (element.style) {
+                    element.style.zIndex = value;
+                }
+            };
+            if (overlay) setLayer(overlay, '2147483645');
+            setLayer(container, '2147483646');
             return true;
         }
 
