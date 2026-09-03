@@ -46,52 +46,97 @@
             return null;
         }
 
-        static elevateOpenedSidePanel(hostWindow) {
+        static restoreOpenedSidePanel(slider) {
+            const state = slider && slider.__prospektwebFormEditorLayerState;
+            if (!state) return false;
+            if (state.observer && typeof state.observer.disconnect === 'function') {
+                state.observer.disconnect();
+            }
+            state.snapshots.forEach(({element, value, priority}) => {
+                if (!element || !element.style) return;
+                if (value === '' && typeof element.style.removeProperty === 'function') {
+                    element.style.removeProperty('z-index');
+                } else if (typeof element.style.setProperty === 'function') {
+                    element.style.setProperty('z-index', value, priority);
+                } else {
+                    element.style.zIndex = value;
+                }
+                if (element.classList && typeof element.classList.remove === 'function') {
+                    element.classList.remove('prospektweb-form-editor-layer');
+                }
+            });
+            delete slider.__prospektwebFormEditorLayerState;
+            return true;
+        }
+
+        static elevateOpenedSidePanel(hostWindow, slider) {
             const hostDocument = hostWindow && hostWindow.document;
-            if (!hostDocument || typeof hostDocument.querySelectorAll !== 'function') {
+            if (!hostDocument || !slider
+                || typeof slider.getContainer !== 'function'
+                || typeof slider.getOverlay !== 'function') {
                 return false;
             }
-            const containers = hostDocument.querySelectorAll('.side-panel-container');
-            const overlays = hostDocument.querySelectorAll('.side-panel-overlay');
-            const container = containers[containers.length - 1];
-            const overlay = overlays[overlays.length - 1];
-            if (!container) return false;
-            // The control-center shell intentionally sits at z-index 100000.
-            // A nested Bitrix slider therefore needs an explicit top layer to
-            // remain visible above the full-screen calculator workspace.
-            const setLayer = (element, value) => {
+            const container = slider.getContainer();
+            const overlay = slider.getOverlay();
+            if (!container || !overlay) return false;
+            let state = slider.__prospektwebFormEditorLayerState;
+            const readStyle = (element) => ({
+                element,
+                value: element.style && typeof element.style.getPropertyValue === 'function'
+                    ? element.style.getPropertyValue('z-index') : String(element.style?.zIndex || ''),
+                priority: element.style && typeof element.style.getPropertyPriority === 'function'
+                    ? element.style.getPropertyPriority('z-index') : '',
+            });
+            const ensureLayer = (element, value) => {
                 if (element.classList && typeof element.classList.add === 'function') {
                     element.classList.add('prospektweb-form-editor-layer');
                 }
                 if (element.style && typeof element.style.setProperty === 'function') {
-                    element.style.setProperty('z-index', value, 'important');
+                    const currentValue = typeof element.style.getPropertyValue === 'function'
+                        ? element.style.getPropertyValue('z-index') : '';
+                    const currentPriority = typeof element.style.getPropertyPriority === 'function'
+                        ? element.style.getPropertyPriority('z-index') : '';
+                    if (currentValue !== value || currentPriority !== 'important') {
+                        element.style.setProperty('z-index', value, 'important');
+                    }
                 } else if (element.style) {
                     element.style.zIndex = value;
                 }
             };
-            // Bitrix rewrites the overlay's inline z-index again while its open
-            // animation is running. A scoped author-level !important rule keeps
-            // this one nested form editor above the full-screen workspace even
-            // after that late mutation, without affecting ordinary sliders.
-            if (
-                typeof hostDocument.getElementById === 'function'
-                && typeof hostDocument.createElement === 'function'
-                && !hostDocument.getElementById('prospektweb-form-editor-layer-style')
-            ) {
-                const layerStyle = hostDocument.createElement('style');
-                layerStyle.id = 'prospektweb-form-editor-layer-style';
-                layerStyle.textContent = [
-                    '.side-panel-overlay.prospektweb-form-editor-layer{z-index:2147483645!important}',
-                    '.side-panel-container.prospektweb-form-editor-layer{z-index:2147483646!important}',
-                ].join('');
-                const styleHost = hostDocument.head || hostDocument.documentElement;
-                if (styleHost && typeof styleHost.appendChild === 'function') {
-                    styleHost.appendChild(layerStyle);
+            if (!state) {
+                const shell = typeof hostDocument.getElementById === 'function'
+                    ? hostDocument.getElementById('calc-container') : null;
+                const snapshots = [readStyle(overlay), readStyle(container)];
+                if (shell && shell !== container) snapshots.push(readStyle(shell));
+                state = {snapshots, observer: null, shell};
+                slider.__prospektwebFormEditorLayerState = state;
+                const Observer = hostWindow.MutationObserver;
+                if (typeof Observer === 'function') {
+                    state.observer = new Observer(() => {
+                        if (overlay.classList && overlay.classList.contains('--closing')) {
+                            CalcIntegration.restoreOpenedSidePanel(slider);
+                            return;
+                        }
+                        ensureLayer(overlay, '2147483645');
+                        ensureLayer(container, '2147483646');
+                    });
+                    state.observer.observe(overlay, {attributes: true, attributeFilter: ['class', 'style']});
+                    state.observer.observe(container, {attributes: true, attributeFilter: ['class', 'style']});
                 }
             }
-            if (overlay) setLayer(overlay, '2147483645');
-            setLayer(container, '2147483646');
+            // The standalone calculator shell uses the maximum browser z-index.
+            // Temporarily lower only that exact shell while this exact slider is open.
+            if (state.shell) ensureLayer(state.shell, '2147483644');
+            ensureLayer(overlay, '2147483645');
+            ensureLayer(container, '2147483646');
             return true;
+        }
+
+        static elevateSidePanelByUrl(hostWindow, sidePanel, targetUrl) {
+            if (!sidePanel || typeof sidePanel.getSlider !== 'function') return false;
+            const slider = sidePanel.getSlider(targetUrl);
+            if (!slider || (typeof slider.isOpen === 'function' && !slider.isOpen())) return false;
+            return CalcIntegration.elevateOpenedSidePanel(hostWindow, slider);
         }
 
         constructor(config) {
@@ -1096,11 +1141,17 @@
                 }
                 const {hostWindow, sidePanel} = sidePanelHost;
                 const width = Math.max(960, Math.floor(Number(hostWindow.innerWidth || 1440) * 0.96));
-                sidePanel.open(targetUrl, {cacheable: false, width: width});
-                CalcIntegration.elevateOpenedSidePanel(hostWindow);
+                const opened = sidePanel.open(targetUrl, {cacheable: false, width: width});
+                if (opened === false) {
+                    throw new Error('Слайдер редактора полей формы не открылся.');
+                }
+                CalcIntegration.elevateSidePanelByUrl(hostWindow, sidePanel, targetUrl);
                 if (typeof hostWindow.setTimeout === 'function') {
                     [0, 100, 250, 500, 1000, 2000].forEach((delay) => {
-                        hostWindow.setTimeout(() => CalcIntegration.elevateOpenedSidePanel(hostWindow), delay);
+                        hostWindow.setTimeout(
+                            () => CalcIntegration.elevateSidePanelByUrl(hostWindow, sidePanel, targetUrl),
+                            delay,
+                        );
                     });
                 }
                 this.sendPwrtMessage('RESPONSE', {

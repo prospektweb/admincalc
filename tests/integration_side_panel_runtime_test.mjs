@@ -42,36 +42,72 @@ test('visible side panel resolver ignores a partially initialized top manager', 
   assert.equal(resolved.sidePanel, local)
 })
 
-test('opened form slider is elevated above the full-screen control-center shell', () => {
-  const style = () => ({
-    values: {},
-    setProperty(name, value, priority) { this.values[name] = { value, priority } },
+test('opened form slider is elevated by its exact URL and standalone shell is restored', () => {
+  const style = initial => ({
+    values: initial ? { 'z-index': { value: initial, priority: '' } } : {},
+    setProperty(name, value, priority = '') { this.values[name] = { value, priority } },
+    getPropertyValue(name) { return this.values[name]?.value || '' },
+    getPropertyPriority(name) { return this.values[name]?.priority || '' },
+    removeProperty(name) { delete this.values[name] },
   })
-  const classes = () => ({ values: [], add(value) { this.values.push(value) } })
+  const classes = initial => ({
+    values: new Set(initial || []),
+    add(value) { this.values.add(value) },
+    remove(value) { this.values.delete(value) },
+    contains(value) { return this.values.has(value) },
+  })
   const container = { style: style(), classList: classes() }
-  const overlay = { style: style(), classList: classes() }
-  const appended = []
+  const overlay = { style: style('1050'), classList: classes(['--open']) }
+  const shell = { style: style(), classList: classes() }
+  const slider = {
+    getContainer() { return container },
+    getOverlay() { return overlay },
+    isOpen() { return true },
+  }
+  const otherSlider = {
+    getContainer() { throw new Error('unrelated slider must not be touched') },
+    getOverlay() { throw new Error('unrelated slider must not be touched') },
+  }
+  const observations = []
+  class MutationObserver {
+    constructor(callback) { this.callback = callback; this.disconnected = false }
+    observe(element, options) { observations.push({ element, options }) }
+    disconnect() { this.disconnected = true }
+  }
+  const sidePanel = {
+    open() {},
+    getSlider(url) { return url === '/target' ? slider : otherSlider },
+  }
   const window = {
-    ...sidePanelWindow({ open() {} }),
+    ...sidePanelWindow(sidePanel),
     top: null,
+    MutationObserver,
     document: {
-      head: { appendChild(node) { appended.push(node) } },
-      getElementById() { return null },
-      createElement(tagName) { return { tagName, id: '', textContent: '' } },
-      querySelectorAll(selector) {
-        if (selector === '.side-panel-container') return [container]
-        if (selector === '.side-panel-overlay') return [overlay]
-        return []
-      },
+      getElementById(id) { return id === 'calc-container' ? shell : null },
     },
   }
   window.top = window
   const Integration = loadIntegration(window)
-  assert.equal(Integration.elevateOpenedSidePanel(window), true)
+  assert.equal(Integration.elevateSidePanelByUrl(window, sidePanel, '/target'), true)
   assert.deepEqual(container.style.values['z-index'], { value: '2147483646', priority: 'important' })
   assert.deepEqual(overlay.style.values['z-index'], { value: '2147483645', priority: 'important' })
-  assert.deepEqual(container.classList.values, ['prospektweb-form-editor-layer'])
-  assert.deepEqual(overlay.classList.values, ['prospektweb-form-editor-layer'])
-  assert.equal(appended.length, 1)
-  assert.match(appended[0].textContent, /side-panel-overlay\.prospektweb-form-editor-layer/)
+  assert.deepEqual(shell.style.values['z-index'], { value: '2147483644', priority: 'important' })
+  assert.equal(container.classList.contains('prospektweb-form-editor-layer'), true)
+  assert.equal(overlay.classList.contains('prospektweb-form-editor-layer'), true)
+  assert.equal(observations.length, 2)
+
+  assert.equal(Integration.restoreOpenedSidePanel(slider), true)
+  assert.equal(container.style.getPropertyValue('z-index'), '')
+  assert.equal(overlay.style.getPropertyValue('z-index'), '1050')
+  assert.equal(shell.style.getPropertyValue('z-index'), '')
+  assert.equal(container.classList.contains('prospektweb-form-editor-layer'), false)
+  assert.equal(overlay.classList.contains('prospektweb-form-editor-layer'), false)
+})
+
+test('exact URL lookup does not elevate another open slider', () => {
+  const sidePanel = { open() {}, getSlider() { return null } }
+  const window = { ...sidePanelWindow(sidePanel), top: null, document: {} }
+  window.top = window
+  const Integration = loadIntegration(window)
+  assert.equal(Integration.elevateSidePanelByUrl(window, sidePanel, '/missing'), false)
 })
