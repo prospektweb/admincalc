@@ -27,6 +27,25 @@
      * Класс для интеграции с React-калькулятором
      */
     class CalcIntegration {
+        static resolveVisibleSidePanelHost(currentWindow) {
+            try {
+                const topWindow = currentWindow.top || currentWindow;
+                const topSidePanel = topWindow.BX && topWindow.BX.SidePanel && topWindow.BX.SidePanel.Instance;
+                if (topSidePanel && typeof topSidePanel.open === 'function') {
+                    return {hostWindow: topWindow, sidePanel: topSidePanel};
+                }
+            } catch (_error) {
+                // A sandboxed or cross-origin parent is not readable. The local
+                // Bitrix manager remains a valid fallback when it is available.
+            }
+
+            const localSidePanel = currentWindow.BX && currentWindow.BX.SidePanel && currentWindow.BX.SidePanel.Instance;
+            if (localSidePanel && typeof localSidePanel.open === 'function') {
+                return {hostWindow: currentWindow, sidePanel: localSidePanel};
+            }
+            return null;
+        }
+
         constructor(config) {
             this.config = {
                 iframe: config.iframe || null,
@@ -1019,14 +1038,15 @@
                 const targetUrl = '/bitrix/admin/prospektweb_calc_control_center.php?'
                     + query.toString()
                     + '#/presets/' + originalPresetId + '/form' + formQuery;
-                const topWindow = window.top || window;
-                const hostWindow = window.BX && window.BX.SidePanel && window.BX.SidePanel.Instance
-                    ? window
-                    : topWindow;
-                const sidePanel = hostWindow.BX && hostWindow.BX.SidePanel && hostWindow.BX.SidePanel.Instance;
-                if (!sidePanel || typeof sidePanel.open !== 'function') {
+                // The logic editor itself is already hosted in a Bitrix slider.
+                // Opening another slider from this iframe places it below the
+                // full-screen material tree in Edge. The top manager owns the
+                // visible slider stack and therefore must be preferred.
+                const sidePanelHost = CalcIntegration.resolveVisibleSidePanelHost(window);
+                if (!sidePanelHost) {
                     throw new Error('Слайдер Bitrix недоступен в текущем контексте.');
                 }
+                const {hostWindow, sidePanel} = sidePanelHost;
                 const width = Math.max(960, Math.floor(Number(hostWindow.innerWidth || 1440) * 0.96));
                 sidePanel.open(targetUrl, {cacheable: false, width: width});
                 this.sendPwrtMessage('RESPONSE', {
