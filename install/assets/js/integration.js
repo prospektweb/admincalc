@@ -51,7 +51,7 @@
             if (!hostDocument || typeof hostDocument.querySelectorAll !== 'function') {
                 return false;
             }
-            const containers = hostDocument.querySelectorAll('.side-panel-container.--open');
+            const containers = hostDocument.querySelectorAll('.side-panel-container');
             const overlays = hostDocument.querySelectorAll('.side-panel-overlay.--open');
             const container = containers[containers.length - 1];
             const overlay = overlays[overlays.length - 1];
