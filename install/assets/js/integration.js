@@ -3824,22 +3824,31 @@
             const globalsChanged = JSON.stringify(baselineGlobalCodes) !== JSON.stringify(currentGlobalCodes);
 
             try {
-                const result = inputsChanged || globalsChanged
-                    ? await this.fetchRefreshData([{ action: 'inspectCalculatorContract', settingsId }])
-                    : [];
+                // Ownership must be checked for every save, not only when the
+                // public input contract changes. Formula-only edits are still
+                // unsafe when the same settings are linked to another stage or
+                // reached through a stage selection tree.
+                const result = await this.fetchRefreshData([{ action: 'inspectCalculatorContract', settingsId }]);
                 const inspection = Array.isArray(result) && result[0]
                     ? result[0]
                     : { status: 'ok', presets: [], stageIds: [] };
                 if (inspection.status !== 'ok') {
                     throw new Error(inspection.message || 'Не удалось проверить зависимости калькулятора');
                 }
+                const currentStageId = parseInt(payload.stageId, 10) || 0;
+                const linkedStageIds = Array.from(new Set((Array.isArray(inspection.stageIds) ? inspection.stageIds : [])
+                    .map((stageId) => parseInt(stageId, 10) || 0)
+                    .filter(Boolean)));
+                const requiresClone = linkedStageIds.length !== 1 || linkedStageIds[0] !== currentStageId;
                 this.sendPwrtMessage('CALC_CONTRACT_IMPACT_RESPONSE', {
                     status: 'ok',
                     settingsId,
-                    stageId: parseInt(payload.stageId, 10) || 0,
+                    stageId: currentStageId,
                     currentPresetId: parseInt(payload.currentPresetId, 10) || 0,
                     inputsChanged,
                     globalsChanged,
+                    requiresClone,
+                    stageIds: linkedStageIds,
                     inputChanges: {
                         removed: baselineInputCodes.filter((code) => !currentInputCodes.includes(code)),
                         added: currentInputCodes.filter((code) => !baselineInputCodes.includes(code)),

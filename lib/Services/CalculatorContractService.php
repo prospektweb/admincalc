@@ -136,12 +136,17 @@ final class CalculatorContractService
                 'message' => 'Общий калькулятор можно безопасно разделить только созданием копии',
             ];
         }
-        $contractIssueProperty = \CIBlockProperty::GetList([], [
-            'IBLOCK_ID' => $stageIblockId,
-            '=CODE' => 'CONTRACT_ISSUE',
-        ])->Fetch();
-        if (!is_array($contractIssueProperty)) {
-            return ['status' => 'error', 'message' => 'Свойство CONTRACT_ISSUE этапа не установлено'];
+        foreach (['CONTRACT_ISSUE', 'OPTIONS_CALCULATOR'] as $requiredPropertyCode) {
+            $property = \CIBlockProperty::GetList([], [
+                'IBLOCK_ID' => $stageIblockId,
+                '=CODE' => $requiredPropertyCode,
+            ])->Fetch();
+            if (!is_array($property)) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Свойство ' . $requiredPropertyCode . ' этапа не установлено',
+                ];
+            }
         }
 
         $source = \CIBlockElement::GetList([], [
@@ -174,6 +179,10 @@ final class CalculatorContractService
         try {
             \CIBlockElement::SetPropertyValuesEx($currentStageId, $stageIblockId, [
                 'CALC_SETTINGS' => $newSettingsId,
+                // A direct private copy replaces the dynamic selector. Keeping
+                // both would leave two authoritative calculator sources on the
+                // same stage and reintroduce the ownership conflict on reload.
+                'OPTIONS_CALCULATOR' => false,
                 'CONTRACT_ISSUE' => false,
             ]);
             if ($this->loadPropertyIds($stageIblockId, $currentStageId, 'CALC_SETTINGS') !== [$newSettingsId]) {
@@ -198,7 +207,10 @@ final class CalculatorContractService
         $ids = [];
         $rows = \CIBlockElement::GetList(
             [],
-            ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'] + $filter,
+            // Ownership protection scans active and inactive graph nodes, so
+            // the preflight must use the same surface or it can miss a hidden
+            // stage and promise a save that the authority correctly rejects.
+            ['IBLOCK_ID' => $iblockId] + $filter,
             false,
             false,
             ['ID']

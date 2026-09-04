@@ -17,10 +17,10 @@ $assert(strpos($service, 'collectDetailTreeIds') !== false, 'contract impact map
 $assert(strpos($service, "'stageIds' => array_map('intval', array_keys(\$presetStageIds))") !== false, 'each preset receives only its own affected stages');
 $assert(strpos($service, 'if ($focusStageId > 0)') !== false, 'preset editor links never emit a zero stage focus');
 $assert(
-    strpos($service, "'=CODE' => 'CONTRACT_ISSUE'") !== false
-        && strpos($service, 'Свойство CONTRACT_ISSUE этапа не установлено') !== false
+    strpos($service, "['CONTRACT_ISSUE', 'OPTIONS_CALCULATOR']") !== false
+        && strpos($service, "'OPTIONS_CALCULATOR' => false") !== false
         && strpos($service, 'ensureStringProperty') === false,
-    'contract clone requires the provisioned blocking property and never repairs schema during a graph mutation'
+    'contract clone requires provisioned properties and replaces the dynamic selector with its private settings copy'
 );
 $assert(
     strpos($elementData, "\$allowedSettingsProperties = ['LOGIC_JSON', 'PARAMS', 'GLOBAL_DEPENDENCIES']") !== false
@@ -33,5 +33,10 @@ $assert(strpos($detailHandler, "createDetailElement(\$bindingName, 'BINDING')") 
 $assert(strpos($integration, 'Array.isArray(requestPayload.selectedIds)') !== false, 'hierarchical multi-select can submit several selected detail ids');
 $assert(strpos($integration, 'ensureDefaultPresetDetail(initData)') === false, 'INIT never creates a physical default detail implicitly');
 $assert(strpos($integration, 'explicit simple/complex foundation choice') !== false, 'empty graph creation belongs to the explicit foundation choice');
+$assert(
+    strpos($integration, 'Ownership must be checked for every save') !== false
+        && strpos($integration, 'linkedStageIds.length !== 1 || linkedStageIds[0] !== currentStageId') !== false,
+    'every calculator logic save checks whether settings must be cloned for the current stage'
+);
 
 echo "Calculator contract static checks passed\n";
