@@ -42,12 +42,31 @@ foreach ($aggregateActions as $action => $_) {
 }
 $assert(
     str_contains($bridge, 'mutationItems.length > 0')
-        && substr_count($bridge, 'this.presetMutationActions()') === 2
+        && substr_count($bridge, 'this.presetMutationActions()') === 3
         && str_contains($bridge, "formData.append('expectedSemanticRevision', expectedSemanticRevision)")
         && str_contains($bridge, 'this.initData = Object.assign({}, this.initData, semanticReadback')
         && str_contains($bridge, 'semanticRevision: resultingSemanticRevision')
         && str_contains($bridge, 'data.data[0].initPayload = this.initData;'),
     'all registered mutations must pin the INIT preset, submit CAS and reconcile exact aggregate readback'
+);
+$assert(
+    str_contains($bridge, 'this.calculatorMutationQueue = Promise.resolve()')
+        && str_contains($bridge, 'const queued = this.calculatorMutationQueue.then(run, run)')
+        && str_contains($bridge, 'this.calculatorMutationQueue = queued.catch(() => undefined)')
+        && str_contains($bridge, 'const containsGlobalMutation = Array.isArray(preparedItems)')
+        && str_contains($bridge, 'const containsCoordinatedMutation = Array.isArray(preparedItems)')
+        && str_contains($bridge, "'applyGlobalCodeRefactor',")
+        && str_contains($bridge, 'const refreshedInitData = await this.fetchInitData()')
+        && str_contains($bridge, 'requestedGeneration === this.initDataGeneration')
+        && str_contains($bridge, "(mutationItems.length === 1 || coordinatedMutationItems.length === 1)\n                    && this.config.versionMode === 'edit'")
+        && str_contains($bridge, 'async fetchRefreshDataNow(items)'),
+    'same-editor semantic/global writes must be serialized and global writes must refresh semantic state'
+);
+$assert(
+    str_contains($bridge, "this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);")
+        && str_contains($bridge, "message: 'Не удалось переименовать элемент'")
+        && str_contains($bridge, "details: error && error.message ? error.message : 'Unknown error'"),
+    'detail rename must return a correlated INIT or ERROR so optimistic inline rename can be confirmed or rolled back'
 );
 $assert(
     str_contains($bridge, "formData.append('versionOriginalPresetId'")

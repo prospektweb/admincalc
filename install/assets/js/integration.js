@@ -58,7 +58,12 @@
             this.pendingRequests = {};
             this.pendingFormEditorRequest = null;
             this.initData = null;
+            this.initDataGeneration = 0;
             this.currentSelectionItems = null;
+            // Semantic, global and coordinated mutations can change the INIT
+            // readback. Serialize them so every next write uses the authoritative
+            // revision returned (or refreshed) after the previous request.
+            this.calculatorMutationQueue = Promise.resolve();
 
             // Сохраняем ссылку на обработчик для корректного removeEventListener
             this.boundHandleMessage = this.handleMessage.bind(this);
@@ -1159,10 +1164,14 @@
 
         async handleRefreshEditorContextRequest(message, origin) {
             try {
+                const requestedGeneration = this.initDataGeneration;
                 await this.refreshVersionLaunchContext();
                 const initData = await this.fetchInitData();
-                this.initData = initData;
-                this.sendPwrtMessage('INIT', initData, message.requestId, origin);
+                if (requestedGeneration === this.initDataGeneration) {
+                    this.initData = initData;
+                    this.initDataGeneration += 1;
+                }
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 this.sendPwrtMessage('ERROR', {
                     message: 'Не удалось обновить контекст редактора',
@@ -1885,7 +1894,6 @@
                 if (!response || response.status !== 'ok') {
                     throw new Error(response?.message || 'Сервер не применил безопасное переименование');
                 }
-                this.initData = await this.fetchInitData();
                 this.sendPwrtMessage('GLOBAL_CODE_REFACTOR_APPLIED', response, message.requestId, origin);
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
@@ -1983,18 +1991,9 @@
                     entities: Array.isArray(payload.entities) ? payload.entities : [],
                 }]);
                 const response = Array.isArray(result) ? result[0] : { status: 'error' };
-                let refreshedInitData = null;
-                if (response && response.status === 'ok') {
-                    try {
-                        refreshedInitData = await this.fetchInitData();
-                        this.initData = refreshedInitData;
-                    } catch (refreshError) {
-                        console.warn('[BitrixBridge] Catalog metadata saved, but INIT refresh failed', refreshError);
-                    }
-                }
                 this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', response, message.requestId, origin);
-                if (refreshedInitData) {
-                    this.sendPwrtMessage('INIT', refreshedInitData, message.requestId, origin);
+                if (response && response.status === 'ok' && response.initPayload) {
+                    this.sendPwrtMessage('INIT', response.initPayload, message.requestId, origin);
                 }
             } catch (error) {
                 this.sendPwrtMessage('CATALOG_ENTITY_META_RESPONSE', { status: 'error', message: error && error.message ? error.message : 'Не удалось сохранить данные' }, message.requestId, origin);
@@ -2384,7 +2383,7 @@
          * Payload: { detailId, name }
          * Логика:
          * 1. Изменить NAME элемента детали через \CIBlockElement::Update()
-         * 2. **Ничего не отправлять** (режим тишины)
+         * 2. Вернуть коррелированный INIT либо ERROR для подтверждения UI
          */
         async handleRenameDetailRequest(message, origin) {
             console.log('[BitrixBridge][DEBUG] handleRenameDetailRequest START', {
@@ -2399,15 +2398,11 @@
 
             try {
                 if (detailId <= 0) {
-                    console.error('[BitrixBridge] Detail ID обязателен');
-                    // В режиме тишины не отправляем ошибку
-                    return;
+                    throw new Error('Detail ID обязателен');
                 }
 
                 if (!name) {
-                    console.error('[BitrixBridge] Name обязателен');
-                    // В режиме тишины не отправляем ошибку
-                    return;
+                    throw new Error('Название не может быть пустым');
                 }
 
                 // Вызываем переименование детали через AJAX
@@ -2424,20 +2419,21 @@
                     : { status: 'error', message: 'Empty response' };
 
                 if (responsePayload.status !== 'ok') {
-                    console.error('[BitrixBridge] renameDetail error:', responsePayload.message);
-                    // В режиме тишины не отправляем ошибку
-                    return;
+                    throw new Error(responsePayload.message || 'Не удалось переименовать элемент');
                 }
 
                 console.log('[BitrixBridge] renameDetail success for detailId:', detailId);
-                // В режиме тишины НЕ отправляем ответ обратно во фрейм
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
 
             } catch (error) {
                 console.error('[BitrixBridge][DEBUG] handleRenameDetailRequest ERROR', {
                     error: error,
                     message: error.message,
                 });
-                // В режиме тишины не отправляем ошибку
+                this.sendPwrtMessage('ERROR', {
+                    message: 'Не удалось переименовать элемент',
+                    details: error && error.message ? error.message : 'Unknown error',
+                }, message.requestId, origin);
             }
         }
 
@@ -4512,6 +4508,29 @@
         }
 
         async fetchRefreshData(items) {
+            const preparedItems = this.withAuthoritativePreset(items);
+            const mutationActions = this.presetMutationActions();
+            const globalMutationActions = this.globalMutationActions();
+            const coordinatedMutationActions = this.coordinatedPresetMutationActions();
+            const containsSemanticMutation = Array.isArray(preparedItems)
+                && preparedItems.some((item) => item && typeof item === 'object' && mutationActions.has(item.action));
+            const containsGlobalMutation = Array.isArray(preparedItems)
+                && preparedItems.some((item) => item && typeof item === 'object' && globalMutationActions.has(item.action));
+            const containsCoordinatedMutation = Array.isArray(preparedItems)
+                && preparedItems.some((item) => item && typeof item === 'object' && coordinatedMutationActions.has(item.action));
+            if (!containsSemanticMutation && !containsGlobalMutation && !containsCoordinatedMutation) {
+                return this.fetchRefreshDataNow(preparedItems);
+            }
+
+            const run = () => this.fetchRefreshDataNow(preparedItems);
+            const queued = this.calculatorMutationQueue.then(run, run);
+            // Keep the queue usable after a rejected request while returning the
+            // original promise to the caller so its own error UI still works.
+            this.calculatorMutationQueue = queued.catch(() => undefined);
+            return queued;
+        }
+
+        async fetchRefreshDataNow(items) {
             items = this.withAuthoritativePreset(items);
             const mutationActions = this.presetMutationActions();
             const mutationItems = Array.isArray(items)
@@ -4520,6 +4539,10 @@
             const globalMutationActions = this.globalMutationActions();
             const globalMutationItems = Array.isArray(items)
                 ? items.filter((item) => item && typeof item === 'object' && globalMutationActions.has(item.action))
+                : [];
+            const coordinatedMutationActions = this.coordinatedPresetMutationActions();
+            const coordinatedMutationItems = Array.isArray(items)
+                ? items.filter((item) => item && typeof item === 'object' && coordinatedMutationActions.has(item.action))
                 : [];
             let expectedSemanticRevision = '';
             let expectedGlobalRevision = null;
@@ -4655,6 +4678,7 @@
                         this.initData = Object.assign({}, this.initData, semanticReadback, {
                             semanticRevision: resultingSemanticRevision,
                         });
+                        this.initDataGeneration += 1;
                         data.data[0].initPayload = this.initData;
                     }
                 }
@@ -4665,12 +4689,29 @@
                         || !/^sha256:[a-f0-9]{64}$/.test(resultingGlobalFingerprint)) {
                         throw new Error('Сервер не вернул подтверждённую ревизию общих данных.');
                     }
-                    if (this.initData) {
-                        this.initData.globalMutationRevision = resultingGlobalRevision;
-                        this.initData.globalMutationFingerprint = resultingGlobalFingerprint;
+                    const refreshedInitData = await this.fetchInitData();
+                    const refreshedSemanticRevision = String(refreshedInitData?.semanticRevision || '').toLowerCase();
+                    if (!refreshedInitData || typeof refreshedInitData !== 'object'
+                        || !/^[a-f0-9]{64}$/.test(refreshedSemanticRevision)) {
+                        throw new Error('Не удалось подтвердить состояние калькулятора после изменения общих данных.');
                     }
+                    this.initData = refreshedInitData;
+                    this.initDataGeneration += 1;
+                    data.data[0].initPayload = this.initData;
                 }
-                if (mutationItems.length === 1 && this.config.versionMode === 'edit') {
+                if (coordinatedMutationItems.length === 1) {
+                    const refreshedInitData = await this.fetchInitData();
+                    const refreshedSemanticRevision = String(refreshedInitData?.semanticRevision || '').toLowerCase();
+                    if (!refreshedInitData || typeof refreshedInitData !== 'object'
+                        || !/^[a-f0-9]{64}$/.test(refreshedSemanticRevision)) {
+                        throw new Error('Не удалось подтвердить состояние калькулятора после согласованного изменения.');
+                    }
+                    this.initData = refreshedInitData;
+                    this.initDataGeneration += 1;
+                    data.data[0].initPayload = this.initData;
+                }
+                if ((mutationItems.length === 1 || coordinatedMutationItems.length === 1)
+                    && this.config.versionMode === 'edit') {
                     await this.syncVersionLogic();
                 }
 
@@ -4743,6 +4784,7 @@
             const guardedActions = new Set([
                 ...this.presetMutationActions(),
                 ...this.globalMutationActions(),
+                ...this.coordinatedPresetMutationActions(),
             ]);
             let presetId = 0;
             return items.map((item) => {
@@ -4814,6 +4856,12 @@
                 'saveCatalogTreeSection',
                 'savePriceSettingsPreset',
                 'saveSettingsEquipment',
+            ]);
+        }
+
+        coordinatedPresetMutationActions() {
+            return new Set([
+                'applyGlobalCodeRefactor',
             ]);
         }
 
@@ -4997,6 +5045,7 @@
                 // INIT is read-only. An empty graph is created only through the
                 // explicit simple/complex foundation choice in Control Center.
                 this.initData = initData;
+                this.initDataGeneration += 1;
 
                 // Отправляем INIT в iframe
                 this.sendMessageToIframe('INIT', initData, message.requestId);

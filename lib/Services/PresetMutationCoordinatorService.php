@@ -68,7 +68,7 @@ final class PresetMutationCoordinatorService
                 $expectedBeforeHash = $metadata['expected_before_sha256'];
                 if (is_string($expectedBeforeHash) && !hash_equals($beforeHash, $expectedBeforeHash)) {
                     throw new \RuntimeException(
-                        'Preset aggregate changed in another session. Refresh data and retry.',
+                        'Данные пресета изменились в другой вкладке. Обновите редактор и повторите действие.',
                         409
                     );
                 }
