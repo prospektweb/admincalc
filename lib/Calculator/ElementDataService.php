@@ -2045,7 +2045,7 @@ class ElementDataService
                             $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
                             $existingProperty = \CIBlockProperty::GetList([], [
                                 'IBLOCK_ID' => $stagesIblockId,
-                                '=CODE' => $propertyCode,
+                                'CODE' => $propertyCode,
                             ])->Fetch();
                             if (!$existingProperty) {
                                 throw new \RuntimeException(
@@ -3430,7 +3430,7 @@ class ElementDataService
         foreach ($codes as $code) {
             $property = \CIBlockProperty::GetList([], [
                 'IBLOCK_ID' => $iblockId,
-                '=CODE' => $code,
+                'CODE' => $code,
             ])->Fetch();
             if (!is_array($property)) {
                 throw new \RuntimeException(
