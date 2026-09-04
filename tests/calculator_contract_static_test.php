@@ -14,6 +14,13 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $assert(strpos($service, 'collectDetailTreeIds') !== false, 'contract impact maps presets through their exact detail tree');
+$assert(
+    strpos($service, 'findCalculatorStageIds') !== false
+        && substr_count($service, "['CODE' => 'CALC_SETTINGS']") >= 1
+        && substr_count($service, "['CODE' => 'OPTIONS_CALCULATOR']") >= 1
+        && strpos($service, "=== 'calculator'") !== false,
+    'contract impact counts direct and decision-tree calculator use by stage'
+);
 $assert(strpos($service, "'stageIds' => array_map('intval', array_keys(\$presetStageIds))") !== false, 'each preset receives only its own affected stages');
 $assert(strpos($service, 'if ($focusStageId > 0)') !== false, 'preset editor links never emit a zero stage focus');
 $assert(

@@ -35,7 +35,7 @@ final class CalculatorContractService
             return ['status' => 'error', 'message' => 'Не найдены инфоблоки контрактов калькулятора'];
         }
 
-        $stageIds = $this->findIds($stageIblockId, ['PROPERTY_CALC_SETTINGS' => $settingsId]);
+        $stageIds = $this->findCalculatorStageIds($stageIblockId, $settingsId);
         if (!$stageIds) {
             return ['status' => 'ok', 'settingsId' => $settingsId, 'stageIds' => [], 'presets' => []];
         }
@@ -220,6 +220,64 @@ final class CalculatorContractService
         }
 
         return array_values(array_unique(array_filter($ids)));
+    }
+
+    /** @return int[] */
+    private function findCalculatorStageIds(int $stageIblockId, int $settingsId): array
+    {
+        $stageIds = [];
+        $rows = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            ['IBLOCK_ID' => $stageIblockId],
+            false,
+            false,
+            ['ID', 'IBLOCK_ID']
+        );
+        $mappingService = new StageVariantMappingService();
+        while ($element = $rows->GetNextElement()) {
+            $fields = $element->GetFields();
+            $stageId = (int)($fields['ID'] ?? 0);
+            if ($stageId <= 0) {
+                continue;
+            }
+            $properties = array_merge(
+                $element->GetProperties(['sort' => 'asc'], ['CODE' => 'CALC_SETTINGS']),
+                $element->GetProperties(['sort' => 'asc'], ['CODE' => 'OPTIONS_CALCULATOR'])
+            );
+            $directIds = array_values(array_filter(array_map(
+                'intval',
+                (array)($properties['CALC_SETTINGS']['VALUE'] ?? [])
+            )));
+            if (in_array($settingsId, $directIds, true)) {
+                $stageIds[$stageId] = $stageId;
+            }
+            $treeValue = $properties['OPTIONS_CALCULATOR']['~VALUE']
+                ?? $properties['OPTIONS_CALCULATOR']['VALUE']
+                ?? '';
+            if (is_array($treeValue) && isset($treeValue['TEXT'])) {
+                $treeValue = $treeValue['TEXT'];
+            }
+            if (!is_string($treeValue) || trim($treeValue) === '') {
+                continue;
+            }
+            try {
+                foreach ($mappingService->materialReferencesFromJson($treeValue) as $reference) {
+                    if (($reference['entity_type'] ?? '') === 'calculator'
+                        && (int)($reference['entity_id'] ?? 0) === $settingsId) {
+                        $stageIds[$stageId] = $stageId;
+                        break;
+                    }
+                }
+            } catch (\InvalidArgumentException $error) {
+                throw new \RuntimeException(
+                    'Calculator selection tree is invalid for stage ' . $stageId . '.',
+                    409,
+                    $error
+                );
+            }
+        }
+        ksort($stageIds, SORT_NUMERIC);
+        return array_values($stageIds);
     }
 
     /**

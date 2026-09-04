@@ -135,6 +135,7 @@ $known = [
 $connection = new CalculatorMutationAuthorityFakeConnection();
 $lockEvents = [];
 $orphanReferences = ['detail' => [], 'stage' => [], 'settings' => []];
+$mappingOnlySettings = [];
 $authority = new CalculatorMutationAuthorityService([
     'connection_provider' => static fn() => $connection,
     'iblock_ids' => static fn(): array => [
@@ -169,7 +170,8 @@ $authority = new CalculatorMutationAuthorityService([
     },
     'structural_references_loader' => static function (array $iblockIds) use (
         &$graphs,
-        &$orphanReferences
+        &$orphanReferences,
+        &$mappingOnlySettings
     ): array {
         if ((int)$iblockIds['CALC_DETAILS'] !== 10) {
             throw new RuntimeException('Reference scan used stale iblock authority.');
@@ -206,6 +208,9 @@ $authority = new CalculatorMutationAuthorityService([
             }
             foreach ($graph['stageSettings'] as $stageId => $settingsRows) {
                 foreach ($settingsRows as $settingsId) {
+                    if (isset($mappingOnlySettings[(int)$settingsId])) {
+                        continue;
+                    }
                     $references['settings'][(int)$settingsId][] = [
                         'sourceKind' => 'stage',
                         'sourceId' => (int)$stageId,
@@ -294,6 +299,21 @@ $underLock(41, static function (bool $protected) use ($authority): void {
     $authority->assertSettingsLogicWrite(41, 303, '{"version":2,"vars":[]}', $protected);
     $authority->assertContractCloneAllowed(41, 201, 301);
 });
+
+$mappingOnlySettings[301] = true;
+$underLock(41, static function (bool $protected) use ($authority): void {
+    $authority->assertSettingsMutationAllowed(41, 301, $protected);
+    $authority->assertSettingsLinkToStage(41, 201, 301, $protected);
+});
+unset($mappingOnlySettings[301]);
+
+$graphs[41]['stageSettings'][202][] = 301;
+$expectConflict(
+    static fn() => $underLock(41, static fn(bool $protected) =>
+        $authority->assertSettingsLinkToStage(41, 201, 301, $protected)),
+    'Calculator settings linked through another stage tree cannot be attached to the current stage'
+);
+$graphs[41]['stageSettings'][202] = [302];
 
 $orphanReferences['detail'][102][] = ['sourceKind' => 'detail', 'sourceId' => 999];
 $expectConflict(

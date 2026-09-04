@@ -445,6 +445,25 @@ final class CalculatorMutationAuthorityService
     ): void {
         $graph = $this->presetGraph($requestedPresetId);
         $this->assertEntityOwnedOnlyByPreset('settings', $settingsId, $requestedPresetId, $graph);
+        $logicalStageIds = [];
+        foreach ($graph['stageSettings'] ?? [] as $linkedStageId => $linkedSettingsIds) {
+            if (in_array($settingsId, $linkedSettingsIds, true)) {
+                $logicalStageIds[] = (int)$linkedStageId;
+            }
+        }
+        if (count($logicalStageIds) === 1) {
+            $logicalStageId = $logicalStageIds[0];
+            foreach ($this->structuralReferenceIndex()['settings'][$settingsId] ?? [] as $reference) {
+                $sourceKind = (string)($reference['sourceKind'] ?? '');
+                $sourceId = (int)($reference['sourceId'] ?? 0);
+                if (($sourceKind === 'stage' && $sourceId === $logicalStageId)
+                    || ($sourceKind === 'preset' && $sourceId === $requestedPresetId)) {
+                    continue;
+                }
+                throw new \RuntimeException('Calculator settings belong to another stage or preset.', 409);
+            }
+            return;
+        }
         $this->assertSingleStructuralReference('settings', $settingsId, $requestedPresetId, $graph);
     }
 
@@ -457,11 +476,19 @@ final class CalculatorMutationAuthorityService
         $graph = $this->presetGraph($requestedPresetId);
         $this->assertEntityOwnedOnlyByPreset('stage', $stageId, $requestedPresetId, $graph);
         $this->assertEntityUnownedOrOwnedOnlyByPreset('settings', $settingsId, $requestedPresetId, $graph);
+        foreach ($graph['stageSettings'] ?? [] as $linkedStageId => $linkedSettingsIds) {
+            if ((int)$linkedStageId !== $stageId && in_array($settingsId, $linkedSettingsIds, true)) {
+                throw new \RuntimeException('Calculator settings already belong to another stage.', 409);
+            }
+        }
         $references = $this->structuralReferenceIndex()['settings'][$settingsId] ?? [];
-        if ($references !== [] && $references !== [[
-            'sourceKind' => 'stage',
-            'sourceId' => $stageId,
-        ]]) {
+        foreach ($references as $reference) {
+            $sourceKind = (string)($reference['sourceKind'] ?? '');
+            $sourceId = (int)($reference['sourceId'] ?? 0);
+            if (($sourceKind === 'stage' && $sourceId === $stageId)
+                || ($sourceKind === 'preset' && $sourceId === $requestedPresetId)) {
+                continue;
+            }
             throw new \RuntimeException('Calculator settings already belong to another stage.', 409);
         }
     }
