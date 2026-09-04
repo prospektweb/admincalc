@@ -993,13 +993,14 @@ final class CalculatorVersionWorkingGraphRehydrator
                     }
                 }
             }
-            if (in_array($code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT'], true)) {
+            if (in_array($code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT', 'OPTIONS_CALCULATOR'], true)) {
                 foreach (['VALUE', '~VALUE', 'DESCRIPTION'] as $valueKey) {
                     if (array_key_exists($valueKey, $property)) {
                         $property[$valueKey] = self::remapStageVariantMappingValue(
                             $property[$valueKey],
                             $maps['detail'],
                             $maps['stage'],
+                            $maps['settings'],
                             $code
                         );
                     }
@@ -1081,6 +1082,7 @@ final class CalculatorVersionWorkingGraphRehydrator
         $value,
         array $detailMap,
         array $stageMap,
+        array $settingsMap,
         string $propertyCode
     ) {
         if (is_array($value) && array_is_list($value)) {
@@ -1089,6 +1091,7 @@ final class CalculatorVersionWorkingGraphRehydrator
                     $item,
                     $detailMap,
                     $stageMap,
+                    $settingsMap,
                     $propertyCode
                 ),
                 $value
@@ -1099,6 +1102,7 @@ final class CalculatorVersionWorkingGraphRehydrator
                 (string)$value['TEXT'],
                 $detailMap,
                 $stageMap,
+                $settingsMap,
                 $propertyCode
             );
             return $value;
@@ -1112,13 +1116,14 @@ final class CalculatorVersionWorkingGraphRehydrator
                 409
             );
         }
-        return self::remapStageVariantMappingJson($value, $detailMap, $stageMap, $propertyCode);
+        return self::remapStageVariantMappingJson($value, $detailMap, $stageMap, $settingsMap, $propertyCode);
     }
 
     private static function remapStageVariantMappingJson(
         string $raw,
         array $detailMap,
         array $stageMap,
+        array $settingsMap,
         string $propertyCode
     ): string {
         if ($raw === '') {
@@ -1127,7 +1132,9 @@ final class CalculatorVersionWorkingGraphRehydrator
         try {
             $mappingService = new StageVariantMappingService();
             $decodedRaw = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $header = json_decode($decodedRaw, true);
             $canonical = $propertyCode === 'OPTIONS_MATERIAL'
+                || (($header['contract'] ?? '') === StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT)
                 ? $mappingService->normalizeMaterialJson($decodedRaw)
                 : $mappingService->normalizeJson($decodedRaw);
             $data = json_decode($canonical, true, 512, JSON_THROW_ON_ERROR);
@@ -1156,6 +1163,24 @@ final class CalculatorVersionWorkingGraphRehydrator
             }
             $data['metric_source']['detail_id'] = (int)$detailMap[$oldDetailId];
             $data['metric_source']['stage_id'] = (int)$stageMap[$oldStageId];
+        }
+        if ($propertyCode === 'OPTIONS_CALCULATOR'
+            && ($data['contract'] ?? '') === StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT) {
+            $remapTree = function (array $node) use (&$remapTree, $settingsMap): array {
+                if (($node['kind'] ?? '') === 'result') {
+                    $oldId = (int)($node['result']['entity_id'] ?? 0);
+                    if ($oldId <= 0 || !isset($settingsMap[$oldId])) {
+                        throw new \RuntimeException('Saved calculator selection tree references settings outside the version graph.', 409);
+                    }
+                    $node['result']['entity_id'] = (int)$settingsMap[$oldId];
+                    return $node;
+                }
+                foreach ((array)($node['branches'] ?? []) as $index => $branch) {
+                    $node['branches'][$index]['child'] = $remapTree((array)($branch['child'] ?? []));
+                }
+                return $node;
+            };
+            $data['tree'] = $remapTree((array)($data['tree'] ?? []));
         }
         try {
             return $mappingService->encode($data);

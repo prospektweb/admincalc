@@ -401,7 +401,7 @@ final class StageVariantMappingService
         if (!is_array($reference) || self::isList($reference)) throw new \InvalidArgumentException($path . ' must be an object.');
         self::assertExactKeys($reference, ['entity_type', 'entity_id'], $path);
         $type = (string)$reference['entity_type'];
-        if (!in_array($type, ['material', 'variant'], true)) throw new \InvalidArgumentException($path . '.entity_type is invalid.');
+        if (!in_array($type, ['material', 'variant', 'operation', 'equipment', 'calculator'], true)) throw new \InvalidArgumentException($path . '.entity_type is invalid.');
         return ['entity_type' => $type, 'entity_id' => self::positiveSafeInteger($reference['entity_id'], $path . '.entity_id')];
     }
 

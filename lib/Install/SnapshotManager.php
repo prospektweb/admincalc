@@ -644,12 +644,14 @@ class SnapshotManager
                     $value = $this->remapStageReferencesInString($value, $elementIdMapsByCode['CALC_STAGES'] ?? []);
                 }
 
-                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT'], true)) {
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT', 'OPTIONS_CALCULATOR'], true)) {
                     $targetMap = (string)$code === 'OPTIONS_OPERATION'
                         ? (array)($elementIdMapsByCode['CALC_OPERATIONS_VARIANTS'] ?? [])
                         : ((string)$code === 'OPTIONS_MATERIAL'
                             ? (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? [])
-                            : (array)($elementIdMapsByCode['CALC_EQUIPMENT'] ?? []));
+                            : ((string)$code === 'OPTIONS_EQUIPMENT'
+                                ? (array)($elementIdMapsByCode['CALC_EQUIPMENT'] ?? [])
+                                : (array)($elementIdMapsByCode['CALC_SETTINGS'] ?? [])));
                     $value = $this->remapStageVariantMappingJson(
                         $value,
                         $targetMap,
@@ -721,12 +723,14 @@ class SnapshotManager
                     $description = $this->remapStageReferencesInString($description, $elementIdMapsByCode['CALC_STAGES'] ?? []);
                 }
 
-                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT'], true)) {
+                if ($propertyType === 'S' && $sourceIblockCode === 'CALC_STAGES' && in_array((string)$code, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT', 'OPTIONS_CALCULATOR'], true)) {
                     $targetMap = (string)$code === 'OPTIONS_OPERATION'
                         ? (array)($elementIdMapsByCode['CALC_OPERATIONS_VARIANTS'] ?? [])
                         : ((string)$code === 'OPTIONS_MATERIAL'
                             ? (array)($elementIdMapsByCode['CALC_MATERIALS_VARIANTS'] ?? [])
-                            : (array)($elementIdMapsByCode['CALC_EQUIPMENT'] ?? []));
+                            : ((string)$code === 'OPTIONS_EQUIPMENT'
+                                ? (array)($elementIdMapsByCode['CALC_EQUIPMENT'] ?? [])
+                                : (array)($elementIdMapsByCode['CALC_SETTINGS'] ?? [])));
                     $description = $this->remapStageVariantMappingJson(
                         $description,
                         $targetMap,
@@ -979,7 +983,9 @@ class SnapshotManager
         $mappingService = new \Prospektweb\Calc\Services\StageVariantMappingService();
         try {
             $decodedRaw = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $header = json_decode($decodedRaw, true);
             $canonical = $propertyCode === 'OPTIONS_MATERIAL'
+                || (($header['contract'] ?? '') === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT)
                 ? $mappingService->normalizeMaterialJson($decodedRaw)
                 : $mappingService->normalizeJson($decodedRaw);
         } catch (\InvalidArgumentException $error) {

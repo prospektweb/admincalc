@@ -1018,6 +1018,13 @@ switch ($currentStep) {
                 'SORT' => 820,
                 'HINT' => 'prospektweb.calc.stage-variant-mapping/v1; только ID полей и вариантов формы',
             ],
+            'OPTIONS_CALCULATOR' => [
+                'NAME' => 'Дерево выбора калькулятора по входам формы',
+                'TYPE' => 'S',
+                'USER_TYPE' => 'HTML',
+                'SORT' => 830,
+                'HINT' => 'prospektweb.calc.stage-material-selection/v4; универсальное дерево выбора сущности',
+            ],
         ];
         
         $settingsProps = [
@@ -1489,6 +1496,7 @@ switch ($currentStep) {
                 'OPTIONS_OPERATION' => 'Сопоставление варианта операции по входам формы',
                 'OPTIONS_MATERIAL' => 'Сопоставление варианта материала по входам формы',
                 'OPTIONS_EQUIPMENT' => 'Сопоставление оборудования по входам формы',
+                'OPTIONS_CALCULATOR' => 'Дерево выбора калькулятора по входам формы',
             ] as $mappingPropertyCode => $mappingPropertyName) {
                 $rsProperty = \CIBlockProperty::GetList([], [
                     'IBLOCK_ID' => $stagesIblockId,

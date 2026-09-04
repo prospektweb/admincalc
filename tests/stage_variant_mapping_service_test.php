@@ -56,6 +56,20 @@ $assert(
     ],
     'material decision tree v4 must round-trip and expose every referenced terminal'
 );
+$equipmentDecisionTree = $materialDecisionTree;
+$equipmentDecisionTree['tree']['branches'] = [[
+    'option_id' => 'paper',
+    'child' => [
+        'kind' => 'result',
+        'result' => ['entity_type' => 'equipment', 'entity_id' => 701],
+        'resolution' => 'manual',
+    ],
+]];
+$equipmentDecisionTreeJson = $service->normalizeMaterialJson(json_encode($equipmentDecisionTree, JSON_UNESCAPED_SLASHES));
+$assert(
+    $service->materialReferencesFromJson($equipmentDecisionTreeJson) === [['entity_type' => 'equipment', 'entity_id' => 701]],
+    'universal decision tree preserves a typed equipment terminal'
+);
 $rejects(
     static fn() => $service->normalizeJson($materialDecisionTreeJson),
     'Unsupported stage variant mapping contract'

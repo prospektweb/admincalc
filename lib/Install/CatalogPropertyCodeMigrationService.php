@@ -22,6 +22,7 @@ class CatalogPropertyCodeMigrationService
         'OPTIONS_OPERATION',
         'OPTIONS_MATERIAL',
         'OPTIONS_EQUIPMENT',
+        'OPTIONS_CALCULATOR',
     ];
 
     public function migrateForOffers(array $offerIds): array

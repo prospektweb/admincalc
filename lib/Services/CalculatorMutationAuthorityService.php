@@ -1041,6 +1041,22 @@ final class CalculatorMutationAuthorityService
                 $this->assertElementExists($settingsId, $settingsIblockId, 'settings');
                 $settingsIds[$settingsId] = true;
             }
+            $calculatorTree = $this->readPropertyString($stagesIblockId, (int)$stageId, 'OPTIONS_CALCULATOR');
+            if ($calculatorTree !== '') {
+                try {
+                    $mappingService = new StageVariantMappingService();
+                    foreach ($mappingService->materialReferencesFromJson($calculatorTree) as $reference) {
+                        if (($reference['entity_type'] ?? '') !== 'calculator') continue;
+                        $settingsId = (int)($reference['entity_id'] ?? 0);
+                        $this->assertElementExists($settingsId, $settingsIblockId, 'settings');
+                        $settingsIds[$settingsId] = true;
+                        $stageSettings[(int)$stageId][] = $settingsId;
+                    }
+                    $stageSettings[(int)$stageId] = array_values(array_unique($stageSettings[(int)$stageId]));
+                } catch (\InvalidArgumentException $error) {
+                    throw new \RuntimeException('Calculator selection tree is invalid for stage ' . (int)$stageId . '.', 409, $error);
+                }
+            }
         }
 
         $stageLinkedSettingsIds = [];
@@ -1592,6 +1608,15 @@ final class CalculatorMutationAuthorityService
             }
         }
         return array_map('intval', array_keys($ids));
+    }
+
+    private function readPropertyString(int $iblockId, int $elementId, string $propertyCode): string
+    {
+        $cursor = \CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc', 'id' => 'asc'], ['CODE' => $propertyCode]);
+        $row = $cursor->Fetch();
+        $value = $row['~VALUE'] ?? $row['VALUE'] ?? '';
+        if (is_array($value)) $value = $value['TEXT'] ?? '';
+        return is_string($value) ? html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8') : '';
     }
 
     /** @return string[] */

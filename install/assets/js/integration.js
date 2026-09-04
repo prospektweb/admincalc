@@ -494,6 +494,9 @@
                 case 'CHANGE_OPTIONS_EQUIPMENT':
                     await this.handleChangeOptionsEquipment(message, origin);
                     break;
+                case 'CHANGE_OPTIONS_CALCULATOR':
+                    await this.handleChangeOptionsCalculator(message, origin);
+                    break;
                 case 'SAVE_CALC_LOGIC_REQUEST':
                     await this.handleSaveCalcLogicRequest(message, origin);
                     break;
@@ -530,6 +533,9 @@
                     break;
                 case 'CLEAR_OPTIONS_EQUIPMENT':
                     await this.handleClearOptionsEquipment(message, origin);
+                    break;
+                case 'CLEAR_OPTIONS_CALCULATOR':
+                    await this.handleClearOptionsCalculator(message, origin);
                     break;
                 case 'CHANGE_LOGIC':
                     await this.handleChangeLogic(message, origin);
@@ -3431,6 +3437,7 @@
                 
                 // 2. Лёгкое обогащение - обновляем локально this.initData
                 this.updateStagePropertyInInitData(stageId, 'OPTIONS_OPERATION', responsePayload.value ?? json);
+                if (responsePayload.clearedPropertyCode) this.updateStagePropertyInInitData(stageId, responsePayload.clearedPropertyCode, '');
                 
                 // 3. Отправляем модифицированный INIT
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
@@ -3527,6 +3534,7 @@
                     throw new Error(responsePayload.message || 'Не удалось сохранить сопоставление оборудования');
                 }
                 this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', responsePayload.value ?? json);
+                if (responsePayload.clearedPropertyCode) this.updateStagePropertyInInitData(stageId, responsePayload.clearedPropertyCode, '');
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_EQUIPMENT error:', error);
@@ -3652,6 +3660,31 @@
                     message: 'Не удалось сохранить условие активации этапа',
                     details: error && error.message ? error.message : 'Unknown error',
                 }, message.requestId, origin);
+            }
+        }
+
+        async handleChangeOptionsCalculator(message, origin) {
+            const payload = message.payload || {};
+            const stageId = parseInt(payload.stageId, 10);
+            const json = payload.json || '';
+            if (!stageId) {
+                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для дерева выбора калькулятора' }, message.requestId, origin);
+                return;
+            }
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'updateStageProperty', stageId, propertyCode: 'OPTIONS_CALCULATOR', value: json
+                }]);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0] : { status: 'error', message: 'Пустой ответ сервера' };
+                if (responsePayload.status !== 'ok') throw new Error(responsePayload.message || 'Не удалось сохранить дерево выбора калькулятора');
+                if (!responsePayload.initPayload) {
+                    this.updateStagePropertyInInitData(stageId, 'OPTIONS_CALCULATOR', responsePayload.value ?? json);
+                    if (responsePayload.clearedPropertyCode) this.updateStagePropertyInInitData(stageId, responsePayload.clearedPropertyCode, '');
+                }
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', { message: 'Ошибка сохранения дерева выбора калькулятора', details: error && error.message ? error.message : 'Unknown error' }, message.requestId, origin);
             }
         }
 
@@ -4528,6 +4561,28 @@
             // original promise to the caller so its own error UI still works.
             this.calculatorMutationQueue = queued.catch(() => undefined);
             return queued;
+        }
+
+        async handleClearOptionsCalculator(message, origin) {
+            const payload = message.payload || {};
+            const stageId = parseInt(payload.stageId, 10);
+            if (!stageId) {
+                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для сброса дерева выбора калькулятора' }, message.requestId, origin);
+                return;
+            }
+            try {
+                const result = await this.fetchRefreshData([{
+                    action: 'updateStageProperty', stageId, propertyCode: 'OPTIONS_CALCULATOR', value: ''
+                }]);
+                const responsePayload = Array.isArray(result) && result[0]
+                    ? result[0] : { status: 'error', message: 'Пустой ответ сервера' };
+                if (responsePayload.status !== 'ok') throw new Error(responsePayload.message || 'Не удалось сбросить дерево выбора калькулятора');
+                this.applySemanticReadback(responsePayload);
+                this.updateStagePropertyInInitData(stageId, 'OPTIONS_CALCULATOR', '');
+                this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
+            } catch (error) {
+                this.sendPwrtMessage('ERROR', { message: 'Ошибка сброса дерева выбора калькулятора', details: error && error.message ? error.message : 'Unknown error' }, message.requestId, origin);
+            }
         }
 
         async fetchRefreshDataNow(items) {

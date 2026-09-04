@@ -613,7 +613,7 @@ final class FormFirstDependencyContractService
 
     private static function categoryForPath(string $defaultCategory, string $key): string
     {
-        return in_array(strtoupper($key), ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT'], true)
+        return in_array(strtoupper($key), ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT', 'OPTIONS_CALCULATOR'], true)
             ? 'options_mappings'
             : $defaultCategory;
     }

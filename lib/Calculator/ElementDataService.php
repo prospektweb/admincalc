@@ -609,12 +609,16 @@ class ElementDataService
                                     $settingsId,
                                     $active
                                 );
-                                \Prospektweb\Calc\Services\PresetEnrichmentService::updateStagePropertyPinned(
-                                    $stageId,
-                                    'CALC_SETTINGS',
-                                    $settingsId,
-                                    (int)($pinnedIblockIds['CALC_STAGES'] ?? 0)
+                                $stagesIblockId = (int)($pinnedIblockIds['CALC_STAGES'] ?? 0);
+                                self::assertPinnedPropertyCodesExist(
+                                    $stagesIblockId,
+                                    ['CALC_SETTINGS', 'OPTIONS_CALCULATOR'],
+                                    'calculator stage'
                                 );
+                                \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, [
+                                    'CALC_SETTINGS' => $settingsId > 0 ? $settingsId : false,
+                                    'OPTIONS_CALCULATOR' => false,
+                                ]);
                                 return $this->completeStructuralMutationPinned(
                                     ['status' => 'ok'],
                                     $presetId,
@@ -1947,6 +1951,7 @@ class ElementDataService
                             'OPTIONS_OPERATION',
                             'OPTIONS_MATERIAL',
                             'OPTIONS_EQUIPMENT',
+                            'OPTIONS_CALCULATOR',
                             'ACTIVATION_CONDITION',
                             'INPUTS',
                             'OUTPUTS',
@@ -1962,6 +1967,7 @@ class ElementDataService
                             'OPTIONS_OPERATION',
                             'OPTIONS_MATERIAL',
                             'OPTIONS_EQUIPMENT',
+                            'OPTIONS_CALCULATOR',
                         ], true)) {
                             if (!is_string($value)) {
                                 throw new \InvalidArgumentException(
@@ -1971,15 +1977,17 @@ class ElementDataService
                             }
                             try {
                                 $mappingService = new \Prospektweb\Calc\Services\StageVariantMappingService();
+                                $header = json_decode($value, true);
                                 $value = $propertyCode === 'OPTIONS_MATERIAL'
+                                    || (($header['contract'] ?? '') === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT)
                                     ? $mappingService->normalizeMaterialJson($value)
                                     : $mappingService->normalizeJson($value);
                             } catch (\InvalidArgumentException $error) {
                                 throw new \InvalidArgumentException($error->getMessage(), 422, $error);
                             }
                         }
-                        $clearDirectMaterialSelection = false;
-                        if ($propertyCode === 'OPTIONS_MATERIAL' && $value !== '') {
+                        $clearDirectSelectionProperty = null;
+                        if (in_array($propertyCode, ['OPTIONS_MATERIAL', 'OPTIONS_OPERATION', 'OPTIONS_EQUIPMENT', 'OPTIONS_CALCULATOR'], true) && $value !== '') {
                             $normalizedMapping = json_decode($value, true);
                             if (!is_array($normalizedMapping) || !in_array(
                                 (string)($normalizedMapping['contract'] ?? ''),
@@ -1990,12 +1998,30 @@ class ElementDataService
                                 true
                             )) {
                                 throw new \InvalidArgumentException(
-                                    'OPTIONS_MATERIAL has an unsupported selection contract.',
+                                    $propertyCode . ' has an unsupported selection contract.',
                                     422
                                 );
                             }
-                            $clearDirectMaterialSelection = ($normalizedMapping['contract'] ?? '')
-                                === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT;
+                            if (($normalizedMapping['contract'] ?? '') === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT) {
+                                $directByOptions = [
+                                    'OPTIONS_MATERIAL' => 'MATERIAL_VARIANT',
+                                    'OPTIONS_OPERATION' => 'OPERATION_VARIANT',
+                                    'OPTIONS_EQUIPMENT' => 'EQUIPMENT',
+                                    'OPTIONS_CALCULATOR' => 'CALC_SETTINGS',
+                                ];
+                                $clearDirectSelectionProperty = $directByOptions[$propertyCode] ?? null;
+                                $allowedTypes = [
+                                    'OPTIONS_MATERIAL' => ['material', 'variant'],
+                                    'OPTIONS_OPERATION' => ['operation'],
+                                    'OPTIONS_EQUIPMENT' => ['equipment'],
+                                    'OPTIONS_CALCULATOR' => ['calculator'],
+                                ];
+                                foreach ($mappingService->materialReferencesFromJson($value) as $reference) {
+                                    if (!in_array((string)$reference['entity_type'], $allowedTypes[$propertyCode] ?? [], true)) {
+                                        throw new \InvalidArgumentException($propertyCode . ' contains an incompatible result type.', 422);
+                                    }
+                                }
+                            }
                         }
                         $mutationAuthority = $this->mutationAuthority();
                         $mutationAuthority->withAuthorityLock($presetId, static function (
@@ -2007,7 +2033,7 @@ class ElementDataService
                             $stageId,
                             $propertyCode,
                             $value,
-                            $clearDirectMaterialSelection,
+                            $clearDirectSelectionProperty,
                             $request
                         ): void {
                             $mutationAuthority->assertStageStructuralMutationAllowed(
@@ -2027,7 +2053,7 @@ class ElementDataService
                                     409
                                 );
                             }
-                            if (in_array($propertyCode, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT'], true)
+                            if (in_array($propertyCode, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT', 'OPTIONS_CALCULATOR'], true)
                                 && $value !== ''
                                 && (json_decode($value, true)['contract'] ?? '')
                                     === \Prospektweb\Calc\Services\StageVariantMappingService::CONTRACT) {
@@ -2041,17 +2067,32 @@ class ElementDataService
                                     is_array($sourcePayload['globalSymbols'] ?? null) ? $sourcePayload['globalSymbols'] : []
                                 );
                             }
-                            if ($propertyCode === 'OPTIONS_MATERIAL' && $value !== '') {
+                            if ($clearDirectSelectionProperty !== null) {
                                 self::assertPinnedPropertyCodesExist(
                                     $stagesIblockId,
-                                    ['MATERIAL_VARIANT', 'OPTIONS_MATERIAL'],
+                                    [$clearDirectSelectionProperty, $propertyCode],
                                     'calculator stage'
                                 );
-                                self::assertMaterialDecisionReferences(
-                                    $value,
-                                    (int)($pinnedIblockIds['CALC_MATERIALS'] ?? 0),
-                                    (int)($pinnedIblockIds['CALC_MATERIALS_VARIANTS'] ?? 0)
-                                );
+                                if ($propertyCode === 'OPTIONS_MATERIAL') {
+                                    self::assertMaterialDecisionReferences(
+                                        $value,
+                                        (int)($pinnedIblockIds['CALC_MATERIALS'] ?? 0),
+                                        (int)($pinnedIblockIds['CALC_MATERIALS_VARIANTS'] ?? 0)
+                                    );
+                                } else {
+                                    $referenceAuthority = [
+                                        'OPTIONS_OPERATION' => ['operation', 'CALC_OPERATIONS_VARIANTS'],
+                                        'OPTIONS_EQUIPMENT' => ['equipment', 'CALC_EQUIPMENT'],
+                                        'OPTIONS_CALCULATOR' => ['calculator', 'CALC_SETTINGS'],
+                                    ][$propertyCode] ?? null;
+                                    if (is_array($referenceAuthority)) {
+                                        self::assertDecisionReferencesExist(
+                                            $value,
+                                            (string)$referenceAuthority[0],
+                                            (int)($pinnedIblockIds[(string)$referenceAuthority[1]] ?? 0)
+                                        );
+                                    }
+                                }
                             }
                             if ($propertyCode === 'INPUTS') {
                                 $mutationAuthority->assertStageInputsWrite(
@@ -2076,8 +2117,8 @@ class ElementDataService
                             // OPTIONS_MATERIAL is an alternative selection mode, not an
                             // additional fallback. Persisting it must atomically remove the
                             // direct variant reference so runtime has one authoritative source.
-                            if ($clearDirectMaterialSelection) {
-                                $propertyValues['MATERIAL_VARIANT'] = false;
+                            if ($clearDirectSelectionProperty) {
+                                $propertyValues[$clearDirectSelectionProperty] = false;
                             }
                             \CIBlockElement::SetPropertyValuesEx($stageId, $stagesIblockId, $propertyValues);
                         });
@@ -2085,9 +2126,7 @@ class ElementDataService
                             'status' => 'ok',
                             'propertyCode' => $propertyCode,
                             'value' => $value,
-                            'clearedPropertyCode' => $clearDirectMaterialSelection
-                                ? 'MATERIAL_VARIANT'
-                                : null,
+                            'clearedPropertyCode' => $clearDirectSelectionProperty,
                         ];
                         continue 2;
 
@@ -3462,6 +3501,22 @@ class ElementDataService
                     );
                 }
             }
+        }
+    }
+
+    private static function assertDecisionReferencesExist(
+        string $mappingJson,
+        string $entityType,
+        int $iblockId
+    ): void {
+        if ($iblockId <= 0) {
+            throw new \RuntimeException('Pinned ' . $entityType . ' catalog authority is invalid.', 409);
+        }
+        $references = (new \Prospektweb\Calc\Services\StageVariantMappingService())
+            ->materialReferencesFromJson($mappingJson);
+        foreach ($references as $reference) {
+            $entityId = (int)($reference['entity_id'] ?? 0);
+            self::assertPinnedElementExists($entityId, $iblockId, $entityType);
         }
     }
 

@@ -78,6 +78,13 @@ class SchemaRepairService
                     'SORT' => 820,
                     'HINT' => 'prospektweb.calc.stage-variant-mapping/v1; только ID полей и вариантов формы',
                 ],
+                'OPTIONS_CALCULATOR' => [
+                    'NAME' => 'Дерево выбора калькулятора по входам формы',
+                    'TYPE' => 'S',
+                    'USER_TYPE' => 'HTML',
+                    'SORT' => 830,
+                    'HINT' => 'prospektweb.calc.stage-material-selection/v4; универсальное дерево выбора сущности',
+                ],
                 'ACTIVATION_CONDITION' => [
                     'NAME' => 'Условие активации этапа',
                     'TYPE' => 'S',
