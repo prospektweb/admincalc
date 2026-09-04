@@ -3826,8 +3826,8 @@
             try {
                 // Ownership must be checked for every save, not only when the
                 // public input contract changes. Formula-only edits are still
-                // unsafe when the same settings are linked to another stage or
-                // reached through a stage selection tree.
+                // unsafe when the same settings are linked to another stage,
+                // directly or through that other stage's selection tree.
                 const result = await this.fetchRefreshData([{ action: 'inspectCalculatorContract', settingsId }]);
                 const inspection = Array.isArray(result) && result[0]
                     ? result[0]
