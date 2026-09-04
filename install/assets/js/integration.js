@@ -4562,12 +4562,65 @@
                 return this.fetchRefreshDataNow(preparedItems);
             }
 
-            const run = () => this.fetchRefreshDataNow(preparedItems);
+            const run = () => this.fetchRefreshDataWithStagePropertyConflictRetry(preparedItems);
             const queued = this.calculatorMutationQueue.then(run, run);
             // Keep the queue usable after a rejected request while returning the
             // original promise to the caller so its own error UI still works.
             this.calculatorMutationQueue = queued.catch(() => undefined);
             return queued;
+        }
+
+        semanticStagePropertyRetryContext(items) {
+            if (!Array.isArray(items) || items.length !== 1) return null;
+            const item = items[0];
+            const propertyCode = String(item?.propertyCode || '');
+            if (item?.action !== 'updateStageProperty'
+                || !['OPTIONS_CALCULATOR', 'OPTIONS_OPERATION', 'OPTIONS_EQUIPMENT', 'OPTIONS_MATERIAL'].includes(propertyCode)) {
+                return null;
+            }
+            const stageId = Number(item.stageId || 0);
+            if (!Number.isSafeInteger(stageId) || stageId <= 0) return null;
+            const fingerprint = this.stagePropertyRetryFingerprint(this.initData, stageId, propertyCode);
+            return fingerprint === null ? null : { stageId, propertyCode, fingerprint };
+        }
+
+        stagePropertyRetryFingerprint(initData, stageId, propertyCode) {
+            const stages = initData?.elementsStore?.CALC_STAGES;
+            if (!Array.isArray(stages)) return null;
+            const stage = stages.find((candidate) => Number(candidate?.id || candidate?.ID || 0) === stageId);
+            if (!stage) return null;
+            const property = stage?.properties?.[propertyCode];
+            return JSON.stringify([
+                property && Object.prototype.hasOwnProperty.call(property, 'VALUE') ? property.VALUE : null,
+                property && Object.prototype.hasOwnProperty.call(property, '~VALUE') ? property['~VALUE'] : null,
+            ]);
+        }
+
+        isPresetSemanticConflict(error) {
+            return String(error?.message || '').includes('Данные пресета изменились в другой вкладке.');
+        }
+
+        async fetchRefreshDataWithStagePropertyConflictRetry(items) {
+            const retryContext = this.semanticStagePropertyRetryContext(items);
+            try {
+                return await this.fetchRefreshDataNow(items);
+            } catch (error) {
+                if (!retryContext || !this.isPresetSemanticConflict(error)) throw error;
+
+                const refreshedInitData = await this.fetchInitData();
+                const refreshedFingerprint = this.stagePropertyRetryFingerprint(
+                    refreshedInitData,
+                    retryContext.stageId,
+                    retryContext.propertyCode
+                );
+                if (refreshedFingerprint === null || refreshedFingerprint !== retryContext.fingerprint) {
+                    throw error;
+                }
+
+                this.initData = refreshedInitData;
+                this.initDataGeneration += 1;
+                return this.fetchRefreshDataNow(this.withAuthoritativePreset(items));
+            }
         }
 
         async handleClearOptionsCalculator(message, origin) {

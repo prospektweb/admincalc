@@ -176,6 +176,85 @@ assert.equal(bridge.initData.elementsStore.CALC_STAGES[0].properties.OPTIONS_MAT
     'stageParametrValuesScheme',
     'stageWiring',
   ]);
+
+  bridge.config = { presetId: 12740, siteId: 's1', sessid: 'test' };
+  bridge.fetchRefreshData = Bridge.prototype.fetchRefreshData;
+  bridge.initDataGeneration = 0;
+  bridge.calculatorMutationQueue = Promise.resolve();
+  bridge.initData = {
+    preset: { id: 12740 },
+    semanticRevision: 'a'.repeat(64),
+    elementsStore: {
+      CALC_STAGES: [{
+        id: 601,
+        properties: {
+          OPTIONS_EQUIPMENT: { VALUE: 'same-rules', '~VALUE': 'same-rules' },
+        },
+      }],
+    },
+  };
+  let semanticAttempts = 0;
+  bridge.fetchRefreshDataNow = async () => {
+    semanticAttempts += 1;
+    if (semanticAttempts === 1) {
+      throw new Error('Данные пресета изменились в другой вкладке. Обновите редактор и повторите действие.');
+    }
+    return [{ status: 'ok' }];
+  };
+  bridge.fetchInitData = async () => ({
+    preset: { id: 12740 },
+    semanticRevision: 'b'.repeat(64),
+    elementsStore: {
+      CALC_STAGES: [{
+        id: 601,
+        properties: {
+          OPTIONS_EQUIPMENT: { VALUE: 'same-rules', '~VALUE': 'same-rules' },
+        },
+      }],
+    },
+  });
+  await bridge.fetchRefreshData([{
+    action: 'updateStageProperty',
+    stageId: 601,
+    propertyCode: 'OPTIONS_EQUIPMENT',
+    value: 'new-rules',
+  }]);
+  assert.equal(semanticAttempts, 2, 'an unrelated semantic revision change must refresh INIT and retry once');
+  assert.equal(bridge.initData.semanticRevision, 'b'.repeat(64));
+  assert.equal(bridge.initDataGeneration, 1);
+
+  semanticAttempts = 0;
+  bridge.initDataGeneration = 0;
+  bridge.initData.elementsStore.CALC_STAGES[0].properties.OPTIONS_EQUIPMENT = {
+    VALUE: 'same-rules',
+    '~VALUE': 'same-rules',
+  };
+  bridge.fetchRefreshDataNow = async () => {
+    semanticAttempts += 1;
+    throw new Error('Данные пресета изменились в другой вкладке. Обновите редактор и повторите действие.');
+  };
+  bridge.fetchInitData = async () => ({
+    preset: { id: 12740 },
+    semanticRevision: 'c'.repeat(64),
+    elementsStore: {
+      CALC_STAGES: [{
+        id: 601,
+        properties: {
+          OPTIONS_EQUIPMENT: { VALUE: 'changed-elsewhere', '~VALUE': 'changed-elsewhere' },
+        },
+      }],
+    },
+  });
+  await assert.rejects(
+    bridge.fetchRefreshData([{
+      action: 'updateStageProperty',
+      stageId: 601,
+      propertyCode: 'OPTIONS_EQUIPMENT',
+      value: 'new-rules',
+    }]),
+    /Данные пресета изменились в другой вкладке/,
+  );
+  assert.equal(semanticAttempts, 1, 'a concurrently changed mapping must never be overwritten by retry');
   console.log('Calculator logic bridge authority tests passed');
 })().catch(error => {
   console.error(error);

@@ -58,6 +58,9 @@ $assert(
         && str_contains($bridge, "'applyGlobalCodeRefactor',")
         && str_contains($bridge, 'const refreshedInitData = await this.fetchInitData()')
         && str_contains($bridge, 'requestedGeneration === this.initDataGeneration')
+        && str_contains($bridge, 'fetchRefreshDataWithStagePropertyConflictRetry(preparedItems)')
+        && str_contains($bridge, "['OPTIONS_CALCULATOR', 'OPTIONS_OPERATION', 'OPTIONS_EQUIPMENT', 'OPTIONS_MATERIAL']")
+        && str_contains($bridge, 'refreshedFingerprint !== retryContext.fingerprint')
         && str_contains($bridge, "(mutationItems.length === 1 || coordinatedMutationItems.length === 1)\n                    && this.config.versionMode === 'edit'")
         && str_contains($bridge, 'async fetchRefreshDataNow(items)'),
     'same-editor semantic/global writes must be serialized and global writes must refresh semantic state'
