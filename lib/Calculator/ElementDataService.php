@@ -13,15 +13,20 @@ class ElementDataService
 
     private bool $deferInitPayloadToSemanticReadback;
 
+    /** @var array{formFields:array<int,array<string,mixed>>,globalSymbols:array<int,array<string,mixed>>}|null */
+    private ?array $stageVariantSourceContext;
+
     /** @param array<string,int> $pinnedRuntimeIblockIds */
     public function __construct(
         array $pinnedRuntimeIblockIds = [],
         ?\Prospektweb\Calc\Services\CalculatorMutationAuthorityService $mutationAuthority = null,
-        bool $deferInitPayloadToSemanticReadback = false
+        bool $deferInitPayloadToSemanticReadback = false,
+        ?array $stageVariantSourceContext = null
     ) {
         $this->pinnedRuntimeIblockIds = $pinnedRuntimeIblockIds;
         $this->mutationAuthority = $mutationAuthority;
         $this->deferInitPayloadToSemanticReadback = $deferInitPayloadToSemanticReadback;
+        $this->stageVariantSourceContext = $stageVariantSourceContext;
         $this->ensureBitrixModulesLoaded();
     }
 
@@ -2024,6 +2029,7 @@ class ElementDataService
                             }
                         }
                         $mutationAuthority = $this->mutationAuthority();
+                        $stageVariantSourceContext = $this->stageVariantSourceContext;
                         $mutationAuthority->withAuthorityLock($presetId, static function (
                             bool $protected,
                             array $pinnedIblockIds
@@ -2034,6 +2040,7 @@ class ElementDataService
                             $propertyCode,
                             $value,
                             $clearDirectSelectionProperty,
+                            $stageVariantSourceContext,
                             $request
                         ): void {
                             $mutationAuthority->assertStageStructuralMutationAllowed(
@@ -2054,17 +2061,28 @@ class ElementDataService
                                 );
                             }
                             if (in_array($propertyCode, ['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT', 'OPTIONS_CALCULATOR'], true)
-                                && $value !== ''
-                                && (json_decode($value, true)['contract'] ?? '')
-                                    === \Prospektweb\Calc\Services\StageVariantMappingService::CONTRACT) {
-                                $siteId = (string)($request['siteId'] ?? (defined('SITE_ID') ? SITE_ID : 's1'));
-                                $sourcePayload = (new InitPayloadService())->preparePresetPayload($presetId, $siteId);
+                                && $value !== '') {
+                                if ($stageVariantSourceContext !== null) {
+                                    $formFields = $stageVariantSourceContext['formFields'] ?? null;
+                                    $globalSymbols = $stageVariantSourceContext['globalSymbols'] ?? null;
+                                    if (!is_array($formFields) || !array_is_list($formFields)
+                                        || !is_array($globalSymbols) || !array_is_list($globalSymbols)) {
+                                        throw new \RuntimeException('Version selection source context is invalid.', 409);
+                                    }
+                                } else {
+                                    $siteId = (string)($request['siteId'] ?? (defined('SITE_ID') ? SITE_ID : 's1'));
+                                    $sourcePayload = (new InitPayloadService())->preparePresetPayload($presetId, $siteId);
+                                    $formFields = is_array($sourcePayload['editorRuntime']['formDefinition']['fields'] ?? null)
+                                        ? $sourcePayload['editorRuntime']['formDefinition']['fields']
+                                        : [];
+                                    $globalSymbols = is_array($sourcePayload['globalSymbols'] ?? null)
+                                        ? $sourcePayload['globalSymbols']
+                                        : [];
+                                }
                                 (new \Prospektweb\Calc\Services\StageVariantMappingService())->assertSemanticSources(
                                     $value,
-                                    is_array($sourcePayload['editorRuntime']['formDefinition']['fields'] ?? null)
-                                        ? $sourcePayload['editorRuntime']['formDefinition']['fields']
-                                        : [],
-                                    is_array($sourcePayload['globalSymbols'] ?? null) ? $sourcePayload['globalSymbols'] : []
+                                    $formFields,
+                                    $globalSymbols
                                 );
                             }
                             if ($clearDirectSelectionProperty !== null) {

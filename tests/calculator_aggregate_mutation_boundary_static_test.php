@@ -77,9 +77,11 @@ $assert(
     'version graph mutations must use isolated-graph semantic readback instead of public preset INIT'
 );
 $assert(
-    str_contains($aggregate, 'new ElementDataService([], $authority, true)')
+    str_contains($aggregate, 'new ElementDataService(')
+        && str_contains($aggregate, '$authority,')
+        && str_contains($aggregate, '$this->stageVariantSourceContext($request, $versionReadbackContext, $authority)')
         && str_contains($element, '$this->mutationAuthority()'),
-    'structural mutations must reuse the authority held by the aggregate coordinator'
+    'structural mutations must reuse the authority and version source context held by the aggregate coordinator'
 );
 $assert(
     substr_count($element, 'return self::enrichStructuralResultPinned(') === 1

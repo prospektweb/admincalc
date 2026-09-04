@@ -257,7 +257,7 @@ final class StageVariantMappingService
     public function assertSemanticSources(string $raw, array $formFields, array $globalSymbols): void
     {
         if ($raw === '') return;
-        $mapping = json_decode($this->normalizeJson($raw), true);
+        $document = json_decode($this->normalizeMaterialJson($raw), true);
         $formOptions = [];
         foreach ($formFields as $field) {
             $fieldId = is_array($field) ? (string)($field['fieldId'] ?? '') : '';
@@ -279,9 +279,17 @@ final class StageVariantMappingService
                 || in_array($dataType, ['array', 'object'], true)) continue;
             $globals['global.' . $kind . '.' . $code] = $dataType;
         }
-        foreach ((array)$mapping['input_field_ids'] as $fieldId) {
+        if (($document['contract'] ?? null) === self::MATERIAL_DECISION_TREE_CONTRACT) {
+            $this->assertDecisionTreeSemanticSources(
+                is_array($document['tree'] ?? null) ? $document['tree'] : [],
+                $formOptions,
+                $globals
+            );
+            return;
+        }
+        foreach ((array)$document['input_field_ids'] as $fieldId) {
             if (isset($formOptions[$fieldId])) {
-                foreach ((array)$mapping['rules'] as $rule) {
+                foreach ((array)$document['rules'] as $rule) {
                     if (!isset($formOptions[$fieldId][(string)$rule['input_values'][$fieldId]])) {
                         throw new \InvalidArgumentException('Stage variant mapping references a missing form option.');
                     }
@@ -290,7 +298,7 @@ final class StageVariantMappingService
             }
             if (isset($globals[$fieldId])) {
                 if ($globals[$fieldId] === 'boolean') {
-                    foreach ((array)$mapping['rules'] as $rule) {
+                    foreach ((array)$document['rules'] as $rule) {
                         if (!in_array((string)$rule['input_values'][$fieldId], ['true', 'false'], true)) {
                             throw new \InvalidArgumentException('Stage variant mapping contains an invalid boolean global value.');
                         }
@@ -299,6 +307,35 @@ final class StageVariantMappingService
                 continue;
             }
             throw new \InvalidArgumentException('Stage variant mapping references a missing semantic source.');
+        }
+    }
+
+    /**
+     * @param array<string,mixed> $node
+     * @param array<string,array<string,bool>> $formOptions
+     * @param array<string,string> $globals
+     */
+    private function assertDecisionTreeSemanticSources(array $node, array $formOptions, array $globals): void
+    {
+        if (($node['kind'] ?? null) === 'result') return;
+        $fieldId = (string)($node['source']['field_id'] ?? '');
+        $allowedOptions = $formOptions[$fieldId] ?? null;
+        if ($allowedOptions === null && isset($globals[$fieldId])) {
+            if ($globals[$fieldId] !== 'boolean') {
+                throw new \InvalidArgumentException('Stage decision tree supports only boolean global sources.');
+            }
+            $allowedOptions = ['true' => true, 'false' => true];
+        }
+        if ($allowedOptions === null) {
+            throw new \InvalidArgumentException('Stage decision tree references a missing semantic source.');
+        }
+        foreach ((array)($node['branches'] ?? []) as $branch) {
+            $optionId = is_array($branch) ? (string)($branch['option_id'] ?? '') : '';
+            if (!isset($allowedOptions[$optionId])) {
+                throw new \InvalidArgumentException('Stage decision tree references a missing source option.');
+            }
+            $child = is_array($branch['child'] ?? null) ? $branch['child'] : [];
+            $this->assertDecisionTreeSemanticSources($child, $formOptions, $globals);
         }
     }
 
@@ -342,7 +379,8 @@ final class StageVariantMappingService
         if (!is_array($source) || self::isList($source)) throw new \InvalidArgumentException($path . '.source must be an object.');
         self::assertExactKeys($source, ['kind', 'field_id'], $path . '.source');
         $fieldId = (string)($source['field_id'] ?? '');
-        if (($source['kind'] ?? null) !== 'form_field' || preg_match('/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/D', $fieldId) !== 1) {
+        if (($source['kind'] ?? null) !== 'form_field'
+            || preg_match('/^(?:[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*|global\.(?:constant|variable)\.[A-Za-z_][A-Za-z0-9_]*)$/D', $fieldId) !== 1) {
             throw new \InvalidArgumentException($path . '.source is invalid.');
         }
         if (isset($sourcePath[$fieldId])) throw new \InvalidArgumentException($path . ' repeats source field ' . $fieldId . '.');

@@ -560,12 +560,12 @@
                         'GET_AI_SETTINGS_REQUEST', 'SAVE_AI_SETTINGS_REQUEST', 'GENERATE_STAGE_PREVIEW_REQUEST', 'GENERATE_AI_TEXT_REQUEST', 'LOAD_AI_LOGIC_PILOT_DRAFT_REQUEST', 'SAVE_AI_LOGIC_PILOT_DRAFT_REQUEST', 'LOAD_AI_LOGIC_PILOT_REPLACEMENT_CANDIDATES_REQUEST', 'PREVIEW_AI_LOGIC_PILOT_MANIFEST_REQUEST', 'APPLY_AI_LOGIC_PILOT_MANIFEST_REQUEST', 'INSPECT_AI_LOGIC_PILOT_APPLICATION_REQUEST', 'REPAIR_AI_LOGIC_PILOT_APPLICATION_REQUEST', 'GENERATE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_STAGE_LOGIC_PROPOSAL_REQUEST', 'GENERATE_LOGIC_AUDIT_REQUEST', 'PREVIEW_GLOBAL_CODE_REFACTOR_REQUEST', 'APPLY_GLOBAL_CODE_REFACTOR_REQUEST', 'PREVIEW_STAGE_LOGIC_PROMPT_REQUEST',
                         'CHANGE_DETAIL_SORT_REQUEST', 'CHANGE_DETAIL_LEVEL_REQUEST', 'CHANGE_SORT_STAGE_REQUEST', 'MOVE_STAGE_REQUEST',
                         'CHANGE_PRICE_PRESET_REQUEST',
-                        'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT',
+                        'CHANGE_OPTIONS_OPERATION', 'CHANGE_OPTIONS_MATERIAL', 'CHANGE_OPTIONS_EQUIPMENT', 'CHANGE_OPTIONS_CALCULATOR',
                         'SAVE_CALC_LOGIC_REQUEST',
                         'CHECK_CALC_CONTRACT_REQUEST',
                         'RESOLVE_CALC_CONTRACT_REQUEST',
                         'PREVIEW_CATALOG_WRITE_REQUEST', 'APPLY_CATALOG_WRITE_REQUEST',
-                        'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL', 'CLEAR_OPTIONS_EQUIPMENT',
+                        'CLEAR_OPTIONS_OPERATION', 'CLEAR_OPTIONS_MATERIAL', 'CLEAR_OPTIONS_EQUIPMENT', 'CLEAR_OPTIONS_CALCULATOR',
                         'CLEAR_PRESET_REQUEST', 'SAVE_PRESET_GLOBALS_REQUEST', 'SAVE_GLOBAL_SYMBOLS_REQUEST', 'SAVE_GLOBAL_VALUES_REQUEST', 'SAVE_STAGE_GROUPS_REQUEST', 'CLOSE_REQUEST'
                     ]);
             }
@@ -3435,9 +3435,12 @@
                     throw new Error(responsePayload.message || 'Не удалось сохранить сопоставление варианта операции');
                 }
                 
-                // 2. Лёгкое обогащение - обновляем локально this.initData
-                this.updateStagePropertyInInitData(stageId, 'OPTIONS_OPERATION', responsePayload.value ?? json);
-                if (responsePayload.clearedPropertyCode) this.updateStagePropertyInInitData(stageId, responsePayload.clearedPropertyCode, '');
+                // 2. The semantic endpoint already installed the authoritative
+                // aggregate. Keep local enrichment only for legacy callers.
+                if (!responsePayload.initPayload) {
+                    this.updateStagePropertyInInitData(stageId, 'OPTIONS_OPERATION', responsePayload.value ?? json);
+                    if (responsePayload.clearedPropertyCode) this.updateStagePropertyInInitData(stageId, responsePayload.clearedPropertyCode, '');
+                }
                 
                 // 3. Отправляем модифицированный INIT
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
@@ -3533,8 +3536,10 @@
                 if (responsePayload.status !== 'ok') {
                     throw new Error(responsePayload.message || 'Не удалось сохранить сопоставление оборудования');
                 }
-                this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', responsePayload.value ?? json);
-                if (responsePayload.clearedPropertyCode) this.updateStagePropertyInInitData(stageId, responsePayload.clearedPropertyCode, '');
+                if (!responsePayload.initPayload) {
+                    this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', responsePayload.value ?? json);
+                    if (responsePayload.clearedPropertyCode) this.updateStagePropertyInInitData(stageId, responsePayload.clearedPropertyCode, '');
+                }
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 console.error('[BitrixBridge] CHANGE_OPTIONS_EQUIPMENT error:', error);
@@ -3668,7 +3673,7 @@
             const stageId = parseInt(payload.stageId, 10);
             const json = payload.json || '';
             if (!stageId) {
-                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для дерева выбора калькулятора' }, message.requestId, origin);
+                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для выбора калькулятора' }, message.requestId, origin);
                 return;
             }
             try {
@@ -3677,14 +3682,14 @@
                 }]);
                 const responsePayload = Array.isArray(result) && result[0]
                     ? result[0] : { status: 'error', message: 'Пустой ответ сервера' };
-                if (responsePayload.status !== 'ok') throw new Error(responsePayload.message || 'Не удалось сохранить дерево выбора калькулятора');
+                if (responsePayload.status !== 'ok') throw new Error(responsePayload.message || 'Не удалось сохранить выбор калькулятора');
                 if (!responsePayload.initPayload) {
                     this.updateStagePropertyInInitData(stageId, 'OPTIONS_CALCULATOR', responsePayload.value ?? json);
                     if (responsePayload.clearedPropertyCode) this.updateStagePropertyInInitData(stageId, responsePayload.clearedPropertyCode, '');
                 }
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
-                this.sendPwrtMessage('ERROR', { message: 'Ошибка сохранения дерева выбора калькулятора', details: error && error.message ? error.message : 'Unknown error' }, message.requestId, origin);
+                this.sendPwrtMessage('ERROR', { message: 'Ошибка сохранения выбора калькулятора', details: error && error.message ? error.message : 'Unknown error' }, message.requestId, origin);
             }
         }
 
@@ -3996,10 +4001,10 @@
                 if (responsePayload.status !== 'ok') {
                     throw new Error(responsePayload.message || 'Не удалось сбросить сопоставление варианта операции');
                 }
-                this.applySemanticReadback(responsePayload);
-                
-                // 2. Лёгкое обогащение
-                this.updateStagePropertyInInitData(stageId, 'OPTIONS_OPERATION', '');
+                if (!responsePayload.initPayload) {
+                    this.applySemanticReadback(responsePayload);
+                    this.updateStagePropertyInInitData(stageId, 'OPTIONS_OPERATION', '');
+                }
                 
                 // 3. Отправляем модифицированный INIT
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
@@ -4044,10 +4049,10 @@
                 if (responsePayload.status !== 'ok') {
                     throw new Error(responsePayload.message || 'Не удалось сбросить сопоставление варианта материала');
                 }
-                this.applySemanticReadback(responsePayload);
-                
-                // 2. Лёгкое обогащение
-                this.updateStagePropertyInInitData(stageId, 'OPTIONS_MATERIAL', '');
+                if (!responsePayload.initPayload) {
+                    this.applySemanticReadback(responsePayload);
+                    this.updateStagePropertyInInitData(stageId, 'OPTIONS_MATERIAL', '');
+                }
                 
                 // 3. Отправляем модифицированный INIT
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
@@ -4090,8 +4095,10 @@
                 if (responsePayload.status !== 'ok') {
                     throw new Error(responsePayload.message || 'Не удалось сбросить сопоставление оборудования');
                 }
-                this.applySemanticReadback(responsePayload);
-                this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', '');
+                if (!responsePayload.initPayload) {
+                    this.applySemanticReadback(responsePayload);
+                    this.updateStagePropertyInInitData(stageId, 'OPTIONS_EQUIPMENT', '');
+                }
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
                 console.error('[BitrixBridge] CLEAR_OPTIONS_EQUIPMENT error:', error);
@@ -4567,7 +4574,7 @@
             const payload = message.payload || {};
             const stageId = parseInt(payload.stageId, 10);
             if (!stageId) {
-                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для сброса дерева выбора калькулятора' }, message.requestId, origin);
+                this.sendPwrtMessage('ERROR', { message: 'Не указан этап для сброса выбора калькулятора' }, message.requestId, origin);
                 return;
             }
             try {
@@ -4576,12 +4583,14 @@
                 }]);
                 const responsePayload = Array.isArray(result) && result[0]
                     ? result[0] : { status: 'error', message: 'Пустой ответ сервера' };
-                if (responsePayload.status !== 'ok') throw new Error(responsePayload.message || 'Не удалось сбросить дерево выбора калькулятора');
-                this.applySemanticReadback(responsePayload);
-                this.updateStagePropertyInInitData(stageId, 'OPTIONS_CALCULATOR', '');
+                if (responsePayload.status !== 'ok') throw new Error(responsePayload.message || 'Не удалось сбросить выбор калькулятора');
+                if (!responsePayload.initPayload) {
+                    this.applySemanticReadback(responsePayload);
+                    this.updateStagePropertyInInitData(stageId, 'OPTIONS_CALCULATOR', '');
+                }
                 this.sendPwrtMessage('INIT', this.initData, message.requestId, origin);
             } catch (error) {
-                this.sendPwrtMessage('ERROR', { message: 'Ошибка сброса дерева выбора калькулятора', details: error && error.message ? error.message : 'Unknown error' }, message.requestId, origin);
+                this.sendPwrtMessage('ERROR', { message: 'Ошибка сброса выбора калькулятора', details: error && error.message ? error.message : 'Unknown error' }, message.requestId, origin);
             }
         }
 

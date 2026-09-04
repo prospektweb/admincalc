@@ -1002,28 +1002,28 @@ switch ($currentStep) {
                 'TYPE' => 'S',
                 'USER_TYPE' => 'HTML',
                 'SORT' => 800,
-                'HINT' => 'prospektweb.calc.stage-variant-mapping/v1; только ID полей и вариантов формы',
+                'HINT' => 'prospektweb.calc.stage-variant-mapping/v1 или prospektweb.calc.stage-material-selection/v4; источники: поля формы и глобальные значения',
             ],
             'OPTIONS_MATERIAL' => [
                 'NAME' => 'Сопоставление варианта материала по входам формы',
                 'TYPE' => 'S',
                 'USER_TYPE' => 'HTML',
                 'SORT' => 810,
-                'HINT' => 'prospektweb.calc.stage-variant-mapping/v1; только ID полей и вариантов формы',
+                'HINT' => 'prospektweb.calc.stage-variant-mapping/v1 или prospektweb.calc.stage-material-selection/v4; источники: поля формы и глобальные значения',
             ],
             'OPTIONS_EQUIPMENT' => [
                 'NAME' => 'Сопоставление оборудования по входам формы',
                 'TYPE' => 'S',
                 'USER_TYPE' => 'HTML',
                 'SORT' => 820,
-                'HINT' => 'prospektweb.calc.stage-variant-mapping/v1; только ID полей и вариантов формы',
+                'HINT' => 'prospektweb.calc.stage-variant-mapping/v1 или prospektweb.calc.stage-material-selection/v4; источники: поля формы и глобальные значения',
             ],
             'OPTIONS_CALCULATOR' => [
-                'NAME' => 'Дерево выбора калькулятора по входам формы',
+                'NAME' => 'Правила выбора калькулятора',
                 'TYPE' => 'S',
                 'USER_TYPE' => 'HTML',
                 'SORT' => 830,
-                'HINT' => 'prospektweb.calc.stage-material-selection/v4; универсальное дерево выбора сущности',
+                'HINT' => 'prospektweb.calc.stage-variant-mapping/v1 или prospektweb.calc.stage-material-selection/v4; источники: поля формы и глобальные значения',
             ],
         ];
         
@@ -1490,13 +1490,13 @@ switch ($currentStep) {
                 }
             }
 
-            // OPTIONS_* остаются внутренними слотами хранения, но их значение
-            // теперь является только каноническим stage-variant-mapping/v1.
+            // OPTIONS_* остаются внутренними слотами хранения правил выбора:
+            // сопоставления и деревья используют один взаимоисключающий слот.
             foreach ([
                 'OPTIONS_OPERATION' => 'Сопоставление варианта операции по входам формы',
                 'OPTIONS_MATERIAL' => 'Сопоставление варианта материала по входам формы',
                 'OPTIONS_EQUIPMENT' => 'Сопоставление оборудования по входам формы',
-                'OPTIONS_CALCULATOR' => 'Дерево выбора калькулятора по входам формы',
+                'OPTIONS_CALCULATOR' => 'Правила выбора калькулятора',
             ] as $mappingPropertyCode => $mappingPropertyName) {
                 $rsProperty = \CIBlockProperty::GetList([], [
                     'IBLOCK_ID' => $stagesIblockId,
@@ -1506,7 +1506,7 @@ switch ($currentStep) {
                     $ibp->Update((int)$arProperty['ID'], [
                         'NAME' => $mappingPropertyName,
                         'USER_TYPE' => 'HTML',
-                        'HINT' => 'prospektweb.calc.stage-variant-mapping/v1; только ID полей и вариантов формы',
+                        'HINT' => 'prospektweb.calc.stage-variant-mapping/v1 или prospektweb.calc.stage-material-selection/v4; источники: поля формы и глобальные значения',
                     ]);
                     installLog("  → Обновлено хранилище {$mappingPropertyCode}", 'success');
                 }

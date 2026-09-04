@@ -70,6 +70,23 @@ $assert(
     $service->materialReferencesFromJson($equipmentDecisionTreeJson) === [['entity_type' => 'equipment', 'entity_id' => 701]],
     'universal decision tree preserves a typed equipment terminal'
 );
+$booleanGlobalTree = $equipmentDecisionTree;
+$booleanGlobalTree['tree']['source']['field_id'] = 'global.variable.UseOffset';
+$booleanGlobalTree['tree']['branches'][0]['option_id'] = 'true';
+$booleanGlobalTreeJson = $service->normalizeMaterialJson(json_encode($booleanGlobalTree, JSON_UNESCAPED_SLASHES));
+$service->assertSemanticSources($booleanGlobalTreeJson, [], [[
+    'kind' => 'variable', 'code' => 'UseOffset', 'dataType' => 'boolean',
+]]);
+$rejects(
+    static fn() => $service->assertSemanticSources($booleanGlobalTreeJson, [], [[
+        'kind' => 'variable', 'code' => 'UseOffset', 'dataType' => 'string',
+    ]]),
+    'only boolean global sources'
+);
+$rejects(
+    static fn() => $service->assertSemanticSources($booleanGlobalTreeJson, [], []),
+    'missing semantic source'
+);
 $rejects(
     static fn() => $service->normalizeJson($materialDecisionTreeJson),
     'Unsupported stage variant mapping contract'

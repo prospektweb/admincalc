@@ -149,7 +149,7 @@ final class CalculatorSemanticMutationService
                 'expected_before_sha256' => $expectedRevision,
                 'product_ids' => [],
             ],
-            function ($authority) use ($action, $request, $presetId): array {
+            function ($authority) use ($action, $request, $presetId, $versionReadbackContext): array {
                 if (!$authority instanceof CalculatorMutationAuthorityService) {
                     if (isset($this->adapters['mutation'])) {
                         return $this->assertSuccessfulResult(
@@ -190,7 +190,12 @@ final class CalculatorSemanticMutationService
                 }
 
                 if ($action !== 'saveCalculatorGlobals') {
-                    $rows = (new ElementDataService([], $authority, true))->prepareRefreshPayload([$request]);
+                    $rows = (new ElementDataService(
+                        [],
+                        $authority,
+                        true,
+                        $this->stageVariantSourceContext($request, $versionReadbackContext, $authority)
+                    ))->prepareRefreshPayload([$request]);
                     if (count($rows) !== 1 || !is_array($rows[0] ?? null)) {
                         throw new \RuntimeException('Calculator mutation returned an invalid result.');
                     }
@@ -281,6 +286,64 @@ final class CalculatorSemanticMutationService
             'calculatorPresetId' => $calculatorPresetId,
             'workingPresetId' => $workingPresetId,
             'versionId' => $versionId,
+        ];
+    }
+
+    /**
+     * A version working preset is deliberately not public. Validate mapping
+     * sources against the version-owned form and current working globals
+     * without trying to build a public preset payload for that internal row.
+     *
+     * @param array<string,mixed> $request
+     * @param array<string,mixed> $versionReadbackContext
+     * @return array{formFields:array<int,array<string,mixed>>,globalSymbols:array<int,array<string,mixed>>}|null
+     */
+    private function stageVariantSourceContext(
+        array $request,
+        array $versionReadbackContext,
+        CalculatorMutationAuthorityService $authority
+    ): ?array {
+        if ($versionReadbackContext === []
+            || (string)($request['action'] ?? '') !== 'updateStageProperty'
+            || !in_array((string)($request['propertyCode'] ?? ''), [
+                'OPTIONS_OPERATION',
+                'OPTIONS_MATERIAL',
+                'OPTIONS_EQUIPMENT',
+                'OPTIONS_CALCULATOR',
+            ], true)) {
+            return null;
+        }
+        $value = is_string($request['value'] ?? null) ? $request['value'] : '';
+        if ($value === '') return null;
+        $decoded = json_decode($value, true);
+        if (!is_array($decoded) || !in_array(($decoded['contract'] ?? null), [
+            StageVariantMappingService::CONTRACT,
+            StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT,
+        ], true)) {
+            return null;
+        }
+
+        $bundle = (new CalculatorVersionBundleDocumentService())->load(
+            (int)$versionReadbackContext['calculatorPresetId'],
+            (string)$versionReadbackContext['versionId']
+        );
+        $formFields = $bundle['documents']['form']['formDefinition']['fields'] ?? null;
+        if (!is_array($formFields) || !array_is_list($formFields)) {
+            throw new \RuntimeException('Version form fields are unavailable for mapping validation.', 409);
+        }
+        $readback = (new InitPayloadService())->prepareVersionEditorSemanticReadbackReadOnly(
+            (int)$versionReadbackContext['calculatorPresetId'],
+            (int)$versionReadbackContext['workingPresetId'],
+            (string)$versionReadbackContext['versionId'],
+            $authority
+        );
+        $globalSymbols = $readback['globalSymbols'] ?? null;
+        if (!is_array($globalSymbols) || !array_is_list($globalSymbols)) {
+            throw new \RuntimeException('Version globals are unavailable for mapping validation.', 409);
+        }
+        return [
+            'formFields' => array_values($formFields),
+            'globalSymbols' => array_values($globalSymbols),
         ];
     }
 
