@@ -141,7 +141,10 @@ final class GlobalSymbolService
             ];
             $existingRows = $this->readRows($iblockId, $presetId);
             $existingRowsById = [];
-            $reservedCodes = $this->collectCalculatorNamespaceCodes($pinnedIblockIds);
+            // Stage inputs/variables and global values live in distinct scopes.
+            // A stage may deliberately publish a local value to a global target
+            // with the same code, so only peer globals in this preset reserve it.
+            $reservedCodes = [];
             foreach ($existingRows as $existingRow) {
                 $existingRowsById[(int)$existingRow['id']] = $existingRow;
                 $reservedCodes[strtolower((string)$existingRow['code'])] = true;
@@ -206,7 +209,7 @@ final class GlobalSymbolService
                 } else {
                     $fields['CODE'] = $requestedCode !== '' ? $requestedCode : $this->generateCode($title, $iblockId, $reservedCodes);
                     if ($requestedCode !== '' && isset($reservedCodes[strtolower($requestedCode)])) {
-                        throw new \InvalidArgumentException('Код ' . $requestedCode . ' уже занят или конфликтует с формулой калькулятора');
+                        throw new \InvalidArgumentException('Код ' . $requestedCode . ' уже занят другим глобальным значением');
                     }
                     $id = (int)$elementApi->Add($fields);
                     if ($id <= 0) {
@@ -425,52 +428,4 @@ final class GlobalSymbolService
         return $code;
     }
 
-    /**
-     * Global identifiers share the formula namespace with every calculator
-     * input and local variable. Preset declarations also reserve names.
-     */
-    private function collectCalculatorNamespaceCodes(array $pinnedIblockIds): array
-    {
-        $used = [];
-        $settingsIblockId = (int)($pinnedIblockIds['CALC_SETTINGS'] ?? 0);
-        $presetsIblockId = (int)($pinnedIblockIds['CALC_PRESETS'] ?? 0);
-        if ($settingsIblockId <= 0 || $presetsIblockId <= 0) {
-            throw new \RuntimeException('Pinned formula storages are invalid.', 409);
-        }
-        if ($settingsIblockId > 0) {
-            $iterator = \CIBlockElement::GetList([], ['IBLOCK_ID' => $settingsIblockId], false, false, ['ID']);
-            while ($element = $iterator->Fetch()) {
-                $elementId = (int)$element['ID'];
-                $params = \CIBlockElement::GetProperty($settingsIblockId, $elementId, [], ['CODE' => 'PARAMS']);
-                while ($property = $params->Fetch()) {
-                    $code = trim((string)($property['VALUE'] ?? ''));
-                    if ($code !== '') $used[strtolower($code)] = true;
-                }
-                $logicRows = \CIBlockElement::GetProperty($settingsIblockId, $elementId, [], ['CODE' => 'LOGIC_JSON']);
-                while ($property = $logicRows->Fetch()) {
-                    $raw = $property['~VALUE'] ?? $property['VALUE'] ?? '';
-                    $json = is_array($raw) ? (string)($raw['TEXT'] ?? '') : (string)$raw;
-                    $logic = json_decode($json, true);
-                    foreach (is_array($logic['vars'] ?? null) ? $logic['vars'] : [] as $variable) {
-                        if (($variable['scope'] ?? 'local') === 'global') continue;
-                        $code = trim((string)($variable['name'] ?? ''));
-                        if ($code !== '') $used[strtolower($code)] = true;
-                    }
-                }
-            }
-        }
-        if ($presetsIblockId > 0) {
-            $iterator = \CIBlockElement::GetList([], ['IBLOCK_ID' => $presetsIblockId], false, false, ['ID']);
-            while ($element = $iterator->Fetch()) {
-                foreach (['GLOBAL_CONSTANTS', 'GLOBAL_VARIABLES'] as $propertyCode) {
-                    $rows = \CIBlockElement::GetProperty($presetsIblockId, (int)$element['ID'], [], ['CODE' => $propertyCode]);
-                    while ($property = $rows->Fetch()) {
-                        $code = trim((string)($property['VALUE'] ?? ''));
-                        if ($code !== '') $used[strtolower($code)] = true;
-                    }
-                }
-            }
-        }
-        return $used;
-    }
 }

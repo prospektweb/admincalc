@@ -18,10 +18,10 @@ $checks = [
     'global registry accepts an explicit validated code and falls back to title generation' => strpos($globals, "\$row['code']") !== false
         && strpos($globals, 'normalizeRequestedCode') !== false
         && strpos($globals, '$this->generateCode($title, $iblockId, $reservedCodes)') !== false,
-    'global code generation reserves calculator inputs, local variables and legacy globals' => strpos($globals, 'collectCalculatorNamespaceCodes') !== false
-        && strpos($globals, "'PARAMS'") !== false
-        && strpos($globals, "'LOGIC_JSON'") !== false
-        && strpos($globals, "'GLOBAL_CONSTANTS'") !== false,
+    'global codes are isolated from stage inputs and variables while peer globals remain unique' => strpos($globals, 'collectCalculatorNamespaceCodes') === false
+        && strpos($globals, '// Stage inputs/variables and global values live in distinct scopes.') !== false
+        && strpos($globals, "Код ' . \$requestedCode . ' уже занят другим глобальным значением") !== false
+        && strpos($globals, "\$reservedCodes[strtolower((string)\$existingRow['code'])] = true") !== false,
     'AI global rename is previewed, fingerprinted and transactionally applied' => strpos($refactor, 'function preview(') !== false
         && strpos($refactor, 'function apply(') !== false
         && strpos($refactor, 'hash_equals(') !== false
