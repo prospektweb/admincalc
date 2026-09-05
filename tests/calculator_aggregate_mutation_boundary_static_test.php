@@ -11,6 +11,7 @@ $assert = static function (bool $condition, string $message): void {
 $root = dirname(__DIR__);
 $element = (string)file_get_contents($root . '/lib/Calculator/ElementDataService.php');
 $aggregate = (string)file_get_contents($root . '/lib/Services/CalculatorSemanticMutationService.php');
+$rehydrator = (string)file_get_contents($root . '/lib/Services/CalculatorVersionWorkingGraphRehydrator.php');
 $authority = (string)file_get_contents($root . '/lib/Services/CalculatorMutationAuthorityService.php');
 $bridge = (string)file_get_contents($root . '/install/assets/js/integration.js');
 $endpoint = (string)file_get_contents($root . '/tools/calculator_ajax.php');
@@ -83,8 +84,14 @@ $assert(
     str_contains($aggregate, 'new ElementDataService(')
         && str_contains($aggregate, '$authority,')
         && str_contains($aggregate, '$this->stageVariantSourceContext($request, $versionReadbackContext, $authority)')
+        && str_contains($aggregate, 'StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT')
         && str_contains($element, '$this->mutationAuthority()'),
     'structural mutations must reuse the authority and version source context held by the aggregate coordinator'
+);
+$assert(
+    str_contains($rehydrator, 'StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT')
+        && str_contains($rehydrator, '$mappingService->normalizeMaterialJson($decodedRaw)'),
+    'version graph rehydration must preserve parameter-selection documents for every entity target'
 );
 $assert(
     substr_count($element, 'return self::enrichStructuralResultPinned(') === 1

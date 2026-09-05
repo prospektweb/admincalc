@@ -319,6 +319,7 @@ final class CalculatorSemanticMutationService
         if (!is_array($decoded) || !in_array(($decoded['contract'] ?? null), [
             StageVariantMappingService::CONTRACT,
             StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT,
+            StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT,
         ], true)) {
             return null;
         }

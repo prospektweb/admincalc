@@ -1134,7 +1134,10 @@ final class CalculatorVersionWorkingGraphRehydrator
             $decodedRaw = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
             $header = json_decode($decodedRaw, true);
             $canonical = $propertyCode === 'OPTIONS_MATERIAL'
-                || (($header['contract'] ?? '') === StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT)
+                || in_array(($header['contract'] ?? ''), [
+                    StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT,
+                    StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT,
+                ], true)
                 ? $mappingService->normalizeMaterialJson($decodedRaw)
                 : $mappingService->normalizeJson($decodedRaw);
             $data = json_decode($canonical, true, 512, JSON_THROW_ON_ERROR);
