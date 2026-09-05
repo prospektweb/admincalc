@@ -289,7 +289,7 @@ $parameterSelection = [
 ];
 $parameterSelectionJson = $service->normalizeMaterialJson(json_encode($parameterSelection, JSON_UNESCAPED_SLASHES));
 $assert(json_decode($parameterSelectionJson, true) === $parameterSelection, 'parameter selection round-trips canonically');
-$assert($service->materialReferencesFromJson($parameterSelectionJson) === $parameterSelection['candidates'], 'parameter selection exposes every candidate reference');
+$assert($service->materialReferencesFromJson($parameterSelectionJson) === $parameterSelection['candidates'], 'parameter selection exposes every candidate reference without duplicating fallback');
 $service->assertSemanticSources($parameterSelectionJson, [], [[
     'kind' => 'constant', 'code' => 'selected_material_id', 'dataType' => 'number',
 ]]);
@@ -297,5 +297,22 @@ $rejects(static fn() => $service->assertSemanticSources($parameterSelectionJson,
 $invalidFallback = $parameterSelection;
 $invalidFallback['fallback']['entity_id'] = 999;
 $rejects(static fn() => $service->normalizeMaterialJson(json_encode($invalidFallback)), 'Fallback must belong');
+
+$idLookup = [
+    'contract' => StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT,
+    'target' => 'operation',
+    'candidates' => [],
+    'comparisons' => [[
+        'parameter_code' => 'entity.id',
+        'source' => ['kind' => 'variable', 'code' => 'selected_operation_id'],
+    ]],
+    'fallback' => ['entity_type' => 'operation', 'entity_id' => 77],
+];
+$idLookupJson = $service->normalizeMaterialJson(json_encode($idLookup, JSON_UNESCAPED_SLASHES));
+$assert(json_decode($idLookupJson, true) === $idLookup, 'ID lookup round-trips without explicit candidates');
+$assert($service->materialReferencesFromJson($idLookupJson) === [$idLookup['fallback']], 'ID lookup exposes fallback for authority validation');
+$invalidIdLookup = $idLookup;
+$invalidIdLookup['comparisons'][0]['parameter_code'] = 'entity.name';
+$rejects(static fn() => $service->normalizeMaterialJson(json_encode($invalidIdLookup)), 'between 1 and 500 candidates');
 
 fwrite(STDOUT, "OK\n");

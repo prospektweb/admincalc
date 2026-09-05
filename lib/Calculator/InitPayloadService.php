@@ -2234,6 +2234,7 @@ class InitPayloadService
         }
 
         $parameterReferences = self::extractEntityParameterReferencesFromStages($store['CALC_STAGES'] ?? []);
+        $idLookupTypes = self::extractEntityIdLookupTypesFromStages($store['CALC_STAGES'] ?? []);
         foreach ([
             'operation' => 'CALC_OPERATIONS',
             'operation_variant' => 'CALC_OPERATIONS_VARIANTS',
@@ -2248,6 +2249,13 @@ class InitPayloadService
             $loadedIds = array_map(static fn(array $item): int => (int)($item['id'] ?? 0), $store[$storeCode] ?? []);
             $missingIds = array_values(array_diff($candidateIds, $loadedIds));
             $iblockId = $this->runtimeIblockId($storeCode);
+            if ($iblockId > 0 && isset($idLookupTypes[$entityType])) {
+                $candidateIds = array_values(array_unique(array_merge(
+                    $candidateIds,
+                    $this->loadActiveElementIds($iblockId)
+                )));
+                $missingIds = array_values(array_diff($candidateIds, $loadedIds));
+            }
             if ($iblockId <= 0 || $missingIds === []) continue;
             $payload = $elementDataService->prepareRefreshPayload([[
                 'iblockId' => $iblockId,
@@ -2394,6 +2402,55 @@ class InitPayloadService
             }
         }
         return array_values($references);
+    }
+
+    /** @param array<int,array<string,mixed>> $stages
+     *  @return array<string,bool>
+     */
+    private static function extractEntityIdLookupTypesFromStages(array $stages): array
+    {
+        $types = [];
+        $service = new \Prospektweb\Calc\Services\StageVariantMappingService();
+        foreach ($stages as $stage) {
+            foreach (['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT'] as $propertyCode) {
+                $property = $stage['properties'][$propertyCode] ?? null;
+                if (!is_array($property)) continue;
+                $raw = $property['~VALUE'] ?? $property['VALUE'] ?? null;
+                if (is_array($raw) && array_key_exists('TEXT', $raw)) $raw = $raw['TEXT'];
+                if (!is_string($raw) || trim($raw) === '') continue;
+                try {
+                    $normalized = json_decode($service->normalizeMaterialJson(html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8')), true);
+                } catch (\InvalidArgumentException $error) {
+                    continue;
+                }
+                if (($normalized['contract'] ?? '') !== \Prospektweb\Calc\Services\StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT
+                    || ($normalized['candidates'] ?? null) !== []
+                    || count((array)($normalized['comparisons'] ?? [])) !== 1
+                    || (string)($normalized['comparisons'][0]['parameter_code'] ?? '') !== 'entity.id') continue;
+                $entityType = (string)($normalized['fallback']['entity_type'] ?? '');
+                if ($entityType !== '') $types[$entityType] = true;
+            }
+        }
+        return $types;
+    }
+
+    /** @return int[] */
+    private function loadActiveElementIds(int $iblockId): array
+    {
+        if ($iblockId <= 0) return [];
+        $ids = [];
+        $cursor = \CIBlockElement::GetList(
+            ['ID' => 'ASC'],
+            ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'],
+            false,
+            false,
+            ['ID']
+        );
+        while ($row = $cursor->Fetch()) {
+            $id = (int)($row['ID'] ?? 0);
+            if ($id > 0) $ids[$id] = $id;
+        }
+        return array_values($ids);
     }
 
     /**

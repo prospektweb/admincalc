@@ -249,7 +249,17 @@ final class StageVariantMappingService
             );
         }
         if (($decoded['contract'] ?? null) === self::ENTITY_PARAMETER_SELECTION_CONTRACT) {
-            return array_values((array)($decoded['candidates'] ?? []));
+            $references = array_values((array)($decoded['candidates'] ?? []));
+            $fallback = is_array($decoded['fallback'] ?? null) ? $decoded['fallback'] : null;
+            if ($fallback !== null) {
+                $fallbackKey = (string)($fallback['entity_type'] ?? '') . ':' . (int)($fallback['entity_id'] ?? 0);
+                $known = [];
+                foreach ($references as $reference) {
+                    $known[(string)($reference['entity_type'] ?? '') . ':' . (int)($reference['entity_id'] ?? 0)] = true;
+                }
+                if (!isset($known[$fallbackKey])) $references[] = $fallback;
+            }
+            return $references;
         }
         return $this->materialReferencesFromTree((array)($decoded['tree'] ?? []));
     }
@@ -364,14 +374,14 @@ final class StageVariantMappingService
         self::assertExactKeys($document, ['contract', 'target', 'candidates', 'comparisons', 'fallback'], 'selection');
         $target = (string)($document['target'] ?? '');
         $allowed = [
-            'operation' => ['operation_variant'],
+            'operation' => ['operation', 'operation_variant'],
             'material' => ['material', 'material_variant'],
             'equipment' => ['equipment'],
         ];
         if (!isset($allowed[$target])) throw new \InvalidArgumentException('Entity parameter selection target is invalid.');
         $candidates = $document['candidates'] ?? null;
-        if (!is_array($candidates) || !self::isList($candidates) || $candidates === [] || count($candidates) > self::MAX_RULES) {
-            throw new \InvalidArgumentException('Entity parameter selection must contain between 1 and 500 candidates.');
+        if (!is_array($candidates) || !self::isList($candidates) || count($candidates) > self::MAX_RULES) {
+            throw new \InvalidArgumentException('Entity parameter selection must contain no more than 500 candidates.');
         }
         $normalizedCandidates = [];
         $candidateKeys = [];
@@ -408,7 +418,11 @@ final class StageVariantMappingService
             $normalizedComparisons[] = ['parameter_code' => $parameterCode, 'source' => ['kind' => $kind, 'code' => $code]];
         }
         $fallback = $this->normalizeEntityParameterReference($document['fallback'] ?? null, $allowed[$target], 'fallback');
-        if (!isset($candidateKeys[$fallback['entity_type'] . ':' . $fallback['entity_id']])) {
+        $idLookup = count($normalizedComparisons) === 1 && $normalizedComparisons[0]['parameter_code'] === 'entity.id';
+        if (!$idLookup && $normalizedCandidates === []) {
+            throw new \InvalidArgumentException('Entity parameter selection must contain between 1 and 500 candidates.');
+        }
+        if ($normalizedCandidates !== [] && !isset($candidateKeys[$fallback['entity_type'] . ':' . $fallback['entity_id']])) {
             throw new \InvalidArgumentException('Fallback must belong to the candidate set.');
         }
         return [

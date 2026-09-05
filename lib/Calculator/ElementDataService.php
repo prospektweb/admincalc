@@ -2114,9 +2114,13 @@ class ElementDataService
                                         (int)($pinnedIblockIds['CALC_MATERIALS'] ?? 0),
                                         (int)($pinnedIblockIds['CALC_MATERIALS_VARIANTS'] ?? 0)
                                     );
+                                } elseif ($propertyCode === 'OPTIONS_OPERATION') {
+                                    self::assertDecisionReferencesByType($value, [
+                                        'operation' => (int)($pinnedIblockIds['CALC_OPERATIONS'] ?? 0),
+                                        'operation_variant' => (int)($pinnedIblockIds['CALC_OPERATIONS_VARIANTS'] ?? 0),
+                                    ]);
                                 } else {
                                     $referenceAuthority = [
-                                        'OPTIONS_OPERATION' => ['operation', 'CALC_OPERATIONS_VARIANTS'],
                                         'OPTIONS_EQUIPMENT' => ['equipment', 'CALC_EQUIPMENT'],
                                         'OPTIONS_CALCULATOR' => ['calculator', 'CALC_SETTINGS'],
                                     ][$propertyCode] ?? null;
@@ -3555,6 +3559,21 @@ class ElementDataService
         foreach ($references as $reference) {
             $entityId = (int)($reference['entity_id'] ?? 0);
             self::assertPinnedElementExists($entityId, $iblockId, $entityType);
+        }
+    }
+
+    /** @param array<string,int> $iblockIdsByType */
+    private static function assertDecisionReferencesByType(string $mappingJson, array $iblockIdsByType): void
+    {
+        $references = (new \Prospektweb\Calc\Services\StageVariantMappingService())
+            ->materialReferencesFromJson($mappingJson);
+        foreach ($references as $reference) {
+            $entityType = (string)($reference['entity_type'] ?? '');
+            $iblockId = (int)($iblockIdsByType[$entityType] ?? 0);
+            if ($iblockId <= 0) {
+                throw new \RuntimeException('Pinned ' . $entityType . ' catalog authority is invalid.', 409);
+            }
+            self::assertPinnedElementExists((int)($reference['entity_id'] ?? 0), $iblockId, $entityType);
         }
     }
 
