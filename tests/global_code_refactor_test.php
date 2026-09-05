@@ -65,6 +65,54 @@ if ($actual !== $expected) {
     exit(1);
 }
 
+$rewriteLogic = new ReflectionMethod($service, 'rewriteLogic');
+$rewriteLogic->setAccessible(true);
+$logic = [
+    'params' => [[
+        'name' => 'incoming_width',
+        'sourcePath' => 'globalValues.old_global_width',
+    ]],
+    'vars' => [
+        [
+            'name' => 'layout_sheet_width_occupied_mm',
+            'scope' => 'local',
+            'formula' => 'old_global_width + layout_sheet_width_occupied_mm',
+        ],
+        [
+            'name' => 'old_global_width',
+            'scope' => 'global',
+            'globalCode' => 'old_global_width',
+            'formula' => 'layout_sheet_width_occupied_mm',
+        ],
+    ],
+];
+$rewrittenLogic = $rewriteLogic->invoke($service, $logic, [
+    'old_global_width' => 'layout_sheet_width_occupied_mm',
+]);
+if (($rewrittenLogic['params'][0]['sourcePath'] ?? '') !== 'globalValues.layout_sheet_width_occupied_mm'
+    || ($rewrittenLogic['vars'][0]['name'] ?? '') !== 'layout_sheet_width_occupied_mm'
+    || ($rewrittenLogic['vars'][0]['formula'] ?? '') !== 'old_global_width + layout_sheet_width_occupied_mm'
+    || ($rewrittenLogic['vars'][1]['name'] ?? '') !== 'layout_sheet_width_occupied_mm'
+    || ($rewrittenLogic['vars'][1]['globalCode'] ?? '') !== 'layout_sheet_width_occupied_mm'
+    || ($rewrittenLogic['vars'][1]['formula'] ?? '') !== 'layout_sheet_width_occupied_mm') {
+    fwrite(STDERR, "FAILED: global refactor must update only explicit global references and preserve local formulas\n");
+    exit(1);
+}
+
+$rewriteGlobalSourcePath = new ReflectionMethod($service, 'rewriteGlobalSourcePath');
+$rewriteGlobalSourcePath->setAccessible(true);
+if ($rewriteGlobalSourcePath->invoke($service, 'globalValues.old_global_width.VALUE', ['old_global_width' => 'layout_sheet_width_occupied_mm']) !== 'globalValues.layout_sheet_width_occupied_mm.VALUE'
+    || $rewriteGlobalSourcePath->invoke($service, 'stage.old_global_width', ['old_global_width' => 'layout_sheet_width_occupied_mm']) !== 'stage.old_global_width') {
+    fwrite(STDERR, "FAILED: only the explicit globalValues source-path segment may be renamed\n");
+    exit(1);
+}
+
+if (strpos($serviceSource, 'assertNoCalculatorNamespaceConflicts') !== false
+    || strpos($serviceSource, 'planDescribedSources') !== false) {
+    fwrite(STDERR, "FAILED: global refactor must not reserve or rewrite calculator-local namespaces\n");
+    exit(1);
+}
+
 $split = new ReflectionMethod($service, 'splitDescription');
 $split->setAccessible(true);
 $parts = $split->invoke($service, 'paper_price + 1|Название\\|с разделителем|Описание');

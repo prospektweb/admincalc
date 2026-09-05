@@ -270,8 +270,6 @@ final class GlobalCodeRefactorService
                 throw new \InvalidArgumentException('Код ' . $new . ' уже занят другим глобальным значением');
             }
         }
-        $this->assertNoCalculatorNamespaceConflicts($settingsId, $map, $graph['settingsIds']);
-
         foreach ($renames as $rename) {
             if ($rename['source'] !== 'registry' || $rename['oldCode'] === $rename['newCode']) continue;
             $mutations[] = [
@@ -303,8 +301,6 @@ final class GlobalCodeRefactorService
         }
         foreach ($graph['stageIds'] as $elementId) {
             $this->planJsonProperty($mutations, 'stages', $stagesId, $elementId, 'ACTIVATION_CONDITION', $map, 'condition', 'scalar');
-            $this->planDescribedSources($mutations, $stagesId, $elementId, 'OUTPUTS', $map);
-            $this->planDescribedSources($mutations, $stagesId, $elementId, 'REFERENCE', $map);
         }
 
         usort($mutations, static function (array $left, array $right): int {
@@ -360,30 +356,6 @@ final class GlobalCodeRefactorService
             $result[] = ['source' => $source, 'registryId' => $registryId, 'oldCode' => $old, 'newCode' => $new];
         }
         return $result;
-    }
-
-    private function assertNoCalculatorNamespaceConflicts(int $iblockId, array $map, array $settingsIds): void
-    {
-        if ($iblockId <= 0) return;
-        $targets = [];
-        foreach (array_values($map) as $target) {
-            $targets[strtolower((string)$target)] = true;
-        }
-        foreach ($settingsIds as $elementId) {
-            foreach ($this->readPropertyRows($iblockId, $elementId, 'PARAMS') as $row) {
-                $code = trim($row['value']);
-                if (isset($targets[strtolower($code)])) throw new \RuntimeException('Новый глобальный код ' . $code . ' конфликтует с входным параметром калькулятора #' . $elementId);
-            }
-            foreach ($this->readPropertyRows($iblockId, $elementId, 'LOGIC_JSON') as $row) {
-                $logic = json_decode($row['value'], true);
-                foreach (is_array($logic['vars'] ?? null) ? $logic['vars'] : [] as $variable) {
-                    $code = trim((string)($variable['name'] ?? ''));
-                    if (($variable['scope'] ?? 'local') !== 'global' && isset($targets[strtolower($code)])) {
-                        throw new \RuntimeException('Новый глобальный код ' . $code . ' конфликтует с внутренней переменной калькулятора #' . $elementId);
-                    }
-                }
-            }
-        }
     }
 
     private function loadRegistry(int $iblockId, int $presetId = 0): array
@@ -531,17 +503,6 @@ final class GlobalCodeRefactorService
         $this->appendPropertyMutation($mutations, 'presets', $iblockId, $elementId, $propertyCode, $rows, $after, 'described');
     }
 
-    private function planDescribedSources(array &$mutations, int $iblockId, int $elementId, string $propertyCode, array $map): void
-    {
-        $rows = $this->readPropertyRows($iblockId, $elementId, $propertyCode);
-        if ($rows === []) return;
-        $after = array_map(fn(array $row): array => [
-            'value' => $row['value'],
-            'description' => $this->replaceIdentifiers($row['description'], $map),
-        ], $rows);
-        $this->appendPropertyMutation($mutations, 'stages', $iblockId, $elementId, $propertyCode, $rows, $after, 'described');
-    }
-
     private function planExactListProperty(array &$mutations, string $storage, int $iblockId, int $elementId, string $propertyCode, array $map): void
     {
         $rows = $this->readPropertyRows($iblockId, $elementId, $propertyCode);
@@ -590,10 +551,10 @@ final class GlobalCodeRefactorService
     private function rewriteLogic(array $value, array $map): array
     {
         foreach ($value as $key => &$nested) {
-            if ($key === 'formula' && is_string($nested)) {
-                $nested = $this->replaceIdentifiers($nested, $map);
-            } elseif ($key === 'globalCode' && is_string($nested)) {
+            if ($key === 'globalCode' && is_string($nested)) {
                 $nested = $map[$nested] ?? $nested;
+            } elseif ($key === 'sourcePath' && is_string($nested)) {
+                $nested = $this->rewriteGlobalSourcePath($nested, $map);
             } elseif (is_array($nested)) {
                 $nested = $this->rewriteLogic($nested, $map);
             }
@@ -603,6 +564,15 @@ final class GlobalCodeRefactorService
             $value['name'] = $map[$value['name']] ?? $value['name'];
         }
         return $value;
+    }
+
+    private function rewriteGlobalSourcePath(string $sourcePath, array $map): string
+    {
+        if (!preg_match('/^globalValues\.([A-Za-z_][A-Za-z0-9_]*)(.*)$/', $sourcePath, $matches)) {
+            return $sourcePath;
+        }
+        $code = (string)$matches[1];
+        return 'globalValues.' . ($map[$code] ?? $code) . (string)$matches[2];
     }
 
     private function replaceIdentifiers(string $formula, array $map): string
