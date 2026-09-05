@@ -2233,6 +2233,70 @@ class InitPayloadService
             $store[$storeCode] = array_values($byId);
         }
 
+        $parameterReferences = self::extractEntityParameterReferencesFromStages($store['CALC_STAGES'] ?? []);
+        foreach ([
+            'operation' => 'CALC_OPERATIONS',
+            'operation_variant' => 'CALC_OPERATIONS_VARIANTS',
+            'material' => 'CALC_MATERIALS',
+            'material_variant' => 'CALC_MATERIALS_VARIANTS',
+            'equipment' => 'CALC_EQUIPMENT',
+        ] as $entityType => $storeCode) {
+            $candidateIds = array_values(array_unique(array_map(
+                static fn(array $reference): int => (int)$reference['entity_id'],
+                array_values(array_filter($parameterReferences, static fn(array $reference): bool => ($reference['entity_type'] ?? '') === $entityType))
+            )));
+            $loadedIds = array_map(static fn(array $item): int => (int)($item['id'] ?? 0), $store[$storeCode] ?? []);
+            $missingIds = array_values(array_diff($candidateIds, $loadedIds));
+            $iblockId = $this->runtimeIblockId($storeCode);
+            if ($iblockId <= 0 || $missingIds === []) continue;
+            $payload = $elementDataService->prepareRefreshPayload([[
+                'iblockId' => $iblockId,
+                'iblockType' => null,
+                'ids' => $missingIds,
+                'includeParent' => in_array($entityType, ['operation_variant', 'material_variant'], true),
+            ]]);
+            $byId = [];
+            foreach (array_merge($store[$storeCode] ?? [], $payload[0]['data'] ?? []) as $entity) {
+                $entityId = (int)($entity['id'] ?? 0);
+                if ($entityId > 0) $byId[$entityId] = $entity;
+            }
+            $store[$storeCode] = array_values($byId);
+        }
+
+        // Parameter-based selection evaluates the current version snapshot.
+        // Attach normalized catalog/module parameter facts to every candidate
+        // entity that is present in the runtime store.
+        foreach (['CALC_OPERATIONS', 'CALC_OPERATIONS_VARIANTS', 'CALC_MATERIALS', 'CALC_MATERIALS_VARIANTS', 'CALC_EQUIPMENT'] as $storeCode) {
+            if (!is_array($store[$storeCode] ?? null) || $store[$storeCode] === []) continue;
+            $iblockId = $this->runtimeIblockId($storeCode);
+            if ($iblockId <= 0) continue;
+            $factsById = $this->loadMaterialSelectionFactsForIds(array_column($store[$storeCode], 'id'), $iblockId);
+            $parentStoreCode = [
+                'CALC_OPERATIONS_VARIANTS' => 'CALC_OPERATIONS',
+                'CALC_MATERIALS_VARIANTS' => 'CALC_MATERIALS',
+            ][$storeCode] ?? null;
+            $parentFactsById = [];
+            if ($parentStoreCode !== null) {
+                $parentIds = array_values(array_unique(array_filter(array_map(
+                    static fn(array $entity): int => (int)($entity['productId'] ?? 0),
+                    $store[$storeCode]
+                ))));
+                $parentIblockId = $this->runtimeIblockId($parentStoreCode);
+                if ($parentIds !== [] && $parentIblockId > 0) {
+                    $parentFactsById = $this->loadMaterialSelectionFactsForIds($parentIds, $parentIblockId);
+                }
+            }
+            foreach ($store[$storeCode] as &$entity) {
+                $entityId = (int)($entity['id'] ?? 0);
+                $entity['selectionFacts'] = $factsById[$entityId] ?? self::emptyMaterialSelectionFacts();
+                $parentId = (int)($entity['productId'] ?? 0);
+                if ($parentId > 0 && isset($parentFactsById[$parentId])) {
+                    $entity['parentSelectionFacts'] = $parentFactsById[$parentId];
+                }
+            }
+            unset($entity);
+        }
+
         return $store;
     }
 
@@ -2303,6 +2367,35 @@ class InitPayloadService
         return array_values($references);
     }
 
+    /** @param array<int,array<string,mixed>> $stages
+     *  @return array<int,array{entity_type:string,entity_id:int}>
+     */
+    private static function extractEntityParameterReferencesFromStages(array $stages): array
+    {
+        $references = [];
+        $service = new \Prospektweb\Calc\Services\StageVariantMappingService();
+        foreach ($stages as $stage) {
+            foreach (['OPTIONS_OPERATION', 'OPTIONS_MATERIAL', 'OPTIONS_EQUIPMENT'] as $propertyCode) {
+                $property = $stage['properties'][$propertyCode] ?? null;
+                if (!is_array($property)) continue;
+                $raw = $property['~VALUE'] ?? $property['VALUE'] ?? null;
+                if (is_array($raw) && array_key_exists('TEXT', $raw)) $raw = $raw['TEXT'];
+                if (!is_string($raw) || trim($raw) === '') continue;
+                $decodedRaw = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $header = json_decode($decodedRaw, true);
+                if (($header['contract'] ?? '') !== \Prospektweb\Calc\Services\StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT) continue;
+                try {
+                    foreach ($service->materialReferencesFromJson($decodedRaw) as $reference) {
+                        $references[(string)$reference['entity_type'] . ':' . (int)$reference['entity_id']] = $reference;
+                    }
+                } catch (\InvalidArgumentException $error) {
+                    continue;
+                }
+            }
+        }
+        return array_values($references);
+    }
+
     /**
      * Собрать дерево данных всех инфоблоков модуля для MultiLevelSelect
      * 
@@ -2322,7 +2415,7 @@ class InitPayloadService
         // CALC_EQUIPMENT
         $calcEquipmentId = $this->findIblockIdByCode($iblocks, 'CALC_EQUIPMENT');
         if ($calcEquipmentId > 0) {
-            $trees['calcEquipment'] = $this->buildIblockTree($calcEquipmentId);
+            $trees['calcEquipment'] = $this->buildIblockTree($calcEquipmentId, true);
         }
 
         // CALC_MATERIALS с variants
@@ -2342,7 +2435,8 @@ class InitPayloadService
         if ($calcOperationsId > 0) {
             $trees['calcOperations'] = $this->buildCatalogTree(
                 $calcOperationsId,
-                $calcOperationsVariantsId
+                $calcOperationsVariantsId,
+                true
             );
         }
 
@@ -2360,7 +2454,7 @@ class InitPayloadService
      * @param int $iblockId ID инфоблока
      * @return array
      */
-    private function buildIblockTree(int $iblockId): array
+    private function buildIblockTree(int $iblockId, bool $includeSelectionFacts = false): array
     {
         if ($iblockId <= 0) {
             return [];
@@ -2368,6 +2462,13 @@ class InitPayloadService
 
         $sections = $this->getSections($iblockId);
         $elements = $this->getElements($iblockId);
+        if ($includeSelectionFacts && $elements !== []) {
+            $factsById = $this->loadMaterialSelectionFactsForIds(array_column($elements, 'id'), $iblockId);
+            foreach ($elements as &$element) {
+                $element['selectionFacts'] = $factsById[(int)$element['id']] ?? self::emptyMaterialSelectionFacts();
+            }
+            unset($element);
+        }
 
         return $this->assembleTree($sections, $elements);
     }
@@ -2618,6 +2719,7 @@ class InitPayloadService
     {
         return [
             'parameters' => [],
+            'module' => [],
             'catalog' => [
                 'purchasingPrice' => null,
                 'basePrice' => null,
@@ -2640,15 +2742,48 @@ class InitPayloadService
         $result = [];
         foreach ($ids as $id) $result[$id] = self::emptyMaterialSelectionFacts();
 
+        // Dedicated scalar infoblock properties are module/catalog schema and
+        // are therefore available for every candidate even when their current
+        // value is empty. PARAMETRS remains the explicit opt-in extension bag.
+        $moduleProperties = [];
+        $modulePropertyCursor = \CIBlockProperty::GetList(['SORT' => 'ASC', 'ID' => 'ASC'], [
+            'IBLOCK_ID' => $iblockId,
+            'ACTIVE' => 'Y',
+            'MULTIPLE' => 'N',
+        ]);
+        while ($property = $modulePropertyCursor->Fetch()) {
+            $code = trim((string)($property['CODE'] ?? ''));
+            $propertyType = (string)($property['PROPERTY_TYPE'] ?? '');
+            if ($code === '' || in_array($code, ['PARAMETRS', 'SOURCE_LINKS', 'SUPPLIERS', 'CML2_LINK'], true)
+                || !in_array($propertyType, ['N', 'S', 'L'], true)) continue;
+            $moduleProperties[$code] = [
+                'code' => $code,
+                'title' => trim((string)($property['NAME'] ?? '')) ?: $code,
+                'description' => trim((string)($property['HINT'] ?? '')),
+                'valueType' => $propertyType === 'N' ? 'number' : 'string',
+            ];
+            foreach ($result as &$facts) {
+                $facts['module'][$code] = $moduleProperties[$code] + ['value' => null];
+            }
+            unset($facts);
+        }
+
         // Both multiple properties are loaded in one query. The result may
         // contain repeated rows, therefore parameters and suppliers are keyed.
-        $cursor = \CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, 'ID' => $ids], false, false, [
-            'ID', 'PROPERTY_PARAMETRS', 'PROPERTY_PARAMETRS_DESCRIPTION', 'PROPERTY_SUPPLIERS',
-        ]);
+        $selectionFields = ['ID', 'PROPERTY_PARAMETRS', 'PROPERTY_PARAMETRS_DESCRIPTION', 'PROPERTY_SUPPLIERS'];
+        foreach (array_keys($moduleProperties) as $modulePropertyCode) $selectionFields[] = 'PROPERTY_' . $modulePropertyCode;
+        $cursor = \CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, 'ID' => $ids], false, false, $selectionFields);
         $supplierSets = [];
         while ($row = $cursor->Fetch()) {
             $elementId = (int)($row['ID'] ?? 0);
             if (!isset($result[$elementId])) continue;
+            foreach ($moduleProperties as $code => $definition) {
+                $rawModuleValue = $row['PROPERTY_' . $code . '_VALUE'] ?? null;
+                $result[$elementId]['module'][$code]['value'] = $definition['valueType'] === 'number'
+                    && $rawModuleValue !== null && $rawModuleValue !== ''
+                    ? (float)str_replace(',', '.', (string)$rawModuleValue)
+                    : $rawModuleValue;
+            }
             $parameterValues = self::normalizeMultiplePropertyValues($row['PROPERTY_PARAMETRS_VALUE'] ?? null);
             $parameterDescriptions = self::normalizeMultiplePropertyValues($row['PROPERTY_PARAMETRS_DESCRIPTION'] ?? null);
             $descriptionsByPosition = array_values($parameterDescriptions);

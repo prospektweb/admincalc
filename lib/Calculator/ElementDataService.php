@@ -1984,7 +1984,10 @@ class ElementDataService
                                 $mappingService = new \Prospektweb\Calc\Services\StageVariantMappingService();
                                 $header = json_decode($value, true);
                                 $value = $propertyCode === 'OPTIONS_MATERIAL'
-                                    || (($header['contract'] ?? '') === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT)
+                                    || in_array(($header['contract'] ?? ''), [
+                                        \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT,
+                                        \Prospektweb\Calc\Services\StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT,
+                                    ], true)
                                     ? $mappingService->normalizeMaterialJson($value)
                                     : $mappingService->normalizeJson($value);
                             } catch (\InvalidArgumentException $error) {
@@ -1999,6 +2002,7 @@ class ElementDataService
                                 [
                                     \Prospektweb\Calc\Services\StageVariantMappingService::CONTRACT,
                                     \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT,
+                                    \Prospektweb\Calc\Services\StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT,
                                 ],
                                 true
                             )) {
@@ -2007,7 +2011,20 @@ class ElementDataService
                                     422
                                 );
                             }
-                            if (($normalizedMapping['contract'] ?? '') === \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT) {
+                            if (in_array(($normalizedMapping['contract'] ?? ''), [
+                                \Prospektweb\Calc\Services\StageVariantMappingService::MATERIAL_DECISION_TREE_CONTRACT,
+                                \Prospektweb\Calc\Services\StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT,
+                            ], true)) {
+                                if (($normalizedMapping['contract'] ?? '') === \Prospektweb\Calc\Services\StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT) {
+                                    $expectedTarget = [
+                                        'OPTIONS_MATERIAL' => 'material',
+                                        'OPTIONS_OPERATION' => 'operation',
+                                        'OPTIONS_EQUIPMENT' => 'equipment',
+                                    ][$propertyCode] ?? null;
+                                    if ($expectedTarget === null || ($normalizedMapping['target'] ?? null) !== $expectedTarget) {
+                                        throw new \InvalidArgumentException($propertyCode . ' contains an incompatible selection target.', 422);
+                                    }
+                                }
                                 $directByOptions = [
                                     'OPTIONS_MATERIAL' => 'MATERIAL_VARIANT',
                                     'OPTIONS_OPERATION' => 'OPERATION_VARIANT',
@@ -2016,8 +2033,8 @@ class ElementDataService
                                 ];
                                 $clearDirectSelectionProperty = $directByOptions[$propertyCode] ?? null;
                                 $allowedTypes = [
-                                    'OPTIONS_MATERIAL' => ['material', 'variant'],
-                                    'OPTIONS_OPERATION' => ['operation'],
+                                    'OPTIONS_MATERIAL' => ['material', 'variant', 'material_variant'],
+                                    'OPTIONS_OPERATION' => ['operation', 'operation_variant'],
                                     'OPTIONS_EQUIPMENT' => ['equipment'],
                                     'OPTIONS_CALCULATOR' => ['calculator'],
                                 ];
@@ -3469,6 +3486,9 @@ class ElementDataService
         }
         $references = (new \Prospektweb\Calc\Services\StageVariantMappingService())
             ->materialReferencesFromJson($mappingJson);
+        $mappingHeader = json_decode($mappingJson, true);
+        $allowParentWithVariants = ($mappingHeader['contract'] ?? '')
+            === \Prospektweb\Calc\Services\StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT;
         foreach ($references as $reference) {
             $entityType = (string)($reference['entity_type'] ?? '');
             $entityId = (int)($reference['entity_id'] ?? 0);
@@ -3495,7 +3515,7 @@ class ElementDataService
                     ['nTopCount' => 1],
                     ['ID']
                 )->Fetch();
-                if (is_array($variant)) {
+                if (is_array($variant) && !$allowParentWithVariants) {
                     throw new \InvalidArgumentException(
                         'Material ' . $entityId . ' has variants; select a concrete variant.',
                         422

@@ -13,6 +13,7 @@ final class StageVariantMappingService
 {
     public const CONTRACT = 'prospektweb.calc.stage-variant-mapping/v1';
     public const MATERIAL_DECISION_TREE_CONTRACT = 'prospektweb.calc.stage-material-selection/v4';
+    public const ENTITY_PARAMETER_SELECTION_CONTRACT = 'prospektweb.calc.stage-entity-parameter-selection/v1';
 
     private const MAX_SAFE_INTEGER = 9007199254740991;
     private const MAX_FIELD_IDS = 50;
@@ -78,10 +79,10 @@ final class StageVariantMappingService
             return $this->normalizeJson($raw);
         }
         if (!$decodedNode instanceof \stdClass
-            || ($decodedNode->contract ?? null) !== self::MATERIAL_DECISION_TREE_CONTRACT
-            || !($decodedNode->tree ?? null) instanceof \stdClass) {
+            || !in_array(($decodedNode->contract ?? null), [self::MATERIAL_DECISION_TREE_CONTRACT, self::ENTITY_PARAMETER_SELECTION_CONTRACT], true)
+            || (($decodedNode->contract ?? null) === self::MATERIAL_DECISION_TREE_CONTRACT && !($decodedNode->tree ?? null) instanceof \stdClass)) {
             throw new \InvalidArgumentException(
-                'OPTIONS_MATERIAL supports only ' . self::CONTRACT . ' or ' . self::MATERIAL_DECISION_TREE_CONTRACT . '.'
+                'OPTIONS_* supports only a mapping, decision tree or entity parameter selection contract.'
             );
         }
         $decoded = json_decode($raw, true);
@@ -104,6 +105,9 @@ final class StageVariantMappingService
     {
         if (($document['contract'] ?? null) === self::MATERIAL_DECISION_TREE_CONTRACT) {
             return $this->normalizeMaterialDecisionTree($document);
+        }
+        if (($document['contract'] ?? null) === self::ENTITY_PARAMETER_SELECTION_CONTRACT) {
+            return $this->normalizeEntityParameterSelection($document);
         }
         self::assertExactKeys($document, self::DOCUMENT_KEYS, 'mapping');
         if (($document['contract'] ?? null) !== self::CONTRACT) {
@@ -244,6 +248,9 @@ final class StageVariantMappingService
                 $this->variantIdsFromJson($raw)
             );
         }
+        if (($decoded['contract'] ?? null) === self::ENTITY_PARAMETER_SELECTION_CONTRACT) {
+            return array_values((array)($decoded['candidates'] ?? []));
+        }
         return $this->materialReferencesFromTree((array)($decoded['tree'] ?? []));
     }
 
@@ -285,6 +292,16 @@ final class StageVariantMappingService
                 $formOptions,
                 $globals
             );
+            return;
+        }
+        if (($document['contract'] ?? null) === self::ENTITY_PARAMETER_SELECTION_CONTRACT) {
+            foreach ((array)($document['comparisons'] ?? []) as $comparison) {
+                $source = is_array($comparison['source'] ?? null) ? $comparison['source'] : [];
+                $key = 'global.' . (string)($source['kind'] ?? '') . '.' . (string)($source['code'] ?? '');
+                if (!isset($globals[$key])) {
+                    throw new \InvalidArgumentException('Entity parameter selection references a missing global value.');
+                }
+            }
             return;
         }
         foreach ((array)$document['input_field_ids'] as $fieldId) {
@@ -337,6 +354,80 @@ final class StageVariantMappingService
             $child = is_array($branch['child'] ?? null) ? $branch['child'] : [];
             $this->assertDecisionTreeSemanticSources($child, $formOptions, $globals);
         }
+    }
+
+    /** @param array<string,mixed> $document
+     *  @return array<string,mixed>
+     */
+    private function normalizeEntityParameterSelection(array $document): array
+    {
+        self::assertExactKeys($document, ['contract', 'target', 'candidates', 'comparisons', 'fallback'], 'selection');
+        $target = (string)($document['target'] ?? '');
+        $allowed = [
+            'operation' => ['operation_variant'],
+            'material' => ['material', 'material_variant'],
+            'equipment' => ['equipment'],
+        ];
+        if (!isset($allowed[$target])) throw new \InvalidArgumentException('Entity parameter selection target is invalid.');
+        $candidates = $document['candidates'] ?? null;
+        if (!is_array($candidates) || !self::isList($candidates) || $candidates === [] || count($candidates) > self::MAX_RULES) {
+            throw new \InvalidArgumentException('Entity parameter selection must contain between 1 and 500 candidates.');
+        }
+        $normalizedCandidates = [];
+        $candidateKeys = [];
+        foreach ($candidates as $index => $candidate) {
+            $normalized = $this->normalizeEntityParameterReference($candidate, $allowed[$target], 'candidates[' . $index . ']');
+            $key = $normalized['entity_type'] . ':' . $normalized['entity_id'];
+            if (isset($candidateKeys[$key])) throw new \InvalidArgumentException('Entity parameter selection contains duplicate candidates.');
+            $candidateKeys[$key] = true;
+            $normalizedCandidates[] = $normalized;
+        }
+        $comparisons = $document['comparisons'] ?? null;
+        if (!is_array($comparisons) || !self::isList($comparisons) || $comparisons === [] || count($comparisons) > self::MAX_FIELD_IDS) {
+            throw new \InvalidArgumentException('Entity parameter selection must contain between 1 and 50 comparisons.');
+        }
+        $normalizedComparisons = [];
+        $parameterCodes = [];
+        foreach ($comparisons as $index => $comparison) {
+            $path = 'comparisons[' . $index . ']';
+            if (!is_array($comparison) || self::isList($comparison)) throw new \InvalidArgumentException($path . ' must be an object.');
+            self::assertExactKeys($comparison, ['parameter_code', 'source'], $path);
+            $parameterCode = (string)($comparison['parameter_code'] ?? '');
+            if (preg_match('/^[A-Za-z_][A-Za-z0-9_.-]*$/D', $parameterCode) !== 1 || isset($parameterCodes[$parameterCode])) {
+                throw new \InvalidArgumentException($path . '.parameter_code is invalid or duplicated.');
+            }
+            $source = $comparison['source'] ?? null;
+            if (!is_array($source) || self::isList($source)) throw new \InvalidArgumentException($path . '.source must be an object.');
+            self::assertExactKeys($source, ['kind', 'code'], $path . '.source');
+            $kind = (string)($source['kind'] ?? '');
+            $code = (string)($source['code'] ?? '');
+            if (!in_array($kind, ['constant', 'variable'], true) || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $code) !== 1) {
+                throw new \InvalidArgumentException($path . '.source is invalid.');
+            }
+            $parameterCodes[$parameterCode] = true;
+            $normalizedComparisons[] = ['parameter_code' => $parameterCode, 'source' => ['kind' => $kind, 'code' => $code]];
+        }
+        $fallback = $this->normalizeEntityParameterReference($document['fallback'] ?? null, $allowed[$target], 'fallback');
+        if (!isset($candidateKeys[$fallback['entity_type'] . ':' . $fallback['entity_id']])) {
+            throw new \InvalidArgumentException('Fallback must belong to the candidate set.');
+        }
+        return [
+            'contract' => self::ENTITY_PARAMETER_SELECTION_CONTRACT,
+            'target' => $target,
+            'candidates' => $normalizedCandidates,
+            'comparisons' => $normalizedComparisons,
+            'fallback' => $fallback,
+        ];
+    }
+
+    /** @param mixed $value @param string[] $allowed */
+    private function normalizeEntityParameterReference($value, array $allowed, string $path): array
+    {
+        if (!is_array($value) || self::isList($value)) throw new \InvalidArgumentException($path . ' must be an object.');
+        self::assertExactKeys($value, ['entity_type', 'entity_id'], $path);
+        $type = (string)($value['entity_type'] ?? '');
+        if (!in_array($type, $allowed, true)) throw new \InvalidArgumentException($path . '.entity_type is incompatible.');
+        return ['entity_type' => $type, 'entity_id' => self::positiveSafeInteger($value['entity_id'] ?? null, $path . '.entity_id')];
     }
 
     /** @param array<string,mixed> $document

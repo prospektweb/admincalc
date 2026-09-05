@@ -274,4 +274,28 @@ $rejects(static fn() => $service->normalizeJson($mutate($document, static functi
     $value['rules'][0]['catalog_property_code'] = 'METHOD';
 })), 'exact keys');
 
+$parameterSelection = [
+    'contract' => StageVariantMappingService::ENTITY_PARAMETER_SELECTION_CONTRACT,
+    'target' => 'material',
+    'candidates' => [
+        ['entity_type' => 'material_variant', 'entity_id' => 601],
+        ['entity_type' => 'material_variant', 'entity_id' => 602],
+    ],
+    'comparisons' => [[
+        'parameter_code' => 'entity.id',
+        'source' => ['kind' => 'constant', 'code' => 'selected_material_id'],
+    ]],
+    'fallback' => ['entity_type' => 'material_variant', 'entity_id' => 602],
+];
+$parameterSelectionJson = $service->normalizeMaterialJson(json_encode($parameterSelection, JSON_UNESCAPED_SLASHES));
+$assert(json_decode($parameterSelectionJson, true) === $parameterSelection, 'parameter selection round-trips canonically');
+$assert($service->materialReferencesFromJson($parameterSelectionJson) === $parameterSelection['candidates'], 'parameter selection exposes every candidate reference');
+$service->assertSemanticSources($parameterSelectionJson, [], [[
+    'kind' => 'constant', 'code' => 'selected_material_id', 'dataType' => 'number',
+]]);
+$rejects(static fn() => $service->assertSemanticSources($parameterSelectionJson, [], []), 'missing global value');
+$invalidFallback = $parameterSelection;
+$invalidFallback['fallback']['entity_id'] = 999;
+$rejects(static fn() => $service->normalizeMaterialJson(json_encode($invalidFallback)), 'Fallback must belong');
+
 fwrite(STDOUT, "OK\n");

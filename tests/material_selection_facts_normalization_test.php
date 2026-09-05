@@ -27,4 +27,14 @@ $assert(
 $assert($method->invoke(null, [52, 53]) === [52, 53], 'multiple supplier links remain numeric candidates');
 $assert($method->invoke(null, null) === [], 'empty property has no facts');
 
+$source = file_get_contents(dirname(__DIR__) . '/lib/Calculator/InitPayloadService.php');
+$assert(
+    is_string($source)
+        && str_contains($source, "'module' => []")
+        && str_contains($source, "'MULTIPLE' => 'N'")
+        && str_contains($source, "['N', 'S', 'L']")
+        && str_contains($source, "'PROPERTY_' . \$modulePropertyCode"),
+    'dedicated scalar module properties remain available for every selection candidate'
+);
+
 echo "Material selection fact normalization checks passed\n";
