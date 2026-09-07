@@ -26,6 +26,7 @@ if (!Loader::includeModule('prospektweb.calc')) {
 }
 
 $APPLICATION->SetTitle('ПРОСПЕКТ — центр управления');
+require_once Loader::getLocal('modules/prospektweb.calc/lib/Config/ModuleOptions.php');
 
 $languageId = defined('LANGUAGE_ID') ? (string)LANGUAGE_ID : 'ru';
 $languageId = preg_replace('/[^a-z]/i', '', $languageId) ?: 'ru';
@@ -240,7 +241,7 @@ body {
     var controlCenterInstanceId = <?= json_encode($controlCenterInstanceId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     var controlCenterInitPayload = <?= json_encode([
         'sessid' => bitrix_sessid(),
-        'documentSiteId' => (string)$configManager->getOption('DOCUMENT_SITE_ID', ''),
+        'documentSiteId' => (string)(new \Prospektweb\Calc\Config\ModuleOptions())->get('document_site_id', ''),
         'endpoints' => $controlCenterEndpoints,
         'moduleVersion' => $moduleVersion,
         'capabilities' => $controlCenterCapabilities,

@@ -21,4 +21,6 @@ $installEvents = substr($events, strpos($events, 'public function installEvents'
 $assert(!str_contains($installEvents, 'DependencyHandler') && !str_contains($installEvents, 'PresetProductAssignmentMutationGuardService'), 'Fresh installation must not register legacy graph events');
 $provider = $read('lib/Documents/BitrixResourceProvider.php');
 $assert(str_contains($provider, 'new ResourceCatalogRegistry') && !str_contains($provider, 'new \\Prospektweb\\Calc\\Config\\ConfigManager'), 'Resource snapshot must not require legacy graph options');
+$page = $read('admin/prospektweb_calc_control_center.php');
+$assert(!str_contains($page, '$configManager') && str_contains($page, "->get('document_site_id', '')"), 'Control center bridge must use native module options without an undefined legacy manager');
 echo "native_installation_boundary_test: PASS\n";
