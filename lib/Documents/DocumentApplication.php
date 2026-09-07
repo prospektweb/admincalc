@@ -35,7 +35,7 @@ final class DocumentApplication
             'renameVersion' => ['id', 'versionId', 'expectedVersionsRevision', 'name'],
             'archiveVersion' => ['id', 'versionId', 'expectedVersionsRevision', 'archived'],
             'deleteVersion' => ['id', 'versionId', 'expectedVersionsRevision'],
-            'saveVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson'],
+            'saveVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
             'saveVersionConnection' => ['id', 'versionId', 'expectedRevision', 'connectionJson'],
             'restoreVersionRevision' => ['id', 'versionId', 'expectedRevision', 'revision'],
             'activateVersion' => ['id', 'versionId', 'expectedRevision', 'expectedVersionsRevision', 'expectedSitePublication'],
@@ -103,7 +103,13 @@ final class DocumentApplication
                 if ($source['revision'] !== $expected) { throw new DocumentConflict(); }
                 return $this->repository->versions()->save($id, $versionId, $expected, $source['bodyJson'], self::text($request, 'connectionJson'), true);
             }
-            return $this->repository->versions()->save($id, $versionId, $expected, $this->validate(self::text($request, 'documentJson')));
+            // Form authoring can change field identities and their site mappings
+            // together. Validate/store the pair under the same branch-head CAS;
+            // never expose an intermediate body with the previous connections.
+            $replaceConnection = array_key_exists('connectionJson', $request);
+            $connection = $replaceConnection ? self::text($request, 'connectionJson') : null;
+            return $this->repository->versions()->save($id, $versionId, $expected,
+                $this->validate(self::text($request, 'documentJson')), $connection, $replaceConnection);
         }
         if ($action === 'load') { return $this->repository->load($id, isset($request['revision']) ? self::integer($request, 'revision') : null); }
         if ($action === 'history') { return ['items' => $this->repository->history($id, self::integer($request, 'limit', 50), self::integer($request, 'beforeRevision', 2147483647))]; }
