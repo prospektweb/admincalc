@@ -6,7 +6,8 @@ namespace Prospektweb\Calc\Documents;
 require_once __DIR__ . '/DocumentRepository.php';
 
 /** CMS-independent use cases. Identity/authorization are owned by the outer adapter.
- * Only compile/publish/preview load external resources; list/load/save never do. */
+ * Only explicit check/compile/publish/preview load external resources;
+ * list/load/save never do. */
 final class DocumentApplication
 {
     private DocumentRepository $repository;
@@ -36,6 +37,7 @@ final class DocumentApplication
             'archiveVersion' => ['id', 'versionId', 'expectedVersionsRevision', 'archived'],
             'deleteVersion' => ['id', 'versionId', 'expectedVersionsRevision'],
             'saveVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
+            'checkVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
             'saveVersionConnection' => ['id', 'versionId', 'expectedRevision', 'connectionJson'],
             'restoreVersionRevision' => ['id', 'versionId', 'expectedRevision', 'revision'],
             'activateVersion' => ['id', 'versionId', 'expectedRevision', 'expectedVersionsRevision', 'expectedSitePublication'],
@@ -95,6 +97,23 @@ final class DocumentApplication
         if ($action === 'restoreVersionRevision') {
             $source = $this->repository->load($id, self::integer($request, 'revision'));
             return $this->repository->versions()->save($id, self::text($request, 'versionId'), self::integer($request, 'expectedRevision'), $this->validate($source['bodyJson']), $source['connectionJson'], true);
+        }
+        if ($action === 'checkVersion') {
+            $versionId = self::text($request, 'versionId'); $expected = self::integer($request, 'expectedRevision');
+            $source = $this->repository->versions()->load($id, $versionId);
+            if ($source['revision'] !== $expected) { throw new DocumentConflict(); }
+            $body = $this->validate(self::text($request, 'documentJson'));
+            $document = json_decode($body, false, 64, JSON_THROW_ON_ERROR);
+            if ($document->id !== $id) { throw new \InvalidArgumentException('Document identity mismatch.'); }
+            $connectionJson = array_key_exists('connectionJson', $request) ? self::text($request, 'connectionJson') : $source['connectionJson'];
+            if ($connectionJson === null) { throw new \InvalidArgumentException('Настройте подключение сайта перед проверкой активации.'); }
+            $connectionJson = SiteConnection::canonical($connectionJson, json_decode($body, true, 64, JSON_THROW_ON_ERROR));
+            if (!is_callable($this->siteCompiler)) { throw new \RuntimeException('Site publication compiler is unavailable.', 503); }
+            $runtime = ($this->siteCompiler)($document, json_decode($connectionJson, false, 64, JSON_THROW_ON_ERROR), $expected);
+            ($this->core)(['action' => 'compile', 'document' => $document, 'resources' => ($this->resources)($document)]);
+            if ($this->repository->versions()->load($id, $versionId)['revision'] !== $expected) { throw new DocumentConflict(); }
+            return ['documentId' => $id, 'versionId' => $versionId, 'revision' => $expected, 'valid' => true,
+                'bodyHash' => hash('sha256', $body), 'connectionHash' => hash('sha256', $connectionJson), 'runtime' => $runtime];
         }
         if ($action === 'saveVersion' || $action === 'saveVersionConnection') {
             $versionId = self::text($request, 'versionId'); $expected = self::integer($request, 'expectedRevision');

@@ -59,6 +59,20 @@ $service = new CalculatorInputSourceCatalogService([
 ]);
 
 $catalog = $service->load(41);
+$direct = $service->loadCatalogs(14, 15);
+$assert(array_keys($direct) === ['product_iblock_id', 'offer_iblock_id', 'properties'], 'native catalog has no synthetic preset metadata');
+$assert($direct['properties'] === $catalog['properties'], 'native and legacy adapters share the same property projection');
+$nativeCalls = [];
+$nativeOnly = new CalculatorInputSourceCatalogService([
+    'source_iblocks' => static function (): array { throw new RuntimeException('Preset lookup is forbidden in native mode'); },
+    'property_rows' => static function (int $id, string $scope) use (&$nativeCalls): array { $nativeCalls[] = [$id, $scope]; return []; },
+]);
+$assert($nativeOnly->loadCatalogs(26, 27)['properties'] === [], 'native authority does not resolve a preset');
+$assert($nativeCalls === [[26, 'product'], [27, 'selected_offer']], 'native reads only the configured catalog pair');
+foreach ([[0, 15], [14, 0], [14, 14], [-1, 15]] as $invalid) {
+    $expectFailure(static fn() => $nativeOnly->loadCatalogs(...$invalid), 'invalid native catalog pair fails before reads');
+}
+$assert(count($nativeCalls) === 2, 'invalid native catalog pairs do not read properties');
 $assert(
     array_keys($catalog) === ['contract', 'preset_id', 'product_iblock_id', 'offer_iblock_id', 'properties'],
     'source catalog has the exact read-only envelope'

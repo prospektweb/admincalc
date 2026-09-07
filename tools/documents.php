@@ -33,12 +33,17 @@ try {
     require_once $module . '/lib/Documents/BitrixResourceProvider.php';
     $repository = new \Prospektweb\Calc\Documents\DocumentRepository(new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection()), 'site:' . $siteId, 'user:' . (int)$USER->GetID());
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
-    if (in_array($request->command->action ?? '', ['siteOptions', 'searchProducts', 'catalogProducts'], true)) {
+    if (in_array($request->command->action ?? '', ['siteOptions', 'sourceCatalog', 'searchProducts', 'catalogProducts'], true)) {
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock')) { throw new \RuntimeException('Site catalog adapter unavailable.', 503); }
         $keys = array_keys(get_object_vars($request->command)); sort($keys);
         $action = $request->command->action;
-        if ($keys !== ($action === 'siteOptions' ? ['action'] : ($action === 'catalogProducts' ? ['action', 'ids'] : ['action', 'query']))) { throw new \InvalidArgumentException('Unknown catalog command field.'); }
+        if ($keys !== (in_array($action, ['siteOptions', 'sourceCatalog'], true) ? ['action'] : ($action === 'catalogProducts' ? ['action', 'ids'] : ['action', 'query']))) { throw new \InvalidArgumentException('Unknown catalog command field.'); }
         $config = new \Prospektweb\Frontcalc\Config\ConfigManager();
+        if ($action === 'sourceCatalog') {
+            require_once $module . '/lib/Services/CalculatorInputSourceCatalogService.php';
+            $catalog = (new \Prospektweb\Calc\Services\CalculatorInputSourceCatalogService())->loadCatalogs($config->getProductIblockId(), $config->getSkuIblockId());
+            $respond(200, ['success' => true, 'data' => ['contract' => 'prospektweb.calculator/site-input-catalog-v1', 'provider' => $provider] + $catalog]);
+        }
         if ($action === 'siteOptions') {
             $priceTypes = []; $cursor = \Bitrix\Main\Application::getConnection()->query('SELECT ID, NAME FROM b_catalog_group ORDER BY SORT, ID');
             while ($row = $cursor->fetch()) { $priceTypes[] = ['key' => (string)$row['ID'], 'name' => (string)$row['NAME']]; }

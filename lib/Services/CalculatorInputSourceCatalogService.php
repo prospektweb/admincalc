@@ -36,6 +36,17 @@ final class CalculatorInputSourceCatalogService
     {
         $this->assertPositiveInteger($presetId, 'preset_id');
         $iblocks = $this->sourceIblocks($presetId);
+        return ['contract' => self::CONTRACT, 'preset_id' => $presetId]
+            + $this->loadCatalogs($iblocks['product'], $iblocks['selected_offer']);
+    }
+
+    /** Explicit catalog authority for the document adapter. No preset lookup. */
+    public function loadCatalogs(int $productIblockId, int $offerIblockId): array
+    {
+        $this->assertPositiveInteger($productIblockId, 'product iblock_id');
+        $this->assertPositiveInteger($offerIblockId, 'selected_offer iblock_id');
+        if ($productIblockId === $offerIblockId) { throw new \InvalidArgumentException('Product and offer catalogs must differ.'); }
+        $iblocks = ['product' => $productIblockId, 'selected_offer' => $offerIblockId];
         $properties = [];
         $identities = [];
 
@@ -91,8 +102,6 @@ final class CalculatorInputSourceCatalogService
         }
 
         return [
-            'contract' => self::CONTRACT,
-            'preset_id' => $presetId,
             'product_iblock_id' => (int)$iblocks['product'],
             'offer_iblock_id' => (int)$iblocks['selected_offer'],
             'properties' => $properties,
