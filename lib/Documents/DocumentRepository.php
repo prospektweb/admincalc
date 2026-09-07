@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Prospektweb\Calc\Documents;
 
 require_once __DIR__ . '/SqlConnection.php';
+require_once __DIR__ . '/SiteConnection.php';
 
 final class DocumentConflict extends \RuntimeException
 {
@@ -41,18 +42,20 @@ final class DocumentRepository
         });
     }
 
-    public function save(string $id, int $expectedRevision, string $json): array
+    public function save(string $id, int $expectedRevision, string $json, ?string $connectionJson = null, bool $replaceConnection = false): array
     {
         self::identity($id); self::revision($expectedRevision);
         $document = self::body($json);
         if ($document['id'] !== $id) { throw new \InvalidArgumentException('Document identity is immutable.'); }
-        return $this->transaction(function () use ($id, $expectedRevision, $json, $document): array {
+        return $this->transaction(function () use ($id, $expectedRevision, $json, $document, $connectionJson, $replaceConnection): array {
             $meta = $this->requireMetadata($id, true);
             $this->expectRevision($meta, $expectedRevision);
             $current = $this->load($id);
-            if (hash_equals($current['bodyHash'], hash('sha256', $json))) { return $current; }
+            $connection = $replaceConnection ? $connectionJson : $current['connectionJson'];
+            if ($connection !== null) { $connection = SiteConnection::canonical($connection, $document); }
+            if (hash_equals($current['bodyHash'], hash('sha256', $json)) && $connection === $current['connectionJson']) { return $current; }
             $next = $expectedRevision + 1; $now = self::now();
-            $this->appendRevision($id, $next, $json, $now);
+            $this->appendRevision($id, $next, $json, $now, $connection);
             $this->db->execute('UPDATE b_pw_calc_document SET name = ?, current_revision = ?, updated_at = ? WHERE id = ? AND scope_id = ?',
                 [$document['name'], $next, $now, $id, $this->scope]);
             return $this->load($id);
@@ -64,15 +67,20 @@ final class DocumentRepository
         self::identity($id);
         if ($revision !== null) { self::revision($revision); }
         // Single statement: readers never combine metadata and body from different revisions.
-        $rows = $this->db->rows('SELECT d.id, d.name, d.current_revision, d.active_publication, d.archived, r.revision, r.body_json, r.body_hash, r.actor_id, r.created_at FROM b_pw_calc_document d JOIN b_pw_calc_revision r ON r.document_id = d.id AND r.revision = ' . ($revision === null ? 'd.current_revision' : '?') . ' WHERE d.id = ? AND d.scope_id = ?',
+        $rows = $this->db->rows('SELECT d.id, d.name, d.current_revision, d.active_publication, d.archived, r.revision, r.body_json, r.body_hash, r.connection_json, r.connection_hash, r.actor_id, r.created_at, s.publication_id AS site_publication FROM b_pw_calc_document d JOIN b_pw_calc_revision r ON r.document_id = d.id AND r.revision = ' . ($revision === null ? 'd.current_revision' : '?') . ' LEFT JOIN b_pw_calc_site_active s ON s.document_id = d.id WHERE d.id = ? AND d.scope_id = ?',
             $revision === null ? [$id, $this->scope] : [$revision, $id, $this->scope]);
         if (!$rows) { throw new \RuntimeException('Document not found.', 404); }
         $row = $rows[0];
         if (!hash_equals($row['body_hash'], hash('sha256', $row['body_json']))) {
             throw new \RuntimeException('Document integrity check failed.');
         }
+        if (($row['connection_json'] === null) !== ($row['connection_hash'] === null)
+            || ($row['connection_json'] !== null && !hash_equals($row['connection_hash'], hash('sha256', $row['connection_json'])))) {
+            throw new \RuntimeException('Site connection integrity check failed.');
+        }
         return ['id' => $row['id'], 'revision' => (int)$row['revision'], 'currentRevision' => (int)$row['current_revision'],
             'bodyJson' => $row['body_json'], 'bodyHash' => $row['body_hash'], 'activePublication' => $row['active_publication'],
+            'connectionJson' => $row['connection_json'], 'connectionHash' => $row['connection_hash'], 'activeSitePublication' => $row['site_publication'],
             'archived' => (bool)$row['archived'], 'actorId' => $row['actor_id'], 'createdAt' => $row['created_at']];
     }
 
@@ -101,10 +109,10 @@ final class DocumentRepository
         return $this->transaction(function () use ($id, $expectedRevision, $archived): array {
             $meta = $this->requireMetadata($id, true);
             if ((int)$meta['current_revision'] !== $expectedRevision) { throw new DocumentConflict(); }
-            if ($meta['active_publication'] !== null) { throw new DocumentConflict('Unpublish before archiving.'); }
+            if ($meta['active_publication'] !== null || $this->sitePointer($id) !== null) { throw new DocumentConflict('Unpublish before archiving.'); }
             if ((bool)$meta['archived'] === $archived) { return $this->load($id); }
             $current = $this->load($id); $now = self::now(); $next = $expectedRevision + 1;
-            $this->appendRevision($id, $next, $current['bodyJson'], $now);
+            $this->appendRevision($id, $next, $current['bodyJson'], $now, $current['connectionJson']);
             $this->db->execute('UPDATE b_pw_calc_document SET archived = ?, current_revision = ?, updated_at = ? WHERE id = ? AND scope_id = ?', [(int)$archived, $next, $now, $id, $this->scope]);
             return $this->load($id);
         });
@@ -157,6 +165,118 @@ final class DocumentRepository
             'engineVersion' => $row['engine_version'], 'snapshotJson' => $row['snapshot_json'], 'snapshotHash' => $row['snapshot_hash']];
     }
 
+    /** Site compiler output is prepared outside the transaction; all authorities are rechecked here. */
+    public function publishSite(string $id, int $expectedRevision, ?string $expectedSitePublication, string $snapshotJson): array
+    {
+        self::identity($id); self::revision($expectedRevision);
+        if ($expectedSitePublication !== null) { self::identity($expectedSitePublication); }
+        $snapshot = self::json($snapshotJson, 33554432);
+        $keys = array_keys($snapshot); sort($keys);
+        if ($keys !== ['connection', 'connectionHash', 'contract', 'core', 'documentHash', 'documentId', 'runtime', 'sourceRevision']
+            || ($snapshot['contract'] ?? '') !== 'prospektweb.calculator/site-publication-v1'
+            || ($snapshot['documentId'] ?? '') !== $id || ($snapshot['sourceRevision'] ?? null) !== $expectedRevision
+            || !is_string($snapshot['connectionHash'] ?? null) || !is_string($snapshot['documentHash'] ?? null)
+            || !is_array($snapshot['runtime'] ?? null) || !is_array($snapshot['connection'] ?? null)
+            || ($snapshot['core']['contract'] ?? '') !== 'prospektweb.calculator/publication-v1'
+            || ($snapshot['core']['calculatorId'] ?? '') !== $id
+            || ($snapshot['core']['documentHash'] ?? '') !== $snapshot['documentHash']) {
+            throw new \InvalidArgumentException('Invalid site publication envelope.');
+        }
+        return $this->transaction(function () use ($id, $expectedRevision, $expectedSitePublication, $snapshot, $snapshotJson): array {
+            $meta = $this->requireMetadata($id, true);
+            $this->expectRevision($meta, $expectedRevision);
+            if ($this->sitePointer($id) !== $expectedSitePublication) { throw new DocumentConflict('Site publication changed.'); }
+            $source = $this->load($id);
+            $connectionObject = json_decode($snapshotJson, false, 64, JSON_THROW_ON_ERROR)->connection;
+            $connectionJson = SiteConnection::canonical(SiteConnection::encode($connectionObject), json_decode($source['bodyJson'], true, 64, JSON_THROW_ON_ERROR));
+            if ($source['connectionJson'] === null || !hash_equals($source['bodyHash'], $snapshot['documentHash'])
+                || !hash_equals($source['connectionHash'], $snapshot['connectionHash'])
+                || !hash_equals($source['connectionHash'], hash('sha256', $connectionJson))) {
+                throw new DocumentConflict('Site publication was compiled from another revision.');
+            }
+            $connection = json_decode($connectionJson, true, 64, JSON_THROW_ON_ERROR);
+            $hash = hash('sha256', $snapshotJson); $publicationId = 's_' . $hash;
+            $existing = $this->db->rows('SELECT id FROM b_pw_calc_site_publication WHERE id = ? AND document_id = ?', [$publicationId, $id]);
+            if (!$existing) {
+                $this->db->execute('INSERT INTO b_pw_calc_site_publication (id, document_id, source_revision, snapshot_json, snapshot_hash, actor_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [$publicationId, $id, $expectedRevision, $snapshotJson, $hash, $this->actor, self::now()]);
+            }
+            // Rebuild only this document's projection. Another calculator's product cannot be stolen.
+            $this->db->execute('DELETE FROM b_pw_calc_product_binding WHERE scope_id = ? AND document_id = ?', [$this->scope, $id]);
+            foreach ($connection['products'] as $product) {
+                $existingBinding = $this->db->rows('SELECT document_id FROM b_pw_calc_product_binding WHERE scope_id = ? AND provider = ? AND catalog_key = ? AND product_key = ?',
+                    [$this->scope, $connection['provider'], $connection['productsCatalog'], $product['key']]);
+                if ($existingBinding) { throw new DocumentConflict('Product is already assigned to another calculator.'); }
+                try {
+                    $this->db->execute('INSERT INTO b_pw_calc_product_binding (scope_id, provider, catalog_key, product_key, document_id, publication_id, presentation_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        [$this->scope, $connection['provider'], $connection['productsCatalog'], $product['key'], $id, $publicationId, $product['presentationId']]);
+                } catch (\Throwable $error) {
+                    // Concurrent unique-key contenders must retry from current state; the entire publication rolls back.
+                    throw new DocumentConflict('Product assignment could not be published; reload and retry.');
+                }
+            }
+            if ($expectedSitePublication === null) {
+                if (!$this->db->rows('SELECT public_id FROM b_pw_calc_site_identity WHERE document_id = ?', [$id])) {
+                    $this->db->execute('INSERT INTO b_pw_calc_site_identity (document_id) VALUES (?)', [$id]);
+                }
+                $this->db->execute('INSERT INTO b_pw_calc_site_active (document_id, publication_id) VALUES (?, ?)', [$id, $publicationId]);
+            } else {
+                $this->db->execute('UPDATE b_pw_calc_site_active SET publication_id = ? WHERE document_id = ?', [$publicationId, $id]);
+            }
+            return $this->sitePublication($id);
+        });
+    }
+
+    /** Indexed, exact lookup; reads no graph and never consults a preset iblock. */
+    public function productBinding(string $provider, string $catalog, string $product): ?array
+    {
+        self::identity($provider); self::identity($catalog); self::identity($product);
+        $rows = $this->db->rows('SELECT b.document_id, b.publication_id, b.presentation_id FROM b_pw_calc_product_binding b JOIN b_pw_calc_document d ON d.id = b.document_id AND d.scope_id = b.scope_id JOIN b_pw_calc_site_active a ON a.document_id = b.document_id AND a.publication_id = b.publication_id WHERE b.scope_id = ? AND b.provider = ? AND b.catalog_key = ? AND b.product_key = ? AND d.archived = 0',
+            [$this->scope, $provider, $catalog, $product]);
+        return $rows[0] ?? null;
+    }
+
+    public function sitePublication(string $id): array
+    {
+        self::identity($id);
+        $rows = $this->db->rows('SELECT p.*, i.public_id FROM b_pw_calc_document d JOIN b_pw_calc_site_active a ON a.document_id = d.id JOIN b_pw_calc_site_identity i ON i.document_id = d.id JOIN b_pw_calc_site_publication p ON p.id = a.publication_id AND p.document_id = d.id WHERE d.id = ? AND d.scope_id = ? AND d.archived = 0', [$id, $this->scope]);
+        if (!$rows) { throw new \RuntimeException('Site publication not found.', 404); }
+        $row = $rows[0];
+        if (!hash_equals($row['snapshot_hash'], hash('sha256', $row['snapshot_json'])) || $row['id'] !== 's_' . $row['snapshot_hash']) {
+            throw new \RuntimeException('Site publication integrity check failed.');
+        }
+        return ['id' => $row['id'], 'documentId' => $id, 'publicId' => (int)$row['public_id'], 'sourceRevision' => (int)$row['source_revision'], 'snapshotJson' => $row['snapshot_json'], 'snapshotHash' => $row['snapshot_hash']];
+    }
+
+    public function siteDocumentId(int $publicId): ?string
+    {
+        self::revision($publicId);
+        $rows = $this->db->rows('SELECT i.document_id FROM b_pw_calc_site_identity i JOIN b_pw_calc_document d ON d.id = i.document_id WHERE i.public_id = ? AND d.scope_id = ?', [$publicId, $this->scope]);
+        return $rows[0]['document_id'] ?? null;
+    }
+
+    public function siteListing(): array
+    {
+        return $this->db->rows('SELECT i.public_id, d.id FROM b_pw_calc_document d JOIN b_pw_calc_site_identity i ON i.document_id = d.id JOIN b_pw_calc_site_active a ON a.document_id = d.id WHERE d.scope_id = ? AND d.archived = 0 ORDER BY i.public_id LIMIT 1000', [$this->scope]);
+    }
+
+    /** Caller must already own the basket transaction; do not commit or begin here. */
+    public function lockSitePublication(string $id, string $expectedPublication): void
+    {
+        self::identity($id); self::identity($expectedPublication);
+        if (!$this->db->inTransaction()) { throw new \LogicException('A basket transaction is required to hold publication authority.'); }
+        $meta = $this->requireMetadata($id, true);
+        if ((int)$meta['archived'] !== 0 || $this->sitePointer($id) !== $expectedPublication) {
+            throw new DocumentConflict('Site publication is stale.');
+        }
+    }
+
+    private function sitePointer(string $id): ?string
+    {
+        $rows = $this->db->rows('SELECT publication_id FROM b_pw_calc_site_active WHERE document_id = ?' . ($this->db->inTransaction() && $this->db->dialect() === 'mysql' ? ' FOR UPDATE' : ''), [$id]);
+        return $rows[0]['publication_id'] ?? null;
+    }
+
     private function metadata(string $id, bool $lock = false): ?array
     {
         $rows = $this->db->rows('SELECT * FROM b_pw_calc_document WHERE id = ? AND scope_id = ?' . ($lock && $this->db->dialect() === 'mysql' ? ' FOR UPDATE' : ''), [$id, $this->scope]);
@@ -173,10 +293,10 @@ final class DocumentRepository
         if ((int)$meta['current_revision'] !== $revision) { throw new DocumentConflict(); }
         if ((int)$meta['archived'] !== 0) { throw new DocumentConflict('Document is archived.'); }
     }
-    private function appendRevision(string $id, int $revision, string $json, string $now): void
+    private function appendRevision(string $id, int $revision, string $json, string $now, ?string $connectionJson = null): void
     {
-        $this->db->execute('INSERT INTO b_pw_calc_revision (document_id, revision, body_json, body_hash, actor_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-            [$id, $revision, $json, hash('sha256', $json), $this->actor, $now]);
+        $this->db->execute('INSERT INTO b_pw_calc_revision (document_id, revision, body_json, body_hash, actor_id, created_at, connection_json, connection_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [$id, $revision, $json, hash('sha256', $json), $this->actor, $now, $connectionJson, $connectionJson === null ? null : hash('sha256', $connectionJson)]);
     }
     private function transaction(callable $operation): array
     {

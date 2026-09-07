@@ -25,6 +25,7 @@ final class PdoConnection implements SqlConnection
     }
 
     public function dialect(): string { return $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME); }
+    public function inTransaction(): bool { return $this->active || $this->pdo->inTransaction(); }
     public function begin(): void
     {
         if ($this->active || $this->pdo->inTransaction()) {

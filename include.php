@@ -1,6 +1,13 @@
 <?php
 use Bitrix\Main\Loader;
 Loader::registerAutoloadClasses('prospektweb.calc', [
+    'Prospektweb\\Calc\\Documents\\SqlConnection' => 'lib/Documents/SqlConnection.php',
+    'Prospektweb\\Calc\\Documents\\BitrixConnection' => 'lib/Documents/BitrixConnection.php',
+    'Prospektweb\\Calc\\Documents\\DocumentRepository' => 'lib/Documents/DocumentRepository.php',
+    'Prospektweb\\Calc\\Documents\\DocumentApplication' => 'lib/Documents/DocumentApplication.php',
+    'Prospektweb\\Calc\\Documents\\SiteConnection' => 'lib/Documents/SiteConnection.php',
+    'Prospektweb\\Calc\\Documents\\BitrixCoreGateway' => 'lib/Documents/BitrixCoreGateway.php',
+    'Prospektweb\\Calc\\Documents\\BitrixResourceProvider' => 'lib/Documents/BitrixResourceProvider.php',
     'Prospektweb\\Calc\\Calculator\\CalculatorInterface' => 'lib/Calculator/CalculatorInterface.php',
     'Prospektweb\\Calc\\Calculator\\BaseCalculator' => 'lib/Calculator/BaseCalculator.php',
     'Prospektweb\\Calc\\Calculator\\CalculatorRegistry' => 'lib/Calculator/CalculatorRegistry.php',

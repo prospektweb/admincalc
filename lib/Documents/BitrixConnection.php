@@ -14,6 +14,7 @@ final class BitrixConnection implements SqlConnection
     private object $connection;
     public function __construct(object $connection) { $this->connection = $connection; }
     public function dialect(): string { return 'mysql'; }
+    public function inTransaction(): bool { return BitrixTransactionStateAuthority::isActive($this->connection); }
     public function begin(): void
     {
         if (BitrixTransactionStateAuthority::isActive($this->connection)) {

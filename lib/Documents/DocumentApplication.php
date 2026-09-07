@@ -12,10 +12,12 @@ final class DocumentApplication
     private DocumentRepository $repository;
     private $core;
     private $resources;
+    private $siteCompiler;
 
-    public function __construct(DocumentRepository $repository, callable $core, callable $resources)
+    public function __construct(DocumentRepository $repository, callable $core, callable $resources, ?callable $siteCompiler = null)
     {
         $this->repository = $repository; $this->core = $core; $this->resources = $resources;
+        $this->siteCompiler = $siteCompiler;
     }
 
     public function command(array $request): array
@@ -28,6 +30,8 @@ final class DocumentApplication
             'restore' => ['id', 'expectedRevision', 'revision'],
             'archive' => ['id', 'expectedRevision', 'archived'],
             'publish' => ['id', 'expectedRevision', 'expectedPublication'],
+            'saveConnection' => ['id', 'expectedRevision', 'connectionJson'],
+            'publishSite' => ['id', 'expectedRevision', 'expectedSitePublication'],
             'preview' => ['id', 'revision', 'values', 'execution', 'name'],
         ];
         if (!is_string($action) || !isset($fields[$action]) || array_diff(array_keys($request), array_merge(['action'], $fields[$action]))) {
@@ -49,10 +53,33 @@ final class DocumentApplication
                 'values' => $request['values'] ?? new \stdClass(), 'execution' => $request['execution'] ?? null, 'name' => $request['name'] ?? $document->name]);
         }
         $expected = self::integer($request, 'expectedRevision');
+        if ($action === 'saveConnection') {
+            $source = $this->repository->load($id);
+            if ($source['revision'] !== $expected) { throw new DocumentConflict(); }
+            return $this->repository->save($id, $expected, $source['bodyJson'], self::text($request, 'connectionJson'), true);
+        }
         if ($action === 'archive') { return $this->repository->archive($id, $expected, self::boolean($request, 'archived')); }
         if ($action === 'save' || $action === 'restore') {
-            $json = $action === 'restore' ? $this->repository->load($id, self::integer($request, 'revision'))['bodyJson'] : self::text($request, 'documentJson');
-            return $this->repository->save($id, $expected, $this->validate($json));
+            $historical = $action === 'restore' ? $this->repository->load($id, self::integer($request, 'revision')) : null;
+            $json = $historical !== null ? $historical['bodyJson'] : self::text($request, 'documentJson');
+            return $this->repository->save($id, $expected, $this->validate($json), $historical['connectionJson'] ?? null, $historical !== null);
+        }
+        if ($action === 'publishSite') {
+            if (!is_callable($this->siteCompiler)) { throw new \RuntimeException('Site publication compiler is unavailable.', 503); }
+            if (!array_key_exists('expectedSitePublication', $request) || ($request['expectedSitePublication'] !== null && !is_string($request['expectedSitePublication']))) {
+                throw new \InvalidArgumentException('Expected site publication pointer is required.');
+            }
+            $source = $this->repository->load($id);
+            if ($source['revision'] !== $expected || $source['activeSitePublication'] !== $request['expectedSitePublication']) { throw new DocumentConflict(); }
+            if ($source['connectionJson'] === null) { throw new \InvalidArgumentException('Configure the site connection before publishing.'); }
+            $document = json_decode($source['bodyJson'], false, 64, JSON_THROW_ON_ERROR);
+            $connection = json_decode($source['connectionJson'], false, 64, JSON_THROW_ON_ERROR);
+            $runtime = ($this->siteCompiler)($document, $connection, $expected);
+            $compiled = ($this->core)(['action' => 'compile', 'document' => $document, 'resources' => ($this->resources)($document)]);
+            $snapshot = (object)['contract' => 'prospektweb.calculator/site-publication-v1', 'documentId' => $id, 'sourceRevision' => $expected,
+                'documentHash' => $source['bodyHash'], 'connectionHash' => $source['connectionHash'], 'connection' => $connection,
+                'core' => json_decode($compiled['snapshotJson'], false, 64, JSON_THROW_ON_ERROR), 'runtime' => $runtime];
+            return $this->repository->publishSite($id, $expected, $request['expectedSitePublication'], SiteConnection::encode($snapshot));
         }
         if (!array_key_exists('expectedPublication', $request) || ($request['expectedPublication'] !== null && !is_string($request['expectedPublication']))) {
             throw new \InvalidArgumentException('Expected publication pointer is required.');

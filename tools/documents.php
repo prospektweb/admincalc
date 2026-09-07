@@ -33,7 +33,37 @@ try {
     require_once $module . '/lib/Documents/BitrixResourceProvider.php';
     $repository = new \Prospektweb\Calc\Documents\DocumentRepository(new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection()), 'site:' . $siteId, 'user:' . (int)$USER->GetID());
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
-    $application = new \Prospektweb\Calc\Documents\DocumentApplication($repository, new \Prospektweb\Calc\Documents\BitrixCoreGateway(), new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider));
+    if (in_array($request->command->action ?? '', ['siteOptions', 'searchProducts', 'catalogProducts'], true)) {
+        if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock')) { throw new \RuntimeException('Site catalog adapter unavailable.', 503); }
+        $keys = array_keys(get_object_vars($request->command)); sort($keys);
+        $action = $request->command->action;
+        if ($keys !== ($action === 'siteOptions' ? ['action'] : ($action === 'catalogProducts' ? ['action', 'ids'] : ['action', 'query']))) { throw new \InvalidArgumentException('Unknown catalog command field.'); }
+        $config = new \Prospektweb\Frontcalc\Config\ConfigManager();
+        if ($action === 'siteOptions') {
+            $priceTypes = []; $cursor = \Bitrix\Main\Application::getConnection()->query('SELECT ID, NAME FROM b_catalog_group ORDER BY SORT, ID');
+            while ($row = $cursor->fetch()) { $priceTypes[] = ['key' => (string)$row['ID'], 'name' => (string)$row['NAME']]; }
+            $respond(200, ['success' => true, 'data' => ['provider' => $provider, 'productsCatalog' => (string)$config->getProductIblockId(), 'offersCatalog' => (string)$config->getSkuIblockId(), 'priceTypes' => $priceTypes]]);
+        }
+        $filter = ['IBLOCK_ID' => $config->getProductIblockId(), 'CHECK_PERMISSIONS' => 'Y'];
+        if ($action === 'catalogProducts') {
+            $ids = $request->command->ids ?? null;
+            if (!is_array($ids) || count($ids) < 1 || count($ids) > 100) { throw new \InvalidArgumentException('Invalid product batch.'); }
+            foreach ($ids as $id) { if (!is_string($id) || !preg_match('/^[1-9][0-9]{0,8}$/D', $id)) { throw new \InvalidArgumentException('Invalid product identity.'); } }
+            $filter['ID'] = array_map('intval', $ids);
+        } else {
+            $query = $request->command->query ?? null;
+            if (!is_string($query) || mb_strlen($query) < 2 || mb_strlen($query) > 100) { throw new \InvalidArgumentException('Введите от 2 до 100 символов.'); }
+            if (ctype_digit($query)) { $filter['ID'] = (int)$query; } else { $filter['%NAME'] = $query; }
+        }
+        $items = []; $cursor = \CIBlockElement::GetList(['NAME' => 'ASC', 'ID' => 'ASC'], $filter, false, ['nTopCount' => $action === 'catalogProducts' ? 100 : 30], ['ID', 'NAME', 'ACTIVE']);
+        while ($row = $cursor->Fetch()) { $items[] = ['key' => (string)$row['ID'], 'name' => (string)$row['NAME'], 'active' => $row['ACTIVE'] === 'Y']; }
+        $respond(200, ['success' => true, 'data' => ['items' => $items]]);
+    }
+    $siteCompiler = static function (object $document, object $connection, int $revision) use ($provider): array {
+        if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc')) { throw new \RuntimeException('FrontCalc site adapter unavailable.', 503); }
+        return (new \Prospektweb\Frontcalc\Service\BitrixDocumentSiteCompiler($provider))($document, $connection, $revision);
+    };
+    $application = new \Prospektweb\Calc\Documents\DocumentApplication($repository, new \Prospektweb\Calc\Documents\BitrixCoreGateway(), new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider), $siteCompiler);
     $respond(200, ['success' => true, 'data' => $application->command(get_object_vars($request->command))]);
 } catch (\InvalidArgumentException | \JsonException $error) {
     $respond(422, ['success' => false, 'error' => 'DOCUMENT_INVALID', 'message' => $error->getMessage()]);

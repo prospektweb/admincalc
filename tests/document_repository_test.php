@@ -88,6 +88,7 @@ try {
         private SqlConnection $inner;
         public function __construct(SqlConnection $inner) { $this->inner = $inner; }
         public function dialect(): string { return $this->inner->dialect(); }
+        public function inTransaction(): bool { return $this->inner->inTransaction(); }
         public function begin(): void { $this->inner->begin(); }
         public function commit(): void { $this->inner->commit(); }
         public function rollback(): void { $this->inner->rollback(); }

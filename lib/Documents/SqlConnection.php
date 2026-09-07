@@ -7,6 +7,7 @@ namespace Prospektweb\Calc\Documents;
 interface SqlConnection
 {
     public function dialect(): string;
+    public function inTransaction(): bool;
     public function begin(): void;
     public function commit(): void;
     public function rollback(): void;
