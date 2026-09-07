@@ -189,6 +189,9 @@ final class CalculatorInputSourceCatalogService
             }
             return $rows;
         }
+        if (!class_exists(Loader::class) || !Loader::includeModule('iblock')) {
+            throw new \RuntimeException('Iblock module is unavailable for input source catalog.', 503);
+        }
         $rows = [];
         $cursor = \CIBlockProperty::GetList(['ID' => 'ASC'], ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y']);
         while ($cursor && ($row = $cursor->Fetch())) {
