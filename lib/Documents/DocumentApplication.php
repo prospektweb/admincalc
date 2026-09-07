@@ -6,7 +6,7 @@ namespace Prospektweb\Calc\Documents;
 require_once __DIR__ . '/DocumentRepository.php';
 
 /** CMS-independent use cases. Identity/authorization are owned by the outer adapter.
- * Only explicit check/compile/publish/preview load external resources;
+ * Only explicit context/check/compile/publish/preview load external resources;
  * list/load/save never do. */
 final class DocumentApplication
 {
@@ -38,6 +38,7 @@ final class DocumentApplication
             'deleteVersion' => ['id', 'versionId', 'expectedVersionsRevision'],
             'saveVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
             'checkVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
+            'contextVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson'],
             'saveVersionConnection' => ['id', 'versionId', 'expectedRevision', 'connectionJson'],
             'restoreVersionRevision' => ['id', 'versionId', 'expectedRevision', 'revision'],
             'activateVersion' => ['id', 'versionId', 'expectedRevision', 'expectedVersionsRevision', 'expectedSitePublication'],
@@ -97,6 +98,20 @@ final class DocumentApplication
         if ($action === 'restoreVersionRevision') {
             $source = $this->repository->load($id, self::integer($request, 'revision'));
             return $this->repository->versions()->save($id, self::text($request, 'versionId'), self::integer($request, 'expectedRevision'), $this->validate($source['bodyJson']), $source['connectionJson'], true);
+        }
+        if ($action === 'contextVersion') {
+            $versionId = self::text($request, 'versionId'); $expected = self::integer($request, 'expectedRevision');
+            $source = $this->repository->versions()->load($id, $versionId);
+            if ($source['revision'] !== $expected) { throw new DocumentConflict(); }
+            $body = $this->validate(self::text($request, 'documentJson'));
+            $document = json_decode($body, false, 64, JSON_THROW_ON_ERROR);
+            if ($document->id !== $id) { throw new \InvalidArgumentException('Document identity mismatch.'); }
+            // The provider enforces allowed catalogs/bindings and owns a read
+            // snapshot. Never resolve a legacy graph or change site mappings.
+            $resources = ($this->resources)($document);
+            if ($this->repository->versions()->load($id, $versionId)['revision'] !== $expected) { throw new DocumentConflict(); }
+            return ['contract' => 'prospektweb.calculator/resource-context-v1', 'documentId' => $id,
+                'versionId' => $versionId, 'revision' => $expected, 'bodyHash' => hash('sha256', $body), 'resources' => $resources];
         }
         if ($action === 'checkVersion') {
             $versionId = self::text($request, 'versionId'); $expected = self::integer($request, 'expectedRevision');
