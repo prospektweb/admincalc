@@ -7,4 +7,12 @@ foreach (['POST_REQUIRED', 'ADMIN_REQUIRED', 'INVALID_SESSION', 'check_bitrix_se
     $checks++;
 }
 if (strpos($source, 'check_bitrix_sessid()') > strpos($source, 'new \\Prospektweb\\Calc\\Documents\\DocumentApplication') || str_contains($source, 'DocumentSchema::install')) { throw new RuntimeException('Access checks must precede commands; DDL cannot run in the endpoint.'); }
+$logStart = strpos($source, "error_log('[prospektweb.documents] '");
+$logEnd = $logStart === false ? false : strpos($source, 'JSON_UNESCAPED_SLASHES));', $logStart);
+if ($logStart === false || $logEnd === false) { throw new RuntimeException('Private failure origin diagnostics missing.'); }
+$diagnostic = substr($source, $logStart, $logEnd - $logStart);
+foreach (['getMessage', 'getTrace', '$request', '$payload', '$_POST'] as $privateValue) {
+    if (str_contains($diagnostic, $privateValue)) { throw new RuntimeException('Diagnostics must not expose request or exception data.'); }
+}
+$checks++;
 echo 'PASS ' . ($checks + 1) . " document endpoint boundary checks\n";

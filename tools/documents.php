@@ -68,6 +68,12 @@ try {
 } catch (\InvalidArgumentException | \JsonException $error) {
     $respond(422, ['success' => false, 'error' => 'DOCUMENT_INVALID', 'message' => $error->getMessage()]);
 } catch (\Throwable $error) {
+    // Keep private request data, credentials and exception messages out of logs.
+    // Class and origin identify transport/storage failures hidden by the public response.
+    error_log('[prospektweb.documents] ' . json_encode([
+        'type' => get_class($error), 'code' => $error->getCode(),
+        'file' => basename($error->getFile()), 'line' => $error->getLine(),
+    ], JSON_UNESCAPED_SLASHES));
     $status = in_array($error->getCode(), [404, 409, 503], true) ? $error->getCode() : 500;
     $respond($status, ['success' => false, 'error' => $status === 409 ? 'REVISION_CONFLICT' : 'DOCUMENT_UNAVAILABLE',
         'message' => $status === 409 ? $error->getMessage() : 'Документ недоступен. Изменения не сохранены.']);

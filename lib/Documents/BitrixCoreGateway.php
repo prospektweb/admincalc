@@ -35,6 +35,9 @@ final class BitrixCoreGateway
         $decoded = json_decode($response, true, 64, JSON_THROW_ON_ERROR);
         if ($status !== 200 || ($decoded['success'] ?? false) !== true) {
             if ($status === 422) { throw new \InvalidArgumentException((string)($decoded['error']['message'] ?? 'Invalid calculator document.'), 422); }
+            $code = $decoded['error']['code'] ?? '';
+            $code = is_string($code) && preg_match('/^[A-Z_]{1,64}$/D', $code) ? $code : 'UNAVAILABLE';
+            error_log('[prospektweb.core] status=' . $status . ' code=' . $code);
             throw new \RuntimeException('Calculation core rejected the command.', 503);
         }
         if (($decoded['contract'] ?? '') !== 'prospektweb.calculator/commands-v1' || !is_array($decoded['data'] ?? null)) { throw new \RuntimeException('Invalid core response.'); }
