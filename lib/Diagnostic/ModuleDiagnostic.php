@@ -569,7 +569,7 @@ class ModuleDiagnostic
     {
         $checks = []; $errors = [];
         $db = Application::getConnection();
-        $tables = ['b_pw_calc_document', 'b_pw_calc_revision', 'b_pw_calc_publication', 'b_pw_calc_site_publication', 'b_pw_calc_site_active', 'b_pw_calc_site_identity', 'b_pw_calc_product_binding', 'b_pw_calc_catalog', 'b_pw_calc_section'];
+        $tables = ['b_pw_calc_document', 'b_pw_calc_revision', 'b_pw_calc_publication', 'b_pw_calc_site_publication', 'b_pw_calc_site_active', 'b_pw_calc_site_identity', 'b_pw_calc_product_binding', 'b_pw_calc_catalog', 'b_pw_calc_section', 'b_pw_calc_version'];
         if (ModuleManager::isModuleInstalled('prospektweb.frontcalc')) { $tables[] = 'b_pw_frontcalc_record'; }
         foreach ($tables as $table) {
             $row = $db->query("SHOW TABLE STATUS WHERE Name='" . $table . "'")->fetch();

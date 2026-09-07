@@ -6,6 +6,7 @@ namespace Prospektweb\Calc\Documents;
 require_once __DIR__ . '/SqlConnection.php';
 require_once __DIR__ . '/SiteConnection.php';
 require_once __DIR__ . '/DocumentCatalog.php';
+require_once __DIR__ . '/DocumentVersions.php';
 
 final class DocumentConflict extends \RuntimeException
 {
@@ -28,6 +29,8 @@ final class DocumentRepository
         self::identity($scope); self::identity($actor);
         $this->db = $db; $this->scope = $scope; $this->actor = $actor;
     }
+
+    public function versions(): DocumentVersions { return new DocumentVersions($this->db, $this->scope, $this->actor, $this); }
 
     /** The canonical JSON bytes are supplied by the shared core and hashed unchanged. */
     public function create(string $json, ?string $sectionId = null, ?int $expectedCatalogRevision = null): array
@@ -56,11 +59,12 @@ final class DocumentRepository
         return $this->transaction(function () use ($id, $expectedRevision, $json, $document, $connectionJson, $replaceConnection): array {
             $meta = $this->requireMetadata($id, true);
             $this->expectRevision($meta, $expectedRevision);
+            $this->versions()->assertPrimaryWritable($id);
             $current = $this->load($id);
             $connection = $replaceConnection ? $connectionJson : $current['connectionJson'];
             if ($connection !== null) { $connection = SiteConnection::canonical($connection, $document); }
             if (hash_equals($current['bodyHash'], hash('sha256', $json)) && $connection === $current['connectionJson']) { return $current; }
-            $next = $expectedRevision + 1; $now = self::now();
+            $next = $this->nextRevision($id); $now = self::now();
             $this->appendRevision($id, $next, $json, $now, $connection);
             $this->db->execute('UPDATE b_pw_calc_document SET name = ?, current_revision = ?, updated_at = ? WHERE id = ? AND scope_id = ?',
                 [$document['name'], $next, $now, $id, $this->scope]);
@@ -180,7 +184,7 @@ final class DocumentRepository
             if ((int)$meta['current_revision'] !== $expectedRevision) { throw new DocumentConflict(); }
             if ($meta['active_publication'] !== null || $this->sitePointer($id) !== null) { throw new DocumentConflict('Unpublish before archiving.'); }
             if ((bool)$meta['archived'] === $archived) { return $this->load($id); }
-            $current = $this->load($id); $now = self::now(); $next = $expectedRevision + 1;
+            $current = $this->load($id); $now = self::now(); $next = $this->nextRevision($id);
             $this->appendRevision($id, $next, $current['bodyJson'], $now, $current['connectionJson']);
             $this->db->execute('UPDATE b_pw_calc_document SET archived = ?, current_revision = ?, updated_at = ? WHERE id = ? AND scope_id = ?', [(int)$archived, $next, $now, $id, $this->scope]);
             return $this->load($id);
@@ -235,7 +239,7 @@ final class DocumentRepository
     }
 
     /** Site compiler output is prepared outside the transaction; all authorities are rechecked here. */
-    public function publishSite(string $id, int $expectedRevision, ?string $expectedSitePublication, string $snapshotJson): array
+    public function publishSite(string $id, int $expectedRevision, ?string $expectedSitePublication, string $snapshotJson, ?string $versionId = null, ?int $expectedVersionsRevision = null): array
     {
         self::identity($id); self::revision($expectedRevision);
         if ($expectedSitePublication !== null) { self::identity($expectedSitePublication); }
@@ -251,11 +255,13 @@ final class DocumentRepository
             || ($snapshot['core']['documentHash'] ?? '') !== $snapshot['documentHash']) {
             throw new \InvalidArgumentException('Invalid site publication envelope.');
         }
-        return $this->transaction(function () use ($id, $expectedRevision, $expectedSitePublication, $snapshot, $snapshotJson): array {
+        return $this->transaction(function () use ($id, $expectedRevision, $expectedSitePublication, $snapshot, $snapshotJson, $versionId, $expectedVersionsRevision): array {
             $meta = $this->requireMetadata($id, true);
-            $this->expectRevision($meta, $expectedRevision);
+            if ($versionId === null) { $this->expectRevision($meta, $expectedRevision); $versionId = DocumentVersions::primaryId($id); }
+            elseif ($expectedVersionsRevision === null) { throw new \InvalidArgumentException('Expected versions registry revision required.'); }
+            $this->versions()->expectLocked($id, $versionId, $expectedRevision, $expectedVersionsRevision);
             if ($this->sitePointer($id) !== $expectedSitePublication) { throw new DocumentConflict('Site publication changed.'); }
-            $source = $this->load($id);
+            $source = $this->load($id, $expectedRevision);
             $connectionObject = json_decode($snapshotJson, false, 64, JSON_THROW_ON_ERROR)->connection;
             $connectionJson = SiteConnection::canonical(SiteConnection::encode($connectionObject), json_decode($source['bodyJson'], true, 64, JSON_THROW_ON_ERROR));
             if ($source['connectionJson'] === null || !hash_equals($source['bodyHash'], $snapshot['documentHash'])
@@ -292,6 +298,7 @@ final class DocumentRepository
             } else {
                 $this->db->execute('UPDATE b_pw_calc_site_active SET publication_id = ? WHERE document_id = ?', [$publicationId, $id]);
             }
+            $this->versions()->activated($id, $versionId, $publicationId);
             return $this->sitePublication($id);
         });
     }
@@ -366,6 +373,14 @@ final class DocumentRepository
     {
         $this->db->execute('INSERT INTO b_pw_calc_revision (document_id, revision, body_json, body_hash, actor_id, created_at, connection_json, connection_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [$id, $revision, $json, hash('sha256', $json), $this->actor, $now, $connectionJson, $connectionJson === null ? null : hash('sha256', $connectionJson)]);
+        $this->versions()->recordPrimary($id, $revision, $now);
+    }
+    private function nextRevision(string $id): int
+    {
+        // Branch edits also append immutable revisions while the default working
+        // pointer can stay behind. The document lock serializes allocation.
+        $next = 1 + (int)$this->db->rows('SELECT MAX(revision) AS maximum FROM b_pw_calc_revision WHERE document_id = ?', [$id])[0]['maximum'];
+        self::revision($next); return $next;
     }
     private function transaction(callable $operation, bool $readSnapshot = false): array
     {

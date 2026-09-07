@@ -30,6 +30,16 @@ final class DocumentApplication
             'renameSection' => ['expectedCatalogRevision', 'id', 'name'],
             'deleteSection' => ['expectedCatalogRevision', 'id'],
             'moveToSection' => ['expectedCatalogRevision', 'id', 'sectionId'],
+            'versions' => ['id'], 'loadVersion' => ['id', 'versionId'],
+            'createVersion' => ['id', 'expectedVersionsRevision', 'name', 'creationMode', 'basedOnVersionId', 'expectedContentHash', 'documentJson'],
+            'renameVersion' => ['id', 'versionId', 'expectedVersionsRevision', 'name'],
+            'archiveVersion' => ['id', 'versionId', 'expectedVersionsRevision', 'archived'],
+            'deleteVersion' => ['id', 'versionId', 'expectedVersionsRevision'],
+            'saveVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson'],
+            'saveVersionConnection' => ['id', 'versionId', 'expectedRevision', 'connectionJson'],
+            'restoreVersionRevision' => ['id', 'versionId', 'expectedRevision', 'revision'],
+            'activateVersion' => ['id', 'versionId', 'expectedRevision', 'expectedVersionsRevision', 'expectedSitePublication'],
+            'previewVersion' => ['id', 'versionId', 'revision', 'values', 'execution', 'name'],
             'list' => ['limit', 'offset', 'archived'], 'load' => ['id', 'revision'],
             'history' => ['id', 'limit', 'beforeRevision'], 'create' => ['documentJson', 'sectionId', 'expectedCatalogRevision'],
             'save' => ['id', 'expectedRevision', 'documentJson'],
@@ -66,10 +76,40 @@ final class DocumentApplication
                 array_key_exists('expectedCatalogRevision', $request) ? self::integer($request, 'expectedCatalogRevision') : null);
         }
         $id = self::text($request, 'id');
+        if ($action === 'versions') { return $this->repository->versions()->listing($id); }
+        if ($action === 'loadVersion') { return $this->repository->versions()->load($id, self::text($request, 'versionId')); }
+        if ($action === 'createVersion') {
+            $mode = self::text($request, 'creationMode');
+            if (!in_array($mode, ['blank', 'clone'], true)
+                || ($mode === 'blank' && (array_key_exists('basedOnVersionId', $request) || array_key_exists('expectedContentHash', $request)))
+                || ($mode === 'clone' && array_key_exists('documentJson', $request))) { throw new \InvalidArgumentException('Invalid version creation mode or fields.'); }
+            return $this->repository->versions()->create($id, self::integer($request, 'expectedVersionsRevision'), self::text($request, 'name'),
+                $mode === 'clone' ? self::text($request, 'basedOnVersionId') : null,
+                $mode === 'clone' ? self::text($request, 'expectedContentHash') : null,
+                $mode === 'blank' ? $this->validate(self::text($request, 'documentJson')) : null);
+        }
+        if (in_array($action, ['renameVersion', 'archiveVersion', 'deleteVersion'], true)) {
+            return $this->repository->versions()->change($id, self::text($request, 'versionId'), self::integer($request, 'expectedVersionsRevision'), $action,
+                $action === 'renameVersion' ? ['name' => self::text($request, 'name')] : ($action === 'archiveVersion' ? ['archived' => self::boolean($request, 'archived')] : []));
+        }
+        if ($action === 'restoreVersionRevision') {
+            $source = $this->repository->load($id, self::integer($request, 'revision'));
+            return $this->repository->versions()->save($id, self::text($request, 'versionId'), self::integer($request, 'expectedRevision'), $this->validate($source['bodyJson']), $source['connectionJson'], true);
+        }
+        if ($action === 'saveVersion' || $action === 'saveVersionConnection') {
+            $versionId = self::text($request, 'versionId'); $expected = self::integer($request, 'expectedRevision');
+            if ($action === 'saveVersionConnection') {
+                $source = $this->repository->versions()->load($id, $versionId);
+                if ($source['revision'] !== $expected) { throw new DocumentConflict(); }
+                return $this->repository->versions()->save($id, $versionId, $expected, $source['bodyJson'], self::text($request, 'connectionJson'), true);
+            }
+            return $this->repository->versions()->save($id, $versionId, $expected, $this->validate(self::text($request, 'documentJson')));
+        }
         if ($action === 'load') { return $this->repository->load($id, isset($request['revision']) ? self::integer($request, 'revision') : null); }
         if ($action === 'history') { return ['items' => $this->repository->history($id, self::integer($request, 'limit', 50), self::integer($request, 'beforeRevision', 2147483647))]; }
-        if ($action === 'preview') {
-            $revision = $this->repository->load($id, self::integer($request, 'revision'));
+        if ($action === 'preview' || $action === 'previewVersion') {
+            $revision = $action === 'previewVersion' ? $this->repository->versions()->load($id, self::text($request, 'versionId')) : $this->repository->load($id, self::integer($request, 'revision'));
+            if ($revision['revision'] !== self::integer($request, 'revision')) { throw new DocumentConflict(); }
             $document = json_decode($revision['bodyJson'], false, 64, JSON_THROW_ON_ERROR);
             return ($this->core)(['action' => 'preview', 'document' => $document, 'resources' => ($this->resources)($document),
                 'values' => $request['values'] ?? new \stdClass(), 'execution' => $request['execution'] ?? null, 'name' => $request['name'] ?? $document->name]);
@@ -86,12 +126,15 @@ final class DocumentApplication
             $json = $historical !== null ? $historical['bodyJson'] : self::text($request, 'documentJson');
             return $this->repository->save($id, $expected, $this->validate($json), $historical['connectionJson'] ?? null, $historical !== null);
         }
-        if ($action === 'publishSite') {
+        if ($action === 'publishSite' || $action === 'activateVersion') {
             if (!is_callable($this->siteCompiler)) { throw new \RuntimeException('Site publication compiler is unavailable.', 503); }
             if (!array_key_exists('expectedSitePublication', $request) || ($request['expectedSitePublication'] !== null && !is_string($request['expectedSitePublication']))) {
                 throw new \InvalidArgumentException('Expected site publication pointer is required.');
             }
-            $source = $this->repository->load($id);
+            $versionId = $action === 'activateVersion' ? self::text($request, 'versionId') : null;
+            $versionsRevision = $versionId === null ? null : self::integer($request, 'expectedVersionsRevision');
+            $source = $versionId === null ? $this->repository->load($id) : $this->repository->versions()->load($id, $versionId);
+            if ($versionsRevision !== null && $this->repository->versions()->listing($id)['registryRevision'] !== $versionsRevision) { throw new DocumentConflict('Список версий изменился.'); }
             if ($source['revision'] !== $expected || $source['activeSitePublication'] !== $request['expectedSitePublication']) { throw new DocumentConflict(); }
             if ($source['connectionJson'] === null) { throw new \InvalidArgumentException('Configure the site connection before publishing.'); }
             $document = json_decode($source['bodyJson'], false, 64, JSON_THROW_ON_ERROR);
@@ -101,7 +144,8 @@ final class DocumentApplication
             $snapshot = (object)['contract' => 'prospektweb.calculator/site-publication-v1', 'documentId' => $id, 'sourceRevision' => $expected,
                 'documentHash' => $source['bodyHash'], 'connectionHash' => $source['connectionHash'], 'connection' => $connection,
                 'core' => json_decode($compiled['snapshotJson'], false, 64, JSON_THROW_ON_ERROR), 'runtime' => $runtime];
-            return $this->repository->publishSite($id, $expected, $request['expectedSitePublication'], SiteConnection::encode($snapshot));
+            $published = $this->repository->publishSite($id, $expected, $request['expectedSitePublication'], SiteConnection::encode($snapshot), $versionId, $versionsRevision);
+            return $versionId === null ? $published : $this->repository->versions()->listing($id);
         }
         if (!array_key_exists('expectedPublication', $request) || ($request['expectedPublication'] !== null && !is_string($request['expectedPublication']))) {
             throw new \InvalidArgumentException('Expected publication pointer is required.');

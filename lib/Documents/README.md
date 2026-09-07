@@ -24,12 +24,34 @@ This is an internal adapter, not an unauthenticated third-party API.
 
 ## Persistence invariants
 
-Three InnoDB tables hold indexed metadata/current and active pointers
+The InnoDB tables hold indexed metadata/default-head and core pointers
 (`b_pw_calc_document`), immutable canonical bodies (`b_pw_calc_revision`), and
 immutable resource-fixed snapshots (`b_pw_calc_publication`). Reads check
 stored hashes. No-op saves do not manufacture revisions; lists do not read
 graph bodies. A database administrator is still privileged to alter data:
 own tables protect against ordinary iblock editing, not against root access.
+
+`b_pw_calc_version` stores named branch metadata and immutable revision heads.
+Cloning shares immutable body/connection bytes until the first edit. A common
+document row lock serializes global revision allocation; each save compares
+only its branch head, so independent versions can be edited concurrently.
+Registry mutations compare `versions_revision`; renaming does not change body
+hashes. Version numbers are never reused. Deletion tombstones the branch; old
+revisions/publications remain available for audit and existing calculations.
+The deployed branch cannot be hidden or deleted. `current_revision` is the
+default branch head, not the largest revision across every branch.
+
+`b_pw_calc_site_publication` contains immutable full site snapshots; the
+`b_pw_calc_site_active` pointer records both publication and named version.
+Different versions sharing identical bytes still have one explicit active
+version. Activation checks branch head, registry revision and publication
+pointer under one lock, then updates product bindings atomically. Its time
+and actor describe the activation event, not the creation of a reused snapshot.
+`b_pw_calc_product_binding` is a rebuildable projection; `b_pw_calc_site_identity`
+holds an adapter-local public route ID, never an iblock element ID.
+
+`b_pw_calc_catalog` and `b_pw_calc_section` own scope-local tree metadata and
+its independent CAS revision. Placement edits do not mutate calculator bodies.
 
 `DocumentSchema::install` runs explicitly in the module installer, never from
 an ordinary page request. It is additive/idempotent. Future versions need
@@ -48,12 +70,14 @@ The new workbench is available in the authorized Control Center with
 `DOCUMENT_RESOURCE_PROVIDER` before use; these are adapter settings, not
 document storage.
 
-An immutable **core snapshot is not public-site activation**. FrontCalc,
-catalog assignments and basket price/provenance authority still use the old
-publication. Do not enable a public cutover or delete service iblocks until
-those consumers and their locked authority checks have been migrated together.
-The UI states this limitation explicitly. No compatibility fallback is used
-inside the new core.
+An immutable **core snapshot is not public-site activation**. Native FrontCalc
+uses the explicit site snapshot through the document adapter. The stage pilot
+has migrated public bindings and calculation authority; this does not authorize
+production cutover. Version UI uses `versions/loadVersion/createVersion`,
+`saveVersion/saveVersionConnection/restoreVersionRevision/previewVersion`, and
+`renameVersion/archiveVersion/deleteVersion/activateVersion`, without calling
+legacy iblock mutation endpoints. Full editor UI parity is still in progress.
+No compatibility fallback is used inside the new core.
 
 Run all `tests/*test.php` in separate PHP processes with `pdo_sqlite` enabled.
 The document tests cover concurrent writes, immutable publications, scoping,

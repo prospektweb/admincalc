@@ -8,7 +8,7 @@ require_once __DIR__ . '/SqlConnection.php';
 /** Explicit, additive installation. Never called on a normal read/write request. */
 final class DocumentSchema
 {
-    public const VERSION = 3;
+    public const VERSION = 4;
     public static function install(SqlConnection $db): void
     {
         $mysql = $db->dialect() === 'mysql';
@@ -85,6 +85,46 @@ final class DocumentSchema
         if (!in_array('section_id', $documentColumns, true)) {
             $db->execute("ALTER TABLE b_pw_calc_document ADD COLUMN section_id $id NULL");
         }
+        if (!in_array('versions_revision', $documentColumns, true)) {
+            $db->execute('ALTER TABLE b_pw_calc_document ADD COLUMN versions_revision INTEGER NOT NULL DEFAULT 0');
+        }
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_version (
+            id $id NOT NULL PRIMARY KEY, document_id $id NOT NULL, version_no INTEGER NOT NULL,
+            name VARCHAR(200) NOT NULL, head_revision INTEGER NOT NULL, based_on_version_id $id NULL,
+            hidden INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0,
+            created_at VARCHAR(30) NOT NULL, updated_at VARCHAR(30) NOT NULL,
+            created_by $id NOT NULL, updated_by $id NOT NULL,
+            last_site_publication $id NULL, activated_at VARCHAR(30) NULL, activated_by $id NULL,
+            UNIQUE (document_id, version_no),
+            FOREIGN KEY (document_id, head_revision) REFERENCES b_pw_calc_revision(document_id, revision),
+            FOREIGN KEY (last_site_publication) REFERENCES b_pw_calc_site_publication(id)
+        )$suffix");
+        $versionColumns = $mysql ? array_column($db->rows('SHOW COLUMNS FROM b_pw_calc_version'), 'Field')
+            : array_column($db->rows('PRAGMA table_info(b_pw_calc_version)'), 'name');
+        if (!in_array('activated_at', $versionColumns, true)) { $db->execute('ALTER TABLE b_pw_calc_version ADD COLUMN activated_at VARCHAR(30) NULL'); }
+        if (!in_array('activated_by', $versionColumns, true)) { $db->execute("ALTER TABLE b_pw_calc_version ADD COLUMN activated_by $id NULL"); }
+        $activeColumns = $mysql ? array_column($db->rows('SHOW COLUMNS FROM b_pw_calc_site_active'), 'Field')
+            : array_column($db->rows('PRAGMA table_info(b_pw_calc_site_active)'), 'name');
+        if (!in_array('version_id', $activeColumns, true)) {
+            $db->execute("ALTER TABLE b_pw_calc_site_active ADD COLUMN version_id $id NULL");
+        }
+        // Explicit one-time metadata bootstrap, never a lazy write during reads.
+        // It points at existing immutable revisions/publications without rewriting them.
+        $unversioned = $db->rows('SELECT d.id, d.current_revision, d.created_at, d.updated_at, r.actor_id, a.publication_id, p.created_at AS activated_at, p.actor_id AS activated_by
+            FROM b_pw_calc_document d JOIN b_pw_calc_revision r ON r.document_id = d.id AND r.revision = d.current_revision
+            LEFT JOIN b_pw_calc_site_active a ON a.document_id = d.id
+            LEFT JOIN b_pw_calc_site_publication p ON p.id = a.publication_id
+            WHERE NOT EXISTS (SELECT 1 FROM b_pw_calc_version v WHERE v.document_id = d.id)');
+        foreach ($unversioned as $document) {
+            $versionId = 'v_' . substr(hash('sha256', 'primary:' . $document['id']), 0, 40);
+            $db->execute('INSERT INTO b_pw_calc_version (id, document_id, version_no, name, head_revision, created_at, updated_at, created_by, updated_by, last_site_publication, activated_at, activated_by) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [$versionId, $document['id'], 'Версия 1', (int)$document['current_revision'], $document['created_at'], $document['updated_at'], $document['actor_id'], $document['actor_id'], $document['publication_id'], $document['activated_at'], $document['activated_by']]);
+        }
+        // Resume after an interrupted metadata bootstrap, without resurrecting a
+        // deleted version or replacing an already assigned activation pointer.
+        foreach ($db->rows('SELECT a.document_id, v.id FROM b_pw_calc_site_active a JOIN b_pw_calc_version v ON v.document_id = a.document_id AND v.version_no = 1 AND v.deleted = 0 AND v.last_site_publication = a.publication_id WHERE a.version_id IS NULL') as $activation) {
+            $db->execute('UPDATE b_pw_calc_site_active SET version_id = ? WHERE document_id = ? AND version_id IS NULL', [$activation['id'], $activation['document_id']]);
+        }
         foreach (['b_pw_calc_document' => ['ix_pw_calc_document_section', 'scope_id, section_id'],
             'b_pw_calc_section' => ['ix_pw_calc_section_parent', 'scope_id, parent_id, sort']] as $table => [$index, $columns]) {
             if (!$mysql || !in_array($index, array_column($db->rows('SHOW INDEX FROM ' . $table), 'Key_name'), true)) {
@@ -96,7 +136,7 @@ final class DocumentSchema
             if (!in_array('ix_pw_calc_document_scope', array_column($indexes, 'Key_name'), true)) {
                 $db->execute('CREATE INDEX ix_pw_calc_document_scope ON b_pw_calc_document(scope_id, archived, updated_at, id)');
             }
-            foreach (['b_pw_calc_document', 'b_pw_calc_revision', 'b_pw_calc_publication', 'b_pw_calc_site_publication', 'b_pw_calc_site_active', 'b_pw_calc_site_identity', 'b_pw_calc_product_binding', 'b_pw_calc_catalog', 'b_pw_calc_section'] as $table) {
+            foreach (['b_pw_calc_document', 'b_pw_calc_revision', 'b_pw_calc_publication', 'b_pw_calc_site_publication', 'b_pw_calc_site_active', 'b_pw_calc_site_identity', 'b_pw_calc_product_binding', 'b_pw_calc_catalog', 'b_pw_calc_section', 'b_pw_calc_version'] as $table) {
                 $status = $db->rows('SHOW TABLE STATUS WHERE Name = ?', [$table]);
                 if (($status[0]['Engine'] ?? '') !== 'InnoDB') {
                     throw new \RuntimeException('Document tables must use InnoDB; installation stopped.');
