@@ -604,6 +604,9 @@ class prospektweb_calc extends CModule
      */
     public function registerModule(): void
     {
+        require_once $this->modulePath . '/lib/Documents/BitrixConnection.php';
+        require_once $this->modulePath . '/lib/Documents/DocumentSchema.php';
+        \Prospektweb\Calc\Documents\DocumentSchema::install(new \Prospektweb\Calc\Documents\BitrixConnection(Application::getConnection()));
         ModuleManager::registerModule($this->MODULE_ID);
     }
 

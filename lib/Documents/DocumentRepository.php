@@ -12,7 +12,7 @@ final class DocumentConflict extends \RuntimeException
 
 /**
  * Storage of validated documents. Domain validation belongs to the caller/core,
- * never to SQL. No HTTP endpoint is exposed until that boundary is connected.
+ * never to SQL. Application commands validate through the portable core.
  * Scope and actor must be obtained from trusted authentication, not request JSON.
  */
 final class DocumentRepository
@@ -82,6 +82,32 @@ final class DocumentRepository
         if ($limit < 1 || $limit > 100 || $offset < 0 || $offset > 100000) { throw new \InvalidArgumentException('Invalid pagination.'); }
         return $this->db->rows('SELECT id, name, current_revision, active_publication, archived, created_at, updated_at FROM b_pw_calc_document WHERE scope_id = ? AND archived = ? ORDER BY updated_at DESC, id LIMIT ' . $limit . ' OFFSET ' . $offset,
             [$this->scope, (int)$archived]);
+    }
+
+    /** History reads metadata, not all past graphs. Restoring is a new CAS revision. */
+    public function history(string $id, int $limit = 50, int $beforeRevision = 2147483647): array
+    {
+        self::identity($id);
+        if ($limit < 1 || $limit > 100 || $beforeRevision < 1) { throw new \InvalidArgumentException('Invalid history pagination.'); }
+        $this->requireMetadata($id, false);
+        return $this->db->rows('SELECT r.revision, r.body_hash, r.actor_id, r.created_at FROM b_pw_calc_revision r JOIN b_pw_calc_document d ON d.id = r.document_id WHERE d.id = ? AND d.scope_id = ? AND r.revision < ? ORDER BY r.revision DESC LIMIT ' . $limit,
+            [$id, $this->scope, $beforeRevision]);
+    }
+
+    /** Archive is recoverable and cannot silently unpublish a public calculator. */
+    public function archive(string $id, int $expectedRevision, bool $archived): array
+    {
+        self::identity($id); self::revision($expectedRevision);
+        return $this->transaction(function () use ($id, $expectedRevision, $archived): array {
+            $meta = $this->requireMetadata($id, true);
+            if ((int)$meta['current_revision'] !== $expectedRevision) { throw new DocumentConflict(); }
+            if ($meta['active_publication'] !== null) { throw new DocumentConflict('Unpublish before archiving.'); }
+            if ((bool)$meta['archived'] === $archived) { return $this->load($id); }
+            $current = $this->load($id); $now = self::now(); $next = $expectedRevision + 1;
+            $this->appendRevision($id, $next, $current['bodyJson'], $now);
+            $this->db->execute('UPDATE b_pw_calc_document SET archived = ?, current_revision = ?, updated_at = ? WHERE id = ? AND scope_id = ?', [(int)$archived, $next, $now, $id, $this->scope]);
+            return $this->load($id);
+        });
     }
 
     /**

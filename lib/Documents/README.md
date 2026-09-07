@@ -1,48 +1,42 @@
-# Document persistence
+# Calculator documents
 
-Foundation checkpoint, 2026-09-07. Not yet the storage used by the public editor.
+The application stores one portable authoring document per immutable revision.
+`DocumentRepository` is scoped by a trusted site and actor. Its SQL adapter has
+no iblock dependency; `PdoConnection` is also used by the concurrency tests.
 
-`DocumentRepository` stores canonical calculator documents, immutable revisions
-and compiled publications. It does not depend on Bitrix. `SqlConnection` is the
-infrastructure boundary; `BitrixConnection` uses the existing CMS connection,
-while `PdoConnection` supports standalone MySQL and SQLite transactional tests.
+`DocumentApplication` owns create/save/history/restore/archive/preview/publish
+commands. Validation and compilation run through the shared core. Compilation
+and catalog snapshots happen outside the write transaction; publication then
+checks both the authoring revision and active pointer under a row lock.
 
-Three InnoDB tables:
+`BitrixResourceProvider` snapshots explicitly referenced, active resource
+catalogs in a repeatable-read transaction. It translates legacy resource field
+encodings and PRC/MRG price modes only at this boundary. The executor never
+reads iblocks. `BitrixCoreGateway` is the authenticated HTTPS adapter.
 
-- `b_pw_calc_document`: indexed list metadata and current/active pointers;
-- `b_pw_calc_revision`: immutable document bodies, hashes and author metadata;
-- `b_pw_calc_publication`: immutable compiled snapshots with fixed resources.
+## HTTP access
 
-Writes own their transaction, lock the document and require an expected
-revision. Publication additionally requires the expected active pointer and
-the hash of the document used by the compiler. Reads verify stored hashes.
-No-op saves do not create artificial revisions. Lists never load graph bodies.
+`/bitrix/tools/prospektweb.calc/documents.php` accepts admin-only POST requests
+with the normal Bitrix `sessid` and `payload` form fields. Payload is
+`{siteId, command}`. The server checks the site; actor identity is never accepted
+from the request. Commands reject unknown fields; writes require exact CAS.
+This is an internal adapter, not an unauthenticated third-party API.
 
-The repository is deliberately NOT an HTTP API, permission system or domain
-validator. Callers must authenticate, authorize, validate/compile using the
-shared core, and pass trusted scope/actor values. There is currently no general
-write endpoint. CLI import only accepts the explicitly pinned pilot document.
-Own tables prevent ordinary iblock administration from editing internal nodes;
-they do not prevent a privileged database administrator from changing data.
+## Release boundary (2026-09-07)
 
-Install explicitly with `DocumentSchema::install`; never invoke DDL from an
-ordinary page request. Initial schema installation is additive and idempotent.
-Future schema versions require explicit migrations. No uninstall/drop procedure
-is supplied: site data must not be deleted implicitly with module code.
+The new workbench is available in the authorized Control Center with
+`?document_preview=Y`. Normal entry remains on the existing workbench unless
+`DOCUMENT_EDITOR_ENABLED=Y` is configured. Configure `DOCUMENT_SITE_ID` and
+`DOCUMENT_RESOURCE_PROVIDER` before use; these are adapter settings, not
+document storage.
 
-Local transactional test (including two concurrent writer processes):
+An immutable **core snapshot is not public-site activation**. FrontCalc,
+catalog assignments and basket price/provenance authority still use the old
+publication. Do not enable a public cutover or delete service iblocks until
+those consumers and their locked authority checks have been migrated together.
+The UI states this limitation explicitly. No compatibility fallback is used
+inside the new core.
 
-```text
-php -d extension=pdo_sqlite tests/document_repository_test.php
-```
-
-For the pilot, `tools/document-migration/export-pilot.php` takes a read-only source
-backup outside the web root. The Node importer validates and canonicalizes it.
-`install-pilot-draft.php --inspect` reports targets; `--apply` imports only a
-hash-pinned draft. It does not publish the new document or edit/delete the old
-iblock graph. An existing different document is never overwritten automatically.
-
-Still required: application-command/ACL integration, compiler/publication
-integration, editor switch, regular module installer integration and removal of
-obsolete iblock code after end-to-end acceptance. The standalone PDO adapter
-shows storage portability, not completion of integration with another CMS.
+Run all `tests/*test.php` in separate PHP processes with `pdo_sqlite` enabled.
+The document tests cover concurrent writes, immutable publications, scoping,
+CAS after remote compilation, recoverable archive/restore and adapter modes.

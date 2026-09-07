@@ -20,7 +20,11 @@ const cases=[]
 const documentSourcePath = process.argv.find(a => a.startsWith('--document-source='))?.slice('--document-source='.length)
 const documentSource = documentSourcePath ? JSON.parse(await fs.readFile(documentSourcePath, 'utf8')) : null
 const core = documentSource ? await import(pathToFileURL(path.join(serverRoot, 'dist/core/calculator.js'))) : null
+const quoteCore = documentSource ? await import(pathToFileURL(path.join(serverRoot, 'dist/core/quote.js'))) : null
 const importer = documentSource ? await import(pathToFileURL(path.join(serverRoot, 'dist/adapters/bitrix/importCalculatorDocument.js'))) : null
+const liveResourcesPath = process.argv.find(a => a.startsWith('--document-resources='))?.slice('--document-resources='.length)
+const liveResources = liveResourcesPath ? JSON.parse(await fs.readFile(liveResourcesPath, 'utf8')) : null
+const sourceResources = documentSource ? importer.importBitrixCalculator(documentSource.publication, 'bitrix:prospektprint.ru').resourceSnapshots : []
 const values={volume:1000,'system.layout-count':1,'system.deadline-type':'strict','format.width':90,'format.length':50,method:'OFSET','color.scheme':'4+4','type.material':'paper','type.paper':'mel-mat-paper','density.paper':'150','section:protection':false,protection:'',options:[]}
 function prepare(changed, modify=()=>{}) {
   const init=structuredClone(baseline)
@@ -54,7 +58,7 @@ try {
   const transform=await vite.ssrLoadModule('/src/lib/bitrix-to-ui-transformer.ts')
   const server=await import(pathToFileURL(path.join(serverRoot,'dist/services/calculationEngine.js')))
   const summarize=r=>r[0].details.flatMap(d=>d.stages.map(s=>({id:s.stageElementId,incomplete:!!s.incomplete,cost:s.totalCost,outputs:s.outputs,issues:s.issues})))
-  const execute=async(init,engine)=>engine.calculateAllOffers([{id:-1,productId:0,name:'Offset QA',attributes:{},properties:{},calculationInput:init.calculationInput}],null,init.preset,init.elementsStore.CALC_DETAILS.map(d=>transform.transformDetail(d,init.elementsStore)),[],[],init)
+  const execute=async(init,engine)=>engine.calculateAllOffers([{id:-1,productId:0,name:'Offset QA',attributes:{},properties:{},calculationInput:init.calculationInput}],null,init.preset,init.elementsStore.CALC_DETAILS.map(d=>transform.transformDetail(d,init.elementsStore)),[],init.priceTypes || [],init)
   async function test(name, input, check, modify) {
     const client=summarize(await execute(prepare(input,modify),frontend))
     if(client.some(s=>s.incomplete)) {
@@ -70,6 +74,17 @@ try {
       const publication = structuredClone(documentSource.publication)
       publication.documents.logic.runtimePayload = init
       const imported = importer.importBitrixCalculator(publication, 'bitrix:prospektprint.ru')
+      if (liveResources) imported.resourceSnapshots = liveResources.map(live => {
+        const next = structuredClone(live), source = sourceResources.find(r => r.id === live.id), scenario = imported.resourceSnapshots.find(r => r.id === live.id)
+        assert.ok(source && scenario, 'Live resource must retain explicit document identity')
+        // Apply only deliberate test mutations to a fresh production snapshot.
+        if (source.purchasingPrice !== scenario.purchasingPrice) next.purchasingPrice = scenario.purchasingPrice
+        for (const parameter of scenario.parameters) if (JSON.stringify(parameter.value) !== JSON.stringify(source.parameters.find(p => p.code === parameter.code)?.value)) {
+          next.parameters.find(p => p.code === parameter.code).value = parameter.value
+          if (next.selectionFacts.parameters[parameter.code]) next.selectionFacts.parameters[parameter.code].value = parameter.value
+        }
+        return next
+      })
       const prepared = core.prepareCalculator(imported.document, imported.resourceSnapshots)
       if (client.some(s => s.incomplete)) {
         assert.throws(() => prepared.execute(init.calculationInput.values), `${name}: document must reject incomplete quote`)
@@ -82,6 +97,14 @@ try {
         const expected = client.map(({id,cost,outputs}) => ({id,cost,outputs}))
         try { assert.deepEqual(stages, expected, `${name}: independent document engine parity`) }
         catch (error) { await fs.writeFile(`${output}.document-diff.json`, JSON.stringify({name, expected, actual:stages}, null, 2)); throw error }
+        const quote = quoteCore.prepareQuote(imported.document, imported.resourceSnapshots).execute(init.calculationInput.values, {unitCount:1,runCount:1,layoutCount:1,deadlineType:'strict'}, 'Offset QA')
+        const old = (await execute(prepare(input,modify),server))[0]
+        const priceIds = new Map(imported.externalBindings.filter(b=>b.category==='priceType').map(b=>[b.id,Number(b.sourceId)]))
+        const normalizedRanges = quote.priceRanges.map(r=>({...r,prices:r.prices.map(p=>({...p,typeId:priceIds.get(p.typeId)}))}))
+        assert.deepEqual(normalizedRanges, old.priceRangesWithMarkup, `${name}: commercial prices parity`)
+        assert.deepEqual(quote.parameters, old.parametrValues, `${name}: presentation parity`)
+        assert.equal(quote.name, old.offerName, `${name}: offer name parity`)
+        assert.deepEqual(quote.deadlineAdjustment, old.deadlineAdjustment, `${name}: deadline parity`)
       }
     }
     cases.push({name,stages:client.map(({id,incomplete,cost,outputs,issues})=>({id,incomplete,cost,outputs,issues}))})

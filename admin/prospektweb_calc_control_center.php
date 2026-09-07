@@ -54,6 +54,7 @@ $controlCenterEndpoints = [
     'partners' => '/bitrix/tools/prospektweb/partnermanager/control_center.php',
 ];
 $controlCenterCapabilities = [
+    'documents' => $configManager->getOption('DOCUMENT_EDITOR_ENABLED', 'N') === 'Y' || (($_GET['document_preview'] ?? '') === 'Y'),
     'settings' => true,
     'diagnostics' => true,
     'batch' => true,
@@ -238,6 +239,7 @@ body {
     var controlCenterInstanceId = <?= json_encode($controlCenterInstanceId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     var controlCenterInitPayload = <?= json_encode([
         'sessid' => bitrix_sessid(),
+        'documentSiteId' => (string)$configManager->getOption('DOCUMENT_SITE_ID', ''),
         'endpoints' => $controlCenterEndpoints,
         'moduleVersion' => $moduleVersion,
         'capabilities' => $controlCenterCapabilities,
