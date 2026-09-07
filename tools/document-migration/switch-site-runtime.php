@@ -40,4 +40,6 @@ try {
     if ($authority->readForUpdate('DOCUMENT_PUBLIC_RUNTIME', 'N') !== $next) { throw new RuntimeException('Runtime switch readback failed.'); }
     $db->commitTransaction();
 } catch (Throwable $error) { $db->rollbackTransaction(); throw $error; }
+// Exact SQL authority bypasses Option's in-process/managed cache; refresh only this module.
+\Bitrix\Main\Application::getInstance()->getManagedCache()->clean('b_option:prospektweb.calc', 'b_option');
 echo json_encode(['publicRuntime' => $next, 'documentEditor' => $next, 'publicationId' => $publication['id'], 'publicId' => $publication['publicId']], JSON_THROW_ON_ERROR) . "\n";
