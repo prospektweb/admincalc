@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { buildFinishing } from './finishing.mjs'
+import { MAKEREADY_COMPONENTS, MAKEREADY_ALIASES, MAKEREADY_REPORT_VARIABLES, MAKEREADY_REPORT_TEMPLATES, materialMakereadyVariables } from './makeready-model.mjs'
 
 const clone = value => structuredClone(value)
 const number = (code, title, sourcePath) => ({ code, title, type: 'number', sourcePath })
@@ -92,9 +93,11 @@ export function buildRecipe(init) {
     ['OFFSET_RUN_WASTE_PERCENT', 2, 'Потери одного тиражного прогона (%)', 'Перенесено из действующего расчёта материала; производственная норма, требует последующей сверки по фактическим заказам.'],
   ])
   parameters(1074, [
+    ...MAKEREADY_COMPONENTS,
     ['TURN_REGISTER_EXTRA_PERCENT', 30, 'Доплата за повторную приводку своим оборотом (%)', 'Перенесено из параметра этапа EXTRA_TURN_OVER; применяется к приладке без второго комплекта форм.'],
     ['INCLUDED_PRODUCTION_SHEETS', 0, 'Годные тиражные листы, включённые в приладку (шт)', 'Бумага, потраченная на приладку, не является бесплатными годными тиражными листами.'],
   ])
+  change(1074, {}, 'Приладка одного комплекта форм Ryobi 524HXX')
   // Only material variants already selected by this working graph receive a
   // neutral, editable surface factor. No internet-derived tariff is invented.
   const paperIds = [18449,18300,18476,18450,18303,18451,18298,18299,18301,18302,18453,18454]
@@ -147,11 +150,12 @@ export function buildRecipe(init) {
     globals('sheet_setup_allowance_qty', 'Общий запас (шт)'), globals('postpress_setup_waste_sheet_qty', 'Подготовка обработки (шт)'),
     globals('postpress_yield_ratio', 'Послепечатный выход'), globals('print_sheet_trim_allowance_mm', 'Подрезка исходного листа (мм)'),
     number('plate_purchase_rate', 'Закупка готовой пластины (руб)', 'stage_18854.materialVariant.purchasingPrice'),
-    number('setup_purchase_rate', 'Приладка одного цвета (руб)', 'stage_16434.operationVariant.purchasingPrice'),
+    ...MAKEREADY_COMPONENTS.map(([code,,title],i)=>number(MAKEREADY_ALIASES[i],title,`stage_16434.operationVariant.properties.PARAMETRS.DESCRIPTION.CODE.${code}`)),
     number('turn_setup_extra_pct', 'Повторная приводка своим оборотом (%)', 'stage_16434.operationVariant.properties.PARAMETRS.DESCRIPTION.CODE.TURN_REGISTER_EXTRA_PERCENT'),
     ...[1, 2, 4].map(n => number(`pass_cost_${n}`, `Закупка ${n}-красочного прогона (руб)`, `stage_16433.operation.properties.PARAMETRS.DESCRIPTION.CODE.OFFSET_PASS_COST_${n}`)),
   )
   const m = (...args) => material.add(...args)
+  for (const v of materialMakereadyVariables()) m(v.name, v.formula, v.title, v.type || 'number')
   m('source_sheet_thickness_mm', 'source_thickness_um / 1000', 'Толщина материала без округления до сотых (мм)')
   m('front_colors', 'toNumber(get(split(print_vibrancy_text, "+"), 0))', 'Красок лица')
   m('back_colors', 'toNumber(get(split(print_vibrancy_text, "+"), 1))', 'Красок оборота')
@@ -201,7 +205,7 @@ export function buildRecipe(init) {
       m(`${c}_source`, `ceil(${c}_stock / max(1, ${orientation}_source_yield))`, `${title}: исходных листов на один макет`)
       m(`${c}_plates`, turn ? 'ink_union' : 'front_colors + back_colors', `${title}: пластин на макет`)
       m(`${c}_sets`, turn ? '1' : 'if(back_colors > 0, 2, 1)', `${title}: комплектов форм на макет`)
-      m(`${c}_setup_cost`, `${c}_plates * setup_purchase_rate * thick_factor${turn ? ' * (1 + turn_setup_extra_pct / 100)' : ''}`, `${title}: приладка (руб)`)
+      m(`${c}_setup_cost`, `${c}_sets * setup_purchase_rate * thick_factor${turn ? ' * (1 + turn_setup_extra_pct / 100)' : ''}`, `${title}: приладка (руб)`)
       m(`${c}_run_cost`, turn ? `(${c}_feed1 + ${c}_feed2) * rate_turn * thick_factor` : `(${c}_feed1 * rate_front + ${c}_feed2 * rate_back) * thick_factor`, `${title}: печатные прогоны (руб)`)
       m(`${c}_cost`, `if(${c}_valid, ${c}_source * source_sheet_purchase_price_rub + if(is_ofsetnaya_pechat, ${c}_plates * plate_purchase_rate + ${c}_setup_cost + ${c}_run_cost, 0), 100000000000000000000)`, `${title}: сравниваемая себестоимость (руб)`)
     }
@@ -295,10 +299,12 @@ export function buildRecipe(init) {
 
   const setup = new FormulaBlock('Приладка офсетной печати')
   setup.input(globals('offset_setup_purchase_cost', 'Стоимость приладки по выбранному плану'), globals('offset_plate_qty', 'Прилаживаемых красок'), globals('offset_print_form_qty', 'Комплектов форм'),
-    { code: 'setup_prices', title: 'Наценка приладки по количеству цветов', type: 'array', sourcePath: 'stage_16434.operationVariant.prices' })
+    { code: 'setup_prices', title: 'Процент за цвет по количеству комплектов форм', type: 'array', sourcePath: 'stage_16434.operationVariant.prices' })
   setup.add('setup_cost', 'offset_setup_purchase_cost', 'Закупочная стоимость приладки (руб)')
-  setup.add('setup_markup', 'getPrice(offset_plate_qty, setup_prices)', 'Наценка приладки (%)')
-  setup.add('setup_base', 'setup_cost * (1 + setup_markup / 100)', 'Базовая стоимость приладки (руб)')
+  setup.add('setup_markup', 'getPrice(offset_print_form_qty, setup_prices)', 'Наценка за один цвет (%)')
+  setup.add('setup_base', 'round(setup_cost * (1 + offset_plate_qty / offset_print_form_qty * setup_markup / 100) * 100) / 100', 'Базовая стоимость приладки (руб)', 'number', 'Себестоимость берётся за комплект форм; процент — за каждый цвет комплекта. Шкала процента зависит от количества комплектов. Один спуск 4+0: 2012 * (1 + 4 * 15 / 100) = 3219.20 руб.')
+  setup.input(...MAKEREADY_COMPONENTS.map(([code,,title],i)=>number(MAKEREADY_ALIASES[i],title,`stage_16434.operationVariant.properties.PARAMETRS.DESCRIPTION.CODE.${code}`)))
+  for (const [name,formula,title] of MAKEREADY_REPORT_VARIABLES) {setup.add(name,formula,title);setup.extra(name,title)}
   setup.output('operationPurchasingPrice', 'setup_cost'); setup.output('operationBasePrice', 'setup_base')
 
   const print = new FormulaBlock('Офсетная печать — фактические прогоны')
@@ -325,7 +331,7 @@ export function buildRecipe(init) {
   const templates = {
     material: [['Название ТП', '{self}']],
     plates: [['Готовые пластины', '{offset_plate_qty} шт']],
-    setup: [['Приладка', '{offset_plate_qty} красок; {offset_print_form_qty} комплектов']],
+    setup: MAKEREADY_REPORT_TEMPLATES,
     print: [['Офсетная печать', '{print_vibrancy_text}; {offset_turn_mode}; {physical_passes} листопрогонов']],
     laminate: [['Ламинация', '{film_name}; {sides} сторон']],
     cut: [['Трудоёмкость резки', '{cut_work_unit_qty} резов'], ['Наценка резки', '{cut_markup_pct}%']],

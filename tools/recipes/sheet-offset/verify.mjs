@@ -22,7 +22,10 @@ function prepare(changed, modify=()=>{}) {
   const init=structuredClone(baseline)
   for(const c of recipe.changes) {
     const e=[init.preset,...Object.values(init.elementsStore).flat()].find(e=>e.id===c.id)
-    for(const [k,v] of Object.entries(c.properties))e.properties[k]={...e.properties[k],...v,'~VALUE':v.VALUE}
+    for(const [k,v] of Object.entries(c.properties)){
+      const copied=structuredClone(v)
+      e.properties[k]={...e.properties[k],...copied,'~VALUE':copied.VALUE}
+    }
     if(c.name)e.name=c.name
     if(c.catalogProduct)e.attributes.weight=c.catalogProduct.WEIGHT
     if(c.properties.PARAMETRS) {
@@ -67,23 +70,37 @@ try {
     assert.ok(m.stock_sheets>m.good_sheets && m.good_sheets>=m.net_sheets)
     assert.ok(m.source_sheets*m.items_per_sheet>0)
     assert.equal(m.plate_qty*178.57,get(r,18854).cost)
+    const setup=get(r,16434)
+    assert.equal(setup.outputs.setup_unit_cost,2012)
+    assert.ok(Math.abs(setup.cost - ['setup_labor_cost','setup_rent_cost','setup_consumables_cost','setup_reserve_cost'].reduce((s,k)=>s+setup.outputs[k],0))<0.000001)
+    if(color==='4+0'){assert.equal(setup.cost,2012);assert.ok(Math.abs(setup.outputs.basePrice-3219.2)<0.000001)}
     if(color==='4+4'){assert.equal(m.plate_qty,4);assert.equal(m.set_qty,1);assert.equal(m.stock_sheets-m.feed1,150);assert.equal(m.items_per_sheet,8);assert.equal(m.source_sheets,72)}
   })
   await test('two independent layouts',{'system.layout-count':2},r=>{valid(r);assert.equal(get(r,16827).outputs.plate_qty,8);assert.equal(get(r,16827).outputs.source_sheets,144);assert.ok(Math.abs(get(r,16439).outputs.run_weight - 45.83 * 90 * 50 * 2000 / (470 * 650)) < 0.000001)})
+  const setNorm=(init,code,value)=>{
+    const operation=Object.values(init.elementsStore).flat().find(e=>e.id===1074)
+    const params=operation.properties.PARAMETRS
+    const i=params.VALUE.indexOf(code);assert.ok(i>=0)
+    params.DESCRIPTION[i]=params.DESCRIPTION[i].replace(/^[^|]*/,String(value))
+    operation.selectionFacts.parameters[code].value=value
+  }
+  await test('operation labor norm changes setup cost',{'color.scheme':'4+0'},r=>{valid(r);assert.equal(get(r,16434).cost,2112);assert.equal(get(r,16434).outputs.setup_unit_cost,2112)},init=>setNorm(init,'MAKEREADY_SHIFT_LABOR_RUB',6420))
+  await test('catalog purchase price is not setup authority',{'color.scheme':'4+0'},r=>{valid(r);assert.equal(get(r,16434).cost,2012)},init=>{Object.values(init.elementsStore).flat().find(e=>e.id===1074).purchasingPrice=9999})
+  await test('zero planned sets rejects quote',{},r=>assert.ok(get(r,16827).incomplete),init=>setNorm(init,'MAKEREADY_PLANNED_SETS_PER_SHIFT',0))
   for(const sides of ['1','2'])await test(`lamination ${sides} sides`,{'section:protection':true,protection:'lamination-rulon',lamination:'gloss-low','lamination.sides':sides},r=>{
     valid(r);const l=get(r,16436);assert.ok(l,'Lamination must execute');assert.ok(l.outputs.film_roll_fraction>0);assert.equal(l.outputs.height,0.147+Number(sides)*0.03)
     assert.ok(l.outputs.film_used_length<get(r,16827).outputs.stock_sheets*(325+4)*Number(sides)*1.03)
   })
-  await test('300 gsm thickness factor',{'density.paper':'300'},r=>{valid(r);assert.equal(get(r,16827).outputs.height,0.283);assert.ok(Math.abs(get(r,16434).cost-10462.4*1.5)<0.000001)})
+  await test('300 gsm thickness factor',{'density.paper':'300'},r=>{valid(r);assert.equal(get(r,16827).outputs.height,0.283);assert.ok(Math.abs(get(r,16434).cost-2012*1.3*1.5)<0.000001)})
   for(const qty of [5000,5001,50000,500000])await test(`4+4 volume ${qty}`,{volume:qty},r=>{valid(r);assert.equal(get(r,16827).outputs.turn_name,'Свой оборот')})
   await test('impossible sheet size',{'format.width':1000,'format.length':1000},r=>assert.ok(get(r,16827).incomplete))
   await test('unpriced third ink',{'color.scheme':'3+0'},r=>assert.ok(get(r,16827).incomplete))
   await test('80 gsm uses actual 80 gsm paper',{'type.paper':'vhi-paper','density.paper':'80'},r=>{valid(r);assert.equal(get(r,16827).outputs.height,0.1)})
   await test('unavailable glossy 120 is not replaced by matte 150',{'type.paper':'mel-glossy-paper','density.paper':'120'},r=>assert.ok(get(r,16827).incomplete))
-  await test('A3 selects a large box',{'format.width':297,'format.length':420},r=>{valid(r);assert.equal(get(r,16440).outputs.width,440)})
+  await test('A3 selects a large box',{'format.width':297,'format.length':420},r=>{valid(r);assert.equal(get(r,16440).outputs.width,440);assert.equal(get(r,16434).cost,4024);assert.ok(Math.abs(get(r,16434).outputs.basePrice-6438.4)<0.000001);assert.equal(get(r,16827).outputs.set_qty,2);assert.equal(get(r,16827).outputs.stock_sheets-get(r,16827).outputs.feed1,150)})
   await test('own turn disabled',{},r=>{valid(r);assert.equal(get(r,16827).outputs.plate_qty,8);assert.equal(get(r,16827).outputs.set_qty,2)},init=>{init.globalSymbols.find(g=>g.code==='offset_work_and_turn_allowed').initialValue='false'})
   await test('digital shared material regression',{method:'DIGITAL','color.scheme':'4+0'},r=>valid(r))
-  for(const qty of [100,1000,10000,50000]) await test(`4+1 economic choice ${qty}`,{volume:qty,'format.width':105,'format.length':148,'color.scheme':'4+1'},r=>{valid(r);assert.equal(get(r,16827).outputs.turn_name,qty>=10000?'Чужой оборот':'Свой оборот')})
+  for(const qty of [100,1000,10000,50000]) await test(`4+1 economic choice ${qty}`,{volume:qty,'format.width':105,'format.length':148,'color.scheme':'4+1'},r=>{valid(r);assert.equal(get(r,16827).outputs.turn_name,qty>=50000?'Чужой оборот':'Свой оборот')})
   await test('sheet fits machine but exceeds box',{'format.width':297,'format.length':440},r=>{assert.ok(!get(r,16827).incomplete);assert.ok(get(r,16440).incomplete)})
   await fs.writeFile(output,JSON.stringify({passed:cases.length,parity:'CalcConfig and Calc Server',cases},null,2))
   log(JSON.stringify({passed:cases.length,parity:true,output}))
