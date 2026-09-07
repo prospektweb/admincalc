@@ -5,6 +5,7 @@ namespace Prospektweb\Calc\Documents;
 
 require_once __DIR__ . '/SqlConnection.php';
 require_once __DIR__ . '/SiteConnection.php';
+require_once __DIR__ . '/DocumentCatalog.php';
 
 final class DocumentConflict extends \RuntimeException
 {
@@ -29,15 +30,20 @@ final class DocumentRepository
     }
 
     /** The canonical JSON bytes are supplied by the shared core and hashed unchanged. */
-    public function create(string $json): array
+    public function create(string $json, ?string $sectionId = null, ?int $expectedCatalogRevision = null): array
     {
         $document = self::body($json);
-        return $this->transaction(function () use ($json, $document): array {
+        if ($sectionId !== null && $expectedCatalogRevision === null) { throw new \InvalidArgumentException('Expected catalog revision is required.'); }
+        return $this->transaction(function () use ($json, $document, $sectionId, $expectedCatalogRevision): array {
+            $catalog = new DocumentCatalog($this->db, $this->scope);
+            if ($expectedCatalogRevision !== null) { $catalog->lock($expectedCatalogRevision); $catalog->requireSection($sectionId); }
             if ($this->metadata($document['id'], true) !== null) { throw new DocumentConflict('Document already exists.'); }
             $now = self::now();
             $this->db->execute('INSERT INTO b_pw_calc_document (id, scope_id, name, current_revision, active_publication, archived, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 [$document['id'], $this->scope, $document['name'], 1, null, 0, $now, $now]);
             $this->appendRevision($document['id'], 1, $json, $now);
+            if ($sectionId !== null) { $this->db->execute('UPDATE b_pw_calc_document SET section_id = ? WHERE id = ? AND scope_id = ?', [$sectionId, $document['id'], $this->scope]); }
+            if ($expectedCatalogRevision !== null) { $catalog->touch(); }
             return $this->load($document['id']);
         });
     }
@@ -93,7 +99,7 @@ final class DocumentRepository
     }
 
     /** Registry reads metadata and publication bindings only, never document bodies or resources. */
-    public function registry(string $query = '', string $status = 'all', string $sort = 'updated_desc', int $page = 1, int $pageSize = 30): array
+    public function registry(string $query = '', string $status = 'all', string $sort = 'updated_desc', int $page = 1, int $pageSize = 30, ?string $sectionId = null): array
     {
         if (mb_strlen($query) > 100 || !in_array($status, ['all', 'active', 'archived'], true)
             || $page < 1 || $page > 10000 || $pageSize < 1 || $pageSize > 100) { throw new \InvalidArgumentException('Invalid registry filters.'); }
@@ -115,18 +121,44 @@ final class DocumentRepository
             $where .= ')';
         }
         // Keep count, page bounds, and rows in one consistent transaction snapshot.
-        return $this->transaction(function () use ($where, $parameters, $sort, $orders, $page, $pageSize): array {
+        return $this->transaction(function () use ($where, $parameters, $sort, $orders, $page, $pageSize, $sectionId): array {
+            if ($sectionId === '') { $where .= ' AND d.section_id IS NULL'; }
+            elseif ($sectionId !== null) {
+                $ids = (new DocumentCatalog($this->db, $this->scope))->descendants($sectionId);
+                $where .= ' AND d.section_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+                $parameters = array_merge($parameters, $ids);
+            }
             $total = (int)$this->db->rows('SELECT COUNT(*) AS total FROM b_pw_calc_document d WHERE ' . $where, $parameters)[0]['total'];
             $pageCount = max(1, (int)ceil($total / $pageSize)); $page = min($page, $pageCount); $offset = ($page - 1) * $pageSize;
-            $rows = $this->db->rows('SELECT d.id, d.name, d.current_revision, d.active_publication, d.archived, d.created_at, d.updated_at, a.publication_id AS site_publication,
+            $rows = $this->db->rows('SELECT d.id, d.name, d.section_id, d.current_revision, d.active_publication, d.archived, d.created_at, d.updated_at, a.publication_id AS site_publication,
                 (SELECT COUNT(*) FROM b_pw_calc_product_binding b WHERE b.scope_id = d.scope_id AND b.document_id = d.id AND b.publication_id = a.publication_id) AS product_count
                 FROM b_pw_calc_document d LEFT JOIN b_pw_calc_site_active a ON a.document_id = d.id WHERE ' . $where
                 . ' ORDER BY ' . $orders[$sort] . ' LIMIT ' . $pageSize . ' OFFSET ' . $offset, $parameters);
             return ['contract' => 'prospektweb.calculator/registry-v1', 'total' => $total, 'page' => $page, 'pageSize' => $pageSize, 'pageCount' => $pageCount,
                 'rows' => array_map(static fn(array $row): array => ['id' => $row['id'], 'name' => $row['name'], 'revision' => (int)$row['current_revision'],
-                    'archived' => (bool)$row['archived'], 'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at'],
+                    'sectionId' => $row['section_id'], 'archived' => (bool)$row['archived'], 'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at'],
                     'activePublication' => $row['active_publication'], 'activeSitePublication' => $row['site_publication'], 'productCount' => (int)$row['product_count']], $rows)];
         }, true);
+    }
+
+    public function catalog(): array
+    {
+        return $this->transaction(fn(): array => (new DocumentCatalog($this->db, $this->scope))->snapshot(), true);
+    }
+
+    public function changeCatalog(string $action, int $expectedRevision, array $values): array
+    {
+        return $this->transaction(function () use ($action, $expectedRevision, $values): array {
+            $catalog = new DocumentCatalog($this->db, $this->scope); $catalog->lock($expectedRevision); $createdId = null;
+            switch ($action) {
+                case 'createSection': $createdId = $catalog->create($values['name'], $values['parentId']); break;
+                case 'renameSection': $catalog->rename($values['id'], $values['name']); break;
+                case 'deleteSection': $catalog->remove($values['id']); break;
+                case 'moveToSection': $catalog->move($values['id'], $values['sectionId']); break;
+                default: throw new \InvalidArgumentException('Unknown catalog command.');
+            }
+            return $catalog->snapshot() + ['createdId' => $createdId];
+        });
     }
 
     /** History reads metadata, not all past graphs. Restoring is a new CAS revision. */

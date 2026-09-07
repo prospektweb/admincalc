@@ -24,9 +24,14 @@ final class DocumentApplication
     {
         $action = $request['action'] ?? null;
         $fields = [
-            'registry' => ['query', 'status', 'sort', 'page', 'pageSize'],
+            'registry' => ['query', 'status', 'sort', 'page', 'pageSize', 'sectionId'],
+            'catalog' => [],
+            'createSection' => ['expectedCatalogRevision', 'name', 'parentId'],
+            'renameSection' => ['expectedCatalogRevision', 'id', 'name'],
+            'deleteSection' => ['expectedCatalogRevision', 'id'],
+            'moveToSection' => ['expectedCatalogRevision', 'id', 'sectionId'],
             'list' => ['limit', 'offset', 'archived'], 'load' => ['id', 'revision'],
-            'history' => ['id', 'limit', 'beforeRevision'], 'create' => ['documentJson'],
+            'history' => ['id', 'limit', 'beforeRevision'], 'create' => ['documentJson', 'sectionId', 'expectedCatalogRevision'],
             'save' => ['id', 'expectedRevision', 'documentJson'],
             'restore' => ['id', 'expectedRevision', 'revision'],
             'archive' => ['id', 'expectedRevision', 'archived'],
@@ -41,14 +46,24 @@ final class DocumentApplication
         if ($action === 'list') {
             return ['items' => $this->repository->listing(self::integer($request, 'limit', 50), self::integer($request, 'offset', 0), self::boolean($request, 'archived', false))];
         }
+        if ($action === 'catalog') { return $this->repository->catalog(); }
+        if (in_array($action, ['createSection', 'renameSection', 'deleteSection', 'moveToSection'], true)) {
+            $values = [];
+            foreach ($fields[$action] as $key) {
+                if ($key === 'expectedCatalogRevision') { continue; }
+                $values[$key] = in_array($key, ['parentId', 'sectionId'], true) ? self::nullableText($request, $key) : self::text($request, $key);
+            }
+            return $this->repository->changeCatalog($action, self::integer($request, 'expectedCatalogRevision'), $values);
+        }
         if ($action === 'registry') {
             $query = $request['query'] ?? '';
             if (!is_string($query)) { throw new \InvalidArgumentException('Expected string: query'); }
             return $this->repository->registry($query, self::text($request + ['status' => 'all'], 'status'),
-                self::text($request + ['sort' => 'updated_desc'], 'sort'), self::integer($request, 'page', 1), self::integer($request, 'pageSize', 30));
+                self::text($request + ['sort' => 'updated_desc'], 'sort'), self::integer($request, 'page', 1), self::integer($request, 'pageSize', 30), self::nullableText($request + ['sectionId' => null], 'sectionId'));
         }
         if ($action === 'create') {
-            return $this->repository->create($this->validate(self::text($request, 'documentJson')));
+            return $this->repository->create($this->validate(self::text($request, 'documentJson')), self::nullableText($request + ['sectionId' => null], 'sectionId'),
+                array_key_exists('expectedCatalogRevision', $request) ? self::integer($request, 'expectedCatalogRevision') : null);
         }
         $id = self::text($request, 'id');
         if ($action === 'load') { return $this->repository->load($id, isset($request['revision']) ? self::integer($request, 'revision') : null); }
@@ -113,6 +128,11 @@ final class DocumentApplication
     private static function text(array $r, string $key): string
     {
         if (!is_string($r[$key] ?? null) || $r[$key] === '') { throw new \InvalidArgumentException('Expected string: ' . $key); }
+        return $r[$key];
+    }
+    private static function nullableText(array $r, string $key): ?string
+    {
+        if (!array_key_exists($key, $r) || ($r[$key] !== null && !is_string($r[$key]))) { throw new \InvalidArgumentException('Expected string or null: ' . $key); }
         return $r[$key];
     }
     private static function integer(array $r, string $key, ?int $default = null): int
