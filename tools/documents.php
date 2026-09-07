@@ -33,6 +33,13 @@ try {
     require_once $module . '/lib/Documents/BitrixResourceProvider.php';
     $repository = new \Prospektweb\Calc\Documents\DocumentRepository(new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection()), 'site:' . $siteId, 'user:' . (int)$USER->GetID());
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
+    if (($request->command->action ?? '') === 'auditVersionLogic') {
+        require_once $module . '/lib/Documents/DocumentLogicAudit.php';
+        $audit = new \Prospektweb\Calc\Documents\DocumentLogicAudit($repository, static function (array $payload): array {
+            return (new \Prospektweb\Calc\Services\AiGatewayService())->generateLogicAudit($payload);
+        });
+        $respond(200, ['success' => true, 'data' => $audit->command(get_object_vars($request->command))]);
+    }
     if (in_array($request->command->action ?? '', ['siteOptions', 'sourceCatalog', 'searchProducts', 'catalogProducts'], true)) {
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock')) { throw new \RuntimeException('Site catalog adapter unavailable.', 503); }
         $keys = array_keys(get_object_vars($request->command)); sort($keys);
@@ -81,5 +88,7 @@ try {
     ], JSON_UNESCAPED_SLASHES));
     $status = in_array($error->getCode(), [404, 409, 503], true) ? $error->getCode() : 500;
     $respond($status, ['success' => false, 'error' => $status === 409 ? 'REVISION_CONFLICT' : 'DOCUMENT_UNAVAILABLE',
-        'message' => $status === 409 ? $error->getMessage() : 'Документ недоступен. Изменения не сохранены.']);
+        'message' => $status === 409 ? $error->getMessage() : (($request->command->action ?? '') === 'auditVersionLogic'
+            ? 'AI-анализ недоступен. Проверьте настройки AI Gateway и шаблона анализа. Данные не изменены.'
+            : 'Документ недоступен. Изменения не сохранены.')]);
 }
