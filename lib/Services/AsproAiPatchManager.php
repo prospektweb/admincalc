@@ -293,6 +293,16 @@ final class AsproAiPatchManager
         $status = $this->getStatus();
         $state = $this->readState();
         if ($state === null) {
+            if (file_exists($this->storageRoot . '/state.json') || is_link($this->storageRoot . '/state.json')) {
+                $status = $this->status($status, 'access_error', 'Состояние патча повреждено или недоступно; удаление запрещено.');
+                $status['changed'] = false;
+                return $status;
+            } elseif (($status['state'] ?? '') === 'unsupported_version' && $this->isPatchAbsent()) {
+                // Absence does not imply that this vendor version is patchable.
+                $status = $this->status($status, 'not_installed', 'Патч отсутствует; файлы неподдержанной версии не изменены.');
+                $status['changed'] = false;
+                return $status;
+            }
             $status['changed'] = false;
             $status['message'] = 'Подтверждённое состояние патча отсутствует; файлы не изменены.';
             return $status;
@@ -470,6 +480,22 @@ final class AsproAiPatchManager
         }
         foreach (self::PROVIDER_TARGET_RELATIVE_PATHS as $relativePath) {
             if (substr_count($contents[$relativePath] ?? '', self::PROVIDER_PATCHED_NEEDLE) !== 1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function isPatchAbsent(): bool
+    {
+        foreach ($this->getTargetPaths() as $relativePath => $target) {
+            if (!is_file($target) || !is_readable($target) || !$this->isSafeTarget($target, $relativePath)) {
+                return false;
+            }
+            $content = file_get_contents($target);
+            if (!is_string($content)
+                || strpos($content, 'PROSPEKTWEB.CALC ASPRO AI PATCH') !== false
+                || strpos($content, 'data-prospektweb-calc-default') !== false) {
                 return false;
             }
         }

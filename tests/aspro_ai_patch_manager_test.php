@@ -145,6 +145,32 @@ try {
     [$unsupportedAsproRoot, , $unsupportedStorage] = createPatchFixture($unsupportedRoot, '2.0.0');
     $unsupportedManager = new AsproAiPatchManager($unsupportedRoot, $unsupportedAsproRoot, $unsupportedStorage, PHP_BINARY);
     assertPatch($unsupportedManager->getStatus()['state'] === 'unsupported_version', 'Unknown Aspro version must be rejected.');
+    $unsupportedTarget = $unsupportedAsproRoot . '/lib/services/chatgpt.php';
+    $unsupportedHash = hash_file('sha256', $unsupportedTarget);
+    $absent = $unsupportedManager->remove();
+    assertPatch($absent['state'] === 'not_installed' && !$absent['changed'] && !$absent['canApply'], 'Absent patch on newer vendor must permit no-write uninstall.');
+    $applyRejected = false;
+    try { $unsupportedManager->apply(); } catch (RuntimeException $error) { $applyRejected = true; }
+    assertPatch($applyRejected, 'Absence must not enable applying unsupported patch.');
+    assertPatch(hash_file('sha256', $unsupportedTarget) === $unsupportedHash, 'Unsupported source must remain unchanged.');
+    foreach (['lib/services/chatgpt.php', 'html/popup.php', 'tools/popup_ajax.php', 'tools/popup_group_ajax.php'] as $relativePath) {
+        $path = $unsupportedAsproRoot . '/' . $relativePath;
+        $original = file_get_contents($path);
+        foreach (['PROSPEKTWEB.CALC ASPRO AI PATCH', 'data-prospektweb-calc-default'] as $marker) {
+            file_put_contents($path, $original . "\n/* $marker */\n");
+            $markedHash = hash_file('sha256', $path);
+            assertPatch($unsupportedManager->remove()['state'] === 'unsupported_version', 'Any marker in any target must block unsupported uninstall.');
+            assertPatch(hash_file('sha256', $path) === $markedHash, 'Unknown marked source must not be rewritten.');
+        }
+        unlink($path);
+        assertPatch($unsupportedManager->remove()['state'] === 'unsupported_version', 'Missing target must not prove absence.');
+        file_put_contents($path, $original);
+    }
+    mkdir($unsupportedStorage, 0777, true);
+    file_put_contents($unsupportedStorage . '/state.json', '{invalid');
+    assertPatch($unsupportedManager->remove()['state'] === 'access_error', 'Corrupt state must block uninstall.');
+    file_put_contents($unsupportedStorage . '/state.json', '{}');
+    assertPatch($unsupportedManager->remove()['state'] === 'unsupported_version', 'Existing state must block unsupported uninstall.');
 
     $legacyRoot = $fixtureRoot . '-legacy';
     [$legacyAsproRoot, $legacyTarget, $legacyStorage, , $legacyPopupSource] = createPatchFixture($legacyRoot);
