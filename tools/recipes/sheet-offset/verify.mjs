@@ -17,6 +17,10 @@ const vite = await createServer({root, configFile:false, appType:'custom', serve
 const log=console.log
 console.log=()=>{}; console.warn=()=>{}
 const cases=[]
+const documentSourcePath = process.argv.find(a => a.startsWith('--document-source='))?.slice('--document-source='.length)
+const documentSource = documentSourcePath ? JSON.parse(await fs.readFile(documentSourcePath, 'utf8')) : null
+const core = documentSource ? await import(pathToFileURL(path.join(serverRoot, 'dist/core/calculator.js'))) : null
+const importer = documentSource ? await import(pathToFileURL(path.join(serverRoot, 'dist/adapters/bitrix/importCalculatorDocument.js'))) : null
 const values={volume:1000,'system.layout-count':1,'system.deadline-type':'strict','format.width':90,'format.length':50,method:'OFSET','color.scheme':'4+4','type.material':'paper','type.paper':'mel-mat-paper','density.paper':'150','section:protection':false,protection:'',options:[]}
 function prepare(changed, modify=()=>{}) {
   const init=structuredClone(baseline)
@@ -61,6 +65,25 @@ try {
       assert.deepEqual(backend,client,`${name}: frontend/server parity`)
     }
     check(client)
+    if (documentSource) {
+      const init = prepare(input, modify)
+      const publication = structuredClone(documentSource.publication)
+      publication.documents.logic.runtimePayload = init
+      const imported = importer.importBitrixCalculator(publication, 'bitrix:prospektprint.ru')
+      const prepared = core.prepareCalculator(imported.document, imported.resourceSnapshots)
+      if (client.some(s => s.incomplete)) {
+        assert.throws(() => prepared.execute(init.calculationInput.values), `${name}: document must reject incomplete quote`)
+      } else {
+        let result
+        try { result = prepared.execute(init.calculationInput.values, { trace: true }) }
+        catch (error) { await fs.writeFile(`${output}.document-error.json`, JSON.stringify({name, message:error.message, diagnostic:error.diagnostic}, null, 2)); throw error }
+        const ids = new Map(imported.externalBindings.filter(b => b.category === 'stage').map(b => [b.id, Number(b.sourceId)]))
+        const stages = result.parts.flatMap(p => p.stages.map(s => ({id:ids.get(s.id), cost:s.outputs.purchasingPrice, outputs:s.outputs})))
+        const expected = client.map(({id,cost,outputs}) => ({id,cost,outputs}))
+        try { assert.deepEqual(stages, expected, `${name}: independent document engine parity`) }
+        catch (error) { await fs.writeFile(`${output}.document-diff.json`, JSON.stringify({name, expected, actual:stages}, null, 2)); throw error }
+      }
+    }
     cases.push({name,stages:client.map(({id,incomplete,cost,outputs,issues})=>({id,incomplete,cost,outputs,issues}))})
   }
   const get=(r,id)=>r.find(s=>s.id===id)
@@ -102,6 +125,6 @@ try {
   await test('digital shared material regression',{method:'DIGITAL','color.scheme':'4+0'},r=>valid(r))
   for(const qty of [100,1000,10000,50000]) await test(`4+1 economic choice ${qty}`,{volume:qty,'format.width':105,'format.length':148,'color.scheme':'4+1'},r=>{valid(r);assert.equal(get(r,16827).outputs.turn_name,qty>=50000?'Чужой оборот':'Свой оборот')})
   await test('sheet fits machine but exceeds box',{'format.width':297,'format.length':440},r=>{assert.ok(!get(r,16827).incomplete);assert.ok(get(r,16440).incomplete)})
-  await fs.writeFile(output,JSON.stringify({passed:cases.length,parity:'CalcConfig and Calc Server',cases},null,2))
+  await fs.writeFile(output,JSON.stringify({passed:cases.length,parity:documentSource ? 'CalcConfig, Calc Server and independent document core' : 'CalcConfig and Calc Server',cases},null,2))
   log(JSON.stringify({passed:cases.length,parity:true,output}))
 } finally {await vite.close();console.log=log}
