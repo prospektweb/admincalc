@@ -92,6 +92,37 @@ final class DocumentRepository
             [$this->scope, (int)$archived]);
     }
 
+    /** Registry reads metadata and publication bindings only, never document bodies or resources. */
+    public function registry(string $query = '', string $status = 'all', string $sort = 'updated_desc', int $page = 1, int $pageSize = 30): array
+    {
+        if (mb_strlen($query) > 100 || !in_array($status, ['all', 'active', 'archived'], true)
+            || $page < 1 || $page > 10000 || $pageSize < 1 || $pageSize > 100) { throw new \InvalidArgumentException('Invalid registry filters.'); }
+        $orders = ['updated_desc' => 'd.updated_at DESC, d.id ASC', 'created_desc' => 'd.created_at DESC, d.id DESC',
+            'name_asc' => 'LOWER(d.name) ASC, d.id ASC', 'name_desc' => 'LOWER(d.name) DESC, d.id ASC'];
+        if (!isset($orders[$sort])) { throw new \InvalidArgumentException('Invalid registry sort.'); }
+        $where = 'd.scope_id = ?'; $parameters = [$this->scope];
+        if ($status !== 'all') { $where .= ' AND d.archived = ?'; $parameters[] = $status === 'archived' ? 1 : 0; }
+        $query = trim($query);
+        if ($query !== '') {
+            $needle = '%' . strtr(mb_strtolower($query, 'UTF-8'), ['!' => '!!', '%' => '!%', '_' => '!_']) . '%';
+            $where .= " AND (LOWER(d.name) LIKE ? ESCAPE '!' OR LOWER(d.id) LIKE ? ESCAPE '!')";
+            array_push($parameters, $needle, $needle);
+        }
+        // Keep count, page bounds, and rows in one consistent transaction snapshot.
+        return $this->transaction(function () use ($where, $parameters, $sort, $orders, $page, $pageSize): array {
+            $total = (int)$this->db->rows('SELECT COUNT(*) AS total FROM b_pw_calc_document d WHERE ' . $where, $parameters)[0]['total'];
+            $pageCount = max(1, (int)ceil($total / $pageSize)); $page = min($page, $pageCount); $offset = ($page - 1) * $pageSize;
+            $rows = $this->db->rows('SELECT d.id, d.name, d.current_revision, d.active_publication, d.archived, d.created_at, d.updated_at, a.publication_id AS site_publication,
+                (SELECT COUNT(*) FROM b_pw_calc_product_binding b WHERE b.scope_id = d.scope_id AND b.document_id = d.id AND b.publication_id = a.publication_id) AS product_count
+                FROM b_pw_calc_document d LEFT JOIN b_pw_calc_site_active a ON a.document_id = d.id WHERE ' . $where
+                . ' ORDER BY ' . $orders[$sort] . ' LIMIT ' . $pageSize . ' OFFSET ' . $offset, $parameters);
+            return ['contract' => 'prospektweb.calculator/registry-v1', 'total' => $total, 'page' => $page, 'pageSize' => $pageSize, 'pageCount' => $pageCount,
+                'rows' => array_map(static fn(array $row): array => ['id' => $row['id'], 'name' => $row['name'], 'revision' => (int)$row['current_revision'],
+                    'archived' => (bool)$row['archived'], 'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at'],
+                    'activePublication' => $row['active_publication'], 'activeSitePublication' => $row['site_publication'], 'productCount' => (int)$row['product_count']], $rows)];
+        }, true);
+    }
+
     /** History reads metadata, not all past graphs. Restoring is a new CAS revision. */
     public function history(string $id, int $limit = 50, int $beforeRevision = 2147483647): array
     {
@@ -298,9 +329,9 @@ final class DocumentRepository
         $this->db->execute('INSERT INTO b_pw_calc_revision (document_id, revision, body_json, body_hash, actor_id, created_at, connection_json, connection_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [$id, $revision, $json, hash('sha256', $json), $this->actor, $now, $connectionJson, $connectionJson === null ? null : hash('sha256', $connectionJson)]);
     }
-    private function transaction(callable $operation): array
+    private function transaction(callable $operation, bool $readSnapshot = false): array
     {
-        $this->db->begin();
+        $this->db->begin($readSnapshot);
         try { $result = $operation(); $this->db->commit(); return $result; }
         catch (\Throwable $error) { $this->db->rollback(); throw $error; }
     }

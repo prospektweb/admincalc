@@ -24,6 +24,7 @@ final class DocumentApplication
     {
         $action = $request['action'] ?? null;
         $fields = [
+            'registry' => ['query', 'status', 'sort', 'page', 'pageSize'],
             'list' => ['limit', 'offset', 'archived'], 'load' => ['id', 'revision'],
             'history' => ['id', 'limit', 'beforeRevision'], 'create' => ['documentJson'],
             'save' => ['id', 'expectedRevision', 'documentJson'],
@@ -39,6 +40,12 @@ final class DocumentApplication
         }
         if ($action === 'list') {
             return ['items' => $this->repository->listing(self::integer($request, 'limit', 50), self::integer($request, 'offset', 0), self::boolean($request, 'archived', false))];
+        }
+        if ($action === 'registry') {
+            $query = $request['query'] ?? '';
+            if (!is_string($query)) { throw new \InvalidArgumentException('Expected string: query'); }
+            return $this->repository->registry($query, self::text($request + ['status' => 'all'], 'status'),
+                self::text($request + ['sort' => 'updated_desc'], 'sort'), self::integer($request, 'page', 1), self::integer($request, 'pageSize', 30));
         }
         if ($action === 'create') {
             return $this->repository->create($this->validate(self::text($request, 'documentJson')));

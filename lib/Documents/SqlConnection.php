@@ -8,7 +8,8 @@ interface SqlConnection
 {
     public function dialect(): string;
     public function inTransaction(): bool;
-    public function begin(): void;
+    /** Read snapshots must retain one view across statements regardless of the host isolation default. */
+    public function begin(bool $readSnapshot = false): void;
     public function commit(): void;
     public function rollback(): void;
     public function execute(string $sql, array $parameters = []): void;

@@ -15,10 +15,13 @@ final class BitrixConnection implements SqlConnection
     public function __construct(object $connection) { $this->connection = $connection; }
     public function dialect(): string { return 'mysql'; }
     public function inTransaction(): bool { return BitrixTransactionStateAuthority::isActive($this->connection); }
-    public function begin(): void
+    public function begin(bool $readSnapshot = false): void
     {
         if (BitrixTransactionStateAuthority::isActive($this->connection)) {
             throw new \LogicException('Document repository must own its transaction.');
+        }
+        if ($readSnapshot) {
+            $this->connection->queryExecute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
         }
         $this->connection->startTransaction();
     }

@@ -89,7 +89,7 @@ try {
         public function __construct(SqlConnection $inner) { $this->inner = $inner; }
         public function dialect(): string { return $this->inner->dialect(); }
         public function inTransaction(): bool { return $this->inner->inTransaction(); }
-        public function begin(): void { $this->inner->begin(); }
+        public function begin(bool $readSnapshot = false): void { $this->inner->begin($readSnapshot); }
         public function commit(): void { $this->inner->commit(); }
         public function rollback(): void { $this->inner->rollback(); }
         public function rows(string $sql, array $parameters = []): array { return $this->inner->rows($sql, $parameters); }
