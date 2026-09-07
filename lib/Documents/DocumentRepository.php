@@ -105,8 +105,14 @@ final class DocumentRepository
         $query = trim($query);
         if ($query !== '') {
             $needle = '%' . strtr(mb_strtolower($query, 'UTF-8'), ['!' => '!!', '%' => '!%', '_' => '!_']) . '%';
-            $where .= " AND (LOWER(d.name) LIKE ? ESCAPE '!' OR LOWER(d.id) LIKE ? ESCAPE '!')";
-            array_push($parameters, $needle, $needle);
+            $where .= " AND (LOWER(d.name) LIKE ? ESCAPE '!'";
+            $parameters[] = $needle;
+            // IDs admit ASCII identity characters only. A Unicode name query
+            // cannot match an ID and would mix ascii_bin with utf8mb4 in MySQL.
+            if (preg_match('/^[A-Za-z0-9_.:-]+$/D', $query) === 1) {
+                $where .= " OR LOWER(d.id) LIKE ? ESCAPE '!'"; $parameters[] = $needle;
+            }
+            $where .= ')';
         }
         // Keep count, page bounds, and rows in one consistent transaction snapshot.
         return $this->transaction(function () use ($where, $parameters, $sort, $orders, $page, $pageSize): array {

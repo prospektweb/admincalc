@@ -20,6 +20,7 @@ $db->execute('INSERT INTO b_pw_calc_product_binding (scope_id, provider, catalog
 // A metadata-only read must not touch graph payloads even when they are unavailable.
 $guard = new class($db) implements SqlConnection {
     public int $reads = 0;
+    public array $queries = [];
     public function __construct(private SqlConnection $inner) {}
     public function dialect(): string { return $this->inner->dialect(); }
     public function inTransaction(): bool { return $this->inner->inTransaction(); }
@@ -29,6 +30,7 @@ $guard = new class($db) implements SqlConnection {
     public function execute(string $sql, array $parameters = []): void { throw new RuntimeException('Registry attempted a mutation.'); }
     public function rows(string $sql, array $parameters = []): array {
         $this->reads++;
+        $this->queries[] = $sql;
         if (preg_match('/body_json|snapshot_json|b_pw_calc_revision|iblock/i', $sql)) { throw new RuntimeException('Registry attempted a graph/catalog read.'); }
         return $this->inner->rows($sql, $parameters);
     }
@@ -48,6 +50,7 @@ registry_check($last['page'] === 3 && count($last['rows']) === 7, 'Out-of-range 
 registry_check($app->command(['action' => 'registry', 'status' => 'active'])['total'] === 66, 'Active status filters metadata.');
 registry_check($app->command(['action' => 'registry', 'status' => 'archived'])['rows'][0]['id'] === 'doc-001', 'Archived documents remain discoverable.');
 registry_check($app->command(['action' => 'registry', 'query' => 'листовая печать'])['total'] === 1, 'Unicode case-insensitive search never crosses site scope.');
+registry_check(!str_contains(implode(' ', array_slice($guard->queries, -2)), 'LOWER(d.id)'), 'Unicode search never compares UTF-8 literals against ASCII identity columns.');
 registry_check($app->command(['action' => 'registry', 'query' => '%_!'])['total'] === 1, 'LIKE wildcards in user input are literal.');
 registry_check($app->command(['action' => 'registry', 'query' => 'doc-042'])['rows'][0]['name'] === 'Калькулятор 042', 'Identity search is supported.');
 registry_check($app->command(['action' => 'registry', 'sort' => 'created_desc'])['rows'][0]['id'] === 'sheet', 'Creation ordering does not rely on random UUID order.');
