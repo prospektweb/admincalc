@@ -9,7 +9,7 @@ use Bitrix\Main\Config\Option;
  */
 class GitHubClient
 {
-    const GITHUB_API_BASE = 'https://api.github.com/repos/prospektweb/appmarekttest';
+    const GITHUB_API_BASE = 'https://api.github.com/repos/prospektweb/admincalc';
 
     /** @var int Таймаут запросов в секундах */
     private int $timeout = 15;
@@ -115,7 +115,8 @@ class GitHubClient
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_USERAGENT => 'prospektweb-calc-diagnostic/1.0',
-            CURLOPT_FOLLOWLOCATION => true,
+            // Never forward an optional token to an unverified redirect destination.
+            CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_HTTPHEADER => $this->buildHeaders(),
             CURLOPT_HEADERFUNCTION => function ($ch, $header) use (&$responseHeaders) {
@@ -151,6 +152,7 @@ class GitHubClient
                 'method' => 'GET',
                 'header' => implode("\r\n", $this->buildHeaders()),
                 'ignore_errors' => true,
+                'follow_location' => 0,
             ],
             'ssl' => [
                 'verify_peer' => true,
