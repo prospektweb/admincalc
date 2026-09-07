@@ -173,6 +173,29 @@ $versionForm = [
     )],
 ];
 $versionValidation = $versionService->validateAgainstFormDocument(41, $candidate, $versionForm);
+$nativeAuthority = ['product_iblock_id' => 14, 'offer_iblock_id' => 15, 'properties' => $semanticContext['properties']];
+$nativeService = new CalculatorInputMappingService([
+    'semantic_context' => static function () { throw new RuntimeException('No preset context'); },
+    'source_authority' => static function () { throw new RuntimeException('No preset authority'); },
+]);
+$nativeBefore = serialize([$candidate, $versionForm, $nativeAuthority]);
+$assert($nativeService->validateDocumentMappings($candidate['mappings'], $versionForm, $nativeAuthority) === [], 'native path validates full typed mappings without a preset');
+foreach (['missing', 'id_reused', 'inactive', 'wrong_scope', 'wrong_catalog', 'enum_removed', 'wrong_type', 'wrong_multiplicity', 'unknown_target', 'unknown_key', 'duplicate_target'] as $case) {
+    $mapping = $candidate['mappings']; $authority = $nativeAuthority;
+    if ($case === 'missing') { unset($authority['properties']['product'][14][301]); }
+    if ($case === 'id_reused') { $authority['properties']['product'][14][301]['code'] = 'OTHER_PROPERTY'; }
+    if ($case === 'inactive') { $authority['properties']['product'][14][301]['active'] = false; }
+    if ($case === 'wrong_scope') { $mapping[0]['source']['scope'] = 'selected_offer'; }
+    if ($case === 'wrong_catalog') { $mapping[0]['source']['iblock_id'] = 16; }
+    if ($case === 'enum_removed') { $authority['properties']['product'][14][301]['enum_xml_ids'] = ['OFFSET']; }
+    if ($case === 'wrong_type') { $authority['properties']['product'][14][301]['property_type'] = 'N'; }
+    if ($case === 'wrong_multiplicity') { $authority['properties']['product'][14][304]['multiple'] = true; }
+    if ($case === 'unknown_target') { $mapping[0]['target']['field_id'] = 'absent'; }
+    if ($case === 'unknown_key') { $mapping[0]['guess'] = true; }
+    if ($case === 'duplicate_target') { $mapping[] = $mapping[0]; }
+    $expectFailure(static fn() => $nativeService->validateDocumentMappings($mapping, $versionForm, $authority), 'native rejects ' . $case);
+}
+$assert(serialize([$candidate, $versionForm, $nativeAuthority]) === $nativeBefore, 'native validation never mutates documents or authority');
 $assert($versionValidation['valid'] === true, 'version mapping must use the exact bundle form instead of live form authority');
 $missingVersionField = $versionForm;
 $missingVersionField['formDefinition']['fields'] = [];

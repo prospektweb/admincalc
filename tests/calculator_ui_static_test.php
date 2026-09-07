@@ -19,6 +19,10 @@ $appIndex = file_get_contents(__DIR__ . '/../install/assets/apps_dist/index.html
 $appBundle = file_get_contents(__DIR__ . '/../install/assets/apps_dist/assets/index.js');
 $engineBundlePath = __DIR__ . '/../install/assets/apps_dist/assets/calculationEngine.js';
 $engineBundle = is_file($engineBundlePath) ? file_get_contents($engineBundlePath) : $appBundle;
+if (!preg_match('~assets/index\.js\?v=([a-f0-9]{12})(?![a-f0-9])~', $appIndex, $releaseMatch)) {
+    throw new RuntimeException('Application release cache key is missing');
+}
+$release = $releaseMatch[1];
 
 if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($controlCenterPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($offerUpdateService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($stageVariantMappingService) || !is_string($appIndex) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
@@ -45,7 +49,7 @@ $checks = [
     [$offerUpdateService, '($entry[\'writeToOffer\'] ?? true) !== false', 'Disabled calculated parameters must not be written to PARAMETR_VALUES'],
     [$calculator, "this.expandCalculatorDialog(dialog);", 'Calculator dialog must request expanded mode after Show'],
     [$calculator, ".bx-core-adm-icon-expand", 'Calculator dialog must use the native Bitrix expand action'],
-    [$calculator, "index.html?v=030e0437931d", 'Embedded calculator must load the current frontend release without stale HTML cache'],
+    [$calculator, "index.html?v=$release", 'Embedded calculator must load the same frontend release as the application assets'],
     [$calculatorPage, "\$appVersion = is_file(\$appIndexPath) ? (string)filemtime(\$appIndexPath) : '1';", 'Standalone calculator page must derive its cache key from the deployed app'],
     [$calculatorPage, 'use Bitrix\\Main\\Application;', 'Standalone calculator must import the Bitrix Application class used for cache versioning'],
     [$calculatorPage, "\$integrationVersion = is_file(\$integrationFile) ? (string)filemtime(\$integrationFile) : '1';", 'Standalone calculator page must invalidate the bridge cache after deployment'],
@@ -53,8 +57,8 @@ $checks = [
     [$calculatorPage, "\$appIframeQuery['version_id'] = \$versionId;", 'The embedded editor app must receive the exact version identity'],
     [$calculatorPage, "\$appIframeQuery['version_content_hash'] = \$versionContentHash;", 'The embedded editor app must receive the full bundle content hash'],
     [$calculatorPage, "\$appIframeQuery['original_preset_id'] = \$versionOriginalPresetId;", 'The embedded editor app must keep the canonical preset identity instead of the temporary working preset'],
-    [$appIndex, "assets/index.js?v=030e0437931d", 'App HTML must load the current JavaScript bundle without stale asset cache'],
-    [$appIndex, "assets/style.css?v=030e0437931d", 'App HTML must load the current stylesheet without stale asset cache'],
+    [$appIndex, "assets/index.js?v=$release", 'App HTML must load the current JavaScript bundle without stale asset cache'],
+    [$appIndex, "assets/style.css?v=$release", 'App HTML must load the same stylesheet release as JavaScript'],
     [$calculatorPage, "overflow: hidden !important;", 'Standalone calculator page must not expose the taller Bitrix admin document scrollbar'],
     [$calculatorPage, 'z-index: 2147483647;', 'Standalone calculator must cover every Bitrix admin chrome layer'],
     [$calculatorPage, "document.body.appendChild(container);", 'Standalone calculator must escape the Bitrix workarea stacking context'],

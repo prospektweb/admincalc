@@ -62,6 +62,7 @@ $catalog = $service->load(41);
 $direct = $service->loadCatalogs(14, 15);
 $assert(array_keys($direct) === ['product_iblock_id', 'offer_iblock_id', 'properties'], 'native catalog has no synthetic preset metadata');
 $assert($direct['properties'] === $catalog['properties'], 'native and legacy adapters share the same property projection');
+$assert($service->validationAuthorityForCatalogs(14, 15) === $service->validationAuthority(41), 'native publication shares exact property/type/enum authority');
 $nativeCalls = [];
 $nativeOnly = new CalculatorInputSourceCatalogService([
     'source_iblocks' => static function (): array { throw new RuntimeException('Preset lookup is forbidden in native mode'); },

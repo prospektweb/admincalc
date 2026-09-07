@@ -100,6 +100,9 @@ namespace {
 
     $resolvedCalls = [];
     $catalogCaptures = 0;
+    $frontState = ['contract' => \Prospektweb\Frontcalc\Service\FrontcalcSettingsAuthority::CONTRACT,
+        'revision' => 3, 'fingerprint' => str_repeat('b', 64),
+        'settings' => ['PRODUCTS_IBLOCK_ID' => '14', 'OFFERS_IBLOCK_ID' => '15']];
     $authority = new CatalogRuntimeConfigAuthorityService([
         'resolve_calculator_iblock' => static function (string $code) use (
             &$resolvedCalls,
@@ -108,10 +111,11 @@ namespace {
             $resolvedCalls[] = $code;
             return $ids[$code];
         },
-        'capture_catalog' => static function () use (&$catalogCaptures, $catalogSnapshot): array {
+        'front_settings_state' => static function () use (&$catalogCaptures, $frontState): array {
             $catalogCaptures++;
-            return $catalogSnapshot;
+            return $frontState;
         },
+        'capture_catalog' => static function (): array { throw new RuntimeException('Legacy graph must not be read.'); },
     ]);
     $manager = new ConfigManager(['runtime_config_authority' => $authority]);
     $assert($manager->getIblockId('CALC_PRESETS') === $ids['CALC_PRESETS'], 'exact calculator target is returned');
@@ -167,16 +171,30 @@ namespace {
         'stage authority drift still fails closed when stages are requested'
     );
 
-    $badCatalog = $catalogSnapshot;
-    $badCatalog['prospektweb.frontcalc:PRODUCTS_IBLOCK_ID'] = '014';
+    $badCatalog = $frontState;
+    $badCatalog['settings']['PRODUCTS_IBLOCK_ID'] = '014';
     $expectConflict(
         static fn() => (new ConfigManager([
             'runtime_config_authority' => new CatalogRuntimeConfigAuthorityService([
-                'capture_catalog' => static fn(): array => $badCatalog,
+                'front_settings_state' => static fn(): array => $badCatalog,
             ]),
         ]))->getProductIblockId(),
         'non-canonical Front product authority fails closed'
     );
+
+    foreach (['missing_offers', 'same_catalog', 'inactive', 'bad_contract', 'bad_fingerprint', 'overflow'] as $case) {
+        $bad = $frontState;
+        if ($case === 'missing_offers') { unset($bad['settings']['OFFERS_IBLOCK_ID']); }
+        if ($case === 'same_catalog') { $bad['settings']['OFFERS_IBLOCK_ID'] = '14'; }
+        if ($case === 'inactive') { $bad['revision'] = 0; }
+        if ($case === 'bad_contract') { $bad['contract'] = 'unknown'; }
+        if ($case === 'bad_fingerprint') { $bad['fingerprint'] = ''; }
+        if ($case === 'overflow') { $bad['settings']['PRODUCTS_IBLOCK_ID'] = '9999999999999999999999999'; }
+        $expectConflict(static fn() => (new ConfigManager(['front_settings_state' => static fn() => $bad]))->getProductIblockId(), $case);
+    }
+    $expectConflict(static fn() => CatalogRuntimeConfigAuthorityService::normalizeCatalogSnapshot([
+        'contract' => CatalogRuntimeConfigAuthorityService::CONTRACT,
+    ]), 'legacy full snapshot remains strict');
 
     $source = (string)file_get_contents(dirname(__DIR__) . '/lib/Config/ConfigManager.php');
     $getIblockStart = strpos($source, 'public function getIblockId');

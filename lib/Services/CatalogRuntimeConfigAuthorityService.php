@@ -198,6 +198,38 @@ final class CatalogRuntimeConfigAuthorityService
         return $this->captureProduction(true, $connection, $forUpdate);
     }
 
+    /** Catalog-only consumers must not require the retired calculator iblock graph.
+     * @return array{products:int,offers:int}
+     */
+    public function captureCatalogIdentity(): array
+    {
+        if (isset($this->adapters['front_settings_state'])) {
+            $state = call_user_func($this->adapters['front_settings_state']);
+        } else {
+            $this->ensureFrontSettingsAuthority();
+            $state = (new \Prospektweb\Frontcalc\Service\FrontcalcSettingsAuthority())->read();
+        }
+        if (!is_array($state)
+            || ($state['contract'] ?? null) !== \Prospektweb\Frontcalc\Service\FrontcalcSettingsAuthority::CONTRACT
+            || !is_int($state['revision'] ?? null) || $state['revision'] <= 0
+            || preg_match('/^[a-f0-9]{64}$/D', (string)($state['fingerprint'] ?? '')) !== 1
+            || !is_array($state['settings'] ?? null)) {
+            throw new \RuntimeException('FrontCalc catalog settings authority is unavailable.', 409);
+        }
+        $identity = [];
+        foreach (['products' => 'PRODUCTS_IBLOCK_ID', 'offers' => 'OFFERS_IBLOCK_ID'] as $role => $name) {
+            $raw = $state['settings'][$name] ?? null;
+            if (!is_string($raw) || preg_match('/^[1-9][0-9]*$/D', $raw) !== 1 || (string)(int)$raw !== $raw) {
+                throw new \RuntimeException('FrontCalc catalog identity is invalid: ' . $name . '.', 409);
+            }
+            $identity[$role] = (int)$raw;
+        }
+        if ($identity['products'] === $identity['offers']) {
+            throw new \RuntimeException('Product and offer catalogs must differ.', 409);
+        }
+        return $identity;
+    }
+
     /** @param array<string,mixed> $snapshot @return array<string,string> */
     public static function normalizeCalculatorSnapshot(array $snapshot): array
     {

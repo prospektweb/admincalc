@@ -115,7 +115,10 @@ $assert(strpos($moduleDiagnostic, '/bitrix/admin/prospektweb_calc_control_center
 
 $assert(strpos($contextualCalculator, 'openCalculatorDialog') !== false, 'The contextual calculator popup remains available');
 $assert(strpos($handler, 'product_generator.js') === false, 'The uncoordinated contextual product generator is retired');
-$assert(strpos($appIndex, '030e0437931d') !== false, 'The control center ships the current calcconfig release');
+$assert(preg_match('~assets/index\.js\?v=([a-f0-9]{12})(?![a-f0-9])~', $appIndex, $releaseMatch) === 1
+    && strpos($contextualCalculator, 'index.html?v=' . $releaseMatch[1]) !== false
+    && strpos($appIndex, 'assets/style.css?v=' . $releaseMatch[1]) !== false,
+    'The control center ships a consistently versioned calcconfig release');
 $assert(strpos($appBundle, 'OPEN_ADMIN_URL') !== false, 'The published bundle contains the fixed admin navigation message');
 $assert(strpos($appBundle, 'OPEN_CALC_EDITOR') !== false, 'The published bundle contains the calculation editor launch contract');
 $assert(strpos($appBundle, 'OPEN_STOREFRONT_EDITOR') === false, 'The published bundle no longer contains the legacy storefront editor launch contract');

@@ -36,8 +36,8 @@ class ConfigManager
 
     private CatalogRuntimeConfigAuthorityService $runtimeConfigAuthority;
 
-    /** @var array<string,string>|null */
-    private ?array $catalogRuntimeSnapshot = null;
+    /** @var array{products:int,offers:int}|null */
+    private ?array $catalogIdentity = null;
 
     /** @var array<string,int> */
     private array $calculatorIblockIds = [];
@@ -78,10 +78,7 @@ class ConfigManager
      */
     public function getProductIblockId(): int
     {
-        return CatalogRuntimeConfigAuthorityService::runtimeIblockId(
-            $this->catalogRuntimeSnapshot(),
-            'PRODUCTS'
-        );
+        return $this->catalogIdentity()['products'];
     }
 
     /**
@@ -91,10 +88,7 @@ class ConfigManager
      */
     public function getSkuIblockId(): int
     {
-        return CatalogRuntimeConfigAuthorityService::runtimeIblockId(
-            $this->catalogRuntimeSnapshot(),
-            'OFFERS'
-        );
+        return $this->catalogIdentity()['offers'];
     }
 
     /**
@@ -136,13 +130,13 @@ class ConfigManager
         return $result;
     }
 
-    /** @return array<string,string> */
-    private function catalogRuntimeSnapshot(): array
+    /** @return array{products:int,offers:int} */
+    private function catalogIdentity(): array
     {
-        if ($this->catalogRuntimeSnapshot === null) {
-            $this->catalogRuntimeSnapshot = $this->runtimeConfigAuthority->captureCatalogSnapshot();
+        if ($this->catalogIdentity === null) {
+            $this->catalogIdentity = $this->runtimeConfigAuthority->captureCatalogIdentity();
         }
-        return $this->catalogRuntimeSnapshot;
+        return $this->catalogIdentity;
     }
 
 }

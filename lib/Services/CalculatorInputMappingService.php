@@ -101,6 +101,16 @@ final class CalculatorInputMappingService
         return $this->validationResponse($presetId, $mapping, $issues);
     }
 
+    /** Validate native site mappings with explicit form/catalog authority; no preset or storage access. */
+    public function validateDocumentMappings(array $mappings, array $formDocument, array $sourceAuthority): array
+    {
+        $normalized = $this->normalizeMappings($mappings);
+        return $this->assertMappingsAuthority(
+            ['mappings' => $normalized],
+            $this->semanticContextFromSource($formDocument, $sourceAuthority)
+        );
+    }
+
     /** @param array<int,array{severity:string,code:string,path:string,message:string}> $issues */
     private function validationResponse(int $presetId, array $mapping, array $issues): array
     {
@@ -190,7 +200,11 @@ final class CalculatorInputMappingService
      */
     private function assertSemanticAuthority(int $presetId, array $definition, ?array $context = null): array
     {
-        $context = $context ?? $this->semanticContext($presetId);
+        return $this->assertMappingsAuthority($definition, $context ?? $this->semanticContext($presetId));
+    }
+
+    private function assertMappingsAuthority(array $definition, array $context): array
+    {
         $fields = is_array($context['fields'] ?? null) ? $context['fields'] : [];
         $productIblockId = (int)($context['product_iblock_id'] ?? 0);
         $offerIblockId = (int)($context['offer_iblock_id'] ?? 0);
@@ -466,6 +480,11 @@ final class CalculatorInputMappingService
     /** @param array<string,mixed> $formDocument @return array<string,mixed> */
     private function semanticContextFromFormDocument(int $presetId, array $formDocument): array
     {
+        return $this->semanticContextFromSource($formDocument, $this->sourceAuthority($presetId));
+    }
+
+    private function semanticContextFromSource(array $formDocument, array $sourceAuthority): array
+    {
         $form = is_array($formDocument['formDefinition'] ?? null) ? $formDocument['formDefinition'] : [];
         $bindingDefinition = is_array($formDocument['bindingDefinition'] ?? null)
             ? $formDocument['bindingDefinition']
@@ -485,7 +504,6 @@ final class CalculatorInputMappingService
                 $bindingModes[$fieldId] = $valueMode;
             }
         }
-        $sourceAuthority = $this->sourceAuthority($presetId);
         return [
             'fields' => $fields,
             'binding_modes' => $bindingModes,
@@ -531,6 +549,16 @@ final class CalculatorInputMappingService
         }
         $revision = $this->integer($definition['revision'] ?? null, 0, 'calculator_input_mapping.revision');
         $mappings = $definition['mappings'] ?? null;
+        return [
+            'contract' => self::CONTRACT,
+            'preset_id' => $presetId,
+            'revision' => $revision,
+            'mappings' => $this->normalizeMappings($mappings),
+        ];
+    }
+
+    private function normalizeMappings($mappings): array
+    {
         if (!is_array($mappings) || !$this->isList($mappings)) {
             throw new \InvalidArgumentException('calculator_input_mapping.mappings должен быть JSON-массивом.');
         }
@@ -555,12 +583,7 @@ final class CalculatorInputMappingService
             $normalizedMappings[] = $normalized;
         }
 
-        return [
-            'contract' => self::CONTRACT,
-            'preset_id' => $presetId,
-            'revision' => $revision,
-            'mappings' => $normalizedMappings,
-        ];
+        return $normalizedMappings;
     }
 
     /**

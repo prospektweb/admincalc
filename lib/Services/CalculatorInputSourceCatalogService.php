@@ -115,7 +115,17 @@ final class CalculatorInputSourceCatalogService
      */
     public function validationAuthority(int $presetId): array
     {
-        $catalog = $this->load($presetId);
+        return $this->authorityFromCatalog($this->load($presetId));
+    }
+
+    /** Same exact property/type/enum projection, without a legacy preset identity. */
+    public function validationAuthorityForCatalogs(int $products, int $offers): array
+    {
+        return $this->authorityFromCatalog($this->loadCatalogs($products, $offers));
+    }
+
+    private function authorityFromCatalog(array $catalog): array
+    {
         $properties = [];
         foreach ($catalog['properties'] as $property) {
             $iblockId = (int)$property['iblock_id'];
