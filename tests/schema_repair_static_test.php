@@ -29,7 +29,7 @@ $assert(strpos($diagnosticTool, "case 'fix_schema':") === false, 'diagnostic end
 $assert(strpos($diagnosticTool, "case 'fix_files':") === false, 'diagnostic endpoint cannot overwrite installed files');
 $assert(strpos($options, "pwCalcDiagFix('fix_schema'") === false, 'module options have no runtime schema repair button');
 $assert(strpos($include, 'SchemaRepairService') !== false, 'schema repair service is registered for autoload');
-$assert(strpos($diagnostic, 'SchemaRepairService::getPropertySchema()') !== false, 'diagnostic uses repair schema');
+$assert(strpos($diagnostic, 'ResourceDirectoryInstaller::definitions()') !== false, 'diagnostic checks the native resource schema');
 $assert(
     strpos($diagnostic, 'IBLOCK_EXPECTED_TYPES') !== false
         && substr_count($diagnostic, "'CALC_MATERIALS_VARIANTS' => 'calculator_catalog'") === 1

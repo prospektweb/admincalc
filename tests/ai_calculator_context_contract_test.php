@@ -35,7 +35,7 @@ $checks = [
     [$integration, 'SAVE_AI_CALCULATOR_CONTEXT_REQUEST', 'context save request'],
     [$integration, 'AI_CONTEXT_JSON', 'calculator property update'],
     [$schema, 'AI_CONTEXT_JSON', 'repair schema'],
-    [$installer, 'AI_CONTEXT_JSON', 'installer schema'],
+    [$installer, 'NativeInstallation', 'native installer without legacy calculator fields'],
     [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'availableProductProperties', 'all product properties for manual selection'],
     [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'availableOfferProperties', 'all offer properties for manual selection'],
     [file_get_contents($root . '/lib/Services/AiCalculatorContextService.php'), 'CIBlockProperty::GetList', 'full iblock property definitions'],

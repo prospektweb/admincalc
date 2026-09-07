@@ -167,19 +167,9 @@ $assert(
     preg_match('/CIBlockElement\s*::\s*Add|new\s+\\?CIBlockElement\b[\s\S]{0,300}->Add\s*\(/', $source) !== 1,
     'supplier schema service never creates business elements'
 );
-$assert(
-    str_contains($installer, 'SupplierDirectorySchemaService')
-        && str_contains($installer, "['iblock_ids']['CALC_SUPPLIERS']")
-        && str_contains($installer, '$expected = 12;'),
-    'fresh calc installer invokes the same supplier schema service'
-);
-$assert(
-    str_contains($installer, "['CODE' => \$code, 'CHECK_PERMISSIONS' => 'N']")
-        && !str_contains($installer, "['CODE' => \$code, 'TYPE' => \$typeId]")
-        && str_contains($installer, 'count($iblockCandidates) > 1')
-        && str_contains($installer, "'IBLOCK_TYPE_ID' => \$typeId"),
-    'installer adopts a unique stable CODE, rejects duplicates and reconciles the expected type'
-);
+$resourceInstaller = file_get_contents(dirname(__DIR__) . '/lib/Install/ResourceDirectoryInstaller.php');
+$assert(str_contains($installer, 'NativeInstallation') && str_contains($resourceInstaller, 'SupplierDirectorySchemaService::supplierPropertySchema()'), 'Native installer reuses supplier-owned property definitions');
+$assert(str_contains($resourceInstaller, 'count($rows) > 1') && !str_contains($resourceInstaller, '->Update('), 'Installer rejects duplicate identities and does not move populated directories');
 $duplicateState = $completeState;
 $duplicateState['targetCandidates']['CALC_MATERIALS_VARIANTS'][] = array_merge(
     $completeState['targets']['CALC_MATERIALS_VARIANTS'],

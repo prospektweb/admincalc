@@ -376,6 +376,7 @@ class prospektweb_calc extends CModule
 
     public function installEvents(): void
     {
+        $this->uninstallEvents();
         $em = EventManager::getInstance();
         $em->registerEventHandler(
             'main',
@@ -397,41 +398,6 @@ class prospektweb_calc extends CModule
             $this->MODULE_ID,
             '\\Prospektweb\\Calc\\Handlers\\AdminHandler',
             'onAdminListDisplay'
-        );
-        $em->registerEventHandler(
-            'iblock',
-            'OnAfterIBlockElementUpdate',
-            $this->MODULE_ID,
-            '\\Prospektweb\\Calc\\Handlers\\DependencyHandler',
-            'onElementUpdate'
-        );
-        $em->registerEventHandler(
-            'iblock',
-            'OnBeforeIBlockElementAdd',
-            $this->MODULE_ID,
-            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
-            'onBeforeElementAdd'
-        );
-        $em->registerEventHandler(
-            'iblock',
-            'OnBeforeIBlockElementUpdate',
-            $this->MODULE_ID,
-            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
-            'onBeforeElementUpdate'
-        );
-        $em->registerEventHandler(
-            'iblock',
-            'OnBeforeIBlockElementSetPropertyValues',
-            $this->MODULE_ID,
-            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
-            'onBeforeSetPropertyValues'
-        );
-        $em->registerEventHandler(
-            'iblock',
-            'OnBeforeIBlockElementSetPropertyValuesEx',
-            $this->MODULE_ID,
-            '\\Prospektweb\\Calc\\Services\\PresetProductAssignmentMutationGuardService',
-            'onBeforeSetPropertyValuesEx'
         );
         $em->registerEventHandler(
             'main',
@@ -530,76 +496,6 @@ class prospektweb_calc extends CModule
     }
 
     /**
-     * Удаление инфоблоков модуля
-     */
-    public function deleteIblocks(): void
-    {
-        if (!\Bitrix\Main\Loader::includeModule('iblock')) {
-            return;
-        }
-
-        $iblockCodes = [
-            'CALC_PRESETS',
-            'CALC_STAGES',
-            'CALC_SETTINGS',
-            'CALC_MATERIALS',
-            'CALC_MATERIALS_VARIANTS',
-            'CALC_SUPPLIERS',
-            'CALC_OPERATIONS',
-            'CALC_OPERATIONS_VARIANTS',
-            'CALC_EQUIPMENT',
-            'CALC_DETAILS',
-            'CALC_CUSTOM_FIELDS',
-        ];
-
-        foreach ($iblockCodes as $code) {
-            $iblockId = Option::get($this->MODULE_ID, 'IBLOCK_' . $code, 0);
-
-            if ((int)$iblockId > 0) {
-                \CIBlock::Delete((int)$iblockId);
-            }
-        }
-
-        // Удаляем типы инфоблоков
-        $types = ['calculator', 'calculator_catalog'];
-        foreach ($types as $type) {
-            \CIBlockType::Delete($type);
-        }
-    }
-
-    /**
-     * Удаление настроек модуля
-     */
-    public function deleteOptions(): void
-    {
-        Option::delete($this->MODULE_ID);
-    }
-
-    /**
-     * Удаление HighloadBlock истории расчётов.
-     */
-    public function deleteHighloadBlocks(): void
-    {
-        if (!\Bitrix\Main\Loader::includeModule('highloadblock')) {
-            return;
-        }
-
-        $hlblockId = (int)Option::get($this->MODULE_ID, 'HIGHLOAD_CALC_HISTORY_ID', 0);
-        if ($hlblockId <= 0) {
-            $hlblock = \Bitrix\Highloadblock\HighloadBlockTable::getList([
-                'filter' => ['=TABLE_NAME' => 'prospektcalc_offer_history'],
-                'select' => ['ID'],
-                'limit' => 1,
-            ])->fetch();
-            $hlblockId = (int)($hlblock['ID'] ?? 0);
-        }
-
-        if ($hlblockId > 0) {
-            \Bitrix\Highloadblock\HighloadBlockTable::delete($hlblockId);
-        }
-    }
-
-    /**
      * Регистрация модуля
      */
     public function registerModule(): void
@@ -630,16 +526,12 @@ class prospektweb_calc extends CModule
 
         // Проверяем наличие инфоблоков
         $iblockCodes = [
-            'CALC_PRESETS',
-            'CALC_STAGES',
-            'CALC_SETTINGS',
             'CALC_MATERIALS',
             'CALC_MATERIALS_VARIANTS',
             'CALC_SUPPLIERS',
             'CALC_OPERATIONS',
             'CALC_OPERATIONS_VARIANTS',
             'CALC_EQUIPMENT',
-            'CALC_DETAILS',
         ];
 
         foreach ($iblockCodes as $code) {

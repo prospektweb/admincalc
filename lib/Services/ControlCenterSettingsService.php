@@ -2,9 +2,9 @@
 
 namespace Prospektweb\Calc\Services;
 
-use Bitrix\Main\Config\Option;
+require_once dirname(__DIR__) . '/Config/ModuleOptions.php';
+
 use Bitrix\Main\Loader;
-use Prospektweb\Calc\Config\SettingsManager;
 
 /**
  * Single read/write contract for module settings used by both Bitrix options
@@ -15,26 +15,20 @@ class ControlCenterSettingsService
     private const MODULE_ID = 'prospektweb.calc';
 
     private const DIRECTORY_LABELS = [
-        'CALC_PRESETS' => 'Пресеты калькуляции',
-        'CALC_STAGES' => 'Этапы',
-        'CALC_SETTINGS' => 'Калькуляторы',
         'CALC_MATERIALS' => 'Материалы',
         'CALC_MATERIALS_VARIANTS' => 'Варианты материалов',
         'CALC_OPERATIONS' => 'Операции',
         'CALC_OPERATIONS_VARIANTS' => 'Варианты операций',
         'CALC_EQUIPMENT' => 'Оборудование',
-        'CALC_DETAILS' => 'Детали',
-        'CALC_CUSTOM_FIELDS' => 'Пользовательские поля',
+        'CALC_SUPPLIERS' => 'Поставщики материалов',
     ];
 
-    private SettingsManager $settingsManager;
     /** @var array<string,callable> */
     private array $adapters;
 
     /** @param array<string,callable> $adapters */
     public function __construct(array $adapters = [])
     {
-        $this->settingsManager = new SettingsManager();
         $this->adapters = $adapters;
     }
 
@@ -90,31 +84,7 @@ class ControlCenterSettingsService
                 throw new \RuntimeException('SETTINGS_MUTATION_AUTHORITY_FAILED', 409);
             }
         } else {
-            $globalMutationService = new CalculatorGlobalMutationService();
-            $authority = $globalMutationService->currentAuthority();
-            (new GlobalCalculatorMutationCoordinatorService())->mutate(
-                $authority['revision'],
-                $authority['fingerprint'],
-                static function (array $lockedAuthority) use ($mutation, $globalMutationService): array {
-                    $outcome = $mutation();
-                    $iblockIds = is_array($lockedAuthority['iblockIds'] ?? null)
-                        ? $lockedAuthority['iblockIds']
-                        : [];
-                    if ($iblockIds === []) {
-                        throw new \RuntimeException(
-                            'Global settings mutation did not receive pinned iblock authority.',
-                            409
-                        );
-                    }
-                    $outcome['affected_preset_ids'] = $globalMutationService->affectedPresetIds($iblockIds);
-                    return $outcome;
-                },
-                [
-                    'action' => 'save_module_settings',
-                    'entity_type' => 'calculator_module_settings',
-                    'entity_id' => self::MODULE_ID,
-                ]
-            );
+            (new \Prospektweb\Calc\Config\ModuleOptions())->mutate($mutation);
         }
 
         return $this->getSettings();
@@ -156,7 +126,7 @@ class ControlCenterSettingsService
     private function loadEditableSettings(): array
     {
         $priceTypes = $this->loadPriceTypes();
-        $markupSettings = json_decode((string)Option::get(self::MODULE_ID, 'MARKUP_SETTINGS', ''), true);
+        $markupSettings = json_decode((string)$this->readOption('MARKUP_SETTINGS', ''), true);
         if (!is_array($markupSettings)) {
             $markupSettings = [];
         }
@@ -174,24 +144,26 @@ class ControlCenterSettingsService
         }
         ksort($rates, SORT_NUMERIC);
 
+        $extraValue = (int)$this->readOption('DEFAULT_EXTRA_VALUE', '10');
+        $extraCurrency = (string)$this->readOption('DEFAULT_EXTRA_CURRENCY_VALUE', 'PRC');
         return [
             'calculation' => [
-                'defaultExtraValue' => $this->settingsManager->getDefaultExtraValue(),
-                'defaultExtraCurrency' => $this->settingsManager->getDefaultExtraCurrency(),
+                'defaultExtraValue' => $extraValue >= 0 ? $extraValue : 10,
+                'defaultExtraCurrency' => in_array($extraCurrency, ['RUB', 'PRC'], true) ? $extraCurrency : 'PRC',
             ],
             'history' => [
-                'enabled' => Option::get(self::MODULE_ID, 'SAVE_CALC_HISTORY', 'N') === 'Y',
-                'limit' => max(1, min(100, (int)Option::get(self::MODULE_ID, 'CALC_HISTORY_LIMIT', '10'))),
-                'loggingEnabled' => $this->settingsManager->isLoggingEnabled(),
+                'enabled' => $this->readOption('SAVE_CALC_HISTORY', 'N') === 'Y',
+                'limit' => max(1, min(100, (int)$this->readOption('CALC_HISTORY_LIMIT', '10'))),
+                'loggingEnabled' => $this->readOption('LOGGING_ENABLED', 'N') === 'Y',
             ],
             'pricing' => [
                 'basePriceTypeId' => $basePriceTypeId,
                 'rates' => $rates,
             ],
             'integration' => [
-                'calcServerUrl' => (string)Option::get(self::MODULE_ID, 'CALC_SERVER_URL', 'https://pwrt.ru/calc-api'),
-                'asproAiEnabled' => Option::get(self::MODULE_ID, 'ASPRO_AI_TIMEWEB_ENABLED', 'N') === 'Y',
-                'asproAiBaseUrl' => (string)Option::get(self::MODULE_ID, 'ASPRO_AI_TIMEWEB_BASE_URL', 'https://api.timeweb.ai/v1'),
+                'calcServerUrl' => (string)$this->readOption('CALC_SERVER_URL', ''),
+                'asproAiEnabled' => $this->readOption('ASPRO_AI_TIMEWEB_ENABLED', 'N') === 'Y',
+                'asproAiBaseUrl' => (string)$this->readOption('ASPRO_AI_TIMEWEB_BASE_URL', 'https://api.timeweb.ai/v1'),
             ],
         ];
     }
@@ -244,7 +216,7 @@ class ControlCenterSettingsService
         $iblockAvailable = Loader::includeModule('iblock');
         $result = [];
         foreach (self::DIRECTORY_LABELS as $code => $label) {
-            $iblockId = (int)Option::get(self::MODULE_ID, 'IBLOCK_' . $code, 0);
+            $iblockId = (int)$this->readOption('IBLOCK_' . $code, 0);
             $name = '';
             $exists = false;
             if ($iblockAvailable && $iblockId > 0) {
@@ -349,12 +321,14 @@ class ControlCenterSettingsService
         }
         ksort($rates, SORT_NUMERIC);
 
-        $calcServerUrl = $this->normalizeUrl(
-            (string)($integration['calcServerUrl'] ?? $current['integration']['calcServerUrl']),
-            ['http', 'https'],
-            'integration.calcServerUrl'
-        );
-        $calcServerUrl = BatchRecalculateService::normalizeCalcServerUrl($calcServerUrl);
+        $calcServerUrl = trim((string)($integration['calcServerUrl'] ?? $current['integration']['calcServerUrl']));
+        // An empty installation is valid before the operator connects a server.
+        // Never substitute another installation's endpoint for an unset value.
+        if ($calcServerUrl !== '') {
+            $calcServerUrl = BatchRecalculateService::normalizeCalcServerUrl(
+                $this->normalizeUrl($calcServerUrl, ['http', 'https'], 'integration.calcServerUrl')
+            );
+        }
         $asproAiBaseUrl = $this->normalizeUrl(
             (string)($integration['asproAiBaseUrl'] ?? $current['integration']['asproAiBaseUrl']),
             ['https'],
@@ -392,21 +366,28 @@ class ControlCenterSettingsService
     /**
      * @param array<string, mixed> $settings
      */
+    private function readOption(string $name, $default = '')
+    {
+        if (isset($this->adapters['read_option'])) { return ($this->adapters['read_option'])($name, $default); }
+        return (new \Prospektweb\Calc\Config\ModuleOptions())->get($name, $default);
+    }
+
     private function persistSettings(array $settings): void
     {
-        $this->settingsManager->setDefaultExtraValue((int)$settings['calculation']['defaultExtraValue']);
-        $this->settingsManager->setDefaultExtraCurrency((string)$settings['calculation']['defaultExtraCurrency']);
-        $this->settingsManager->setLoggingEnabled((bool)$settings['history']['loggingEnabled']);
-
-        Option::set(self::MODULE_ID, 'SAVE_CALC_HISTORY', $settings['history']['enabled'] ? 'Y' : 'N');
-        Option::set(self::MODULE_ID, 'CALC_HISTORY_LIMIT', (string)$settings['history']['limit']);
-        Option::set(self::MODULE_ID, 'MARKUP_SETTINGS', json_encode([
-            'basePriceTypeId' => (int)$settings['pricing']['basePriceTypeId'],
-            'rates' => $settings['pricing']['rates'],
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        Option::set(self::MODULE_ID, 'CALC_SERVER_URL', (string)$settings['integration']['calcServerUrl']);
-        Option::set(self::MODULE_ID, 'ASPRO_AI_TIMEWEB_ENABLED', $settings['integration']['asproAiEnabled'] ? 'Y' : 'N');
-        Option::set(self::MODULE_ID, 'ASPRO_AI_TIMEWEB_BASE_URL', (string)$settings['integration']['asproAiBaseUrl']);
+        $values = [
+            'DEFAULT_EXTRA_VALUE' => (string)$settings['calculation']['defaultExtraValue'],
+            'DEFAULT_EXTRA_CURRENCY_VALUE' => (string)$settings['calculation']['defaultExtraCurrency'],
+            'LOGGING_ENABLED' => $settings['history']['loggingEnabled'] ? 'Y' : 'N',
+            'SAVE_CALC_HISTORY' => $settings['history']['enabled'] ? 'Y' : 'N',
+            'CALC_HISTORY_LIMIT' => (string)$settings['history']['limit'],
+            'MARKUP_SETTINGS' => json_encode(['basePriceTypeId' => (int)$settings['pricing']['basePriceTypeId'], 'rates' => $settings['pricing']['rates']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            'CALC_SERVER_URL' => (string)$settings['integration']['calcServerUrl'],
+            'ASPRO_AI_TIMEWEB_ENABLED' => $settings['integration']['asproAiEnabled'] ? 'Y' : 'N',
+            'ASPRO_AI_TIMEWEB_BASE_URL' => (string)$settings['integration']['asproAiBaseUrl'],
+        ];
+        if (isset($this->adapters['write_options'])) { ($this->adapters['write_options'])($values); return; }
+        $options = new \Prospektweb\Calc\Config\ModuleOptions();
+        foreach ($values as $name => $value) { $options->set($name, $value); }
     }
 
     /**

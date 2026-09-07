@@ -10,7 +10,6 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_ad
 
 use Bitrix\Main\Loader;
 use Bitrix\Main\ModuleManager;
-use Prospektweb\Calc\Config\ConfigManager;
 
 global $USER, $APPLICATION;
 
@@ -30,7 +29,6 @@ $APPLICATION->SetTitle('ПРОСПЕКТ — центр управления');
 
 $languageId = defined('LANGUAGE_ID') ? (string)LANGUAGE_ID : 'ru';
 $languageId = preg_replace('/[^a-z]/i', '', $languageId) ?: 'ru';
-$configManager = new ConfigManager();
 $settingsUrl = '/bitrix/admin/settings.php?' . http_build_query([
     'lang' => $languageId,
     'mid' => 'prospektweb.calc',
@@ -54,7 +52,7 @@ $controlCenterEndpoints = [
     'partners' => '/bitrix/tools/prospektweb/partnermanager/control_center.php',
 ];
 $controlCenterCapabilities = [
-    'documents' => $configManager->getOption('DOCUMENT_EDITOR_ENABLED', 'N') === 'Y' || (($_GET['document_preview'] ?? '') === 'Y'),
+    'documents' => true,
     'settings' => true,
     'diagnostics' => true,
     'batch' => true,
@@ -92,8 +90,10 @@ $buildIblockListUrl = static function (int $iblockId, string $fallbackType) use 
     ]);
 };
 
-$presetsUrl = $buildIblockListUrl($configManager->getIblockId('CALC_PRESETS'), 'calculator');
-$productsUrl = $buildIblockListUrl($configManager->getProductIblockId(), 'catalog');
+$presetsUrl = '/bitrix/admin/prospektweb_calc_control_center.php#/presets';
+$productsUrl = Loader::includeModule('prospektweb.frontcalc')
+    ? $buildIblockListUrl((new \Prospektweb\Frontcalc\Config\ConfigManager())->getProductIblockId(), 'catalog')
+    : $settingsUrl;
 
 // This is the complete navigation authority for the control-center iframe.
 // The iframe sends a route key only; it never supplies a URL.
@@ -114,6 +114,7 @@ $routeMap = [
 ];
 
 $allowedAdminPaths = [
+    '/bitrix/admin/prospektweb_calc_control_center.php',
     '/bitrix/admin/iblock_admin.php',
     '/bitrix/admin/iblock_list_admin.php',
     '/bitrix/admin/prospektweb_calc_recalculate.php',

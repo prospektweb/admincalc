@@ -24,12 +24,6 @@ $assert(
 $assert(strpos($enrichment, "\$stage['CUSTOM_FIELDS']") !== false, 'preset enrichment reads stage custom fields first');
 $assert(strpos($enrichment, 'Legacy fallback') !== false, 'legacy calculator custom fields retain a fallback');
 
-$stagesPos = strpos($installer, '$stagesProps = [');
-$settingsPos = strpos($installer, '$settingsProps = [');
-$logicPos = strpos($installer, "'LOGIC_JSON'", $settingsPos);
-$assert($stagesPos !== false && $settingsPos !== false && $logicPos !== false, 'installer property sections are present');
-$assert(strpos(substr($installer, $stagesPos, $settingsPos - $stagesPos), "'USED_ENTITY_CODES'") !== false, 'fresh installs put stable entity codes on stages');
-$assert(strpos(substr($installer, $settingsPos, $logicPos - $settingsPos), "'USED_ENTITYS'") === false, 'fresh installs do not put USED_ENTITYS on calculators');
-$assert(strpos(substr($installer, $settingsPos, $logicPos - $settingsPos), "'CUSTOM_FIELDS'") === false, 'fresh installs do not put CUSTOM_FIELDS on calculators');
+$assert(strpos($installer, 'NativeInstallation') !== false && strpos($installer, '$stagesProps') === false, 'New installation must not create legacy stage property storage');
 
 echo "OK\n";

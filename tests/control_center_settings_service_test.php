@@ -142,6 +142,8 @@ namespace {
 
     $authorityAudits = 0;
     $service = new ControlCenterSettingsService([
+        'read_option' => static fn(string $name, $default) => Option::get('prospektweb.calc', $name, $default),
+        'write_options' => static function (array $values): void { foreach ($values as $name => $value) { Option::set('prospektweb.calc', $name, $value); } },
         'with_authority' => static function (callable $mutation) use (&$authorityAudits): array {
             $before = Option::$values;
             try {
@@ -193,6 +195,13 @@ namespace {
     } catch (InvalidArgumentException $exception) {
         $assert(Option::$values === $beforeInvalid, 'Validation must complete before any setting is written');
     }
+
+    Option::$values = [];
+    $empty = $service->getSettings();
+    $assert($empty['integration']['calcServerUrl'] === '', 'Empty install must not inherit a legacy server URL');
+    $emptySaved = $service->saveSettings(['history' => ['loggingEnabled' => true]], $empty['revision']);
+    $assert($emptySaved['history']['loggingEnabled'] === true && $emptySaved['integration']['calcServerUrl'] === '', 'Settings must save before connecting a calc server');
+    $assert(count($emptySaved['directories']) === 6, 'Only resource directories belong to settings');
 
     echo "Control center settings service tests passed\n";
 }

@@ -10,7 +10,6 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_ad
 
 use Bitrix\Main\Loader;
 use Prospektweb\Calc\Diagnostic\ModuleDiagnostic;
-use Prospektweb\Calc\Install\AssignmentGuardActivationService;
 
 global $USER;
 
@@ -57,12 +56,8 @@ try {
             break;
 
         case 'activate_assignment_guard':
-            $activation = (new AssignmentGuardActivationService())->activate();
-            echo json_encode([
-                'success' => true,
-                'message' => 'Защита CALC_PRESET активирована и проверена',
-                'data' => $activation,
-            ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            http_response_code(410);
+            echo json_encode(['success' => false, 'errorCode' => 'LEGACY_STORAGE_RETIRED', 'error' => 'Привязки управляются документным хранилищем. Старый обработчик не включается.'], JSON_UNESCAPED_UNICODE);
             break;
 
         default:

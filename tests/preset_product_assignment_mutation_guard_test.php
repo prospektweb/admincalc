@@ -76,7 +76,7 @@ foreach ([
     'OnBeforeIBlockElementSetPropertyValues',
     'OnBeforeIBlockElementSetPropertyValuesEx',
 ] as $event) {
-    $assert(substr_count($install, "'" . $event . "'") === 2, $event . ' must register and unregister');
+    $assert(substr_count($install, "'" . $event . "'") === 1, $event . ' must remain only in legacy unregister cleanup');
 }
 $assert(
     str_contains($adminHandler, 'makeCalcPresetAssignmentReadOnly')

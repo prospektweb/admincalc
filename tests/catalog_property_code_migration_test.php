@@ -72,8 +72,8 @@ foreach ([$serviceSource, $installerSource, $payloadSource] as $sourceText) {
 }
 
 foreach (['CALC_COLORS', 'CALC_COLOR', 'CALC_PROP_COLOR'] as $code) {
-    if (strpos($serviceSource, $code) === false || strpos($installerSource, $code) === false) {
-        fwrite(STDERR, "FAILED: compatibility code {$code} is missing\n");
+    if (strpos($serviceSource, $code) === false || strpos($installerSource, $code) !== false) {
+        fwrite(STDERR, "FAILED: legacy migration code {$code} must be confined to explicit migration, not installation\n");
         exit(1);
     }
 }

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Prospektweb\Calc\Documents;
 if (!class_exists(BitrixConnection::class, false)) { require_once __DIR__ . '/BitrixConnection.php'; }
+require_once __DIR__ . '/ResourceCatalogRegistry.php';
 
 /** Reads only explicitly referenced catalog resources. No preset/stage/settings graph,
  * no read repair, no b_option document storage, and no catalog I/O at execution. */
@@ -27,7 +28,7 @@ final class BitrixResourceProvider
     {
         if (!\Bitrix\Main\Loader::includeModule('iblock') || !\Bitrix\Main\Loader::includeModule('catalog')) { throw new \RuntimeException('Catalog modules unavailable.'); }
         if (!is_array($document->resources ?? null) || count($document->resources) > 5000) { throw new \InvalidArgumentException('Invalid resource references.'); }
-        $config = new \Prospektweb\Calc\Config\ConfigManager();
+        $config = new ResourceCatalogRegistry();
         $loader = new \Prospektweb\Calc\Services\EntityLoader();
         $references = []; $groups = []; $allIds = [];
         foreach ($document->resources as $ref) {

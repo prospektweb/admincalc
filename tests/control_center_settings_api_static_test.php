@@ -61,11 +61,8 @@ foreach ([
 }
 
 $assert(strpos($service, "hash('sha256'") !== false && strpos($service, 'hash_equals(') !== false, 'Settings writes must use an optimistic revision');
-$assert(strpos($service, 'GlobalCalculatorMutationCoordinatorService())->mutate(') !== false, 'Settings writes must use the global mutation coordinator');
-$assert(strpos($service, 'CalculatorGlobalMutationService())->currentAuthority()') === false, 'Settings authority must be reused for the complete mutation boundary');
-$assert(strpos($service, '$globalMutationService->currentAuthority()') !== false, 'Settings writes must obtain global revision and fingerprint authority');
-$assert(strpos($service, '$globalMutationService->affectedPresetIds($iblockIds)') !== false, 'Settings audit must identify every affected preset');
-$assert(strpos($service, "'action' => 'save_module_settings'") !== false, 'Settings writes must declare the durable audit action');
+$assert(strpos($service, 'ModuleOptions())->mutate($mutation)') !== false, 'Settings must use module-owned transaction authority');
+$assert(strpos($service, 'CalculatorGlobalMutation') === false, 'Settings must not depend on legacy graph or invalidate immutable publications');
 $assert(strpos($service, 'flock(') === false, 'Settings writes must not keep a parallel file-lock authority');
 $assert(strpos($service, 'normalizeSettings(') !== false, 'Settings must be normalized before persistence');
 $assert(strpos($service, '$this->persistSettings($normalized)') !== false, 'Settings must persist only the validated normalized aggregate');

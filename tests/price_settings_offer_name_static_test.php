@@ -20,8 +20,8 @@ $propertyPayload = $read('lib/Calculator/PropertyPayloadLoader.php');
 
 $assert(strpos($schema, "'OFFER_NAME_TEMPLATE'") !== false, 'Runtime schema must include OFFER_NAME_TEMPLATE');
 $assert(strpos($schema, "'PRICE_LIMITS_JSON'") !== false, 'Runtime schema must include PRICE_LIMITS_JSON');
-$assert(strpos($installer, "'PRICE_LIMITS_JSON' => [") !== false, 'Installer must create PRICE_LIMITS_JSON');
-$assert(strpos($installer, "'CURRENCY' => 'MRG'") !== false, 'Installer must create MRG currency');
+$assert(strpos($installer, "'PRICE_LIMITS_JSON' => [") === false, 'Native installer must not recreate iblock price documents');
+$assert(strpos($installer, 'NativeInstallation') !== false, 'Native schema is explicitly installed');
 $assert(strpos($payload, "'priceSettingsPresets'") !== false, 'INIT context must expose saved price settings presets');
 $assert(strpos($priceService, 'syncPriceRangesMultiType') !== false, 'Price changes must use non-destructive range synchronization');
 $assert(strpos($priceService, 'savePriceLimits') !== false, 'Preset price save must persist RUB limits');

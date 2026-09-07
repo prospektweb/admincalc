@@ -6,8 +6,9 @@ use Bitrix\Main\Application;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
 use Bitrix\Main\ModuleManager;
-use Prospektweb\Calc\Config\ConfigManager;
-use Prospektweb\Calc\Install\SchemaRepairService;
+require_once dirname(__DIR__) . '/Install/ResourceDirectoryInstaller.php';
+use Prospektweb\Calc\Install\ResourceDirectoryInstaller;
+use Prospektweb\Calc\Documents\ResourceCatalogRegistry;
 
 /**
  * Главный класс диагностики модуля.
@@ -16,41 +17,8 @@ class ModuleDiagnostic
 {
     private const MODULE_ID = 'prospektweb.calc';
 
-    private const IBLOCK_CODES = [
-        'CALC_PRESETS',
-        'CALC_STAGES',
-        'CALC_SETTINGS',
-        'CALC_GLOBAL_VALUES',
-        'CALC_MATERIALS',
-        'CALC_MATERIALS_VARIANTS',
-        'CALC_SUPPLIERS',
-        'CALC_OPERATIONS',
-        'CALC_OPERATIONS_VARIANTS',
-        'CALC_EQUIPMENT',
-        'CALC_DETAILS',
-        'CALC_CUSTOM_FIELDS',
-    ];
-
-    private const IBLOCK_REQUIRED_PROPERTIES = [
-        'CALC_GLOBAL_VALUES' => [
-            'KIND',
-            'DATA_TYPE',
-            'INITIAL_VALUE',
-            'PRESET_ID',
-        ],
-        'CALC_SETTINGS' => [
-            'CALCULATOR_NAME',
-            'DESCRIPTION',
-            'SUPPORTED_EQUIPMENT_LIST',
-            'REQUIRES_BEFORE',
-            'MIN_QUANTITY',
-            'FILE_PREVIEW',
-            'SORT_ORDER',
-        ],
-        'CALC_STAGES' => ['CALCULATOR', 'SORT_ORDER', 'SYNC_VARIANTS'],
-        'CALC_MATERIALS' => ['UNIT', 'DESCRIPTION'],
-        'CALC_OPERATIONS' => ['UNIT', 'DESCRIPTION'],
-    ];
+    private const IBLOCK_CODES = ['CALC_MATERIALS', 'CALC_MATERIALS_VARIANTS', 'CALC_SUPPLIERS', 'CALC_OPERATIONS', 'CALC_OPERATIONS_VARIANTS', 'CALC_EQUIPMENT'];
+    private const IBLOCK_REQUIRED_PROPERTIES = [];
 
     private const IBLOCK_EXPECTED_TYPES = [
         'CALC_MATERIALS' => 'calculator_catalog',
@@ -64,7 +32,10 @@ class ModuleDiagnostic
         'options.php',
         'default_option.php',
         'lib/Handlers/AdminHandler.php',
-        'lib/Handlers/DependencyHandler.php',
+        'lib/Config/ModuleOptions.php',
+        'lib/Documents/ResourceCatalogRegistry.php',
+        'lib/Install/NativeInstallation.php',
+        'lib/Install/ResourceDirectoryInstaller.php',
         'lib/Install/AssignmentGuardActivationService.php',
         'lib/Config/ConfigManager.php',
         'lib/Config/SettingsManager.php',
@@ -99,7 +70,7 @@ class ModuleDiagnostic
         'tools/calculator_ajax.php',
         'tools/elements.php',
         'tools/calculator_config.php',
-        'tools/save_result.php',
+        'tools/documents.php',
         'tools/batch_recalculate.php',
         'tools/control_center_settings.php',
         'tools/control_center_modules.php',
@@ -114,11 +85,6 @@ class ModuleDiagnostic
         ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnProlog', 'TO_CLASS' => 'AdminHandler', 'TO_METHOD' => 'onProlog'],
         ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnAdminTabControlBegin', 'TO_CLASS' => 'AdminHandler', 'TO_METHOD' => 'onTabControlBegin'],
         ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnAdminListDisplay', 'TO_CLASS' => 'AdminHandler', 'TO_METHOD' => 'onAdminListDisplay'],
-        ['FROM_MODULE_ID' => 'iblock', 'MESSAGE_ID' => 'OnAfterIBlockElementUpdate', 'TO_CLASS' => 'DependencyHandler', 'TO_METHOD' => 'onElementUpdate'],
-        ['FROM_MODULE_ID' => 'iblock', 'MESSAGE_ID' => 'OnBeforeIBlockElementAdd', 'TO_CLASS' => 'PresetProductAssignmentMutationGuardService', 'TO_METHOD' => 'onBeforeElementAdd'],
-        ['FROM_MODULE_ID' => 'iblock', 'MESSAGE_ID' => 'OnBeforeIBlockElementUpdate', 'TO_CLASS' => 'PresetProductAssignmentMutationGuardService', 'TO_METHOD' => 'onBeforeElementUpdate'],
-        ['FROM_MODULE_ID' => 'iblock', 'MESSAGE_ID' => 'OnBeforeIBlockElementSetPropertyValues', 'TO_CLASS' => 'PresetProductAssignmentMutationGuardService', 'TO_METHOD' => 'onBeforeSetPropertyValues'],
-        ['FROM_MODULE_ID' => 'iblock', 'MESSAGE_ID' => 'OnBeforeIBlockElementSetPropertyValuesEx', 'TO_CLASS' => 'PresetProductAssignmentMutationGuardService', 'TO_METHOD' => 'onBeforeSetPropertyValuesEx'],
         ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnBeforeEndBufferContent', 'TO_CLASS' => 'AdminHandler', 'TO_METHOD' => 'onBeforeEndBufferContent'],
         ['FROM_MODULE_ID' => 'main', 'MESSAGE_ID' => 'OnBuildGlobalMenu', 'TO_CLASS' => 'AdminHandler', 'TO_METHOD' => 'onBuildGlobalMenu'],
     ];
@@ -221,7 +187,7 @@ class ModuleDiagnostic
         $checks = [];
         $errors = [];
 
-        foreach (['iblock', 'catalog', 'highloadblock'] as $module) {
+        foreach (['iblock', 'catalog'] as $module) {
             $installed = ModuleManager::isModuleInstalled($module);
             $checks[] = [
                 'label' => 'Модуль ' . $module,
@@ -287,7 +253,7 @@ class ModuleDiagnostic
             'calculator_ajax.php',
             'elements.php',
             'calculator_config.php',
-            'save_result.php',
+            'documents.php',
             'batch_recalculate.php',
             'control_center_settings.php',
             'control_center_modules.php',
@@ -324,7 +290,7 @@ class ModuleDiagnostic
             return $this->buildSection('Типы инфоблоков', '🗂️', $checks, $errors);
         }
 
-        foreach (['calculator', 'calculator_catalog'] as $typeId) {
+        foreach (['calculator_catalog'] as $typeId) {
             $type = \CIBlockType::GetByID($typeId)->Fetch();
             $exists = !empty($type);
             $checks[] = [
@@ -442,14 +408,14 @@ class ModuleDiagnostic
         }
 
         $requiredPropertiesByIblock = self::IBLOCK_REQUIRED_PROPERTIES;
-        foreach (SchemaRepairService::getPropertySchema() as $iblockCode => $definitions) {
+        foreach (ResourceDirectoryInstaller::definitions() as $iblockCode => $definitions) {
             $requiredPropertiesByIblock[$iblockCode] = array_values(array_unique(array_merge(
                 $requiredPropertiesByIblock[$iblockCode] ?? [],
                 array_keys($definitions)
             )));
         }
 
-        $configManager = new ConfigManager();
+        $configManager = new ResourceCatalogRegistry();
         foreach ($requiredPropertiesByIblock as $iblockCode => $requiredProps) {
             $iblockId = $configManager->getIblockId($iblockCode);
             if ($iblockId <= 0) {
@@ -567,7 +533,10 @@ class ModuleDiagnostic
         $errors = [];
 
         try {
-            $config = new ConfigManager();
+            if (!Loader::includeModule('prospektweb.frontcalc')) {
+                return $this->buildSection('Подключение каталога', '⚙️', [['label' => 'FrontCalc', 'status' => 'warning', 'value' => 'Не установлен; документы доступны без публичного адаптера']]);
+            }
+            $config = new \Prospektweb\Frontcalc\Config\ConfigManager();
             $productIblockId = $config->getProductIblockId();
             $offersIblockId = $config->getSkuIblockId();
             $checks[] = [
@@ -598,44 +567,17 @@ class ModuleDiagnostic
 
     private function checkHighloadBlock(): array
     {
-        $checks = [];
-        $errors = [];
-
-        if (!Loader::includeModule('highloadblock')) {
-            $checks[] = [
-                'label' => 'Модуль highloadblock',
-                'status' => 'error',
-                'value' => 'Не установлен',
-            ];
-            $errors[] = 'Модуль highloadblock не доступен';
-            return $this->buildSection('HighloadBlock', '🗄️', $checks, $errors);
+        $checks = []; $errors = [];
+        $db = Application::getConnection();
+        $tables = ['b_pw_calc_document', 'b_pw_calc_revision', 'b_pw_calc_publication', 'b_pw_calc_site_publication', 'b_pw_calc_site_active', 'b_pw_calc_site_identity', 'b_pw_calc_product_binding'];
+        if (ModuleManager::isModuleInstalled('prospektweb.frontcalc')) { $tables[] = 'b_pw_frontcalc_record'; }
+        foreach ($tables as $table) {
+            $row = $db->query("SHOW TABLE STATUS WHERE Name='" . $table . "'")->fetch();
+            $ok = ($row['Engine'] ?? '') === 'InnoDB';
+            $checks[] = ['label' => $table, 'status' => $ok ? 'ok' : 'error', 'value' => $ok ? 'InnoDB' : 'Нет транзакционной таблицы'];
+            if (!$ok) { $errors[] = 'Недоступна таблица ' . $table; }
         }
-
-        $hlblockId = (int)Option::get(self::MODULE_ID, 'HIGHLOAD_CALC_HISTORY_ID', 0);
-        $checks[] = [
-            'label' => 'HIGHLOAD_CALC_HISTORY_ID (Option)',
-            'status' => $hlblockId > 0 ? 'ok' : 'warning',
-            'value' => $hlblockId > 0 ? 'ID = ' . $hlblockId : 'Не задан',
-        ];
-
-        if ($hlblockId > 0) {
-            $hlblock = \Bitrix\Highloadblock\HighloadBlockTable::getById($hlblockId)->fetch();
-            $exists = !empty($hlblock);
-            $checks[] = [
-                'label' => 'HLBLOCK_CALC_HISTORY (DB)',
-                'status' => $exists ? 'ok' : 'error',
-                'value' => $exists
-                    ? 'Найден: ' . ($hlblock['NAME'] ?? '')
-                    : 'HighloadBlock ID=' . $hlblockId . ' не найден в БД',
-            ];
-            if (!$exists) {
-                $errors[] = 'HighloadBlock CALC_HISTORY (ID=' . $hlblockId . ') не найден в базе данных';
-            }
-        } else {
-            $errors[] = 'HIGHLOAD_CALC_HISTORY_ID не настроен';
-        }
-
-        return $this->buildSection('HighloadBlock', '🗄️', $checks, $errors);
+        return $this->buildSection('Документное хранилище', '🗄️', $checks, $errors);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

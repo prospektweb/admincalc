@@ -119,11 +119,12 @@ $diagnostic = (string)file_get_contents(dirname(__DIR__) . '/tools/diagnostic.ph
 $moduleDiagnostic = (string)file_get_contents(dirname(__DIR__) . '/lib/Diagnostic/ModuleDiagnostic.php');
 $assert(
     str_contains($diagnostic, "case 'activate_assignment_guard':")
-        && str_contains($diagnostic, 'AssignmentGuardActivationService())->activate()')
+        && !str_contains($diagnostic, 'AssignmentGuardActivationService())->activate()')
+        && str_contains($diagnostic, "http_response_code(410)")
         && !str_contains($diagnostic, "case 'deactivate_assignment_guard':")
         && !str_contains($diagnostic, "case 'fix_events':")
         && !str_contains($diagnostic, 'DELETE FROM b_module_to_module'),
-    'production HTTP diagnostics may activate the invariant but cannot disable or delete event authority'
+    'HTTP diagnostics cannot reactivate retired assignment events'
 );
 foreach ([
     'OnBeforeIBlockElementAdd',
@@ -131,8 +132,8 @@ foreach ([
     'OnBeforeIBlockElementSetPropertyValues',
     'OnBeforeIBlockElementSetPropertyValuesEx',
 ] as $event) {
-    $assert(substr_count($install, "'" . $event . "'") === 2, $event . ' install/uninstall mismatch');
-    $assert(str_contains($moduleDiagnostic, $event), $event . ' is absent from diagnostic readback');
+    $assert(substr_count($install, "'" . $event . "'") === 1, $event . ' must not be newly registered');
+    $assert(!str_contains($moduleDiagnostic, $event), $event . ' must not be required by native diagnostics');
 }
 
 fwrite(STDOUT, "Assignment guard activation service tests passed\n");

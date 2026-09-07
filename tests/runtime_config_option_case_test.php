@@ -220,13 +220,6 @@ try {
     $assert(true, 'reordered installer contract rejected');
 }
 $installerSource = (string)file_get_contents(dirname(__DIR__) . '/install/step3.php');
-$assert(
-    str_contains($installerSource, 'initializeAdminOptionsForInstall($runtimeOptions)')
-        && str_contains($installerSource, "['iblock_ids']['CALC_GLOBAL_VALUES']")
-        && !str_contains($installerSource, "Option::set(\$moduleId, 'IBLOCK_'")
-        && !str_contains($installerSource, "Option::set(\$moduleId, 'PRODUCT_IBLOCK_ID'")
-        && !str_contains($installerSource, "Option::set(\$moduleId, 'SKU_IBLOCK_ID'"),
-    'fresh installer creates the global registry and exact Admin aggregate without Bitrix Option aliases'
-);
+$assert(str_contains($installerSource, 'NativeInstallation') && !str_contains($installerSource, 'CALC_GLOBAL_VALUES'), 'Fresh installation has no legacy global registry');
 
 echo "Runtime config exact option tests passed\n";
