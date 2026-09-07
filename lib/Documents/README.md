@@ -22,6 +22,24 @@ with the normal Bitrix `sessid` and `payload` form fields. Payload is
 from the request. Commands reject unknown fields; writes require exact CAS.
 This is an internal adapter, not an unauthenticated third-party API.
 
+## Persistence invariants
+
+Three InnoDB tables hold indexed metadata/current and active pointers
+(`b_pw_calc_document`), immutable canonical bodies (`b_pw_calc_revision`), and
+immutable resource-fixed snapshots (`b_pw_calc_publication`). Reads check
+stored hashes. No-op saves do not manufacture revisions; lists do not read
+graph bodies. A database administrator is still privileged to alter data:
+own tables protect against ordinary iblock editing, not against root access.
+
+`DocumentSchema::install` runs explicitly in the module installer, never from
+an ordinary page request. It is additive/idempotent. Future versions need
+explicit migrations. Uninstall must not implicitly drop site data.
+
+The original `export-pilot.php` / `install-pilot-draft.php` commands remain
+historical one-time import tools with pinned hashes and private backups. They
+are not read-time compatibility adapters. The workbench verifier similarly
+refuses an unknown revision rather than overwriting the user's edits.
+
 ## Release boundary (2026-09-07)
 
 The new workbench is available in the authorized Control Center with
