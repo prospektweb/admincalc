@@ -56,6 +56,12 @@ try {
         $service = new \Prospektweb\Calc\Documents\DocumentCatalogWriteService($connection, $scope, $actor, $provider, $catalog, new \Prospektweb\Calc\Documents\BitrixCoreGateway());
         $respond(200, ['success' => true, 'data' => $service->command(get_object_vars($request->command))]);
     }
+    if (in_array($request->command->action ?? '', ['stageDescriptionTemplates', 'generateStageDescription'], true)) {
+        require_once $module . '/lib/Documents/DocumentStageDescription.php';
+        $gateway = new \Prospektweb\Calc\Services\AiGatewayService();
+        $description = new \Prospektweb\Calc\Documents\DocumentStageDescription($repository, [$gateway, 'getSettings'], [$gateway, 'generateText']);
+        $respond(200, ['success' => true, 'data' => $description->command(get_object_vars($request->command))]);
+    }
     if (($request->command->action ?? '') === 'auditVersionLogic') {
         require_once $module . '/lib/Documents/DocumentLogicAudit.php';
         $audit = new \Prospektweb\Calc\Documents\DocumentLogicAudit($repository, static function (array $payload): array {
@@ -122,7 +128,9 @@ try {
     ], JSON_UNESCAPED_SLASHES));
     $status = in_array($error->getCode(), [404, 409, 503], true) ? $error->getCode() : 500;
     $respond($status, ['success' => false, 'error' => $status === 409 ? 'REVISION_CONFLICT' : 'DOCUMENT_UNAVAILABLE',
-        'message' => $status === 409 ? $error->getMessage() : (($request->command->action ?? '') === 'auditVersionLogic'
+        'message' => $status === 409 ? $error->getMessage() : (in_array($request->command->action ?? '', ['stageDescriptionTemplates', 'generateStageDescription'], true)
+            ? 'AI-заполнение недоступно. Проверьте настройки AI Gateway и шаблона описания этапа. Данные не изменены.'
+            : (($request->command->action ?? '') === 'auditVersionLogic'
             ? 'AI-анализ недоступен. Проверьте настройки AI Gateway и шаблона анализа. Данные не изменены.'
-            : 'Документ недоступен. Изменения не сохранены.')]);
+            : 'Документ недоступен. Изменения не сохранены.'))]);
 }
