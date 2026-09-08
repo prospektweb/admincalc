@@ -16,6 +16,24 @@ reads iblocks. `BitrixCoreGateway` is the authenticated HTTPS adapter.
 
 ## HTTP access
 
+`BitrixCatalogStateWriter` is the mutation half of the native catalog write port.
+It requires an outer coordinator transaction and, for the real Bitrix API path,
+the exact default connection in explicit repeatable-write mode. It locks and
+reads product/price rows directly, validates every target before the first API
+call, writes only purchasing price, four dimensions and explicitly owned price
+types, then performs readback. Unowned prices, stock, measure and existing range
+IDs/metadata are protected. No-op targets do not invoke write APIs. Failure must
+propagate to the outer coordinator, which rolls back the whole batch and receipt.
+The helper never commits or starts a transaction. Ordinary document connections
+retain the host isolation default; only the opt-in catalog connection changes the
+next write transaction to repeatable read, not the session default.
+
+This helper is not a standalone authorization boundary. The catalog port must
+still validate and lock publication/product membership, source properties,
+enum/directory schema, settings, currencies and price-type authority. That full
+read port and HTTP/UI wiring remain in progress; do not remove the native
+`writeback_unavailable` warning merely because a mutation helper exists.
+
 `/bitrix/tools/prospektweb.calc/documents.php` accepts admin-only POST requests
 with the normal Bitrix `sessid` and `payload` form fields. Payload is
 `{siteId, command}`. The server checks the site; actor identity is never accepted

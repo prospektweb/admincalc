@@ -12,7 +12,16 @@ use Prospektweb\Calc\Services\BitrixTransactionStateAuthority;
 final class BitrixConnection implements SqlConnection
 {
     private object $connection;
-    public function __construct(object $connection) { $this->connection = $connection; }
+    private bool $repeatableWrite;
+    private bool $catalogWriteActive = false;
+    public function __construct(object $connection, bool $repeatableWrite = false) { $this->connection = $connection; $this->repeatableWrite = $repeatableWrite; }
+    public function nativeConnection(): object { return $this->connection; }
+    public function assertCatalogWriteTransaction(): void
+    {
+        if (!$this->catalogWriteActive || BitrixTransactionStateAuthority::level($this->connection) !== 1) {
+            throw new \LogicException('Catalog writes require one coordinator-owned repeatable-read transaction.');
+        }
+    }
     public function dialect(): string { return 'mysql'; }
     public function inTransaction(): bool { return BitrixTransactionStateAuthority::isActive($this->connection); }
     public function begin(bool $readSnapshot = false): void
@@ -22,11 +31,16 @@ final class BitrixConnection implements SqlConnection
         }
         if ($readSnapshot) {
             $this->connection->queryExecute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+        } elseif ($this->repeatableWrite) {
+            // Next transaction only: do not change the host session default.
+            // Range reads must retain insertion-gap locks through write/readback.
+            $this->connection->queryExecute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
         }
         $this->connection->startTransaction();
+        $this->catalogWriteActive = $this->repeatableWrite && !$readSnapshot;
     }
-    public function commit(): void { $this->connection->commitTransaction(); }
-    public function rollback(): void { $this->connection->rollbackTransaction(); }
+    public function commit(): void { $this->connection->commitTransaction(); $this->catalogWriteActive = false; }
+    public function rollback(): void { $this->connection->rollbackTransaction(); $this->catalogWriteActive = false; }
     public function execute(string $sql, array $parameters = []): void
     {
         $this->connection->queryExecute($this->bind($sql, $parameters));

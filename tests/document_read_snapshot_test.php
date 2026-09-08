@@ -19,6 +19,18 @@ try { $db->begin(true); throw new RuntimeException('Nested read transaction acce
 catch (LogicException $expected) {}
 if ($host->events !== ['begin']) { throw new RuntimeException('Nested read changed host characteristics.'); }
 $db->rollback();
+$host->events=[];
+$writer=new BitrixConnection($host,true);
+try { $writer->assertCatalogWriteTransaction(); throw new RuntimeException('Idle catalog writer accepted'); } catch(LogicException $expected) {}
+$writer->begin(); $writer->assertCatalogWriteTransaction();
+if ($host->events!==['SET TRANSACTION ISOLATION LEVEL REPEATABLE READ','begin'] || $writer->nativeConnection()!==$host) throw new RuntimeException('Catalog isolation/connection authority');
+try { $writer->begin(); throw new RuntimeException('Nested writer accepted'); } catch(LogicException $expected) {}
+if (count($host->events)!==2) throw new RuntimeException('Nested writer changed host isolation');
+$writer->commit();
+try { $writer->assertCatalogWriteTransaction(); throw new RuntimeException('Finished catalog writer accepted'); } catch(LogicException $expected) {}
+$writer->begin(true);
+try { $writer->assertCatalogWriteTransaction(); throw new RuntimeException('Read-only writer accepted'); } catch(LogicException $expected) {}
+$writer->rollback();
 $sqlite = new PdoConnection(new PDO('sqlite::memory:'));
 $sqlite->begin(true);
 if (!$sqlite->inTransaction() || $sqlite->rows('SELECT LOWER(?) AS value', ['ЛИСТОВАЯ'])[0]['value'] !== 'листовая') { throw new RuntimeException('Portable read snapshot failed.'); }
