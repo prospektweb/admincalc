@@ -76,7 +76,8 @@ try {
         return (new \Prospektweb\Frontcalc\Service\BitrixDocumentSiteCompiler($provider))($document, $connection, $revision);
     };
     require_once $module . '/lib/Documents/BitrixInputMappingValidator.php';
-    $application = new \Prospektweb\Calc\Documents\DocumentApplication($repository, new \Prospektweb\Calc\Documents\BitrixCoreGateway(), new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider), $siteCompiler, new \Prospektweb\Calc\Documents\BitrixInputMappingValidator($provider));
+    require_once $module . '/lib/Documents/BitrixOutputMappingValidator.php';
+    $application = new \Prospektweb\Calc\Documents\DocumentApplication($repository, new \Prospektweb\Calc\Documents\BitrixCoreGateway(), new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider), $siteCompiler, new \Prospektweb\Calc\Documents\BitrixInputMappingValidator($provider), new \Prospektweb\Calc\Documents\BitrixOutputMappingValidator($provider));
     $respond(200, ['success' => true, 'data' => $application->command(get_object_vars($request->command))]);
 } catch (\InvalidArgumentException | \JsonException $error) {
     $respond(422, ['success' => false, 'error' => 'DOCUMENT_INVALID', 'message' => $error->getMessage()]);

@@ -15,12 +15,14 @@ final class DocumentApplication
     private $resources;
     private $siteCompiler;
     private $inputMappingValidator;
+    private $outputMappingValidator;
 
-    public function __construct(DocumentRepository $repository, callable $core, callable $resources, ?callable $siteCompiler = null, ?callable $inputMappingValidator = null)
+    public function __construct(DocumentRepository $repository, callable $core, callable $resources, ?callable $siteCompiler = null, ?callable $inputMappingValidator = null, ?callable $outputMappingValidator = null)
     {
         $this->repository = $repository; $this->core = $core; $this->resources = $resources;
         $this->siteCompiler = $siteCompiler;
         $this->inputMappingValidator = $inputMappingValidator;
+        $this->outputMappingValidator = $outputMappingValidator;
     }
 
     public function command(array $request): array
@@ -41,6 +43,7 @@ final class DocumentApplication
             'saveVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
             'checkVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
             'checkInputMappings' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
+            'checkOutputMappings' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
             'contextVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson'],
             'saveVersionConnection' => ['id', 'versionId', 'expectedRevision', 'connectionJson'],
             'restoreVersionRevision' => ['id', 'versionId', 'expectedRevision', 'revision'],
@@ -116,7 +119,7 @@ final class DocumentApplication
             return ['contract' => 'prospektweb.calculator/resource-context-v1', 'documentId' => $id,
                 'versionId' => $versionId, 'revision' => $expected, 'bodyHash' => hash('sha256', $body), 'resources' => $resources];
         }
-        if ($action === 'checkVersion' || $action === 'checkInputMappings') {
+        if (in_array($action, ['checkVersion', 'checkInputMappings', 'checkOutputMappings'], true)) {
             $versionId = self::text($request, 'versionId'); $expected = self::integer($request, 'expectedRevision');
             $source = $this->repository->versions()->load($id, $versionId);
             if ($source['revision'] !== $expected) { throw new DocumentConflict(); }
@@ -126,11 +129,12 @@ final class DocumentApplication
             $connectionJson = array_key_exists('connectionJson', $request) ? self::text($request, 'connectionJson') : $source['connectionJson'];
             if ($connectionJson === null) { throw new \InvalidArgumentException('Настройте подключение сайта перед проверкой активации.'); }
             $connectionJson = SiteConnection::canonical($connectionJson, json_decode($body, true, 64, JSON_THROW_ON_ERROR));
-            if ($action === 'checkInputMappings') {
-                if (!is_callable($this->inputMappingValidator)) { throw new \RuntimeException('Input mapping validator is unavailable.', 503); }
-                $issues = ($this->inputMappingValidator)($document, json_decode($connectionJson, false, 64, JSON_THROW_ON_ERROR));
+            if ($action === 'checkInputMappings' || $action === 'checkOutputMappings') {
+                $validator = $action === 'checkInputMappings' ? $this->inputMappingValidator : $this->outputMappingValidator;
+                if (!is_callable($validator)) { throw new \RuntimeException('Mapping validator is unavailable.', 503); }
+                $issues = $validator($document, json_decode($connectionJson, false, 64, JSON_THROW_ON_ERROR));
                 if ($this->repository->versions()->load($id, $versionId)['revision'] !== $expected) { throw new DocumentConflict(); }
-                return ['contract' => 'prospektweb.calculator/input-mapping-check-v1', 'documentId' => $id,
+                return ['contract' => $action === 'checkInputMappings' ? 'prospektweb.calculator/input-mapping-check-v1' : 'prospektweb.calculator/output-mapping-check-v1', 'documentId' => $id,
                     'versionId' => $versionId, 'revision' => $expected, 'valid' => true, 'issues' => $issues,
                     'bodyHash' => hash('sha256', $body), 'connectionHash' => hash('sha256', $connectionJson)];
             }
@@ -190,6 +194,8 @@ final class DocumentApplication
             if ($source['connectionJson'] === null) { throw new \InvalidArgumentException('Configure the site connection before publishing.'); }
             $document = json_decode($source['bodyJson'], false, 64, JSON_THROW_ON_ERROR);
             $connection = json_decode($source['connectionJson'], false, 64, JSON_THROW_ON_ERROR);
+            // Old stored snapshots may predate the explicit output allowlist.
+            DocumentOutputMappings::validate($connection->outputMappings ?? null);
             $runtime = ($this->siteCompiler)($document, $connection, $expected);
             $compiled = ($this->core)(['action' => 'compile', 'document' => $document, 'resources' => ($this->resources)($document)]);
             $snapshot = (object)['contract' => 'prospektweb.calculator/site-publication-v1', 'documentId' => $id, 'sourceRevision' => $expected,

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 namespace Prospektweb\Calc\Documents;
+require_once __DIR__ . '/DocumentOutputMappings.php';
 
 /** Explicit site-adapter configuration; never interpreted by the portable core. */
 final class SiteConnection
@@ -43,7 +44,8 @@ final class SiteConnection
         }
         if (!$value->formBindings instanceof \stdClass) { throw new \InvalidArgumentException('Expected form bindings.'); }
         self::listing($value->inputMappings, 1000); self::listing($value->outputMappings, 1000);
-        // Nested mappings are compiled and checked by the site form adapter at publication.
+        DocumentOutputMappings::validate($value->outputMappings);
+        // Input mappings are compiled and checked by the site form adapter at publication.
         usort($value->products, static fn($a, $b) => strcmp($a->key, $b->key));
         usort($value->priceTypes, static fn($a, $b) => strcmp($a->key, $b->key));
         return self::encode($value);
