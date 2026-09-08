@@ -42,6 +42,12 @@ try {
         $respond(200, ['success' => true, 'data' => $templates->command(get_object_vars($request->command))]);
     }
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
+    if (($request->command->action ?? '') === 'resourceCatalogVersion') {
+        require_once $module . '/lib/Documents/DocumentResourceCatalog.php';
+        require_once $module . '/lib/Documents/BitrixResourceCatalog.php';
+        $browser = new \Prospektweb\Calc\Documents\DocumentResourceCatalog($repository, new \Prospektweb\Calc\Documents\BitrixResourceCatalog($provider));
+        $respond(200, ['success' => true, 'data' => $browser->command(get_object_vars($request->command))]);
+    }
     if (($request->command->action ?? '') === 'catalogWriteTargets') {
         require_once $module . '/lib/Documents/BitrixDocumentCatalogTargets.php';
         $targets = new \Prospektweb\Calc\Documents\BitrixDocumentCatalogTargets($connection, $scope, $actor, $provider);
