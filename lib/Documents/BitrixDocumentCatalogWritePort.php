@@ -67,8 +67,10 @@ final class BitrixDocumentCatalogWritePort implements DocumentCatalogWritePort
         $settings=($this->services['settings_decode'])($options);
         if (($settings['settings']['PRODUCTS_IBLOCK_ID']??null)!==(string)$products || ($settings['settings']['OFFERS_IBLOCK_ID']??null)!==(string)$offers) throw new DocumentConflict('Пара каталогов изменилась в настройках FrontCalc.');
         $providerRows=$this->rows('b_option','MODULE_ID,NAME,VALUE,SITE_ID','LOWER(MODULE_ID)=? AND LOWER(NAME)=?', ['prospektweb.calc','document_resource_provider'],'MODULE_ID,NAME,SITE_ID',4);
+        // Bitrix Option::set/get normalize names to lowercase. Accept one exact
+        // case-insensitive name, while rejecting shadows and site overrides.
         if (count($providerRows)!==1 || $providerRows[0]['MODULE_ID']!=='prospektweb.calc'
-            || $providerRows[0]['NAME']!=='DOCUMENT_RESOURCE_PROVIDER' || $providerRows[0]['SITE_ID']!==null || $providerRows[0]['VALUE']!==$provider) throw new DocumentConflict('Provider сайта изменился или неоднозначен.');
+            || strtolower($providerRows[0]['NAME'])!=='document_resource_provider' || $providerRows[0]['SITE_ID']!==null || $providerRows[0]['VALUE']!==$provider) throw new DocumentConflict('Provider сайта изменился или неоднозначен.');
         $site=$this->rows('b_lang','LID,ACTIVE','LID=?',[substr($this->scope,5)],'LID',1);
         if (count($site)!==1 || $site[0]['LID']!==substr($this->scope,5) || $site[0]['ACTIVE']!=='Y') throw new DocumentConflict('Сайт неактивен.');
         $pairs=$this->rows('b_catalog_iblock','*','IBLOCK_ID IN (?,?)',[$products,$offers],'IBLOCK_ID',2);

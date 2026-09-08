@@ -94,6 +94,7 @@ foreach([1,2] as $version){
 foreach([
     'provider-drift'=>['UPDATE b_option SET VALUE=? WHERE NAME=?',['bitrix:other','DOCUMENT_RESOURCE_PROVIDER']],
     'provider-shadow'=>['INSERT INTO b_option VALUES (?,?,?,?)',['prospektweb.calc','DOCUMENT_RESOURCE_PROVIDER','bitrix:test','s1']],
+    'provider-case-shadow'=>['INSERT INTO b_option VALUES (?,?,?,NULL)',['prospektweb.calc','document_resource_provider','bitrix:test']],
     'settings-shadow'=>['INSERT INTO b_option VALUES (?,?,?,?)',['prospektweb.frontcalc','PRODUCTS_IBLOCK_ID','14','']],
     'settings-case'=>['UPDATE b_option SET NAME=? WHERE NAME=?',['products_iblock_id','PRODUCTS_IBLOCK_ID']],
     'settings-missing'=>['DELETE FROM b_option WHERE NAME=?',['OFFERS_IBLOCK_ID']],
@@ -128,6 +129,12 @@ foreach(['inputs','rate','binding','foreign-price','exception'] as $event){
     };
     reject(fn()=>$f['service']->command(array_replace($f['request'],['action'=>'applyCatalogWrite','expectedFingerprint'=>$preview['fingerprint']])), 'Event drift '.$event);
     check(tables($f)===$before && $f['db']->rows('SELECT * FROM b_pw_calc_catalog_write')===[],'Full rollback including immutable receipt: '.$event);
+}
+foreach(['document_resource_provider','Document_Resource_Provider'] as $optionName){
+    $f=portFixture();$f['db']->execute('UPDATE b_option SET NAME=? WHERE MODULE_ID=?',[$optionName,'prospektweb.calc']);
+    $preview=$f['service']->command($f['request']);
+    $receipt=$f['service']->command(array_replace($f['request'],['action'=>'applyCatalogWrite','expectedFingerprint'=>$preview['fingerprint']]));
+    check($receipt['applied'],'Single Bitrix-normalized provider name accepts preview and apply');
 }
 $f=portFixture();$f['db']->execute('DELETE FROM b_catalog_price WHERE CATALOG_GROUP_ID=99');$f['db']->execute('UPDATE b_catalog_product SET PURCHASING_CURRENCY=?',['USD']);$f['db']->execute('UPDATE b_catalog_price SET CURRENCY=? WHERE CATALOG_GROUP_ID=1',['USD']);
 $preview=$f['service']->command($f['request']);$receipt=$f['service']->command(array_replace($f['request'],['action'=>'applyCatalogWrite','expectedFingerprint'=>$preview['fingerprint']]));
