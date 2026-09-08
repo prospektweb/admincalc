@@ -82,3 +82,36 @@ No compatibility fallback is used inside the new core.
 Run all `tests/*test.php` in separate PHP processes with `pdo_sqlite` enabled.
 The document tests cover concurrent writes, immutable publications, scoping,
 CAS after remote compilation, recoverable archive/restore and adapter modes.
+
+## Native catalog write boundary (in progress, 2026-09-08)
+
+`DocumentCatalogWriteService` owns a server-only preview/apply protocol. Its
+request contains a document UUID, exact site publication, offer IDs and (for
+apply) the preview fingerprint. It never accepts client prices, calculation
+inputs, provider settings or actor identity. Remote `executeBatch` requests
+are bounded to 20 offers and run outside SQL transactions. Results for every
+target must succeed before one atomic catalog write can begin.
+
+`DocumentCatalogWritePlan` preserves the original seven output mappings and
+six visible diff fields. Catalog purchase cost is the quote's `basePrice`, as
+in the existing site adapter, not its direct `purchasingPrice`. Price amounts
+use the confirmed Bitrix DECIMAL(26,8) boundary. All bound price types/ranges
+and four dimensions must be complete; unrelated price types are preserved.
+Names and arbitrary iblock properties are not write targets.
+
+The schema-v5 `b_pw_calc_catalog_write` table contains immutable operation
+receipts, not editable calculator entities. The receipt and catalog values
+commit together only after exact readback. Receipts retain native publication
+identity, resolved inputs/execution, result hashes and before/after diffs.
+Replay verifies the current publication, inputs and catalog state under the
+same locks and never performs a duplicate write. Reinstall preserves receipts.
+
+The **real Bitrix catalog port and HTTP/UI wiring are not connected yet**.
+`DocumentCatalogWritePort` specifies the remaining adapter obligations:
+fresh provider/catalog identity, exact product/offer relation and active
+binding, semantic input mappings/defaults/conditions, all source/schema/enum
+and price insertion-gap locks, no cached locked reads, and the same SQL
+connection for every write. The SQLite fixture proves coordinator rollback,
+CAS, scope, replay, batch completeness and readback behavior; it does not
+prove the Bitrix adapter. Do not remove `writeback_unavailable` or enable the
+UI's write action until that adapter and authenticated catalog QA are complete.
