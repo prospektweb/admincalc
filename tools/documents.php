@@ -62,6 +62,12 @@ try {
         $service = new \Prospektweb\Calc\Documents\DocumentCatalogWriteService($connection, $scope, $actor, $provider, $catalog, new \Prospektweb\Calc\Documents\BitrixCoreGateway());
         $respond(200, ['success' => true, 'data' => $service->command(get_object_vars($request->command))]);
     }
+    if (in_array($request->command->action ?? '', ['calculationDescriptionTemplates', 'generateCalculationDescription'], true)) {
+        require_once $module . '/lib/Documents/DocumentCalculationDescription.php';
+        $gateway = new \Prospektweb\Calc\Services\AiGatewayService();
+        $description = new \Prospektweb\Calc\Documents\DocumentCalculationDescription($repository, [$gateway, 'getSettings'], [$gateway, 'generateText']);
+        $respond(200, ['success' => true, 'data' => $description->command(get_object_vars($request->command))]);
+    }
     if (in_array($request->command->action ?? '', ['stageDescriptionTemplates', 'generateStageDescription'], true)) {
         require_once $module . '/lib/Documents/DocumentStageDescription.php';
         $gateway = new \Prospektweb\Calc\Services\AiGatewayService();
