@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Prospektweb\Calc\Documents;
 
 require_once dirname(__DIR__) . '/Services/CalcServerRequestSigner.php';
+require_once __DIR__ . '/CoreExecutionFailure.php';
 
 /** Authenticated transport. The request can never choose a URL, credential or scope. */
 final class BitrixCoreGateway
@@ -34,6 +35,14 @@ final class BitrixCoreGateway
         if ($response === false) { throw new \RuntimeException('Calculation core is temporarily unavailable.', 503); }
         $decoded = json_decode($response, true, 64, JSON_THROW_ON_ERROR);
         if ($status !== 200 || ($decoded['success'] ?? false) !== true) {
+            if ($status === 422 && ($command['action'] ?? '') === 'preview' && ($command['includeReport'] ?? false) === true
+                && isset($decoded['error']['failure'])) {
+                if (($decoded['success'] ?? null) !== false || ($decoded['error']['code'] ?? '') !== 'CALCULATOR_EXECUTION_INVALID'
+                    || !is_array($decoded['error']['failure']) || array_key_exists('data', $decoded)) {
+                    throw new \RuntimeException('Invalid core failure response.', 503);
+                }
+                throw new CoreExecutionFailure($decoded['error']['failure']);
+            }
             if ($status === 422) { throw new \InvalidArgumentException((string)($decoded['error']['message'] ?? 'Invalid calculator document.'), 422); }
             $code = $decoded['error']['code'] ?? '';
             $code = is_string($code) && preg_match('/^[A-Z_]{1,64}$/D', $code) ? $code : 'UNAVAILABLE';

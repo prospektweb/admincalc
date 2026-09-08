@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Prospektweb\Calc\Documents;
 
 require_once __DIR__ . '/DocumentRepository.php';
+require_once __DIR__ . '/CoreExecutionFailure.php';
 
 /** CMS-independent use cases. Identity/authorization are owned by the outer adapter.
  * Only explicit context/check/compile/publish/preview load external resources;
@@ -174,9 +175,15 @@ final class DocumentApplication
                 if (!is_callable($this->formRuntime)) throw new \RuntimeException('Form projection unavailable.', 503);
                 $result = ['runtime' => ($this->formRuntime)($document, $revision['revision'])];
             } else {
-                $result = ($this->core)(['action' => 'preview', 'document' => $document, 'resources' => ($this->resources)($document),
-                    'values' => $request['values'] ?? new \stdClass(), 'execution' => $request['execution'] ?? null, 'name' => $request['name'] ?? $document->name,
-                    'includeReport' => $action === 'previewVersion']);
+                $resources = ($this->resources)($document);
+                try {
+                    $result = ($this->core)(['action' => 'preview', 'document' => $document, 'resources' => $resources,
+                        'values' => $request['values'] ?? new \stdClass(), 'execution' => $request['execution'] ?? null, 'name' => $request['name'] ?? $document->name,
+                        'includeReport' => $action === 'previewVersion']);
+                } catch (CoreExecutionFailure $error) {
+                    if ($action !== 'previewVersion') throw $error;
+                    $result = ['failure' => $error->failure];
+                }
             }
             // The result names the saved input revision, never an optimistic UI
             // draft or a concurrently edited branch head.
