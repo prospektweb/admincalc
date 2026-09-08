@@ -65,7 +65,7 @@ function resourceCardFixture(int $version): array
             if ($p['MULTIPLE']==='Y') $db->execute('UPDATE b_iblock_element_prop_s'.$iblock.' SET PROPERTY_'.$p['ID'].'=? WHERE IBLOCK_ELEMENT_ID=?',['not-a-serialized-value',$id]);
         }
         if ($iblock===46) continue;
-        $db->execute("INSERT INTO b_catalog_product VALUES (?,1,'N','12.50','RUB','25.00','297.00','210.00',NULL,'37',4,'2026-09-09 00:00:00')",[$id]);
+        $db->execute("INSERT INTO b_catalog_product VALUES (?,1,'N','12.50','RUB','25.00','297.00','210.00',NULL,'37',?,'2026-09-09 00:00:00')",[$id,in_array($id,[100,200],true)?3:($id===300?1:4)]);
         $db->execute("INSERT INTO b_catalog_price VALUES (?,?,1,'18.75','RUB',NULL,NULL,'2026-09-09 00:00:00')",[$id*10,$id]);
         $db->execute("INSERT INTO b_catalog_price VALUES (?,?,2,'16.75','RUB',NULL,NULL,'2026-09-09 00:00:00')",[$id*10+1,$id]);
     }

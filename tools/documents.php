@@ -32,9 +32,10 @@ try {
     require_once $module . '/lib/Documents/BitrixCoreGateway.php';
     require_once $module . '/lib/Documents/BitrixResourceProvider.php';
     $catalogWrite = in_array($request->command->action ?? '', ['previewCatalogWrite', 'applyCatalogWrite'], true);
+    $resourceCardWrite = ($request->command->action ?? '') === 'saveResourceCard';
     $scope = 'site:' . $siteId;
     $actor = 'user:' . (int)$USER->GetID();
-    $connection = new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection(), $catalogWrite);
+    $connection = new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection(), $catalogWrite || $resourceCardWrite);
     $repository = new \Prospektweb\Calc\Documents\DocumentRepository($connection, $scope, $actor);
     if (in_array($request->command->action ?? '', ['priceTemplates', 'loadPriceTemplate', 'createPriceTemplate', 'savePriceTemplate', 'renamePriceTemplate', 'deletePriceTemplate'], true)) {
         require_once $module . '/lib/Documents/PriceTemplateApplication.php';
@@ -42,6 +43,11 @@ try {
         $respond(200, ['success' => true, 'data' => $templates->command(get_object_vars($request->command))]);
     }
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
+    if (in_array($request->command->action ?? '', ['loadResourceCard', 'saveResourceCard'], true)) {
+        require_once $module . '/lib/Documents/DocumentResourceCard.php';
+        $card = new \Prospektweb\Calc\Documents\DocumentResourceCard($connection, $scope, $actor, $provider);
+        $respond(200, ['success' => true, 'data' => $card->commandFromJson($request->command)]);
+    }
     if (($request->command->action ?? '') === 'resourceCatalogVersion') {
         require_once $module . '/lib/Documents/DocumentResourceCatalog.php';
         require_once $module . '/lib/Documents/BitrixResourceCatalog.php';

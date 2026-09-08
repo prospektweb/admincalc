@@ -39,6 +39,14 @@ final class DocumentVersions
         }, true);
     }
 
+    /** Explicit read port for a coordinator-owned snapshot. Normal public load
+     * keeps owning its transaction and does not silently join ambient writes. */
+    public function loadInTransaction(string $id, string $versionId): array
+    {
+        $this->requireTransaction();
+        return $this->envelope($id, $this->requireVersion($id, $versionId));
+    }
+
     public function create(string $id, int $expectedRegistry, string $name, ?string $basedOn, ?string $expectedHash, ?string $blankJson): array
     {
         $name = self::name($name);

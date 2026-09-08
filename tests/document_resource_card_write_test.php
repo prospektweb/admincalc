@@ -1,0 +1,122 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__.'/fixtures/resource_card_fixture.php';
+require_once __DIR__.'/fixtures/resource_card_mutations.php';
+require_once dirname(__DIR__).'/lib/Documents/DocumentSchema.php';
+require_once dirname(__DIR__).'/lib/Documents/DocumentResourceCard.php';
+use Prospektweb\Calc\Documents\{DocumentSchema,DocumentRepository,DocumentVersions,BitrixResourceCardSnapshot,BitrixResourceCardWriter,DocumentResourceCard,ResourceCardMutationPlan,ResourceCardWriteVerification};
+$checks=0;
+$check=static function(bool $ok,string $label)use(&$checks):void{++$checks;if(!$ok)throw new RuntimeException($label);};
+$reject=static function(callable $call,int $code=409)use($check):void{try{$call();}catch(Throwable $e){$check($e->getCode()===$code,$e->getMessage());return;}throw new RuntimeException('Expected rejection');};
+$mutationRows=static fn(array $data):array=>array_map(static function(array $row):array{unset($row['code'],$row['adminUrl'],$row['sectionPath']);return $row;},[$data['parent'],...$data['variants']]);
+foreach([1,2] as $version){
+    [$pdo,$db]=resourceCardFixture($version);DocumentSchema::install($db);
+    $repo=new DocumentRepository($db,'site:s1','user:1');
+    $body=json_encode(['contract'=>'prospektweb.calculator/document-v1','schemaVersion'=>1,'id'=>'sheet','name'=>'Sheet']);$repo->create($body);
+    $versionId=DocumentVersions::primaryId('sheet');$calls=[];$hook=null;
+    $reject(fn()=>$repo->versions()->loadInTransaction('sheet',$versionId),0);
+    $db->begin(true);$transactionEnvelope=$repo->versions()->loadInTransaction('sheet',$versionId);$check($db->inTransaction(),'Explicit version read port leaves coordinator transaction open');$db->rollback();
+    $check($transactionEnvelope===$repo->versions()->load('sheet',$versionId),'Explicit version read matches ordinary read');
+    $mutate=resourceCardMutationFixture($db,$calls,static function(...$args)use(&$hook):void{if($hook)$hook(...$args);});
+    $skuDepth=0;$scopeCalls=0;
+    $within=static function(callable $operation)use(&$skuDepth,&$scopeCalls){--$skuDepth;++$scopeCalls;try{return $operation();}finally{++$skuDepth;}};
+    $guardedMutation=static function(...$args)use($mutate,&$skuDepth){if($skuDepth>=0)throw new RuntimeException('Unscoped native SKU calculation');return $mutate(...$args);};
+    $writer=new BitrixResourceCardWriter($db,$guardedMutation,$within);$app=new DocumentResourceCard($db,'site:s1','user:1','bitrix:test',[$writer,'write']);
+    $load=['action'=>'loadResourceCard','id'=>'sheet','versionId'=>$versionId,'expectedRevision'=>1,'binding'=>['provider'=>'bitrix:test','catalog'=>'CALC_MATERIALS_VARIANTS','key'=>'101']];
+    $loaded=$app->command($load);$source=$repo->versions()->load('sheet',$versionId);$rows=$mutationRows($loaded['data']);
+    $save=array_replace($load,['action'=>'saveResourceCard','expectedFingerprint'=>$loaded['fingerprint'],'rows'=>$rows]);
+    $check($loaded['contract']==='prospektweb.calculator/resource-card-v1' && $loaded['revision']===1 && !$db->inTransaction() && !$calls,'Load releases read-only transaction, exposes no raw snapshot');
+    $check(!isset($loaded['raw']) && $loaded['data']['parent']['id']===100,'Only shared card view is exposed');
+    $noop=$app->command($save);$check($noop['saveReceipt']['updatedRows']===0 && $noop['fingerprint']===$loaded['fingerprint'] && !$calls,'No-op save calls no mutation API');
+    $json=json_decode(json_encode($save,JSON_THROW_ON_ERROR),false,64,JSON_THROW_ON_ERROR);
+    $check($app->commandFromJson($json)===$noop,'Real JSON object conversion preserves the exact card and no-op receipt');
+    foreach(['rows','parameters','sourceLinks','catalog','row'] as $malformed){
+        $bad=unserialize(serialize($json));
+        if($malformed==='rows')$bad->rows=(object)$bad->rows;
+        elseif($malformed==='row')$bad->rows[0]=[];
+        elseif($malformed==='catalog')$bad->rows[0]->catalog=[];
+        else $bad->rows[0]->{$malformed}=new stdClass();
+        $reject(fn()=>$app->commandFromJson($bad),0);
+    }
+    foreach(['actor','scope','iblockId','documentJson'] as $key)$reject(fn()=>$app->command($save+[$key=>'foreign']),0);
+    $reject(fn()=>$app->command(array_replace($save,['expectedRevision'=>2])));
+    $reject(fn()=>$app->command(array_replace($save,['expectedFingerprint'=>str_repeat('a',64)])));
+    $reject(fn()=>$app->command(array_replace($save,['binding'=>array_replace($load['binding'],['catalog'=>'CALC_EQUIPMENT','key'=>'300'])])));
+    $foreign=new DocumentResourceCard($db,'site:s2','user:1','bitrix:test',[$writer,'write']);$reject(fn()=>$foreign->command($load),404);
+    $db->begin();$reject(fn()=>$app->command($load),0);$db->rollback();
+    $check(!$calls && !$db->inTransaction(),'Rejected commands neither write nor retain transaction');
+    $rename=$save;$rename['rows'][0]['name']='Renamed';$accepted=$app->command($rename);
+    $check($calls===[['element.update',100,['NAME'=>'Renamed']]],'Actual writer emits exactly NAME update, no hidden price/property rewrites');
+    $check($accepted['data']['parent']['name']==='Renamed' && $accepted['saveReceipt']['updatedRows']===1 && $accepted['fingerprint']!==$loaded['fingerprint'],'Readback-confirmed save receipt');
+    $check($db->rows('SELECT PREVIEW_TEXT,PREVIEW_TEXT_TYPE,XML_ID FROM b_iblock_element WHERE ID=100')[0]===['PREVIEW_TEXT'=>' <p>Описание &amp;</p> ','PREVIEW_TEXT_TYPE'=>'html','XML_ID'=>'protected-100'],'Raw HTML and unknown fields survive actual rename');
+    $check($repo->versions()->load('sheet',$versionId)===$source,'Resource save does not change native document/connection/revision');
+    $reject(fn()=>$app->command($rename));$check(count($calls)===1,'Lost successful response cannot blindly repeat an old card save');
+    $current=$app->command($load);$edit=array_replace($save,['expectedFingerprint'=>$current['fingerprint'],'rows'=>$mutationRows($current['data'])]);
+    $edit['rows'][1]['parameters'][0]['value']='14.25';$edit['rows'][1]['sourceLinks']=[];$edit['rows'][1]['supplierIds']=[401];$edit['rows'][1]['catalog']['basePrice']='25';$edit['rows'][1]['catalog']['purchasingPrice']='15';$edit['rows'][1]['catalog']['width']='220';$edit['rows'][1]['catalog']['vatId']=2;$edit['rows'][1]['catalog']['vatIncluded']=true;
+    $accepted=$app->command($edit);$updated=$accepted['data']['variants'][0];
+    $check($updated['parameters'][0]['value']==='14.25' && $updated['sourceLinks']===[] && $updated['supplierIds']===[401],'Parameters, sources and supplier edits persisted together');
+    $check($updated['catalog']['basePrice']==='25' && $updated['catalog']['purchasingPrice']==='15' && $updated['catalog']['width']==='220' && $updated['catalog']['vatId']===2 && $updated['catalog']['vatIncluded'],'Prices, dimensions and VAT persisted together');
+    $check($db->rows('SELECT PRICE FROM b_catalog_price WHERE ID=1011')[0]['PRICE']==='16.75' && $db->rows('SELECT QUANTITY FROM b_catalog_product WHERE ID=101')[0]['QUANTITY']==='37','Other price type and operator stock preserved');
+    $current=$app->command($load);$edit=array_replace($save,['expectedFingerprint'=>$current['fingerprint'],'rows'=>$mutationRows($current['data'])]);
+    $edit['rows'][1]['catalog']['basePrice']=null;$deleted=$app->command($edit);
+    $check($deleted['data']['variants'][0]['catalog']['basePrice']===null && !$db->rows('SELECT ID FROM b_catalog_price WHERE ID=1010'),'Explicit base-price deletion is verified');
+    $edit['expectedFingerprint']=$deleted['fingerprint'];$edit['rows']=$mutationRows($deleted['data']);$edit['rows'][1]['catalog']['basePrice']='30';$added=$app->command($edit);
+    $check($added['data']['variants'][0]['catalog']['basePrice']==='30' && count($db->rows('SELECT ID FROM b_catalog_price WHERE PRODUCT_ID=101'))===2,'Base-price add preserves other prices');
+    $baseline=$app->command($load);$next=array_replace($save,['expectedFingerprint'=>$baseline['fingerprint'],'rows'=>$mutationRows($baseline['data'])]);$next['rows'][0]['name']='Should roll back';$next['rows'][1]['catalog']['width']='230';
+    $hook=static function(string $action)use($db):void{if($action==='product.update')throw new RuntimeException('Fixture API failure',409);};
+    $reject(fn()=>$app->command($next));$hook=null;
+    $check($app->command($load)===$baseline && !$db->inTransaction(),'Later API failure rolls back earlier element update and all product writes');
+    foreach(['element','property','price','product','option','version'] as $corruption){
+        $hook=static function(string $action)use($db,$repo,$versionId,$body,$corruption):void{
+            if($action!=='element.update')return;
+            if($corruption==='element')$db->execute("UPDATE b_iblock_element SET XML_ID='outside ownership' WHERE ID=102");
+            elseif($corruption==='property')$db->execute("UPDATE b_iblock_element_prop_s42 SET PROPERTY_4203='changed' WHERE IBLOCK_ELEMENT_ID=101");
+            elseif($corruption==='price')$db->execute("UPDATE b_catalog_price SET PRICE='99' WHERE ID=1011");
+            elseif($corruption==='product')$db->execute("UPDATE b_catalog_product SET QUANTITY='999' WHERE ID=101");
+            elseif($corruption==='option')$db->execute("UPDATE b_option SET VALUE='bitrix:other' WHERE NAME='document_resource_provider'");
+            else $db->execute('UPDATE b_pw_calc_version SET name=? WHERE id=?',['Changed',$versionId]);
+        };
+        if($corruption==='property' && $version===1)$hook=static function(string $action)use($db):void{if($action==='element.update')$db->execute("UPDATE b_iblock_element_property SET VALUE='changed' WHERE IBLOCK_ELEMENT_ID=101 AND IBLOCK_PROPERTY_ID=4203");};
+        $reject(fn()=>$app->command($next));$hook=null;
+        $check($app->command($load)===$baseline && $repo->versions()->load('sheet',$versionId)===$source,'Readback corruption rollback: '.$corruption);
+    }
+    $invalid=$next;$invalid['rows'][2]['parameters'][0]['code']='bad-code';$callCount=count($calls);$reject(fn()=>$app->command($invalid),0);
+    $check(count($calls)===$callCount && $app->command($load)===$baseline,'All rows validate before first mutation');
+    $new=['id'=>0,'name'=>'New variant','previewText'=>'New preview','detailText'=>'<p>New detail</p>','parameters'=>[['code'=>'cost','value'=>'5','title'=>'Cost','description'=>'']], 'sourceLinks'=>[],'supplierIds'=>[400],'catalog'=>['basePrice'=>'35','purchasingPrice'=>'20','weight'=>'15']];
+    $create=array_replace($next,['rows'=>[...$mutationRows($baseline['data']),$new]]);$created=$app->command($create);$newId=$created['saveReceipt']['createdVariantIds'][0];
+    $check(count($created['data']['variants'])===3 && $newId>999 && $created['data']['variants'][2]['id']===$newId,'New variant created in the same atomic save');
+    $check($created['data']['variants'][2]['parameters']===$new['parameters'] && $created['data']['variants'][2]['supplierIds']===[400],'New variant parameters and supplier data survive Add');
+    $productAdds=array_values(array_filter($calls,static fn(array $call):bool=>$call[0]==='product.add' && $call[1]===$newId));
+    $check(count($productAdds)===1 && $productAdds[0][2]['PURCHASING_CURRENCY']==='RUB','New product supplies the unchanged display-default currency required by Bitrix');
+    $callsBeforeReplay=count($calls);$reject(fn()=>$app->command($create));$check(count($calls)===$callsBeforeReplay && count($app->command($load)['data']['variants'])===3,'Lost create response replay cannot duplicate the variant');
+    $beforeFailedCreate=$app->command($load);$failingCreate=array_replace($save,['expectedFingerprint'=>$beforeFailedCreate['fingerprint'],'rows'=>[...$mutationRows($beforeFailedCreate['data']),$new]]);
+    $hook=static function(string $action):void{if($action==='price.add')throw new RuntimeException('Fail after Add',409);};$reject(fn()=>$app->command($failingCreate));$hook=null;
+    $check($app->command($load)===$beforeFailedCreate,'New element, properties, product and price all roll back together');
+    $explicit=$new;$explicit['name']='Explicit empty-card defaults';$explicit['catalog']['vatId']=0;$explicit['catalog']['vatIncluded']=false;
+    $explicitCreate=array_replace($save,['expectedFingerprint'=>$beforeFailedCreate['fingerprint'],'rows'=>[...$mutationRows($beforeFailedCreate['data']),$explicit]]);
+    $explicitSaved=$app->command($explicitCreate);$explicitId=$explicitSaved['saveReceipt']['createdVariantIds'][0];
+    $explicitRows=array_values(array_filter($explicitSaved['data']['variants'],static fn(array $row):bool=>$row['id']===$explicitId));
+    $check($explicitRows[0]['catalog']['vatId']===0 && !$explicitRows[0]['catalog']['vatIncluded'],'Explicit empty-card defaults override native inherited SKU VAT values');
+    $db->begin(true);$snapshot=(new BitrixResourceCardSnapshot($db,'bitrix:test'))->capture($load['binding']);$db->rollback();
+    $r=$mutationRows($snapshot['data']);$r[0]['name']='Writer test';$plan=ResourceCardMutationPlan::build($snapshot,$r);
+    $reject(fn()=>$writer->write($snapshot,$plan),0);
+    foreach(['fields'=>['ACTIVE'=>'N'],'properties'=>['CML2_LINK'=>999],'product'=>['QUANTITY'=>'999']] as $field=>$injection){$p=$plan;$p['mutations'][0][$field]=$injection;$db->begin();$count=count($calls);$reject(fn()=>$writer->write($snapshot,$p),0);$db->rollback();$check(count($calls)===$count,'Writer independently rejects expanded '.$field.' ownership');}
+    $check($scopeCalls>5 && $skuDepth===0,'Scoped native SKU guard restores its state after successful writes and every rollback/failure');
+    foreach([1,6] as $parentType){
+        $db->execute('UPDATE b_catalog_product SET TYPE=? WHERE ID=100',[$parentType]);
+        $current=$app->command($load);$empty=$new;$empty['catalog']=[];
+        $createEmpty=array_replace($save,['expectedFingerprint'=>$current['fingerprint'],'rows'=>[...$mutationRows($current['data']),$empty]]);
+        $emptyCreated=$app->command($createEmpty);$emptyId=$emptyCreated['saveReceipt']['createdVariantIds'][0];
+        $check((int)$db->rows('SELECT TYPE FROM b_catalog_product WHERE ID=100')[0]['TYPE']===3,'First active variant promotes native parent SKU type');
+        $check((int)$db->rows('SELECT TYPE FROM b_catalog_product WHERE ID=?',[$emptyId])[0]['TYPE']===4,'Even an empty new variant has a native catalog product row');
+        $check($emptyCreated['data']['parent']===$current['data']['parent'] && $db->rows('SELECT QUANTITY FROM b_catalog_product WHERE ID=100')[0]['QUANTITY']==='37','Parent type transition preserves independent prices, VAT and stock');
+    }
+    $db->execute('UPDATE b_catalog_product SET TYPE=6 WHERE ID=100');$current=$app->command($load);
+    $createEmpty['expectedFingerprint']=$current['fingerprint'];$createEmpty['rows']=[...$mutationRows($current['data']),$empty];
+    $hook=static function(string $action,int $id,array $fields)use($db):void{if($action==='product.update' && ($fields['TYPE']??null)===3)$db->execute('UPDATE b_catalog_product SET TYPE=6 WHERE ID=100');};
+    $reject(fn()=>$app->command($createEmpty));$hook=null;
+    $check($app->command($load)===$current,'Unconfirmed parent type rolls back the new variant and every write');
+    $db->execute('UPDATE b_catalog_product SET TYPE=2 WHERE ID=100');$current=$app->command($load);$createEmpty['expectedFingerprint']=$current['fingerprint'];$count=count($calls);
+    $reject(fn()=>$app->command($createEmpty));$check(count($calls)===$count,'Incompatible parent type rejected before any native mutation');
+}
+echo "PASS $checks resource card transaction assertions\n";

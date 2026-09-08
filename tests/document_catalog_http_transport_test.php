@@ -19,7 +19,7 @@ $remove = static function (string $path) use (&$remove): void {
 try {
     mkdir($www . '/bitrix/modules/main/include', 0700, true);
     mkdir($module . '/lib/Documents', 0700, true);
-    foreach (['BitrixConnection', 'DocumentApplication', 'BitrixCoreGateway', 'BitrixResourceProvider', 'DocumentCatalogWriteService', 'BitrixDocumentCatalogWritePort', 'BitrixDocumentCatalogTargets'] as $file) {
+    foreach (['BitrixConnection', 'DocumentApplication', 'BitrixCoreGateway', 'BitrixResourceProvider', 'DocumentCatalogWriteService', 'BitrixDocumentCatalogWritePort', 'BitrixDocumentCatalogTargets', 'DocumentResourceCard'] as $file) {
         file_put_contents($module . '/lib/Documents/' . $file . '.php', '<?php');
     }
     $prolog = <<<'PHP'
@@ -49,6 +49,17 @@ namespace Prospektweb\Calc\Documents {
         public function __construct(public BitrixConnection $db, public string $scope, public string $actor) { $GLOBALS['test_repository'] = $this; }
     }
     class BitrixCoreGateway { public function __invoke(array $request): array { return []; } }
+    class DocumentResourceCard {
+        public function __construct(public BitrixConnection $db, public string $scope, public string $actor, public string $provider) {}
+        public function commandFromJson(\stdClass $command): array {
+            $repo=$GLOBALS['test_repository'];
+            if ($this->db->repeatable !== ($command->action === 'saveResourceCard') || $this->db->native !== $GLOBALS['test_connection'] || $repo->db !== $this->db) throw new \LogicException('Wrong card connection');
+            if (!$command->binding instanceof \stdClass) throw new \InvalidArgumentException('Lost JSON binding object');
+            if (($command->id ?? '') === 'conflict') throw new \RuntimeException('Resource changed',409);
+            if (($command->id ?? '') === 'invalid') throw new \InvalidArgumentException('Invalid card');
+            return ['scope'=>$this->scope,'actor'=>$this->actor,'provider'=>$this->provider,'command'=>$command];
+        }
+    }
     class BitrixDocumentCatalogWritePort {
         public function __construct(public BitrixConnection $db, public string $scope, public string $actor) {}
     }
@@ -123,6 +134,17 @@ PHP;
     };
     $command = ['action' => 'previewCatalogWrite', 'id' => 'native-document', 'publicationId' => 's_' . str_repeat('a', 64), 'offerIds' => [102, 101]];
     $envelope = ['siteId' => 's1', 'command' => $command];
+    foreach(['loadResourceCard','saveResourceCard'] as $action){
+        $card=['action'=>$action,'id'=>'native-document','versionId'=>'version','expectedRevision'=>3,
+            'binding'=>['provider'=>'bitrix:server','catalog'=>'CALC_MATERIALS','key'=>'101']];
+        if($action==='saveResourceCard')$card+=['expectedFingerprint'=>str_repeat('c',64),'rows'=>[(object)['id'=>101,'catalog'=>(object)[]]]];
+        $r=$send(['siteId'=>'s2','command'=>$card]);$data=$r['body']['data'];
+        $check($r['status']===200 && $data['command']['binding']===$card['binding'],'Card command retains JSON binding and reaches its service');
+        $check($data['scope']==='site:s2' && $data['actor']==='user:17' && $data['provider']==='bitrix:server','Card server-owned authority');
+        foreach([['GET',true,'valid',405],['POST',false,'valid',403],['POST',true,'stale',403]] as [$method,$admin,$sessid,$status])$check($send(['siteId'=>'s1','command'=>$card],$method,$admin,$sessid)['status']===$status,'Card authorization and CSRF gates');
+        foreach([['conflict',409],['invalid',422]] as [$id,$status])$check($send(['siteId'=>'s1','command'=>array_replace($card,['id'=>$id])])['status']===$status,'Card errors translated');
+        $r=$send(['siteId'=>'s1','command'=>$card+['actor'=>'foreign']]);$check($r['body']['data']['command']['actor']==='foreign' && $r['body']['data']['actor']==='user:17','Card extra fields reach strict validation without becoming authority');
+    }
     $selector = ['action' => 'catalogWriteTargets', 'id' => 'native-document', 'publicationId' => $command['publicationId'], 'productId' => 42, 'afterId' => 100];
     $r = $send(['siteId' => 's2', 'command' => $selector]);
     $check($r['status'] === 200 && $r['body']['data']['command'] === $selector, 'Selector native identity, product and cursor forwarded intact');

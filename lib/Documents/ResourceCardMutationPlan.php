@@ -60,7 +60,7 @@ final class ResourceCardMutationPlan
                 $properties['SUPPLIERS'] = $suppliers ?: false;
             }
             $catalog = self::catalog($row['catalog']); $oldCatalog = self::catalog($old['catalog']); $product = [];
-            foreach (self::PRODUCT_FIELDS as $key => $column) if ($catalog[$key] !== $oldCatalog[$key]) {
+            foreach (self::PRODUCT_FIELDS as $key => $column) if ($catalog[$key] !== $oldCatalog[$key] || ($create && array_key_exists($key, $row['catalog']))) {
                 if ($key === 'vatId' && $catalog[$key] !== 0 && !array_filter($snapshot['raw']['vat'], static fn(array $v): bool => (int)$v['ID'] === $catalog[$key] && $v['ACTIVE'] === 'Y')) throw new \InvalidArgumentException('Выбрана недоступная ставка НДС.');
                 if ($key === 'purchasingCurrency') self::currency($snapshot, $catalog[$key]);
                 $product[$column] = $key === 'vatIncluded' ? ($catalog[$key] ? 'Y' : 'N') : $catalog[$key];
@@ -77,12 +77,25 @@ final class ResourceCardMutationPlan
                 } else $price = ['action' => $existing ? 'update' : 'add', 'id' => $existing ? (int)$existing[0]['ID'] : null,
                     'fields' => ['CATALOG_GROUP_ID' => $groupId, 'PRICE' => $catalog['basePrice'], 'CURRENCY' => $catalog['baseCurrency']]];
             }
-            if ($create || $fields || $properties || $product || $price) $mutations[] = compact('id', 'index', 'create', 'iblock', 'fields', 'properties', 'product', 'price');
+            $requestedCatalogFields = array_keys($row['catalog']);
+            if ($create || $fields || $properties || $product || $price) $mutations[] = compact('id', 'index', 'create', 'iblock', 'fields', 'properties', 'product', 'price', 'requestedCatalogFields');
             $expectedRows[] = ['id' => $id, 'name' => $name, 'previewText' => $preview, 'detailText' => $detail, 'parameters' => $parameters,
                 'sourceLinks' => $sources, 'supplierIds' => $suppliers, 'catalog' => $catalog];
         }
         if (count($seen) !== count($byId)) throw new \InvalidArgumentException('Карточка не содержит всех исходных вариантов. Удаление через неполный список запрещено.');
-        return ['fingerprint' => $snapshot['fingerprint'], 'parentId' => $snapshot['parentId'], 'mutations' => $mutations, 'expectedRows' => $expectedRows];
+        return ['fingerprint' => $snapshot['fingerprint'], 'parentId' => $snapshot['parentId'], 'mutations' => $mutations, 'expectedRows' => $expectedRows,
+            'parentProduct' => self::parentProductTransition($snapshot, $mutations)];
+    }
+
+    /** Native SKU identity is derived from adding a variant, never client-owned.
+     * Keep independently authored parent prices and stock outside this transition. */
+    public static function parentProductTransition(array $snapshot, array $mutations): ?array
+    {
+        if (!array_filter($mutations, static fn(array $m): bool => $m['create'])) return null;
+        $products = array_column($snapshot['raw']['products'], null, 'ID');
+        $type = (int)($products[$snapshot['parentId']]['TYPE'] ?? 0);
+        if (!in_array($type, [1, 3, 6], true)) throw new DocumentConflict('Родитель не является товаром с вариантами. Проверьте его карточку торгового каталога.');
+        return $type === 3 ? null : ['id' => $snapshot['parentId'], 'fromType' => $type, 'type' => 3];
     }
 
     public static function comparable(array $row): array
