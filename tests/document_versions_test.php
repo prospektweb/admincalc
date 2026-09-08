@@ -43,7 +43,13 @@ $clone = static function (string $source, string $name) use ($cmd, $registry): s
 };
 $branch = $clone($primary, 'Alternative'); $fork = $cmd('loadVersion', ['versionId' => $branch]);
 $check($fork['bodyJson'] === $original['bodyJson'] && $fork['connectionJson'] === $original['connectionJson'] && $fork['revision'] === 2, 'Clone shares complete immutable content initially');
+$beforeSaveRegistry = $registry()['registryRevision'];
 $changed = $cmd('saveVersion', ['versionId' => $branch, 'expectedRevision' => 2, 'documentJson' => $body('Alternative')]);
+$check($changed['saveReceipt'] === ['fromRevision' => 2, 'fromRegistryRevision' => $beforeSaveRegistry, 'toRevision' => 3, 'toRegistryRevision' => $beforeSaveRegistry + 1], 'Save receipt captures both locked revision pairs atomically');
+$check($changed['saveReceipt']['toRegistryRevision'] === $registry()['registryRevision'], 'Receipt is the resulting registry pointer, not a frontend counter guess');
+$same = $cmd('saveVersion', ['versionId' => $branch, 'expectedRevision' => 3, 'documentJson' => $body('Alternative')]);
+$check($same['saveReceipt'] === ['fromRevision' => 3, 'fromRegistryRevision' => $beforeSaveRegistry + 1, 'toRevision' => 3, 'toRegistryRevision' => $beforeSaveRegistry + 1], 'No-op save receipts do not advance either revision');
+$check(!isset($cmd('loadVersion', ['versionId' => $branch])['saveReceipt']), 'Load never manufactures or replays a former save receipt');
 $check($changed['revision'] === 3 && $repo->load('sheet')['revision'] === 2 && $repo->load('sheet')['bodyHash'] === $original['bodyHash'], 'Editing a fork does not overwrite default branch');
 $check($repo->sitePublication('sheet') === $publication && $repo->productBinding('bitrix:test', '14', '42')['publication_id'] === $publication['id'], 'Draft edits never switch site or product bindings');
 $rootChanged = $repo->save('sheet', 2, $body('Root edited'));

@@ -55,6 +55,8 @@ $check($repo->load('sheet') === $primaryBefore
 $rejects(fn() => $repo->sitePublication('sheet'), 404);
 $state = $repo->versions()->listing('sheet'); $count = count($repo->history('sheet'));
 $again = $save(3, $body('Edited', 'new-view'), ['connectionJson' => $connection('new-view')]);
+$check($again['saveReceipt'] === ['fromRevision' => 3, 'fromRegistryRevision' => $state['registryRevision'], 'toRevision' => 3, 'toRegistryRevision' => $state['registryRevision']], 'Identical pair receipt records a no-op in the same registry');
+unset($pair['saveReceipt'], $again['saveReceipt']); // Command receipt is not persisted document content.
 $check($again === $pair && count($repo->history('sheet')) === $count && $repo->versions()->listing('sheet') === $state, 'Identical pair is a no-op');
 $rejects(fn() => $save(2, $body('Stale', 'old-view'), ['connectionJson' => $connection('old-view')]), 409);
 $rejects(fn() => $save(3, $body('Invalid', 'new-view'), ['connectionJson' => $connection('new-view')]));
