@@ -36,6 +36,11 @@ try {
     $actor = 'user:' . (int)$USER->GetID();
     $connection = new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection(), $catalogWrite);
     $repository = new \Prospektweb\Calc\Documents\DocumentRepository($connection, $scope, $actor);
+    if (in_array($request->command->action ?? '', ['priceTemplates', 'loadPriceTemplate', 'createPriceTemplate', 'savePriceTemplate', 'renamePriceTemplate', 'deletePriceTemplate'], true)) {
+        require_once $module . '/lib/Documents/PriceTemplateApplication.php';
+        $templates = new \Prospektweb\Calc\Documents\PriceTemplateApplication($connection, $scope, $actor);
+        $respond(200, ['success' => true, 'data' => $templates->command(get_object_vars($request->command))]);
+    }
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
     if (($request->command->action ?? '') === 'catalogWriteTargets') {
         require_once $module . '/lib/Documents/BitrixDocumentCatalogTargets.php';
