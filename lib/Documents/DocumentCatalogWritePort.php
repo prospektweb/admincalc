@@ -16,6 +16,9 @@ interface DocumentCatalogWritePort
     public function capture(object $sitePublication, array $offerIds, bool $lock): array;
 
     /**
+     * Targets are {offerId, priceTypeIds, state}. Write only the bound priceTypeIds;
+     * the full state includes unowned prices solely for readback and must not cause
+     * their update/delete/recreation (even if values would be unchanged).
      * Write only target state for the supplied exact offer IDs. No names, arbitrary
      * properties, commits or remote calls. Throw on any write failure. The coordinator
      * re-reads all targets and inputs before committing the immutable receipt.

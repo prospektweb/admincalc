@@ -83,8 +83,10 @@ final class DocumentCatalogWriteService
             if ($receipt !== null) { $this->assertReceiptCurrent($receipt, $current); return $receipt; }
             $this->same($before, $current, 'Каталог изменился перед записью.');
             $writes = [];
+            $priceTypeIds = array_map(static fn($binding): int => (int)$binding->key, $current['snapshot']->connection->priceTypes);
+            sort($priceTypeIds, SORT_NUMERIC);
             foreach ($plan['targets'] as $index => $target) {
-                if ($plan['public']['offers'][$index]['changed']) $writes[] = ['offerId' => $ids[$index], 'state' => $target];
+                if ($plan['public']['offers'][$index]['changed']) $writes[] = ['offerId' => $ids[$index], 'priceTypeIds' => $priceTypeIds, 'state' => $target];
             }
             if ($writes) $this->catalog->write($writes);
             // Fresh readback covers unowned price types and input mutations by event handlers too.

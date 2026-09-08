@@ -36,6 +36,7 @@ final class NativeWriteFixturePort implements DocumentCatalogWritePort
         $this->writes++;
         $rows = $this->read();
         foreach ($targets as $target) {
+            if (($target['priceTypeIds'] ?? null) !== [1]) throw new RuntimeException('Writer scope includes an unowned price type');
             foreach ($rows as &$row) if ($row['offerId'] === $target['offerId']) $row['current'] = $target['state'];
             unset($row); $this->replace($rows);
             if ($this->onWrite) ($this->onWrite)();
