@@ -1,0 +1,22 @@
+<?php
+declare(strict_types=1);
+require_once dirname(__DIR__).'/lib/Documents/DocumentResourceDescription.php';
+use Prospektweb\Calc\Documents\DocumentResourceDescription;
+$checks=0;$reads=0;$calls=[];$changed=false;$during=false;$type='material';
+$check=static function(bool $ok,string $message)use(&$checks):void{++$checks;if(!$ok)throw new RuntimeException($message);};
+$reject=static function(callable $fn,int $code=0)use($check):void{try{$fn();}catch(Throwable $e){$check($e->getCode()===$code,$e->getMessage());return;}throw new RuntimeException('Expected rejection');};
+$load=static function(stdClass $command)use(&$reads,&$changed,&$type):array{++$reads;if($command->action!=='loadResourceCard'||!$command->binding instanceof stdClass||$command->expectedRevision!==7)throw new RuntimeException('Wrong card authority');return ['fingerprint'=>str_repeat($changed?'b':'a',64),'entityType'=>$type];};
+$settings=static function()use(&$during,&$changed):array{if($during)$changed=true;return ['status'=>'ok','apiKey'=>'private-value','templates'=>array_map(static fn(string $zone):array=>['id'=>$zone,'zone'=>$zone,'name'=>'Name','prompt'=>'Prompt','model'=>'model','secret'=>'private-template'],['material_description','material_variant_description','operation_description','equipment_description','calculator_description'])];};
+$generate=static function(array $payload)use(&$calls,&$changed,&$during):array{$calls[]=$payload;if($during)$changed=true;return ['status'=>'ok','text'=>'{"previewText":"Draft only"}'];};
+$app=new DocumentResourceDescription($load,$settings,$generate);
+$base=['action'=>'resourceDescriptionTemplates','id'=>'doc','versionId'=>'version','expectedRevision'=>7,'binding'=>(object)['provider'=>'bitrix:test','catalog'=>'CALC_MATERIALS','key'=>'100'],'expectedFingerprint'=>str_repeat('a',64)];
+$r=$app->command($base);$check(count($r['templates'])===2 && $reads===2,'Only card-family templates and two authoritative reads');$check(!str_contains(json_encode($r),'private'),'No settings/template secrets exposed');
+$g=array_replace($base,['action'=>'generateResourceDescription','zone'=>'material_variant_description','context'=>(object)['materialName'=>'Paper','materialVariantName'=>'New draft','sourceLinks'=>'https://example.test'],'prompt'=>' Owner draft ','templateId'=>'material_variant_description']);
+$r=$app->command($g);$check($r['text']==='{"previewText":"Draft only"}' && $calls[0]['context']['materialVariantName']==='New draft' && $calls[0]['prompt']==='Owner draft','Draft-only prompt and context reach existing gateway');
+foreach(['actor','provider','properties','documentJson'] as $field)$reject(fn()=>$app->command($g+[$field=>'untrusted']));
+foreach(['calculator_description','operation_description','equipment_description'] as $zone)$reject(fn()=>$app->command(array_replace($g,['zone'=>$zone])));
+$reject(fn()=>$app->command(array_replace($g,['context'=>(object)['secret'=>'data']])));$reject(fn()=>$app->command(array_replace($g,['context'=>[]])));
+$changed=true;$count=count($calls);$reject(fn()=>$app->command($g),409);$check(count($calls)===$count,'Stale card rejected before gateway');
+$changed=false;$during=true;$reject(fn()=>$app->command($g),409);$changed=false;$reject(fn()=>$app->command($base),409);$during=false;$changed=false;
+$type='equipment';$r=$app->command($base);$check(count($r['templates'])===1 && $r['templates'][0]['zone']==='equipment_description','Equipment has no variant zone');
+echo "PASS $checks native resource description assertions\n";

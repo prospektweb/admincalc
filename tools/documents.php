@@ -48,6 +48,14 @@ try {
         $card = new \Prospektweb\Calc\Documents\DocumentResourceCard($connection, $scope, $actor, $provider);
         $respond(200, ['success' => true, 'data' => $card->commandFromJson($request->command)]);
     }
+    if (in_array($request->command->action ?? '', ['resourceDescriptionTemplates', 'generateResourceDescription'], true)) {
+        require_once $module . '/lib/Documents/DocumentResourceCard.php';
+        require_once $module . '/lib/Documents/DocumentResourceDescription.php';
+        $card = new \Prospektweb\Calc\Documents\DocumentResourceCard($connection, $scope, $actor, $provider);
+        $gateway = new \Prospektweb\Calc\Services\AiGatewayService();
+        $description = new \Prospektweb\Calc\Documents\DocumentResourceDescription([$card, 'commandFromJson'], [$gateway, 'getSettings'], [$gateway, 'generateText']);
+        $respond(200, ['success' => true, 'data' => $description->command(get_object_vars($request->command))]);
+    }
     if (($request->command->action ?? '') === 'resourceCatalogVersion') {
         require_once $module . '/lib/Documents/DocumentResourceCatalog.php';
         require_once $module . '/lib/Documents/BitrixResourceCatalog.php';
@@ -146,8 +154,8 @@ try {
     ], JSON_UNESCAPED_SLASHES));
     $status = in_array($error->getCode(), [404, 409, 503], true) ? $error->getCode() : 500;
     $respond($status, ['success' => false, 'error' => $status === 409 ? 'REVISION_CONFLICT' : 'DOCUMENT_UNAVAILABLE',
-        'message' => $status === 409 ? $error->getMessage() : (in_array($request->command->action ?? '', ['stageDescriptionTemplates', 'generateStageDescription'], true)
-            ? 'AI-заполнение недоступно. Проверьте настройки AI Gateway и шаблона описания этапа. Данные не изменены.'
+        'message' => $status === 409 ? $error->getMessage() : (in_array($request->command->action ?? '', ['stageDescriptionTemplates', 'generateStageDescription', 'calculationDescriptionTemplates', 'generateCalculationDescription', 'resourceDescriptionTemplates', 'generateResourceDescription'], true)
+            ? 'AI-заполнение недоступно. Проверьте настройки AI Gateway и шаблона описания. Данные не изменены.'
             : (($request->command->action ?? '') === 'auditVersionLogic'
             ? 'AI-анализ недоступен. Проверьте настройки AI Gateway и шаблона анализа. Данные не изменены.'
             : 'Документ недоступен. Изменения не сохранены.'))]);
