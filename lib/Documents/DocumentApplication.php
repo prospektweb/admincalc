@@ -16,13 +16,15 @@ final class DocumentApplication
     private $siteCompiler;
     private $inputMappingValidator;
     private $outputMappingValidator;
+    private $formRuntime;
 
-    public function __construct(DocumentRepository $repository, callable $core, callable $resources, ?callable $siteCompiler = null, ?callable $inputMappingValidator = null, ?callable $outputMappingValidator = null)
+    public function __construct(DocumentRepository $repository, callable $core, callable $resources, ?callable $siteCompiler = null, ?callable $inputMappingValidator = null, ?callable $outputMappingValidator = null, ?callable $formRuntime = null)
     {
         $this->repository = $repository; $this->core = $core; $this->resources = $resources;
         $this->siteCompiler = $siteCompiler;
         $this->inputMappingValidator = $inputMappingValidator;
         $this->outputMappingValidator = $outputMappingValidator;
+        $this->formRuntime = $formRuntime;
     }
 
     public function command(array $request): array
@@ -49,6 +51,7 @@ final class DocumentApplication
             'restoreVersionRevision' => ['id', 'versionId', 'expectedRevision', 'revision'],
             'activateVersion' => ['id', 'versionId', 'expectedRevision', 'expectedVersionsRevision', 'expectedSitePublication'],
             'previewVersion' => ['id', 'versionId', 'revision', 'values', 'execution', 'name'],
+            'formVersion' => ['id', 'versionId', 'revision'],
             'list' => ['limit', 'offset', 'archived'], 'load' => ['id', 'revision'],
             'history' => ['id', 'limit', 'beforeRevision'], 'create' => ['documentJson', 'sectionId', 'expectedCatalogRevision'],
             'save' => ['id', 'expectedRevision', 'documentJson'],
@@ -162,12 +165,23 @@ final class DocumentApplication
         }
         if ($action === 'load') { return $this->repository->load($id, isset($request['revision']) ? self::integer($request, 'revision') : null); }
         if ($action === 'history') { return ['items' => $this->repository->history($id, self::integer($request, 'limit', 50), self::integer($request, 'beforeRevision', 2147483647))]; }
-        if ($action === 'preview' || $action === 'previewVersion') {
-            $revision = $action === 'previewVersion' ? $this->repository->versions()->load($id, self::text($request, 'versionId')) : $this->repository->load($id, self::integer($request, 'revision'));
+        if (in_array($action, ['preview', 'previewVersion', 'formVersion'], true)) {
+            $versionId = $action === 'preview' ? null : self::text($request, 'versionId');
+            $revision = $versionId !== null ? $this->repository->versions()->load($id, $versionId) : $this->repository->load($id, self::integer($request, 'revision'));
             if ($revision['revision'] !== self::integer($request, 'revision')) { throw new DocumentConflict(); }
             $document = json_decode($revision['bodyJson'], false, 64, JSON_THROW_ON_ERROR);
-            return ($this->core)(['action' => 'preview', 'document' => $document, 'resources' => ($this->resources)($document),
-                'values' => $request['values'] ?? new \stdClass(), 'execution' => $request['execution'] ?? null, 'name' => $request['name'] ?? $document->name]);
+            if ($action === 'formVersion') {
+                if (!is_callable($this->formRuntime)) throw new \RuntimeException('Form projection unavailable.', 503);
+                $result = ['runtime' => ($this->formRuntime)($document, $revision['revision'])];
+            } else {
+                $result = ($this->core)(['action' => 'preview', 'document' => $document, 'resources' => ($this->resources)($document),
+                    'values' => $request['values'] ?? new \stdClass(), 'execution' => $request['execution'] ?? null, 'name' => $request['name'] ?? $document->name]);
+            }
+            // The result names the saved input revision, never an optimistic UI
+            // draft or a concurrently edited branch head.
+            if ($versionId !== null && $this->repository->versions()->load($id, $versionId)['revision'] !== $revision['revision']) throw new DocumentConflict();
+            return $result + ['source' => ['documentId' => $id, 'versionId' => $versionId,
+                'revision' => $revision['revision'], 'bodyHash' => $revision['bodyHash']]];
         }
         $expected = self::integer($request, 'expectedRevision');
         if ($action === 'saveConnection') {
