@@ -9,6 +9,8 @@ final class NativeWriteFixturePort implements DocumentCatalogWritePort
 {
     public PdoConnection $db;
     public int $writes = 0;
+    public array $expectedPriceTypes = [];
+    public array $lastTargets = [];
     public $onLock = null;
     public $onWrite = null;
     public $onCapture = null;
@@ -34,9 +36,10 @@ final class NativeWriteFixturePort implements DocumentCatalogWritePort
     {
         if (!$this->db->inTransaction()) throw new RuntimeException('Write outside transaction');
         $this->writes++;
+        $this->lastTargets = $targets;
         $rows = $this->read();
         foreach ($targets as $target) {
-            if (($target['priceTypeIds'] ?? null) !== [1]) throw new RuntimeException('Writer scope includes an unowned price type');
+            if (($target['priceTypeIds'] ?? null) !== ($this->expectedPriceTypes[$target['offerId']] ?? [1])) throw new RuntimeException('Writer scope includes an unowned price type');
             foreach ($rows as &$row) if ($row['offerId'] === $target['offerId']) $row['current'] = $target['state'];
             unset($row); $this->replace($rows);
             if ($this->onWrite) ($this->onWrite)();
@@ -52,28 +55,38 @@ function nativeWriteState(): array
 }
 function nativeWriteQuote(): array
 {
-    return ['currency' => 'RUB', 'basePrice' => 100.1234567895, 'purchasingPrice' => 80,
+    return ['calculatorId' => 'sheet', 'currency' => 'RUB', 'basePrice' => 100.1234567895, 'purchasingPrice' => 80,
+        'priceProfile' => null, 'appliedPriceRules' => nativeWritePriceRules(),
         'parts' => [['outputs' => ['width' => 90, 'length' => 50, 'height' => 0.3, 'weight' => 2.543210987654321]]],
         'priceRanges' => [['quantityFrom' => 0, 'quantityTo' => 10, 'prices' => [['typeId' => 'retail', 'basePrice' => 120.1234567895, 'currency' => 'RUB']]],
             ['quantityFrom' => 11, 'quantityTo' => null, 'prices' => [['typeId' => 'retail', 'basePrice' => 110.12, 'currency' => 'RUB']]]]];
+}
+function nativeWritePriceRules(): array
+{
+    return array_map(static fn(array $range): array => ['typeId' => 'retail', 'price' => 20, 'mode' => 'markupPercent', 'currency' => null,
+        'quantityFrom' => $range[0], 'quantityTo' => $range[1], 'limitAmount' => null, 'limitCurrency' => 'RUB'], [[null, 10], [11, null]]);
 }
 function nativeWriteSnapshot(array $row): string
 {
     return json_encode(['contract' => 'prospektweb.calculator/site-publication-v1', 'documentId' => $row['id'], 'sourceRevision' => $row['revision'],
         'documentHash' => $row['bodyHash'], 'connectionHash' => $row['connectionHash'], 'connection' => json_decode($row['connectionJson']),
-        'core' => ['contract' => 'prospektweb.calculator/publication-v1', 'calculatorId' => $row['id'], 'documentHash' => $row['bodyHash']],
+        'core' => ['contract' => 'prospektweb.calculator/publication-v1', 'calculatorId' => $row['id'], 'documentHash' => $row['bodyHash'], 'plan' => ['document' => json_decode($row['bodyJson'])]],
         'runtime' => ['testOnly' => true]], JSON_THROW_ON_ERROR);
 }
-function nativeWriteFixture(): array
+function nativeWriteFixture(bool $withInactiveType = false): array
 {
     $db = new PdoConnection(new PDO('sqlite::memory:')); DocumentSchema::install($db); DocumentSchema::install($db);
     $repo = new DocumentRepository($db, 'site:s1', 'user:1');
+    $types = [['id' => 'retail', 'code' => 'RETAIL', 'base' => true, 'sort' => 100]];
+    if ($withInactiveType) $types[] = ['id' => 'inactive', 'code' => 'INACTIVE', 'base' => false, 'sort' => 200];
     $body = json_encode(['contract' => 'prospektweb.calculator/document-v1', 'schemaVersion' => 1, 'id' => 'sheet', 'name' => 'Sheet',
-        'presentations' => ['views' => [['id' => 'BASE']]], 'pricing' => ['types' => [['id' => 'retail']]]], JSON_THROW_ON_ERROR);
+        'presentations' => ['views' => [['id' => 'BASE']]], 'execution' => ['currency' => 'RUB'],
+        'pricing' => ['types' => $types, 'ranges' => nativeWritePriceRules(), 'profiles' => []]], JSON_THROW_ON_ERROR);
     $pairs = []; foreach (DocumentOutputMappings::PAIRS as $source => $target) $pairs[] = (object)['source_path' => $source, 'target_path' => $target];
     $connection = (object)['contract' => SiteConnection::CONTRACT, 'provider' => 'bitrix:test', 'productsCatalog' => '14', 'offersCatalog' => '15',
         'products' => [(object)['key' => '42', 'presentationId' => 'BASE']], 'priceTypes' => [(object)['key' => '1', 'typeId' => 'retail']],
         'formBindings' => new stdClass(), 'inputMappings' => [], 'outputMappings' => $pairs];
+    if ($withInactiveType) $connection->priceTypes[] = (object)['key' => '99', 'typeId' => 'inactive'];
     $repo->create($body); $draft = $repo->save('sheet', 1, $body, json_encode($connection, JSON_THROW_ON_ERROR), true);
     $published = $repo->publishSite('sheet', 2, null, nativeWriteSnapshot($draft));
     $db->execute('CREATE TABLE qa_catalog (body TEXT NOT NULL, schema_hash TEXT NOT NULL)');

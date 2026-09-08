@@ -7,8 +7,8 @@ set_error_handler(static function(int $severity,string $message,string $file,int
 $checks=0;
 function check(bool $ok,string $message):void {global $checks;$checks++;if(!$ok)throw new RuntimeException($message);}
 function reject(callable $work,string $message):void {try{$work();}catch(Throwable $error){check(true,$message);return;}throw new RuntimeException('Expected rejection: '.$message);}
-function portFixture(int $version=2):array {
-    $f=nativeWriteFixture();extract($f);
+function portFixture(int $version=2,bool $inactiveType=false):array {
+    $f=nativeWriteFixture($inactiveType);extract($f);
     $bodyData=json_decode($body,true);$bodyData['execution']=['currency'=>'RUB'];
     $bodyData['form']=['fields'=>[['fieldId'=>'qty','type'=>'number','label'=>'Тираж']], 'sections'=>[]];
     $connection->inputMappings=[(object)['target'=>(object)['field_id'=>'qty'],'source'=>(object)['scope'=>'selected_offer','iblock_id'=>15,'property_id'=>722,'property_code'=>'CALC_PROP_VOLUME'],'value_mode'=>'scalar']];
@@ -139,6 +139,15 @@ foreach(['document_resource_provider','Document_Resource_Provider'] as $optionNa
 $f=portFixture();$f['db']->execute('DELETE FROM b_catalog_price WHERE CATALOG_GROUP_ID=99');$f['db']->execute('UPDATE b_catalog_product SET PURCHASING_CURRENCY=?',['USD']);$f['db']->execute('UPDATE b_catalog_price SET CURRENCY=? WHERE CATALOG_GROUP_ID=1',['USD']);
 $preview=$f['service']->command($f['request']);$receipt=$f['service']->command(array_replace($f['request'],['action'=>'applyCatalogWrite','expectedFingerprint'=>$preview['fingerprint']]));
 check($receipt['applied'],'Owned currency can change to exact publication currency without false authority drift');
+// Registered but disabled types are outside this execution's write scope.
+$f=portFixture(2,true);$inactiveBefore=$f['db']->rows('SELECT * FROM b_catalog_price WHERE CATALOG_GROUP_ID=99 ORDER BY ID');
+$preview=$f['service']->command($f['request']);
+$receipt=$f['service']->command(array_replace($f['request'],['action'=>'applyCatalogWrite','expectedFingerprint'=>$preview['fingerprint']]));
+check($receipt['applied'] && $f['db']->rows('SELECT * FROM b_catalog_price WHERE CATALOG_GROUP_ID=99 ORDER BY ID')===$inactiveBefore,'Inactive registered price rows retain IDs, currency and all metadata');
+$f=portFixture(2,true);$preview=$f['service']->command($f['request']);$before=tables($f);
+$f['calls']->hook=static function()use($f):void{$f['db']->execute('UPDATE b_catalog_price SET EXTRA_ID=700 WHERE CATALOG_GROUP_ID=99');};
+reject(fn()=>$f['service']->command(array_replace($f['request'],['action'=>'applyCatalogWrite','expectedFingerprint'=>$preview['fingerprint']])), 'Bitrix event cannot alter an inactive registered price');
+check(tables($f)===$before && $f['db']->rows('SELECT * FROM b_pw_calc_catalog_write')===[],'Inactive-price metadata drift rolls back the full transaction');
 $f=portFixture();reject(fn()=>$f['port']->capture($f['snapshot'],[101],false),'Outer snapshot required');
 $f['db']->begin();foreach([[],[101,101],['101'],range(1,101)] as $ids)reject(fn()=>$f['port']->capture($f['snapshot'],$ids,true),'Invalid target list');check($f['db']->inTransaction(),'Invalid target retains caller transaction');$f['db']->rollback();
 $f=portFixture(1);$f['db']->execute('INSERT INTO b_iblock_element_property (IBLOCK_ELEMENT_ID,IBLOCK_PROPERTY_ID,VALUE) VALUES (101,279,?)',['42']);

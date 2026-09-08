@@ -5,6 +5,7 @@ namespace Prospektweb\Calc\Documents;
 require_once __DIR__ . '/DocumentRepository.php';
 require_once __DIR__ . '/DocumentCatalogWritePort.php';
 require_once __DIR__ . '/DocumentCatalogWritePlan.php';
+require_once __DIR__ . '/DocumentQuotePricing.php';
 
 /** Native preview -> fresh server calculation -> locked CAS -> verified write/receipt. */
 final class DocumentCatalogWriteService
@@ -83,10 +84,8 @@ final class DocumentCatalogWriteService
             if ($receipt !== null) { $this->assertReceiptCurrent($receipt, $current); return $receipt; }
             $this->same($before, $current, 'Каталог изменился перед записью.');
             $writes = [];
-            $priceTypeIds = array_map(static fn($binding): int => (int)$binding->key, $current['snapshot']->connection->priceTypes);
-            sort($priceTypeIds, SORT_NUMERIC);
             foreach ($plan['targets'] as $index => $target) {
-                if ($plan['public']['offers'][$index]['changed']) $writes[] = ['offerId' => $ids[$index], 'priceTypeIds' => $priceTypeIds, 'state' => $target];
+                if ($plan['public']['offers'][$index]['changed']) $writes[] = ['offerId' => $ids[$index], 'priceTypeIds' => $plan['priceTypeIds'][$index], 'state' => $target];
             }
             if ($writes) $this->catalog->write($writes);
             // Fresh readback covers unowned price types and input mutations by event handlers too.
@@ -161,7 +160,7 @@ final class DocumentCatalogWriteService
     private function calculate(array $capture): array
     {
         if ($this->db->inTransaction()) throw new \LogicException('Remote calculation must run outside a SQL transaction.');
-        $snapshot = $capture['snapshot']; $offers = []; $targets = []; $results = [];
+        $snapshot = $capture['snapshot']; $offers = []; $targets = []; $results = []; $priceTypeIds = [];
         $changedOffers = 0; $changedFields = 0;
         $quotes = [];
         foreach (array_chunk($capture['catalog']['offers'], 20) as $batch) {
@@ -176,16 +175,21 @@ final class DocumentCatalogWriteService
         }
         foreach ($capture['catalog']['offers'] as $offer) {
             $quote = $quotes[$offer['offerId']];
-            $target = DocumentCatalogWritePlan::target($quote, $snapshot->connection, $offer['current']);
+            $document = $snapshot->core->plan->document ?? null;
+            if (!$document instanceof \stdClass) throw new \InvalidArgumentException('Отсутствует опубликованный источник правил цен.');
+            $priceConnection = DocumentQuotePricing::connection($document, $quote, $snapshot->connection);
+            $types = array_map(static fn($binding): int => (int)$binding->key, $priceConnection->priceTypes); sort($types, SORT_NUMERIC);
+            $priceTypeIds[] = $types;
+            $target = DocumentCatalogWritePlan::target($quote, $priceConnection, $offer['current']);
             $targets[] = $target; $results[] = ['offerId' => $offer['offerId'], 'hash' => DocumentCatalogWritePlan::hash($quote)];
             $diff = DocumentCatalogWritePlan::diffs($offer['current'], $target);
             $count = count(array_filter($diff, static fn(array $row): bool => $row['changed']));
             $changedFields += $count; if ($count > 0) $changedOffers++;
             $offers[] = ['offerId' => $offer['offerId'], 'name' => $offer['name'], 'changed' => $count > 0, 'changedFields' => $count, 'diff' => $diff];
         }
-        return ['targets' => $targets, 'resultHashes' => $results, 'public' => ['contract' => self::PREVIEW, 'ready' => true,
+        return ['targets' => $targets, 'priceTypeIds' => $priceTypeIds, 'resultHashes' => $results, 'public' => ['contract' => self::PREVIEW, 'ready' => true,
             'documentId' => $snapshot->documentId, 'publicationId' => $capture['publicationId'],
-            'offerIds' => array_column($offers, 'offerId'), 'fingerprint' => DocumentCatalogWritePlan::hash([$capture, $targets, $results]),
+            'offerIds' => array_column($offers, 'offerId'), 'fingerprint' => DocumentCatalogWritePlan::hash([$capture, $targets, $priceTypeIds, $results]),
             'summary' => ['total' => count($offers), 'changedOffers' => $changedOffers, 'unchangedOffers' => count($offers) - $changedOffers, 'changedFields' => $changedFields], 'offers' => $offers]];
     }
 
