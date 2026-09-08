@@ -58,12 +58,16 @@ try {
         });
         $respond(200, ['success' => true, 'data' => $audit->command(get_object_vars($request->command))]);
     }
-    if (in_array($request->command->action ?? '', ['siteOptions', 'sourceCatalog', 'searchProducts', 'catalogProducts'], true)) {
+    if (in_array($request->command->action ?? '', ['siteOptions', 'sourceCatalog', 'searchProducts', 'catalogProducts', 'catalogProductSections'], true)) {
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock')) { throw new \RuntimeException('Site catalog adapter unavailable.', 503); }
         $keys = array_keys(get_object_vars($request->command)); sort($keys);
         $action = $request->command->action;
-        if ($keys !== (in_array($action, ['siteOptions', 'sourceCatalog'], true) ? ['action'] : ($action === 'catalogProducts' ? ['action', 'ids'] : ['action', 'query']))) { throw new \InvalidArgumentException('Unknown catalog command field.'); }
+        if ($keys !== (in_array($action, ['siteOptions', 'sourceCatalog'], true) ? ['action'] : (in_array($action, ['catalogProducts', 'catalogProductSections'], true) ? ['action', 'ids'] : ['action', 'query']))) { throw new \InvalidArgumentException('Unknown catalog command field.'); }
         $config = new \Prospektweb\Frontcalc\Config\ConfigManager();
+        if ($action === 'catalogProductSections') {
+            require_once $module . '/lib/Documents/BitrixProductSections.php';
+            $respond(200, ['success'=>true,'data'=>(new \Prospektweb\Calc\Documents\BitrixProductSections())->load($provider, $config->getProductIblockId(), $request->command->ids)]);
+        }
         if ($action === 'sourceCatalog') {
             require_once $module . '/lib/Services/CalculatorInputSourceCatalogService.php';
             $catalog = (new \Prospektweb\Calc\Services\CalculatorInputSourceCatalogService())->loadCatalogs($config->getProductIblockId(), $config->getSkuIblockId());

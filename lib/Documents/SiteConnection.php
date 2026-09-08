@@ -14,7 +14,9 @@ final class SiteConnection
         if (strlen($json) > 2000000) { throw new \InvalidArgumentException('Site connection exceeds byte limit.'); }
         $value = json_decode($json, false, 64, JSON_THROW_ON_ERROR);
         if (!$value instanceof \stdClass) { throw new \InvalidArgumentException('Expected site connection object.'); }
-        self::keys($value, ['contract', 'provider', 'productsCatalog', 'offersCatalog', 'products', 'priceTypes', 'formBindings', 'inputMappings', 'outputMappings']);
+        $keys = ['contract', 'provider', 'productsCatalog', 'offersCatalog', 'products', 'priceTypes', 'formBindings', 'inputMappings', 'outputMappings'];
+        if (property_exists($value, 'presentationDefaults')) { $keys[] = 'presentationDefaults'; }
+        self::keys($value, $keys);
         if ($value->contract !== self::CONTRACT) { throw new \InvalidArgumentException('Unsupported site connection.'); }
         foreach (['provider', 'productsCatalog', 'offersCatalog'] as $key) { self::identity($value->$key); }
         if ($value->productsCatalog === $value->offersCatalog) { throw new \InvalidArgumentException('Product and offer catalogs must differ.'); }
@@ -23,7 +25,7 @@ final class SiteConnection
         $types = [];
         foreach (($document['pricing']['types'] ?? []) as $type) { $types[$type['id']] = true; }
         self::listing($value->products, 10000);
-        $seen = [];
+        $seen = []; $productViews = [];
         foreach ($value->products as $product) {
             self::keys($product, ['key', 'presentationId']);
             self::identity($product->key); self::identity($product->presentationId);
@@ -31,6 +33,29 @@ final class SiteConnection
                 throw new \InvalidArgumentException('Duplicate product or unknown presentation.');
             }
             $seen[$product->key] = true;
+            $productViews[$product->key] = $product->presentationId;
+        }
+        // Site product identities belong to the connection, never the portable presentation.
+        // Missing entry keeps the previous single-product choice. Explicit null means
+        // "ask the customer to choose", even when only one product is assigned.
+        if (property_exists($value, 'presentationDefaults')) {
+            self::listing($value->presentationDefaults, 1000);
+            $seen = [];
+            foreach ($value->presentationDefaults as $default) {
+                self::keys($default, ['presentationId', 'productKey']);
+                self::identity($default->presentationId);
+                if (isset($seen[$default->presentationId]) || !isset($views[$default->presentationId])) {
+                    throw new \InvalidArgumentException('Duplicate or unknown presentation default.');
+                }
+                $seen[$default->presentationId] = true;
+                if ($default->productKey !== null) {
+                    self::identity($default->productKey);
+                    if (($productViews[$default->productKey] ?? null) !== $default->presentationId) {
+                        throw new \InvalidArgumentException('Default product must belong to this presentation.');
+                    }
+                }
+            }
+            usort($value->presentationDefaults, static fn($a, $b) => strcmp($a->presentationId, $b->presentationId));
         }
         self::listing($value->priceTypes, 100);
         $seen = []; $mapped = [];
