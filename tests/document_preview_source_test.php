@@ -2,8 +2,9 @@
 declare(strict_types=1);
 require_once __DIR__ . '/document_application_test.php';
 use Prospektweb\Calc\Documents\{DocumentApplication, DocumentVersions};
-$formCalls = 0; $duringForm = null; $duringPreview = null;
-$previewCore = static function (array $command) use (&$duringPreview): array {
+$formCalls = 0; $duringForm = null; $duringPreview = null; $lastPreviewCommand = null;
+$previewCore = static function (array $command) use (&$duringPreview, &$lastPreviewCommand): array {
+    $lastPreviewCommand = $command;
     if ($duringPreview) $duringPreview();
     return ['result' => ['calculatorId' => $command['document']->id, 'values' => $command['values'], 'execution' => $command['execution']]];
 };
@@ -20,6 +21,8 @@ check($formResult['source'] === $source && $formCalls === 1, 'Form pinned to sav
 $values = (object)['volume' => 123]; $execution = (object)['unitCount' => 123];
 $result = $app->command(['action' => 'previewVersion', 'values' => $values, 'execution' => $execution] + $cmd);
 check($result['source'] === $source && $result['result']['values'] === $values && $result['result']['execution'] === $execution, 'Preview carries exact source and explicit inputs');
+check($lastPreviewCommand['includeReport'] === true, 'Only saved administrative preview opts into the execution report');
+fails(fn() => $app->command(['action' => 'previewVersion', 'includeReport' => false] + $cmd));
 check($repo->versions()->load('test', $version) === $baseline, 'Read-only preview leaves revision unchanged');
 fails(fn() => $app->command(['action' => 'formVersion', 'scope' => 'site:other'] + $cmd));
 fails(fn() => $app->command(['action' => 'formVersion', 'revision' => $baseline['revision'] - 1] + $cmd), 409);

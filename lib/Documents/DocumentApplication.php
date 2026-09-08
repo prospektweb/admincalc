@@ -175,7 +175,8 @@ final class DocumentApplication
                 $result = ['runtime' => ($this->formRuntime)($document, $revision['revision'])];
             } else {
                 $result = ($this->core)(['action' => 'preview', 'document' => $document, 'resources' => ($this->resources)($document),
-                    'values' => $request['values'] ?? new \stdClass(), 'execution' => $request['execution'] ?? null, 'name' => $request['name'] ?? $document->name]);
+                    'values' => $request['values'] ?? new \stdClass(), 'execution' => $request['execution'] ?? null, 'name' => $request['name'] ?? $document->name,
+                    'includeReport' => $action === 'previewVersion']);
             }
             // The result names the saved input revision, never an optimistic UI
             // draft or a concurrently edited branch head.
