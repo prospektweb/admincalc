@@ -38,7 +38,11 @@ namespace {
     require_once dirname(__DIR__) . '/lib/Documents/BitrixResourceCatalog.php';
     $db = new \Bitrix\Main\DB\MysqliConnection(); \Bitrix\Main\Application::$connection = $db;
     $map = ['CALC_MATERIALS'=>1, 'CALC_MATERIALS_VARIANTS'=>2, 'CALC_OPERATIONS'=>3, 'CALC_OPERATIONS_VARIANTS'=>4, 'CALC_EQUIPMENT'=>5];
-    $browser = new \Prospektweb\Calc\Documents\BitrixResourceCatalog('bitrix:test', fn($code) => $map[$code]); $checks = 0;
+    $links = static function (int $iblock, array $ids): array {
+        CIBlockElement::$bulk++; if (count($ids) > 250) throw new RuntimeException('Unbounded links');
+        return array_fill_keys($ids, ['CML2_LINK' => in_array($iblock, [2,4], true) ? ['1'] : [], 'SUPPORTED_EQUIPMENT_LIST' => ['5','5','','0'], 'SUPPORTED_MATERIALS_VARIANTS_LIST' => ['7']]);
+    };
+    $browser = new \Prospektweb\Calc\Documents\BitrixResourceCatalog('bitrix:test', fn($code) => $map[$code], $links); $checks = 0;
     $check = static function (bool $ok, string $message) use (&$checks): void { $checks++; if (!$ok) throw new RuntimeException($message); };
     $result = $browser();
     $check(count($result['items']) === 10 && count($result['sections']) === 5 && CIBlockElement::$bulk === 5, 'Bounded bulk queries, full directories');

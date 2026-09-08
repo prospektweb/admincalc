@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Prospektweb\Calc\Documents;
 require_once __DIR__ . '/BitrixConnection.php';
 require_once __DIR__ . '/ResourceCatalogRegistry.php';
+require_once __DIR__ . '/BitrixResourceLinks.php';
 
 /** Catalog metadata only: no prices, document mutation, legacy graph, or repair writes. */
 final class BitrixResourceCatalog
@@ -12,8 +13,9 @@ final class BitrixResourceCatalog
     private const LIMIT = 20000;
     private string $provider;
     private $catalogId;
-    public function __construct(string $provider, ?callable $catalogId = null)
-    { $this->provider = $provider; $this->catalogId = $catalogId ?? [new ResourceCatalogRegistry(), 'getIblockId']; }
+    private $links;
+    public function __construct(string $provider, ?callable $catalogId = null, ?callable $links = null)
+    { $this->provider = $provider; $this->catalogId = $catalogId ?? [new ResourceCatalogRegistry(), 'getIblockId']; $this->links = $links; }
 
     public function __invoke(): array
     {
@@ -22,13 +24,14 @@ final class BitrixResourceCatalog
         $connection = \Bitrix\Main\Application::getConnection();
         if (\Prospektweb\Calc\Services\BitrixTransactionStateAuthority::isActive($connection)) throw new \LogicException('Resource browser owns its transaction.');
         $db = new BitrixConnection($connection); $db->begin(true);
-        try { $result = $this->read(); $db->commit(); return $result; }
+        try { $result = $this->read($db); $db->commit(); return $result; }
         catch (\Throwable $error) { $db->rollback(); throw $error; }
     }
 
-    private function read(): array
+    private function read(SqlConnection $db): array
     {
         $sections = []; $items = []; $identities = [];
+        $links = $this->links ?? [new BitrixResourceLinks($db), 'load'];
         foreach (self::KINDS as $catalog => $kind) {
             $iblockId = ($this->catalogId)($catalog);
             if (!is_int($iblockId) || $iblockId < 1) throw new \RuntimeException('Resource directory unavailable.', 409);
@@ -51,19 +54,18 @@ final class BitrixResourceCatalog
                 if (count($items) + count($rows) >= self::LIMIT) throw new \InvalidArgumentException('Справочник слишком велик для полного дерева. Данные не усечены.');
                 $row['PROPERTIES'] = []; $rows[$id] = $row;
             }
-            // One property query per batch, never GetProperties() for every element.
+            // Batched authoritative links: the Bitrix property API can write its V2 cache on read.
             foreach (array_chunk($rows, 250, true) as $batch) {
-                \CIBlockElement::GetPropertyValuesArray($batch, $iblockId, $filter + ['ID' => array_keys($batch)],
-                    ['CODE' => ['CML2_LINK', 'SUPPORTED_EQUIPMENT_LIST', 'SUPPORTED_MATERIALS_VARIANTS_LIST']], ['GET_RAW_DATA' => 'Y']);
+                $properties = $links($iblockId, array_keys($batch));
                 foreach ($batch as $id => $row) {
-                    $props = $row['PROPERTIES']; $parent = (string)($props['CML2_LINK']['VALUE'] ?? '');
+                    $props = $properties[$id]; $parent = (string)($props['CML2_LINK'][0] ?? '');
                     $parentCatalog = $kind === 'materialVariant' ? 'CALC_MATERIALS' : ($kind === 'operationVariant' ? 'CALC_OPERATIONS' : null);
                     $items[] = ['binding' => $this->binding($catalog, (string)$id), 'kind' => $kind, 'name' => (string)$row['NAME'],
                         'description' => (string)($row['PREVIEW_TEXT'] ?? ''), 'code' => (string)($row['CODE'] ?? ''),
                         'sectionKey' => (int)$row['IBLOCK_SECTION_ID'] > 0 ? $catalog . ':section:' . $row['IBLOCK_SECTION_ID'] : null,
                         'parentBinding' => $parentCatalog && preg_match('/^[1-9][0-9]*$/D', $parent) ? $this->binding($parentCatalog, $parent) : null,
-                        'supportedEquipmentKeys' => self::keys($props['SUPPORTED_EQUIPMENT_LIST']['VALUE'] ?? []),
-                        'supportedMaterialVariantKeys' => self::keys($props['SUPPORTED_MATERIALS_VARIANTS_LIST']['VALUE'] ?? [])];
+                        'supportedEquipmentKeys' => self::keys($props['SUPPORTED_EQUIPMENT_LIST'] ?? []),
+                        'supportedMaterialVariantKeys' => self::keys($props['SUPPORTED_MATERIALS_VARIANTS_LIST'] ?? [])];
                 }
             }
         }
