@@ -154,6 +154,9 @@ foreach(['description','xml'] as $fallback) {
     check($snapshot['properties']['selected_offer'][2001][22]['values'][0]['value']===($fallback==='description'?'Описание':'blue'),'Directory label fallback: '.$fallback);
     check($snapshot['properties']['selected_offer'][2001][22]['values'][0]['sort']===0,'Directory without UF_SORT uses stable ID order');$f['db']->rollback();
 }
+$f=fixture();$f['db']->execute('UPDATE b_user_field SET USER_TYPE_ID=? WHERE FIELD_NAME=?',['double','UF_SORT']);
+$f['db']->execute('UPDATE qa_colors SET UF_SORT=20.5 WHERE ID=1');$f['db']->begin();$snapshot=capture($f);
+check($snapshot['properties']['selected_offer'][2001][22]['values'][1]['sort']===20,'Aspro double UF_SORT uses the same integer projection as regular prefill');$f['db']->rollback();
 foreach(['bad-id','duplicates','foreign-scope','source-key','source-code','conflicting-source'] as $bad) {
     $f=fixture();$f['db']->begin();
     if($bad==='bad-id')$f['offerIds']=['2001'];

@@ -210,7 +210,7 @@ final class BitrixCatalogPropertySnapshot
         foreach ($labels as $name) {
             if ($names[$name]['MULTIPLE'] !== 'N' || $names[$name]['USER_TYPE_ID'] !== 'string') throw new DocumentConflict('Неполная схема справочника.');
         }
-        if (isset($names['UF_SORT']) && ($names['UF_SORT']['MULTIPLE'] !== 'N' || $names['UF_SORT']['USER_TYPE_ID'] !== 'integer')) throw new DocumentConflict('Некорректная сортировка справочника.');
+        if (isset($names['UF_SORT']) && ($names['UF_SORT']['MULTIPLE'] !== 'N' || !in_array($names['UF_SORT']['USER_TYPE_ID'], ['integer', 'double'], true))) throw new DocumentConflict('Некорректная сортировка справочника.');
         $sort = isset($names['UF_SORT']) ? 'UF_SORT' : '0';
         $label = count($labels) > 1 ? 'COALESCE(' . implode(',', $labels) . ')' : $labels[0];
         $rows = $this->select($table, 'ID,UF_XML_ID AS XML_ID,' . $label . ' AS VALUE,' . $sort . ' AS SORT', '1=1', [], isset($names['UF_SORT']) ? 'UF_SORT,ID' : 'ID');
