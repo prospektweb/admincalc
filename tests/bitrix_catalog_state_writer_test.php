@@ -119,5 +119,12 @@ foreach(['InnoDB','MyISAM'] as $engine) {
     else {$mysql->begin();$writer->write($f['targets']);$mysql->rollback();}
     foreach($mysql->queries as $sql) if(!str_contains($sql,'information_schema')) check(str_ends_with($sql,' FOR UPDATE') && str_contains($sql,' LIMIT '),'Every MySQL data read is locked and bounded');
 }
+$f=fixture();$reader=new BitrixCatalogStateWriter($f['db'],$f['mutation']);
+try{$reader->capture([101],false);throw new RuntimeException('Expected outside-snapshot rejection');}catch(LogicException $expected){check(true,'State projection requires outer snapshot');}
+foreach([false,true] as $lock){
+    $f['db']->begin(!$lock);$captured=$reader->capture([102,101],$lock);
+    check(array_keys($captured)===[101,102] && $f['calls']->rows===[],'State capture is ordered and never mutates');
+    check($captured[101]['state']['purchasingPrice']['value']===10.0,'Same state normalization as writer readback');$f['db']->rollback();
+}
 echo "PASS Bitrix catalog state writer: $assertions assertions\n";
 restore_error_handler();

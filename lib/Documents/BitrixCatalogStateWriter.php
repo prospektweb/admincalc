@@ -137,10 +137,21 @@ final class BitrixCatalogStateWriter
         if ($this->db instanceof BitrixConnection) $this->db->assertCatalogWriteTransaction();
     }
 
-    private function read(array $ids): array
+    /** Shared exact projection for the read port; never invokes a mutation API. */
+    public function capture(array $ids, bool $lock): array
+    {
+        if (!$this->db->inTransaction()) throw new \LogicException('Catalog state requires a coordinator snapshot.');
+        if ($lock) $this->assertTransaction();
+        if (!array_is_list($ids) || !$ids || count($ids)>100 || count(array_unique($ids,SORT_REGULAR))!==count($ids)) throw new \InvalidArgumentException('Invalid catalog target list.');
+        foreach ($ids as $id) if (!is_int($id) || $id<1 || $id>999999999) throw new \InvalidArgumentException('Invalid catalog target ID.');
+        sort($ids,SORT_NUMERIC);
+        return $this->read($ids,$lock);
+    }
+
+    private function read(array $ids, bool $forUpdate = true): array
     {
         $marks=implode(',',array_fill(0,count($ids),'?'));
-        $lock=$this->db->dialect()==='mysql'?' FOR UPDATE':'';
+        $lock=$forUpdate && $this->db->dialect()==='mysql'?' FOR UPDATE':'';
         $products=$this->db->rows('SELECT * FROM b_catalog_product WHERE ID IN ('.$marks.') ORDER BY ID LIMIT 101'.$lock,$ids);
         $prices=$this->db->rows('SELECT * FROM b_catalog_price WHERE PRODUCT_ID IN ('.$marks.') ORDER BY PRODUCT_ID, ID LIMIT 10001'.$lock,$ids);
         if ($this->db->dialect()==='mysql') {

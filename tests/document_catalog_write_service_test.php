@@ -31,7 +31,7 @@ writeCheck($noop['summary']['changedFields'] === 0 && $noopReceipt['summary']['u
 $rows = $port->read(); $rows[0]['values']->qty = 200; $port->replace($rows);
 writeReject(fn() => $service->command($apply), 409); writeCheck($port->writes === 1, 'Replay after input drift rejects');
 
-foreach (['offerResults' => [], 'values' => (object)['qty' => 999], 'actor' => 'user:2', 'presetId' => 1, 'connectionJson' => '{}'] as $key => $value) {
+foreach (['offerResults' => [], 'values' => (object)['qty' => 999], 'actor' => 'user:2', 'provider' => 'bitrix:foreign', 'prices' => [], 'services' => [], 'presetId' => 1, 'connectionJson' => '{}'] as $key => $value) {
     writeReject(fn() => $service->command($request + [$key => $value]), 0);
 }
 foreach ([[], [101, 101], ['101'], [0], [1.5], range(1, 101)] as $bad) writeReject(fn() => $service->command(array_replace($request, ['offerIds' => $bad])), 0);

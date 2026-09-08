@@ -31,8 +31,21 @@ try {
     require_once $module . '/lib/Documents/DocumentApplication.php';
     require_once $module . '/lib/Documents/BitrixCoreGateway.php';
     require_once $module . '/lib/Documents/BitrixResourceProvider.php';
-    $repository = new \Prospektweb\Calc\Documents\DocumentRepository(new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection()), 'site:' . $siteId, 'user:' . (int)$USER->GetID());
+    $catalogWrite = in_array($request->command->action ?? '', ['previewCatalogWrite', 'applyCatalogWrite'], true);
+    $scope = 'site:' . $siteId;
+    $actor = 'user:' . (int)$USER->GetID();
+    $connection = new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection(), $catalogWrite);
+    $repository = new \Prospektweb\Calc\Documents\DocumentRepository($connection, $scope, $actor);
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
+    if ($catalogWrite) {
+        require_once $module . '/lib/Documents/DocumentCatalogWriteService.php';
+        require_once $module . '/lib/Documents/BitrixDocumentCatalogWritePort.php';
+        // Forward the complete command: the service rejects extra client fields.
+        // Site/actor/provider and the shared repeatable-write connection are server-owned.
+        $catalog = new \Prospektweb\Calc\Documents\BitrixDocumentCatalogWritePort($connection, $scope, $actor);
+        $service = new \Prospektweb\Calc\Documents\DocumentCatalogWriteService($connection, $scope, $actor, $provider, $catalog, new \Prospektweb\Calc\Documents\BitrixCoreGateway());
+        $respond(200, ['success' => true, 'data' => $service->command(get_object_vars($request->command))]);
+    }
     if (($request->command->action ?? '') === 'auditVersionLogic') {
         require_once $module . '/lib/Documents/DocumentLogicAudit.php';
         $audit = new \Prospektweb\Calc\Documents\DocumentLogicAudit($repository, static function (array $payload): array {

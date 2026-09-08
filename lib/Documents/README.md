@@ -16,6 +16,26 @@ reads iblocks. `BitrixCoreGateway` is the authenticated HTTPS adapter.
 
 ## Native catalog input and mutation helpers
 
+`BitrixDocumentCatalogWritePort` composes the real property snapshot, native
+input builder and state writer. It captures the immutable site publication,
+module registration, complete FrontCalc settings/revision, provider, active
+site, catalog pair, exact V1/V2 SKU parent, native product/presentation binding,
+owned price groups and required currency/rate rows on the same connection.
+The shared mapping validator and builder consume only that captured data.
+Apply uses locking reads, including missing-value/range gaps, and requires
+InnoDB across the authority chain. Source fingerprints exclude intended owned
+catalog changes, but retain unrelated price/product state. The coordinator
+still owns authentication, remote calculations, rollback and receipts.
+
+The admin-only document HTTP endpoint exposes `previewCatalogWrite` and
+`applyCatalogWrite` through the real port on one shared connection. The
+trusted site, actor and provider never come from command fields. The original
+UI dialog is not yet connected. The port's standalone SQLite integration
+tests use real SQL and the real capture/write/coordinator code, with injected
+input/settings/mutation infrastructure seams; stage guard checks must not be
+misrepresented as successful pilot SKU writes. Connect the original preview/
+apply dialog only after the application boundary and real pilot acceptance.
+
 `BitrixCatalogPropertySnapshot` captures exact mapped input properties in bounded
 SQL batches, independent of the number of selected elements (up to 100 per
 scope). It supports iblock V1, V2 single and V2 multiple storage, list choices
@@ -45,7 +65,8 @@ next write transaction to repeatable read, not the session default.
 This helper is not a standalone authorization boundary. The catalog port must
 still validate and lock publication/product membership, source properties,
 enum/directory schema, settings, currencies and price-type authority. That full
-read port and HTTP/UI wiring remain in progress; do not remove the native
+read port and HTTP wiring are implemented, but pilot write/UI QA remains in
+progress; do not remove the native
 `writeback_unavailable` warning merely because a mutation helper exists.
 
 ## HTTP access
@@ -140,8 +161,9 @@ identity, resolved inputs/execution, result hashes and before/after diffs.
 Replay verifies the current publication, inputs and catalog state under the
 same locks and never performs a duplicate write. Reinstall preserves receipts.
 
-The **real Bitrix catalog port and HTTP/UI wiring are not connected yet**.
-`DocumentCatalogWritePort` specifies the remaining adapter obligations:
+The **Bitrix catalog port and HTTP commands are implemented; UI wiring and
+pilot write QA are not connected/completed yet**.
+`DocumentCatalogWritePort` specifies the adapter obligations:
 fresh provider/catalog identity, exact product/offer relation and active
 binding, semantic input mappings/defaults/conditions, all source/schema/enum
 and price insertion-gap locks, no cached locked reads, and the same SQL
