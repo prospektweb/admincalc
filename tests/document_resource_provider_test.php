@@ -10,3 +10,4 @@ foreach (['RUB' => ['amount', 'RUB'], 'PRC' => ['markupPercent', null], 'MRG' =>
 }
 if ((new BitrixResourceProvider('test'))((object)['resources' => []]) !== []) { throw new RuntimeException('Resource-free calculation must not access Bitrix'); }
 echo 'PASS ' . ($checks + 1) . " resource adapter checks\n";
+require __DIR__ . '/bitrix_resource_snapshot_identity_test.php';

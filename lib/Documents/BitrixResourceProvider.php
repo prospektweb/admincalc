@@ -101,7 +101,7 @@ final class BitrixResourceProvider
                 }
                 $machine['horizontalSum'] = $machine['left'] + $machine['right']; $machine['verticalSum'] = $machine['top'] + $machine['bottom'];
                 $purchase = isset($product['PURCHASING_PRICE']) ? (float)$product['PURCHASING_PRICE'] : null;
-                $result[] = ['id' => $ref->id, 'name' => html_entity_decode((string)$row['FIELDS']['NAME']), 'description' => (string)($row['FIELDS']['PREVIEW_TEXT'] ?? ''),
+                $result[] = ['id' => $ref->id, 'code' => (string)($row['FIELDS']['CODE'] ?? ''), 'name' => html_entity_decode((string)$row['FIELDS']['NAME']), 'description' => (string)($row['FIELDS']['PREVIEW_TEXT'] ?? ''),
                     'kind' => $ref->kind, 'binding' => $ref->binding, 'parentId' => $parentId, 'attributes' => (object)$attributes, 'fields' => (object)$fields, 'parameters' => $parameters, 'prices' => $mappedPrices,
                     'purchasingPrice' => $purchase, 'purchasingCurrency' => $product['PURCHASING_CURRENCY'] ?? null, 'machine' => (object)$machine,
                     'selectionFacts' => ['catalog' => (object)($attributes + ['purchasingPrice' => $purchase, 'basePrice' => $basePrice]),
