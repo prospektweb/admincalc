@@ -19,7 +19,7 @@ $remove = static function (string $path) use (&$remove): void {
 try {
     mkdir($www . '/bitrix/modules/main/include', 0700, true);
     mkdir($module . '/lib/Documents', 0700, true);
-    foreach (['BitrixConnection', 'DocumentApplication', 'BitrixCoreGateway', 'BitrixResourceProvider', 'DocumentCatalogWriteService', 'BitrixDocumentCatalogWritePort'] as $file) {
+    foreach (['BitrixConnection', 'DocumentApplication', 'BitrixCoreGateway', 'BitrixResourceProvider', 'DocumentCatalogWriteService', 'BitrixDocumentCatalogWritePort', 'BitrixDocumentCatalogTargets'] as $file) {
         file_put_contents($module . '/lib/Documents/' . $file . '.php', '<?php');
     }
     $prolog = <<<'PHP'
@@ -51,6 +51,17 @@ namespace Prospektweb\Calc\Documents {
     class BitrixCoreGateway { public function __invoke(array $request): array { return []; } }
     class BitrixDocumentCatalogWritePort {
         public function __construct(public BitrixConnection $db, public string $scope, public string $actor) {}
+    }
+    class BitrixDocumentCatalogTargets {
+        public function __construct(public BitrixConnection $db, public string $scope, public string $actor, public string $provider) {}
+        public function command(array $command): array {
+            $repo = $GLOBALS['test_repository'];
+            if ($this->db->repeatable || $this->db->native !== $GLOBALS['test_connection'] || $repo->db !== $this->db
+                || $repo->scope !== $this->scope || $repo->actor !== $this->actor) throw new \LogicException('Wrong read selector wiring');
+            if (($command['id'] ?? '') === 'conflict') throw new \RuntimeException('Product binding changed', 409);
+            if (($command['id'] ?? '') === 'invalid') throw new \InvalidArgumentException('Invalid selector command');
+            return ['scope' => $this->scope, 'actor' => $this->actor, 'provider' => $this->provider, 'command' => $command];
+        }
     }
     class DocumentCatalogWriteService {
         public function __construct(public BitrixConnection $db, public string $scope, public string $actor,
@@ -112,6 +123,20 @@ PHP;
     };
     $command = ['action' => 'previewCatalogWrite', 'id' => 'native-document', 'publicationId' => 's_' . str_repeat('a', 64), 'offerIds' => [102, 101]];
     $envelope = ['siteId' => 's1', 'command' => $command];
+    $selector = ['action' => 'catalogWriteTargets', 'id' => 'native-document', 'publicationId' => $command['publicationId'], 'productId' => 42, 'afterId' => 100];
+    $r = $send(['siteId' => 's2', 'command' => $selector]);
+    $check($r['status'] === 200 && $r['body']['data']['command'] === $selector, 'Selector native identity, product and cursor forwarded intact');
+    $check($r['body']['data']['scope'] === 'site:s2' && $r['body']['data']['actor'] === 'user:17' && $r['body']['data']['provider'] === 'bitrix:server', 'Selector server-owned scope');
+    foreach (['actor', 'provider', 'prices', 'presetId'] as $field) {
+        $r = $send(['siteId' => 's1', 'command' => $selector + [$field => 'hostile']]);
+        $check($r['body']['data']['command'][$field] === 'hostile' && $r['body']['data']['actor'] === 'user:17', 'Selector retains extra fields for strict service rejection');
+    }
+    foreach ([['GET', true, 'valid', 405], ['POST', false, 'valid', 403], ['POST', true, 'stale', 403]] as [$method, $admin, $sessid, $status]) {
+        $check($send(['siteId' => 's1', 'command' => $selector], $method, $admin, $sessid)['status'] === $status, 'Selector does not bypass authorization');
+    }
+    foreach ([['conflict', 409], ['invalid', 422]] as [$id, $status]) {
+        $check($send(['siteId' => 's1', 'command' => array_replace($selector, ['id' => $id])])['status'] === $status, 'Selector errors translated');
+    }
     foreach (['previewCatalogWrite', 'applyCatalogWrite'] as $action) {
         $command['action'] = $action;
         if ($action === 'applyCatalogWrite') $command['expectedFingerprint'] = str_repeat('b', 64);

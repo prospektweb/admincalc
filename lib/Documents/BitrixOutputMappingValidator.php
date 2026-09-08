@@ -25,8 +25,8 @@ final class BitrixOutputMappingValidator
             $issues[] = ['severity' => 'warning', 'code' => 'output_mappings.not_configured', 'path' => 'outputMappings',
                 'message' => 'Выходные сопоставления ещё не добавлены в версию.'];
         }
-        $issues[] = ['severity' => 'warning', 'code' => 'output_mappings.writeback_unavailable', 'path' => 'outputMappings',
-            'message' => 'Проверен контракт сопоставлений. Запись результатов в ТП в документном режиме ещё не подключена.'];
+        $issues[] = ['severity' => 'warning', 'code' => 'output_mappings.preview_required', 'path' => 'outputMappings',
+            'message' => 'Проверен только контракт сопоставлений. Исходные данные ТП и расчёт проверяются при предпросмотре записи в разделе «Товары» опубликованной версии.'];
         return $issues;
     }
 }

@@ -37,6 +37,11 @@ try {
     $connection = new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection(), $catalogWrite);
     $repository = new \Prospektweb\Calc\Documents\DocumentRepository($connection, $scope, $actor);
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
+    if (($request->command->action ?? '') === 'catalogWriteTargets') {
+        require_once $module . '/lib/Documents/BitrixDocumentCatalogTargets.php';
+        $targets = new \Prospektweb\Calc\Documents\BitrixDocumentCatalogTargets($connection, $scope, $actor, $provider);
+        $respond(200, ['success' => true, 'data' => $targets->command(get_object_vars($request->command))]);
+    }
     if ($catalogWrite) {
         require_once $module . '/lib/Documents/DocumentCatalogWriteService.php';
         require_once $module . '/lib/Documents/BitrixDocumentCatalogWritePort.php';

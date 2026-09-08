@@ -46,7 +46,7 @@ $result = $app->command($command);
 $check($result['contract'] === 'prospektweb.calculator/output-mapping-check-v1' && $result['valid'] === true, 'Native check contract');
 $check($result['documentId'] === 'sheet' && $result['versionId'] === $version && $result['revision'] === 2, 'Pinned identity');
 $check($result['bodyHash'] === hash('sha256', $command['documentJson']) && $result['connectionHash'] === hash('sha256', SiteConnection::canonical($json, json_decode($body, true))), 'Draft hashes');
-$check($result['issues'][0]['code'] === 'output_mappings.writeback_unavailable', 'No claim that settings enable a writer');
+$check($result['issues'][0]['code'] === 'output_mappings.preview_required', 'Mapping validation is not catalog write readiness');
 $check($calls === ['validate', ['output-check', 'Unsaved', 7]], 'No resources, input catalog, compilation or catalog mutation');
 $check([$repo->load('sheet'), $repo->history('sheet'), $repo->versions()->listing('sheet')] === $baseline, 'Check is read-only');
 $empty = clone $connection; $empty->outputMappings = [];
