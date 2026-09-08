@@ -14,7 +14,21 @@ catalogs in a repeatable-read transaction. It translates legacy resource field
 encodings and PRC/MRG price modes only at this boundary. The executor never
 reads iblocks. `BitrixCoreGateway` is the authenticated HTTPS adapter.
 
-## HTTP access
+## Native catalog input and mutation helpers
+
+`BitrixCatalogPropertySnapshot` captures exact mapped input properties in bounded
+SQL batches, independent of the number of selected elements (up to 100 per
+scope). It supports iblock V1, V2 single and V2 multiple storage, list choices
+and registered Highload directories. Property identity, active dates, schema,
+enum XML_IDs, directory registration/fields and raw input rows contribute to a
+fresh fingerprint. Invalid, stale or ambiguous values fail closed; genuinely
+empty sources retain their schema. Its projection feeds the existing mapping
+validator and `DocumentCatalogInputBuilder` without introducing a preset ID.
+Locked capture uses the same repeatable-write transaction and FOR UPDATE,
+including empty ranges; every participating table must be InnoDB. It never
+starts/ends a transaction, uses a cached property API, or changes site data.
+The caller still owns catalog pair/SKU membership, settings, publication,
+currency/price authority and the eventual preview/apply wiring.
 
 `BitrixCatalogStateWriter` is the mutation half of the native catalog write port.
 It requires an outer coordinator transaction and, for the real Bitrix API path,
@@ -33,6 +47,8 @@ still validate and lock publication/product membership, source properties,
 enum/directory schema, settings, currencies and price-type authority. That full
 read port and HTTP/UI wiring remain in progress; do not remove the native
 `writeback_unavailable` warning merely because a mutation helper exists.
+
+## HTTP access
 
 `/bitrix/tools/prospektweb.calc/documents.php` accepts admin-only POST requests
 with the normal Bitrix `sessid` and `payload` form fields. Payload is
