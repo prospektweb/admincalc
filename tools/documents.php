@@ -75,7 +75,8 @@ try {
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc')) { throw new \RuntimeException('FrontCalc site adapter unavailable.', 503); }
         return (new \Prospektweb\Frontcalc\Service\BitrixDocumentSiteCompiler($provider))($document, $connection, $revision);
     };
-    $application = new \Prospektweb\Calc\Documents\DocumentApplication($repository, new \Prospektweb\Calc\Documents\BitrixCoreGateway(), new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider), $siteCompiler);
+    require_once $module . '/lib/Documents/BitrixInputMappingValidator.php';
+    $application = new \Prospektweb\Calc\Documents\DocumentApplication($repository, new \Prospektweb\Calc\Documents\BitrixCoreGateway(), new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider), $siteCompiler, new \Prospektweb\Calc\Documents\BitrixInputMappingValidator($provider));
     $respond(200, ['success' => true, 'data' => $application->command(get_object_vars($request->command))]);
 } catch (\InvalidArgumentException | \JsonException $error) {
     $respond(422, ['success' => false, 'error' => 'DOCUMENT_INVALID', 'message' => $error->getMessage()]);
