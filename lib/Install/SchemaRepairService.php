@@ -141,6 +141,12 @@ class SchemaRepairService
                 'ENTITY_KEY' => self::entityKeyProperty('варианта материала'),
                 'SUPPLIERS' => self::suppliersProperty(),
             ],
+            'CALC_OPERATIONS' => [
+                'SOURCE_LINKS' => self::sourceLinksProperty(),
+            ],
+            'CALC_OPERATIONS_VARIANTS' => [
+                'SOURCE_LINKS' => self::sourceLinksProperty(),
+            ],
             'CALC_SUPPLIERS' => [
                 'ENTITY_KEY' => ['NAME' => 'Стабильный ключ поставщика', 'TYPE' => 'S', 'SORT' => 100],
                 'LEGAL_NAME' => ['NAME' => 'Юридическое наименование', 'TYPE' => 'S', 'SORT' => 200],

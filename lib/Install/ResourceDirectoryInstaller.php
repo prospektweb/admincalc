@@ -19,11 +19,11 @@ final class ResourceDirectoryInstaller
             'CALC_MATERIALS' => $materials,
             'CALC_MATERIALS_VARIANTS' => $materials,
             'CALC_OPERATIONS' => [
-                'PARAMETRS' => $params,
+                'PARAMETRS' => $params, 'SOURCE_LINKS' => $sources,
                 'SUPPORTED_EQUIPMENT_LIST' => ['NAME' => 'Поддерживаемое оборудование', 'PROPERTY_TYPE' => 'E', 'MULTIPLE' => 'Y', 'LINK_CODE' => 'CALC_EQUIPMENT'],
                 'SUPPORTED_MATERIALS_VARIANTS_LIST' => ['NAME' => 'Поддерживаемые варианты материалов', 'PROPERTY_TYPE' => 'E', 'MULTIPLE' => 'Y', 'LINK_CODE' => 'CALC_MATERIALS_VARIANTS'],
             ],
-            'CALC_OPERATIONS_VARIANTS' => ['PARAMETRS' => $params],
+            'CALC_OPERATIONS_VARIANTS' => ['PARAMETRS' => $params, 'SOURCE_LINKS' => $sources],
             'CALC_EQUIPMENT' => [
                 'FIELDS' => ['NAME' => 'Поля печатной машины', 'PROPERTY_TYPE' => 'S'],
                 'MIN_WIDTH' => ['NAME' => 'Мин. ширина, мм', 'PROPERTY_TYPE' => 'N'],
@@ -98,7 +98,7 @@ final class ResourceDirectoryInstaller
             $rows[] = \CIBlockProperty::GetList([], ['ID' => $id])->Fetch();
         }
         $row = $rows[0];
-        foreach (['PROPERTY_TYPE', 'MULTIPLE', 'USER_TYPE', 'LINK_IBLOCK_ID'] as $field) {
+        foreach (['PROPERTY_TYPE', 'MULTIPLE', 'USER_TYPE', 'LINK_IBLOCK_ID', 'WITH_DESCRIPTION'] as $field) {
             if (array_key_exists($field, $fields) && (string)($row[$field] ?? '') !== (string)$fields[$field]) { throw new \RuntimeException('Resource property schema conflict: ' . $code . '.' . $field); }
         }
         if ((int)($row['IBLOCK_ID'] ?? 0) !== $iblock || ($row['CODE'] ?? '') !== $code || ($row['ACTIVE'] ?? '') !== 'Y') { throw new \RuntimeException('Resource property readback failed: ' . $code); }
