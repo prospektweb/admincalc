@@ -66,7 +66,7 @@ final class DocumentVersions
     public function save(string $id, string $versionId, int $expectedRevision, string $json, ?string $connectionJson = null, bool $replaceConnection = false): array
     {
         return $this->transaction(function () use ($id, $versionId, $expectedRevision, $json, $connectionJson, $replaceConnection): array {
-            $meta = $this->lock($id); $version = $this->requireVersion($id, $versionId);
+            $meta = $this->lock($id); $version = $this->requireWritableVersion($id, $versionId);
             if ((int)$version['head_revision'] !== $expectedRevision) { throw new DocumentConflict('Версия изменилась. Ваши правки не перезаписаны.'); }
             $current = $this->envelope($id, $version);
             $connection = $replaceConnection ? $connectionJson : $current['connectionJson'];
@@ -124,7 +124,7 @@ final class DocumentVersions
         $this->touch($id);
     }
 
-    public function assertPrimaryWritable(string $id): void { $this->requireVersion($id, self::primaryId($id)); }
+    public function assertPrimaryWritable(string $id): void { $this->requireWritableVersion($id, self::primaryId($id)); }
 
     public static function contentHash(array $envelope): string { return hash('sha256', $envelope['bodyHash'] . ':' . ($envelope['connectionHash'] ?? '')); }
 
@@ -151,6 +151,16 @@ final class DocumentVersions
                     'hasConnection' => $row['connection_hash'] !== null,
                     'workContentHash' => $workHash, 'deployedContentHash' => $deployedHash, 'hasUnactivatedChanges' => $workHash !== $deployedHash];
             }, $rows)];
+    }
+
+    /** Checked after the common document row lock, also used by primary saves.
+     * Hiding a version and writing its body/connections must serialize together. */
+    private function requireWritableVersion(string $id, string $versionId): array
+    {
+        $this->requireTransaction();
+        $version = $this->requireVersion($id, $versionId);
+        if ((int)$version['hidden'] !== 0) { throw new DocumentConflict('Скрытая версия доступна только для просмотра. Сначала восстановите её из архива.'); }
+        return $version;
     }
 
     private function requireVersion(string $id, string $versionId): array

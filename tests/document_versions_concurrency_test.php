@@ -8,7 +8,11 @@ function versionBody(string $name): string { return json_encode(['contract' => '
 if (($argv[1] ?? '') === '--worker') {
     $repo = new DocumentRepository(new PdoConnection(new PDO('sqlite:' . $argv[2])), 'site:test', 'test:worker');
     echo "ready\n"; fflush(STDOUT); fgets(STDIN);
-    try { $repo->versions()->save('sheet', $argv[3], (int)$argv[4], versionBody($argv[5])); echo '200'; }
+    try {
+        if ($argv[5] === '--archive') $repo->versions()->change('sheet', $argv[3], (int)$argv[4], 'archiveVersion', ['archived' => true]);
+        else $repo->versions()->save('sheet', $argv[3], (int)$argv[4], versionBody($argv[5]));
+        echo '200';
+    }
     catch (Throwable $e) { if ($e->getCode() !== 409) throw $e; echo '409'; } exit;
 }
 function race(string $path, array $requests): array {
@@ -38,5 +42,13 @@ try {
     $db->execute("CREATE TRIGGER fail_version_head BEFORE UPDATE ON b_pw_calc_version BEGIN SELECT RAISE(ABORT, 'head update fault'); END");
     try { $versions->save('sheet', $branch, $before['revision'], versionBody('Must rollback')); throw new LogicException('Fault absent'); } catch (PDOException $e) {}
     if ($versions->load('sheet', $branch) !== $before || $versions->listing('sheet') !== $registry || count($repo->history('sheet')) !== $count || $db->inTransaction()) throw new RuntimeException('Revision insert escaped head-update rollback');
-    echo "PASS version branch concurrency, same-head CAS and full save rollback\n";
+    $db->execute('DROP TRIGGER fail_version_head');
+    $statuses = race($path, [[$branch, $before['revision'], 'Concurrent edit'], [$branch, $registry['registryRevision'], '--archive']]);
+    if ($statuses !== ['200', '409']) throw new RuntimeException('Archive/save must serialize: archive blocks save, or save invalidates archive CAS');
+    $afterRace = $versions->load('sheet', $branch); $afterRegistry = $versions->listing('sheet');
+    if (!$afterRace['versionArchived']) $versions->change('sheet', $branch, $afterRegistry['registryRevision'], 'archiveVersion', ['archived' => true]);
+    $hidden = $versions->load('sheet', $branch); $hiddenRegistry = $versions->listing('sheet'); $hiddenHistory = $repo->history('sheet');
+    if (race($path, [[$branch, $hidden['revision'], 'Forbidden A'], [$branch, $hidden['revision'], 'Forbidden B']]) !== ['409', '409']) throw new RuntimeException('Archived branch accepted a concurrent write');
+    if ($versions->load('sheet', $branch) !== $hidden || $versions->listing('sheet') !== $hiddenRegistry || $repo->history('sheet') !== $hiddenHistory) throw new RuntimeException('Rejected archived writes changed authoritative state');
+    echo "PASS version branch concurrency, same-head CAS, save rollback and archive/write serialization\n";
 } finally { unset($versions, $repo, $db); if (is_file($path)) unlink($path); }
