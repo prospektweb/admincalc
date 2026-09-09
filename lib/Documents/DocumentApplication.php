@@ -18,14 +18,16 @@ final class DocumentApplication
     private $inputMappingValidator;
     private $outputMappingValidator;
     private $formRuntime;
+    private $registryOfferCounts;
 
-    public function __construct(DocumentRepository $repository, callable $core, callable $resources, ?callable $siteCompiler = null, ?callable $inputMappingValidator = null, ?callable $outputMappingValidator = null, ?callable $formRuntime = null)
+    public function __construct(DocumentRepository $repository, callable $core, callable $resources, ?callable $siteCompiler = null, ?callable $inputMappingValidator = null, ?callable $outputMappingValidator = null, ?callable $formRuntime = null, ?callable $registryOfferCounts = null)
     {
         $this->repository = $repository; $this->core = $core; $this->resources = $resources;
         $this->siteCompiler = $siteCompiler;
         $this->inputMappingValidator = $inputMappingValidator;
         $this->outputMappingValidator = $outputMappingValidator;
         $this->formRuntime = $formRuntime;
+        $this->registryOfferCounts = $registryOfferCounts;
     }
 
     public function command(array $request): array
@@ -82,7 +84,7 @@ final class DocumentApplication
             $query = $request['query'] ?? '';
             if (!is_string($query)) { throw new \InvalidArgumentException('Expected string: query'); }
             return $this->repository->registry($query, self::text($request + ['status' => 'all'], 'status'),
-                self::text($request + ['sort' => 'updated_desc'], 'sort'), self::integer($request, 'page', 1), self::integer($request, 'pageSize', 30), self::nullableText($request + ['sectionId' => null], 'sectionId'));
+                self::text($request + ['sort' => 'updated_desc'], 'sort'), self::integer($request, 'page', 1), self::integer($request, 'pageSize', 30), self::nullableText($request + ['sectionId' => null], 'sectionId'), $this->registryOfferCounts);
         }
         if ($action === 'create') {
             return $this->repository->create($this->validate(self::text($request, 'documentJson')), self::nullableText($request + ['sectionId' => null], 'sectionId'),

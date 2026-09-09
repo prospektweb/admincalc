@@ -155,7 +155,13 @@ try {
         require_once $module . '/lib/Documents/DocumentFormRuntime.php';
         return (new \Prospektweb\Calc\Documents\DocumentFormRuntime())($document, $revision);
     };
-    $application = new \Prospektweb\Calc\Documents\DocumentApplication($repository, new \Prospektweb\Calc\Documents\BitrixCoreGateway(), new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider), $siteCompiler, new \Prospektweb\Calc\Documents\BitrixInputMappingValidator($provider), new \Prospektweb\Calc\Documents\BitrixOutputMappingValidator($provider), $formRuntime);
+    $registryOfferCounts = null;
+    if (($request->command->action ?? '') === 'registry' && \Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') && \Bitrix\Main\Loader::includeModule('iblock')) {
+        require_once $module.'/lib/Documents/BitrixRegistryOfferCounts.php';
+        $config=new \Prospektweb\Frontcalc\Config\ConfigManager();
+        $registryOfferCounts=new \Prospektweb\Calc\Documents\BitrixRegistryOfferCounts($connection,$scope,$provider,$config->getProductIblockId(),$config->getSkuIblockId());
+    }
+    $application = new \Prospektweb\Calc\Documents\DocumentApplication($repository, new \Prospektweb\Calc\Documents\BitrixCoreGateway(), new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider), $siteCompiler, new \Prospektweb\Calc\Documents\BitrixInputMappingValidator($provider), new \Prospektweb\Calc\Documents\BitrixOutputMappingValidator($provider), $formRuntime, $registryOfferCounts);
     $respond(200, ['success' => true, 'data' => $application->command(get_object_vars($request->command))]);
 } catch (\InvalidArgumentException | \JsonException $error) {
     $respond(422, ['success' => false, 'error' => 'DOCUMENT_INVALID', 'message' => $error->getMessage()]);

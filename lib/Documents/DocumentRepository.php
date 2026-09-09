@@ -102,8 +102,8 @@ final class DocumentRepository
             [$this->scope, (int)$archived]);
     }
 
-    /** Registry reads metadata and publication bindings only, never document bodies or resources. */
-    public function registry(string $query = '', string $status = 'all', string $sort = 'updated_desc', int $page = 1, int $pageSize = 30, ?string $sectionId = null): array
+    /** Metadata-only index; an optional site usage port runs inside the same read snapshot. */
+    public function registry(string $query = '', string $status = 'all', string $sort = 'updated_desc', int $page = 1, int $pageSize = 30, ?string $sectionId = null, ?callable $offerCounts = null): array
     {
         if (mb_strlen($query) > 100 || !in_array($status, ['all', 'active', 'archived'], true)
             || $page < 1 || $page > 10000 || $pageSize < 1 || $pageSize > 100) { throw new \InvalidArgumentException('Invalid registry filters.'); }
@@ -125,7 +125,7 @@ final class DocumentRepository
             $where .= ')';
         }
         // Keep count, page bounds, and rows in one consistent transaction snapshot.
-        return $this->transaction(function () use ($where, $parameters, $sort, $orders, $page, $pageSize, $sectionId): array {
+        return $this->transaction(function () use ($where, $parameters, $sort, $orders, $page, $pageSize, $sectionId, $offerCounts): array {
             if ($sectionId === '') { $where .= ' AND d.section_id IS NULL'; }
             elseif ($sectionId !== null) {
                 $ids = (new DocumentCatalog($this->db, $this->scope))->descendants($sectionId);
@@ -138,10 +138,19 @@ final class DocumentRepository
                 (SELECT COUNT(*) FROM b_pw_calc_product_binding b WHERE b.scope_id = d.scope_id AND b.document_id = d.id AND b.publication_id = a.publication_id) AS product_count
                 FROM b_pw_calc_document d LEFT JOIN b_pw_calc_site_active a ON a.document_id = d.id WHERE ' . $where
                 . ' ORDER BY ' . $orders[$sort] . ' LIMIT ' . $pageSize . ' OFFSET ' . $offset, $parameters);
-            return ['contract' => 'prospektweb.calculator/registry-v1', 'total' => $total, 'page' => $page, 'pageSize' => $pageSize, 'pageCount' => $pageCount,
-                'rows' => array_map(static fn(array $row): array => ['id' => $row['id'], 'name' => $row['name'], 'revision' => (int)$row['current_revision'],
+            $items = array_map(static fn(array $row): array => ['id' => $row['id'], 'name' => $row['name'], 'revision' => (int)$row['current_revision'],
                     'sectionId' => $row['section_id'], 'archived' => (bool)$row['archived'], 'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at'],
-                    'activePublication' => $row['active_publication'], 'activeSitePublication' => $row['site_publication'], 'productCount' => (int)$row['product_count']], $rows)];
+                    'activePublication' => $row['active_publication'], 'activeSitePublication' => $row['site_publication'], 'productCount' => (int)$row['product_count']], $rows);
+            $counts = $offerCounts === null ? array_fill_keys(array_column($items, 'id'), null) : $offerCounts($items);
+            if (!is_array($counts) || count($counts) !== count($items)) { throw new \RuntimeException('Incomplete registry usage response.'); }
+            foreach ($items as &$item) {
+                if (!array_key_exists($item['id'], $counts) || ($counts[$item['id']] !== null && (!is_int($counts[$item['id']]) || $counts[$item['id']] < 0))) {
+                    throw new \RuntimeException('Invalid registry offer count.');
+                }
+                $item['offerCount'] = $counts[$item['id']];
+            }
+            unset($item);
+            return ['contract' => 'prospektweb.calculator/registry-v1', 'total' => $total, 'page' => $page, 'pageSize' => $pageSize, 'pageCount' => $pageCount, 'rows' => $items];
         }, true);
     }
 
