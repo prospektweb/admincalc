@@ -312,6 +312,21 @@ final class DocumentRepository
         return $rows[0] ?? null;
     }
 
+    /** Batched read-only ownership for the product picker; never infer it from draft versions. */
+    public function productBindings(string $provider, string $catalog, array $products): array
+    {
+        self::identity($provider); self::identity($catalog);
+        if (count($products) > 10000) { throw new \InvalidArgumentException('Too many products.'); }
+        foreach ($products as $product) { self::identity($product); }
+        $result = [];
+        foreach (array_chunk(array_values(array_unique($products)), 100) as $batch) {
+            $marks = implode(',', array_fill(0, count($batch), '?'));
+            $rows = $this->db->rows('SELECT b.product_key, b.document_id, b.publication_id, d.name FROM b_pw_calc_product_binding b JOIN b_pw_calc_document d ON d.id=b.document_id AND d.scope_id=b.scope_id JOIN b_pw_calc_site_active a ON a.document_id=b.document_id AND a.publication_id=b.publication_id WHERE b.scope_id=? AND b.provider=? AND b.catalog_key=? AND d.archived=0 AND b.product_key IN ('.$marks.')', array_merge([$this->scope, $provider, $catalog], $batch));
+            foreach ($rows as $row) { $result[(string)$row['product_key']] = $row; }
+        }
+        return $result;
+    }
+
     public function sitePublication(string $id): array
     {
         self::identity($id);

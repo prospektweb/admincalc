@@ -95,6 +95,20 @@ try {
         });
         $respond(200, ['success' => true, 'data' => $audit->command(get_object_vars($request->command))]);
     }
+    if (in_array($request->command->action ?? '', ['assignmentCatalog', 'previewProductAssignments', 'saveProductAssignments'], true)) {
+        if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock')) throw new \RuntimeException('Site catalog adapter unavailable.',503);
+        require_once $module.'/lib/Documents/DocumentProductAssignments.php';
+        $config=new \Prospektweb\Frontcalc\Config\ConfigManager(); $catalog=$config->getProductIblockId();
+        $assignments=new \Prospektweb\Calc\Documents\DocumentProductAssignments($repository,$provider,(string)$catalog,static function(string $query,?array $ids) use($catalog): array {
+            $filter=['IBLOCK_ID'=>$catalog,'CHECK_PERMISSIONS'=>'Y'];
+            if ($ids!==null) $filter['ID']=array_map('intval',$ids);
+            elseif ($query!=='') { if(ctype_digit($query)) $filter['ID']=(int)$query; else $filter['%NAME']=$query; }
+            $rows=[]; $cursor=\CIBlockElement::GetList(['NAME'=>'ASC','ID'=>'ASC'],$filter,false,['nTopCount'=>$ids===null?50:100],['ID','NAME','ACTIVE']);
+            while($row=$cursor->Fetch()) $rows[]=['key'=>(string)$row['ID'],'name'=>(string)$row['NAME'],'active'=>$row['ACTIVE']==='Y'];
+            return $rows;
+        });
+        $respond(200,['success'=>true,'data'=>$assignments->command(get_object_vars($request->command))]);
+    }
     if (in_array($request->command->action ?? '', ['siteOptions', 'sourceCatalog', 'searchProducts', 'catalogProducts', 'catalogProductSections'], true)) {
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock')) { throw new \RuntimeException('Site catalog adapter unavailable.', 503); }
         $keys = array_keys(get_object_vars($request->command)); sort($keys);
