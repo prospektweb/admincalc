@@ -422,7 +422,9 @@ final class DocumentRepository
     private static function body(string $json): array
     {
         $document = self::json($json, 8388608);
-        if (($document['contract'] ?? '') !== 'prospektweb.calculator/document-v1' || ($document['schemaVersion'] ?? null) !== 1) {
+        if (!in_array([$document['contract'] ?? null, $document['schemaVersion'] ?? null], [
+            ['prospektweb.calculator/document-v1', 1], ['prospektweb.calculator/document-v2', 2],
+        ], true)) {
             throw new \InvalidArgumentException('Unsupported document contract.');
         }
         self::identity($document['id'] ?? '');

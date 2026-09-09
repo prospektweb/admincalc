@@ -227,7 +227,9 @@ final class DocumentVersions
     {
         if (strlen($json) > 8388608) { throw new \InvalidArgumentException('Document exceeds byte limit.'); }
         $body = json_decode($json, true, 64, JSON_THROW_ON_ERROR);
-        if (!is_array($body) || ($body['id'] ?? null) !== $id || ($body['contract'] ?? null) !== 'prospektweb.calculator/document-v1' || ($body['schemaVersion'] ?? null) !== 1
+        if (!is_array($body) || ($body['id'] ?? null) !== $id || !in_array([$body['contract'] ?? null, $body['schemaVersion'] ?? null], [
+            ['prospektweb.calculator/document-v1', 1], ['prospektweb.calculator/document-v2', 2],
+        ], true)
             || !is_string($body['name'] ?? null) || trim($body['name']) === '' || mb_strlen($body['name']) > 255) { throw new \InvalidArgumentException('Invalid version document.'); }
         return $body;
     }
