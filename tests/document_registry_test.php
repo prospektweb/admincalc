@@ -10,7 +10,7 @@ $make = static fn(string $id, string $name): string => json_encode(['contract' =
 for ($n = 1; $n <= 65; $n++) { $repo->create($make(sprintf('doc-%03d', $n), sprintf('Калькулятор %03d', $n))); }
 $repo->create($make('sheet', 'Листовая ПЕЧАТЬ'));
 $repo->create($make('literal', '100%_! тест'));
-$repo->archive('doc-001', 1, true);
+$repo->lifecycle()->setEnabled('doc-001', $repo->lifecycle()->preview('doc-001')['revision'], false);
 (new DocumentRepository($db, 'site:foreign', 'user:2'))->create($make('foreign', 'Листовая печать'));
 $db->execute('UPDATE b_pw_calc_document SET updated_at = ?, created_at = ? WHERE id = ?', ['2099-01-01T00:00:00Z', '2099-01-01T00:00:00Z', 'sheet']);
 $db->execute('INSERT INTO b_pw_calc_site_publication (id, document_id, source_revision, snapshot_json, snapshot_hash, actor_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', ['site-pub', 'sheet', 1, '{}', hash('sha256', '{}'), 'user:1', '2099-01-01T00:00:00Z']);
@@ -48,7 +48,7 @@ registry_check(count(array_intersect(array_column($first['rows'], 'id'), array_c
 $last = $app->command(['action' => 'registry', 'page' => 999]);
 registry_check($last['page'] === 3 && count($last['rows']) === 7, 'Out-of-range pages are clamped after filtering.');
 registry_check($app->command(['action' => 'registry', 'status' => 'active'])['total'] === 66, 'Active status filters metadata.');
-registry_check($app->command(['action' => 'registry', 'status' => 'archived'])['rows'][0]['id'] === 'doc-001', 'Archived documents remain discoverable.');
+registry_check($app->command(['action' => 'registry', 'status' => 'inactive'])['rows'][0]['id'] === 'doc-001', 'Inactive documents remain discoverable.');
 registry_check($app->command(['action' => 'registry', 'query' => 'листовая печать'])['total'] === 1, 'Unicode case-insensitive search never crosses site scope.');
 registry_check(!str_contains(implode(' ', array_slice($guard->queries, -2)), 'LOWER(d.id)'), 'Unicode search never compares UTF-8 literals against ASCII identity columns.');
 registry_check($app->command(['action' => 'registry', 'query' => '%_!'])['total'] === 1, 'LIKE wildcards in user input are literal.');

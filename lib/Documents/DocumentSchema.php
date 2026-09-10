@@ -8,7 +8,7 @@ require_once __DIR__ . '/SqlConnection.php';
 /** Explicit, additive installation. Never called on a normal read/write request. */
 final class DocumentSchema
 {
-    public const VERSION = 6;
+    public const VERSION = 7;
     public static function install(SqlConnection $db): void
     {
         $mysql = $db->dialect() === 'mysql';
@@ -134,13 +134,31 @@ final class DocumentSchema
         if (!in_array('version_id', $activeColumns, true)) {
             $db->execute("ALTER TABLE b_pw_calc_site_active ADD COLUMN version_id $id NULL");
         }
+        // Published snapshots/receipts may outlive an authoring calculator. This
+        // detached audit store has no runtime routes or editable versions.
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_deletion_audit (
+            id $id NOT NULL PRIMARY KEY, scope_id $id NOT NULL, document_id $id NOT NULL,
+            version_id $id NULL, body_json $text NOT NULL, body_hash CHAR(64) NOT NULL,
+            actor_id $id NOT NULL, created_at VARCHAR(30) NOT NULL
+        )$suffix");
+        if (!in_array('enabled', $documentColumns, true)) {
+            $db->execute('ALTER TABLE b_pw_calc_document ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1');
+            // Former archived records stay offline but become manageable.
+            $db->execute('UPDATE b_pw_calc_document SET enabled = CASE WHEN archived = 1 THEN 0 ELSE 1 END, archived = 0');
+            $db->execute('UPDATE b_pw_calc_version SET hidden = 0');
+        }
+        if (!in_array('next_version_no', $documentColumns, true)) {
+            $db->execute('ALTER TABLE b_pw_calc_document ADD COLUMN next_version_no INTEGER NOT NULL DEFAULT 2');
+            $db->execute('UPDATE b_pw_calc_document SET next_version_no = COALESCE((SELECT MAX(version_no) + 1 FROM b_pw_calc_version WHERE document_id = b_pw_calc_document.id), 2)');
+        }
         // Explicit one-time metadata bootstrap, never a lazy write during reads.
         // It points at existing immutable revisions/publications without rewriting them.
         $unversioned = $db->rows('SELECT d.id, d.current_revision, d.created_at, d.updated_at, r.actor_id, a.publication_id, p.created_at AS activated_at, p.actor_id AS activated_by
             FROM b_pw_calc_document d JOIN b_pw_calc_revision r ON r.document_id = d.id AND r.revision = d.current_revision
             LEFT JOIN b_pw_calc_site_active a ON a.document_id = d.id
             LEFT JOIN b_pw_calc_site_publication p ON p.id = a.publication_id
-            WHERE NOT EXISTS (SELECT 1 FROM b_pw_calc_version v WHERE v.document_id = d.id)');
+            WHERE NOT EXISTS (SELECT 1 FROM b_pw_calc_version v WHERE v.document_id = d.id)
+            AND NOT EXISTS (SELECT 1 FROM b_pw_calc_deletion_audit x WHERE x.document_id = d.id AND x.scope_id = d.scope_id)');
         foreach ($unversioned as $document) {
             $versionId = 'v_' . substr(hash('sha256', 'primary:' . $document['id']), 0, 40);
             $db->execute('INSERT INTO b_pw_calc_version (id, document_id, version_no, name, head_revision, created_at, updated_at, created_by, updated_by, last_site_publication, activated_at, activated_by) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -163,7 +181,7 @@ final class DocumentSchema
             if (!in_array('ix_pw_calc_document_scope', array_column($indexes, 'Key_name'), true)) {
                 $db->execute('CREATE INDEX ix_pw_calc_document_scope ON b_pw_calc_document(scope_id, archived, updated_at, id)');
             }
-            foreach (['b_pw_calc_document', 'b_pw_calc_revision', 'b_pw_calc_publication', 'b_pw_calc_site_publication', 'b_pw_calc_site_active', 'b_pw_calc_site_identity', 'b_pw_calc_product_binding', 'b_pw_calc_catalog', 'b_pw_calc_section', 'b_pw_calc_version', 'b_pw_calc_catalog_write', 'b_pw_calc_library_catalog', 'b_pw_calc_library_record', 'b_pw_calc_library_revision'] as $table) {
+            foreach (['b_pw_calc_deletion_audit', 'b_pw_calc_document', 'b_pw_calc_revision', 'b_pw_calc_publication', 'b_pw_calc_site_publication', 'b_pw_calc_site_active', 'b_pw_calc_site_identity', 'b_pw_calc_product_binding', 'b_pw_calc_catalog', 'b_pw_calc_section', 'b_pw_calc_version', 'b_pw_calc_catalog_write', 'b_pw_calc_library_catalog', 'b_pw_calc_library_record', 'b_pw_calc_library_revision'] as $table) {
                 $status = $db->rows('SHOW TABLE STATUS WHERE Name = ?', [$table]);
                 if (($status[0]['Engine'] ?? '') !== 'InnoDB') {
                     throw new \RuntimeException('Document tables must use InnoDB; installation stopped.');

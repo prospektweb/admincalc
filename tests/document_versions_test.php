@@ -64,7 +64,7 @@ $activate = static function (string $versionId) use ($cmd, $registry): array {
 $active = $activate($branch);
 $check($active['activeVersionId'] === $branch && count(array_filter($active['versions'], static fn(array $v): bool => $v['active'])) === 1, 'Activation switches exact named branch');
 $check($repo->sitePublication('sheet')['sourceRevision'] === 3 && $repo->load('sheet')['revision'] === 4, 'Site executes branch snapshot, not default working pointer');
-$rejects(fn() => $change('deleteVersion', $branch), 409);
+// Active-version deletion is covered by document_lifecycle_test.php.
 $rejects(fn() => $change('archiveVersion', $branch, ['archived' => true]), 409);
 $identical = $clone($branch, 'Same content'); $before = $repo->sitePublication('sheet');
 $active = $activate($identical);

@@ -7,6 +7,7 @@ require_once __DIR__ . '/SqlConnection.php';
 require_once __DIR__ . '/SiteConnection.php';
 require_once __DIR__ . '/DocumentCatalog.php';
 require_once __DIR__ . '/DocumentVersions.php';
+require_once __DIR__ . '/DocumentLifecycle.php';
 
 final class DocumentConflict extends \RuntimeException
 {
@@ -31,6 +32,7 @@ final class DocumentRepository
     }
 
     public function versions(): DocumentVersions { return new DocumentVersions($this->db, $this->scope, $this->actor, $this); }
+    public function lifecycle(): DocumentLifecycle { return new DocumentLifecycle($this->db, $this->scope, $this->actor); }
 
     /** The canonical JSON bytes are supplied by the shared core and hashed unchanged. */
     public function create(string $json, ?string $sectionId = null, ?int $expectedCatalogRevision = null): array
@@ -105,13 +107,15 @@ final class DocumentRepository
     /** Metadata-only index; an optional site usage port runs inside the same read snapshot. */
     public function registry(string $query = '', string $status = 'all', string $sort = 'updated_desc', int $page = 1, int $pageSize = 30, ?string $sectionId = null, ?callable $offerCounts = null): array
     {
-        if (mb_strlen($query) > 100 || !in_array($status, ['all', 'active', 'archived'], true)
+        if (mb_strlen($query) > 100 || !in_array($status, ['all', 'active', 'inactive', 'archived'], true)
             || $page < 1 || $page > 10000 || $pageSize < 1 || $pageSize > 100) { throw new \InvalidArgumentException('Invalid registry filters.'); }
         $orders = ['updated_desc' => 'd.updated_at DESC, d.id ASC', 'created_desc' => 'd.created_at DESC, d.id DESC',
             'name_asc' => 'LOWER(d.name) ASC, d.id ASC', 'name_desc' => 'LOWER(d.name) DESC, d.id ASC'];
         if (!isset($orders[$sort])) { throw new \InvalidArgumentException('Invalid registry sort.'); }
         $where = 'd.scope_id = ?'; $parameters = [$this->scope];
-        if ($status !== 'all') { $where .= ' AND d.archived = ?'; $parameters[] = $status === 'archived' ? 1 : 0; }
+        if ($status === 'archived') { $where .= ' AND d.archived = 1'; }
+        elseif ($status === 'active') { $where .= ' AND d.enabled = 1 AND d.archived = 0'; }
+        elseif ($status === 'inactive') { $where .= ' AND (d.enabled = 0 OR d.archived = 1)'; }
         $query = trim($query);
         if ($query !== '') {
             $needle = '%' . strtr(mb_strtolower($query, 'UTF-8'), ['!' => '!!', '%' => '!%', '_' => '!_']) . '%';
@@ -134,12 +138,12 @@ final class DocumentRepository
             }
             $total = (int)$this->db->rows('SELECT COUNT(*) AS total FROM b_pw_calc_document d WHERE ' . $where, $parameters)[0]['total'];
             $pageCount = max(1, (int)ceil($total / $pageSize)); $page = min($page, $pageCount); $offset = ($page - 1) * $pageSize;
-            $rows = $this->db->rows('SELECT d.id, d.name, d.section_id, d.current_revision, d.active_publication, d.archived, d.created_at, d.updated_at, a.publication_id AS site_publication,
+            $rows = $this->db->rows('SELECT d.id, d.name, d.section_id, d.current_revision, d.active_publication, d.archived, d.enabled, d.created_at, d.updated_at, a.publication_id AS site_publication,
                 (SELECT COUNT(*) FROM b_pw_calc_product_binding b WHERE b.scope_id = d.scope_id AND b.document_id = d.id AND b.publication_id = a.publication_id) AS product_count
                 FROM b_pw_calc_document d LEFT JOIN b_pw_calc_site_active a ON a.document_id = d.id WHERE ' . $where
                 . ' ORDER BY ' . $orders[$sort] . ' LIMIT ' . $pageSize . ' OFFSET ' . $offset, $parameters);
             $items = array_map(static fn(array $row): array => ['id' => $row['id'], 'name' => $row['name'], 'revision' => (int)$row['current_revision'],
-                    'sectionId' => $row['section_id'], 'archived' => (bool)$row['archived'], 'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at'],
+                    'enabled' => (bool)$row['enabled'], 'sectionId' => $row['section_id'], 'archived' => (bool)$row['archived'], 'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at'],
                     'activePublication' => $row['active_publication'], 'activeSitePublication' => $row['site_publication'], 'productCount' => (int)$row['product_count']], $rows);
             $counts = $offerCounts === null ? array_fill_keys(array_column($items, 'id'), null) : $offerCounts($items);
             if (!is_array($counts) || count($counts) !== count($items)) { throw new \RuntimeException('Incomplete registry usage response.'); }
@@ -308,7 +312,7 @@ final class DocumentRepository
                 $this->db->execute('UPDATE b_pw_calc_site_active SET publication_id = ? WHERE document_id = ?', [$publicationId, $id]);
             }
             $this->versions()->activated($id, $versionId, $publicationId);
-            return $this->sitePublication($id);
+            return $this->sitePublication($id, false);
         });
     }
 
@@ -316,7 +320,7 @@ final class DocumentRepository
     public function productBinding(string $provider, string $catalog, string $product): ?array
     {
         self::identity($provider); self::identity($catalog); self::identity($product);
-        $rows = $this->db->rows('SELECT b.document_id, b.publication_id, b.presentation_id FROM b_pw_calc_product_binding b JOIN b_pw_calc_document d ON d.id = b.document_id AND d.scope_id = b.scope_id JOIN b_pw_calc_site_active a ON a.document_id = b.document_id AND a.publication_id = b.publication_id WHERE b.scope_id = ? AND b.provider = ? AND b.catalog_key = ? AND b.product_key = ? AND d.archived = 0',
+        $rows = $this->db->rows('SELECT b.document_id, b.publication_id, b.presentation_id FROM b_pw_calc_product_binding b JOIN b_pw_calc_document d ON d.id = b.document_id AND d.scope_id = b.scope_id JOIN b_pw_calc_site_active a ON a.document_id = b.document_id AND a.publication_id = b.publication_id WHERE b.scope_id = ? AND b.provider = ? AND b.catalog_key = ? AND b.product_key = ? AND d.archived = 0 AND d.enabled = 1',
             [$this->scope, $provider, $catalog, $product]);
         return $rows[0] ?? null;
     }
@@ -336,10 +340,10 @@ final class DocumentRepository
         return $result;
     }
 
-    public function sitePublication(string $id): array
+    public function sitePublication(string $id, bool $requireEnabled = true): array
     {
         self::identity($id);
-        $rows = $this->db->rows('SELECT p.*, i.public_id FROM b_pw_calc_document d JOIN b_pw_calc_site_active a ON a.document_id = d.id JOIN b_pw_calc_site_identity i ON i.document_id = d.id JOIN b_pw_calc_site_publication p ON p.id = a.publication_id AND p.document_id = d.id WHERE d.id = ? AND d.scope_id = ? AND d.archived = 0', [$id, $this->scope]);
+        $rows = $this->db->rows('SELECT p.*, i.public_id FROM b_pw_calc_document d JOIN b_pw_calc_site_active a ON a.document_id = d.id JOIN b_pw_calc_site_identity i ON i.document_id = d.id JOIN b_pw_calc_site_publication p ON p.id = a.publication_id AND p.document_id = d.id WHERE d.id = ? AND d.scope_id = ? AND d.archived = 0' . ($requireEnabled ? ' AND d.enabled = 1' : ''), [$id, $this->scope]);
         if (!$rows) { throw new \RuntimeException('Site publication not found.', 404); }
         $row = $rows[0];
         if (!hash_equals($row['snapshot_hash'], hash('sha256', $row['snapshot_json'])) || $row['id'] !== 's_' . $row['snapshot_hash']) {
@@ -357,7 +361,7 @@ final class DocumentRepository
 
     public function siteListing(): array
     {
-        return $this->db->rows('SELECT i.public_id, d.id FROM b_pw_calc_document d JOIN b_pw_calc_site_identity i ON i.document_id = d.id JOIN b_pw_calc_site_active a ON a.document_id = d.id WHERE d.scope_id = ? AND d.archived = 0 ORDER BY i.public_id LIMIT 1000', [$this->scope]);
+        return $this->db->rows('SELECT i.public_id, d.id FROM b_pw_calc_document d JOIN b_pw_calc_site_identity i ON i.document_id = d.id JOIN b_pw_calc_site_active a ON a.document_id = d.id WHERE d.scope_id = ? AND d.archived = 0 AND d.enabled = 1 ORDER BY i.public_id LIMIT 1000', [$this->scope]);
     }
 
     /** Caller must already own the basket transaction; do not commit or begin here. */
@@ -366,7 +370,7 @@ final class DocumentRepository
         self::identity($id); self::identity($expectedPublication);
         if (!$this->db->inTransaction()) { throw new \LogicException('A basket transaction is required to hold publication authority.'); }
         $meta = $this->requireMetadata($id, true);
-        if ((int)$meta['archived'] !== 0 || $this->sitePointer($id) !== $expectedPublication) {
+        if ((int)$meta['archived'] !== 0 || (int)$meta['enabled'] !== 1 || $this->sitePointer($id) !== $expectedPublication) {
             throw new DocumentConflict('Site publication is stale.');
         }
     }

@@ -34,6 +34,9 @@ final class DocumentApplication
     {
         $action = $request['action'] ?? null;
         $fields = [
+            'previewCalculatorLifecycle' => ['id'],
+            'setCalculatorEnabled' => ['id', 'expectedLifecycleRevision', 'enabled'],
+            'deleteCalculator' => ['id', 'expectedLifecycleRevision', 'confirmationName'],
             'registry' => ['query', 'status', 'sort', 'page', 'pageSize', 'sectionId'],
             'catalog' => [],
             'createSection' => ['expectedCatalogRevision', 'name', 'parentId'],
@@ -91,6 +94,9 @@ final class DocumentApplication
                 array_key_exists('expectedCatalogRevision', $request) ? self::integer($request, 'expectedCatalogRevision') : null);
         }
         $id = self::text($request, 'id');
+        if ($action === 'previewCalculatorLifecycle') return $this->repository->lifecycle()->preview($id);
+        if ($action === 'setCalculatorEnabled') return $this->repository->lifecycle()->setEnabled($id, self::text($request, 'expectedLifecycleRevision'), self::boolean($request, 'enabled'));
+        if ($action === 'deleteCalculator') return $this->repository->lifecycle()->delete($id, self::text($request, 'expectedLifecycleRevision'), self::text($request, 'confirmationName'));
         if ($action === 'versions') { return $this->repository->versions()->listing($id); }
         if ($action === 'loadVersion') { return $this->repository->versions()->load($id, self::text($request, 'versionId')); }
         if ($action === 'createVersion') {

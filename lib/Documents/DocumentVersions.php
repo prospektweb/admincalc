@@ -51,9 +51,10 @@ final class DocumentVersions
     {
         $name = self::name($name);
         return $this->transaction(function () use ($id, $expectedRegistry, $name, $basedOn, $expectedHash, $blankJson): array {
-            $this->lock($id, $expectedRegistry);
-            $number = 1 + (int)$this->db->rows('SELECT COALESCE(MAX(version_no), 0) AS maximum FROM b_pw_calc_version WHERE document_id = ?', [$id])[0]['maximum'];
+            $meta = $this->lock($id, $expectedRegistry);
+            $number = max((int)$meta['next_version_no'], 1 + (int)$this->db->rows('SELECT COALESCE(MAX(version_no), 0) AS maximum FROM b_pw_calc_version WHERE document_id = ?', [$id])[0]['maximum']);
             if ($number > 10000) { throw new \InvalidArgumentException('Достигнут лимит версий калькулятора.'); }
+            $this->db->execute('UPDATE b_pw_calc_document SET next_version_no = ? WHERE id = ? AND scope_id = ?', [$number + 1, $id, $this->scope]);
             if ($basedOn !== null) {
                 if ($blankJson !== null) { throw new \InvalidArgumentException('Clone cannot include a blank document.'); }
                 $source = $this->requireVersion($id, $basedOn); $envelope = $this->envelope($id, $source);
@@ -103,7 +104,9 @@ final class DocumentVersions
                 $name = self::name($values['name']);
                 if ($version['name'] === $name) { return $this->snapshot($id); }
                 $this->db->execute('UPDATE b_pw_calc_version SET name = ?, updated_at = ?, updated_by = ? WHERE id = ? AND document_id = ?', [$name, self::now(), $this->actor, $versionId, $id]);
-            } elseif ($action === 'archiveVersion' || $action === 'deleteVersion') {
+            } elseif ($action === 'deleteVersion') {
+                $this->documents->lifecycle()->deleteVersionLocked($id, $version);
+            } elseif ($action === 'archiveVersion') {
                 $active = $this->db->rows('SELECT version_id FROM b_pw_calc_site_active WHERE document_id = ?', [$id])[0]['version_id'] ?? null;
                 if ($active === $versionId) { throw new DocumentConflict('Версию на сайте нельзя скрыть или удалить. Сначала активируйте другую.'); }
                 $column = $action === 'deleteVersion' ? 'deleted' : 'hidden'; $value = $action === 'deleteVersion' ? 1 : (int)$values['archived'];
@@ -146,7 +149,7 @@ final class DocumentVersions
             LEFT JOIN b_pw_calc_site_publication p ON p.id = v.last_site_publication AND p.document_id = v.document_id
             LEFT JOIN b_pw_calc_revision dr ON dr.document_id = p.document_id AND dr.revision = p.source_revision
             WHERE v.document_id = ? AND v.deleted = 0 ORDER BY v.version_no DESC', [$id]);
-        return ['contract' => 'prospektweb.calculator/versions-v1', 'documentId' => $id, 'calculatorName' => $meta['name'],
+        return ['contract' => 'prospektweb.calculator/versions-v1', 'documentId' => $id, 'calculatorName' => $meta['name'], 'siteEnabled' => (bool)$meta['enabled'],
             'registryRevision' => (int)$meta['versions_revision'], 'archived' => (bool)$meta['archived'],
             'activeVersionId' => $active['version_id'] ?? null, 'activePublication' => $active['publication_id'] ?? null,
             'versions' => array_map(static function (array $row) use ($active): array {
@@ -180,7 +183,7 @@ final class DocumentVersions
     }
     private function metadata(string $id, bool $lock = false): array
     {
-        $row = $this->db->rows('SELECT id, name, archived, current_revision, versions_revision FROM b_pw_calc_document WHERE id = ? AND scope_id = ?' . ($lock && $this->db->dialect() === 'mysql' ? ' FOR UPDATE' : ''), [$id, $this->scope])[0] ?? null;
+        $row = $this->db->rows('SELECT id, name, archived, enabled, next_version_no, current_revision, versions_revision FROM b_pw_calc_document WHERE id = ? AND scope_id = ?' . ($lock && $this->db->dialect() === 'mysql' ? ' FOR UPDATE' : ''), [$id, $this->scope])[0] ?? null;
         if ($row === null) { throw new \RuntimeException('Document not found.', 404); } return $row;
     }
     private function lock(string $id, ?int $expectedRegistry = null): array
