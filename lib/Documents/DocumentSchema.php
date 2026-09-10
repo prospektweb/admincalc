@@ -8,7 +8,7 @@ require_once __DIR__ . '/SqlConnection.php';
 /** Explicit, additive installation. Never called on a normal read/write request. */
 final class DocumentSchema
 {
-    public const VERSION = 7;
+    public const VERSION = 8;
     public static function install(SqlConnection $db): void
     {
         $mysql = $db->dialect() === 'mysql';
@@ -55,12 +55,13 @@ final class DocumentSchema
             FOREIGN KEY (document_id) REFERENCES b_pw_calc_document(id),
             FOREIGN KEY (publication_id) REFERENCES b_pw_calc_site_publication(id)
         )$suffix");
-        // Adapter-local public route key; unrelated to any iblock element ID.
+        // Stable numeric registry/public route key; unrelated to any iblock element ID.
         $publicKey = $mysql ? 'INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
         $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_site_identity (
             public_id $publicKey, document_id $id NOT NULL UNIQUE,
             FOREIGN KEY (document_id) REFERENCES b_pw_calc_document(id)
         )$suffix");
+        self::backfillRegistryIdentities($db);
         // This is a rebuildable projection of active publications, not another editable source.
         $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_product_binding (
             scope_id $id NOT NULL, provider $id NOT NULL, catalog_key $id NOT NULL,
@@ -190,5 +191,14 @@ final class DocumentSchema
         } else {
             $db->execute('CREATE INDEX IF NOT EXISTS ix_pw_calc_document_scope ON b_pw_calc_document(scope_id, archived, updated_at, id)');
         }
+    }
+
+    /** Explicit additive upgrade only; preserve every previously issued route ID. */
+    public static function backfillRegistryIdentities(SqlConnection $db): void
+    {
+        $db->execute('INSERT INTO b_pw_calc_site_identity (document_id)
+            SELECT d.id FROM b_pw_calc_document d
+            LEFT JOIN b_pw_calc_site_identity i ON i.document_id = d.id
+            WHERE i.document_id IS NULL ORDER BY d.created_at, d.id');
     }
 }

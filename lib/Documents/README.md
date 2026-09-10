@@ -103,7 +103,12 @@ version. Activation checks branch head, registry revision and publication
 pointer under one lock, then updates product bindings atomically. Its time
 and actor describe the activation event, not the creation of a reused snapshot.
 `b_pw_calc_product_binding` is a rebuildable projection; `b_pw_calc_site_identity`
-holds an adapter-local public route ID, never an iblock element ID.
+holds a stable numeric registry/public route ID, never an iblock element ID.
+New calculators receive it in their creation transaction, before publication.
+Schema v8 fills only missing identities in creation order; issued IDs and UUID
+bindings remain unchanged. Registry search accepts an exact numeric ID or a name.
+Registry activity means enabled with an existing site publication. An unpublished
+or disabled calculator is inactive; status filters use the same rule.
 
 `b_pw_calc_catalog` and `b_pw_calc_section` own scope-local tree metadata and
 its independent CAS revision. Placement edits do not mutate calculator bodies.

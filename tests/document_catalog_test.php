@@ -33,7 +33,7 @@ $check($byId[$root]['calculatorCount'] === 2 && $byId[$child]['directCalculatorC
 $check($repo->registry('', 'all', 'updated_desc', 1, 30, $root)['total'] === 2, 'Branch includes descendants');
 $check($repo->registry('', 'archived', 'updated_desc', 1, 30, $root)['total'] === 1, 'Branch and status compose');
 $check($repo->registry('', 'all', 'updated_desc', 1, 30, '')['total'] === 1, 'Unsectioned filter');
-$check($repo->registry('листовая', 'active', 'updated_desc', 1, 30, $child)['total'] === 1, 'Branch and Unicode search compose');
+$check($repo->registry('листовая', 'inactive', 'updated_desc', 1, 30, $child)['total'] === 2, 'Branch and Unicode search include unpublished and archived calculators');
 $fails(fn() => $repo->registry('', 'all', 'updated_desc', 1, 30, $foreignId), 404);
 $fails(fn() => $change('moveToSection', ['id' => 'foreign', 'sectionId' => $root]), 404);
 $fails(fn() => $change('moveToSection', ['id' => 'sheet', 'sectionId' => $foreignId]), 404);

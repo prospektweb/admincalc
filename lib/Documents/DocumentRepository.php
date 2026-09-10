@@ -46,6 +46,8 @@ final class DocumentRepository
             $now = self::now();
             $this->db->execute('INSERT INTO b_pw_calc_document (id, scope_id, name, current_revision, active_publication, archived, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 [$document['id'], $this->scope, $document['name'], 1, null, 0, $now, $now]);
+            // Allocate the existing stable numeric identity before the first publication.
+            $this->db->execute('INSERT INTO b_pw_calc_site_identity (document_id) VALUES (?)', [$document['id']]);
             $this->appendRevision($document['id'], 1, $json, $now);
             if ($sectionId !== null) { $this->db->execute('UPDATE b_pw_calc_document SET section_id = ? WHERE id = ? AND scope_id = ?', [$sectionId, $document['id'], $this->scope]); }
             if ($expectedCatalogRevision !== null) { $catalog->touch(); }
@@ -114,8 +116,8 @@ final class DocumentRepository
         if (!isset($orders[$sort])) { throw new \InvalidArgumentException('Invalid registry sort.'); }
         $where = 'd.scope_id = ?'; $parameters = [$this->scope];
         if ($status === 'archived') { $where .= ' AND d.archived = 1'; }
-        elseif ($status === 'active') { $where .= ' AND d.enabled = 1 AND d.archived = 0'; }
-        elseif ($status === 'inactive') { $where .= ' AND (d.enabled = 0 OR d.archived = 1)'; }
+        elseif ($status === 'active') { $where .= ' AND d.enabled = 1 AND d.archived = 0 AND EXISTS (SELECT 1 FROM b_pw_calc_site_active a WHERE a.document_id = d.id)'; }
+        elseif ($status === 'inactive') { $where .= ' AND (d.enabled = 0 OR d.archived = 1 OR NOT EXISTS (SELECT 1 FROM b_pw_calc_site_active a WHERE a.document_id = d.id))'; }
         $query = trim($query);
         if ($query !== '') {
             $needle = '%' . strtr(mb_strtolower($query, 'UTF-8'), ['!' => '!!', '%' => '!%', '_' => '!_']) . '%';
@@ -123,7 +125,10 @@ final class DocumentRepository
             $parameters[] = $needle;
             // IDs admit ASCII identity characters only. A Unicode name query
             // cannot match an ID and would mix ascii_bin with utf8mb4 in MySQL.
-            if (preg_match('/^[A-Za-z0-9_.:-]+$/D', $query) === 1) {
+            if (ctype_digit($query)) {
+                $where .= ' OR EXISTS (SELECT 1 FROM b_pw_calc_site_identity i WHERE i.document_id = d.id AND i.public_id = ?)';
+                $parameters[] = $query;
+            } elseif (preg_match('/^[A-Za-z0-9_.:-]+$/D', $query) === 1) {
                 $where .= " OR LOWER(d.id) LIKE ? ESCAPE '!'"; $parameters[] = $needle;
             }
             $where .= ')';
@@ -138,11 +143,11 @@ final class DocumentRepository
             }
             $total = (int)$this->db->rows('SELECT COUNT(*) AS total FROM b_pw_calc_document d WHERE ' . $where, $parameters)[0]['total'];
             $pageCount = max(1, (int)ceil($total / $pageSize)); $page = min($page, $pageCount); $offset = ($page - 1) * $pageSize;
-            $rows = $this->db->rows('SELECT d.id, d.name, d.section_id, d.current_revision, d.active_publication, d.archived, d.enabled, d.created_at, d.updated_at, a.publication_id AS site_publication,
+            $rows = $this->db->rows('SELECT d.id, i.public_id, d.name, d.section_id, d.current_revision, d.active_publication, d.archived, d.enabled, d.created_at, d.updated_at, a.publication_id AS site_publication,
                 (SELECT COUNT(*) FROM b_pw_calc_product_binding b WHERE b.scope_id = d.scope_id AND b.document_id = d.id AND b.publication_id = a.publication_id) AS product_count
-                FROM b_pw_calc_document d LEFT JOIN b_pw_calc_site_active a ON a.document_id = d.id WHERE ' . $where
+                FROM b_pw_calc_document d LEFT JOIN b_pw_calc_site_identity i ON i.document_id = d.id LEFT JOIN b_pw_calc_site_active a ON a.document_id = d.id WHERE ' . $where
                 . ' ORDER BY ' . $orders[$sort] . ' LIMIT ' . $pageSize . ' OFFSET ' . $offset, $parameters);
-            $items = array_map(static fn(array $row): array => ['id' => $row['id'], 'name' => $row['name'], 'revision' => (int)$row['current_revision'],
+            $items = array_map(static fn(array $row): array => ['id' => $row['id'], 'publicId' => $row['public_id'] === null ? null : (int)$row['public_id'], 'name' => $row['name'], 'revision' => (int)$row['current_revision'],
                     'enabled' => (bool)$row['enabled'], 'sectionId' => $row['section_id'], 'archived' => (bool)$row['archived'], 'createdAt' => $row['created_at'], 'updatedAt' => $row['updated_at'],
                     'activePublication' => $row['active_publication'], 'activeSitePublication' => $row['site_publication'], 'productCount' => (int)$row['product_count']], $rows);
             $counts = $offerCounts === null ? array_fill_keys(array_column($items, 'id'), null) : $offerCounts($items);

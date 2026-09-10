@@ -43,12 +43,21 @@ function registry_fails(callable $fn): void { try { $fn(); } catch (InvalidArgum
 $first = $app->command(['action' => 'registry']);
 registry_check($first['total'] === 67 && count($first['rows']) === 30 && $first['pageCount'] === 3, 'Registry spans more than the old first 50 entries.');
 registry_check($first['rows'][0]['id'] === 'sheet' && $first['rows'][0]['activeSitePublication'] === 'site-pub' && $first['rows'][0]['productCount'] === 1, 'Publication and product count are authoritative metadata.');
+registry_check($first['rows'][0]['publicId'] === 66, 'Registry exposes the stored numeric identity.');
+registry_check($app->command(['action' => 'registry', 'query' => '66'])['rows'][0]['id'] === 'sheet', 'Exact numeric identity finds a calculator without a numeric name.');
+registry_check($app->command(['action' => 'registry', 'query' => '68'])['total'] === 0, 'Numeric identity search cannot cross scope.');
+registry_check($app->command(['action' => 'registry', 'query' => 'doc-001'])['rows'][0]['publicId'] === 1, 'Unpublished drafts receive permanent IDs at creation.');
+foreach (['name_asc', 'name_desc', 'created_desc', 'updated_desc'] as $ordering) {
+    $found = $app->command(['action' => 'registry', 'query' => 'sheet', 'sort' => $ordering]);
+    registry_check($found['rows'][0]['publicId'] === 66, 'Sorting and filtering never renumber identities.');
+}
 $next = $app->command(['action' => 'registry', 'page' => 2]);
 registry_check(count(array_intersect(array_column($first['rows'], 'id'), array_column($next['rows'], 'id'))) === 0, 'Stable tie break avoids repeated page entries.');
 $last = $app->command(['action' => 'registry', 'page' => 999]);
 registry_check($last['page'] === 3 && count($last['rows']) === 7, 'Out-of-range pages are clamped after filtering.');
-registry_check($app->command(['action' => 'registry', 'status' => 'active'])['total'] === 66, 'Active status filters metadata.');
-registry_check($app->command(['action' => 'registry', 'status' => 'inactive'])['rows'][0]['id'] === 'doc-001', 'Inactive documents remain discoverable.');
+registry_check($app->command(['action' => 'registry', 'status' => 'active'])['total'] === 1, 'Active status requires an enabled site publication.');
+registry_check($app->command(['action' => 'registry', 'status' => 'inactive'])['total'] === 66, 'Disabled and unpublished calculators are inactive.');
+registry_check($app->command(['action' => 'registry', 'status' => 'inactive', 'query' => 'doc-001'])['rows'][0]['id'] === 'doc-001', 'Disabled documents remain discoverable.');
 registry_check($app->command(['action' => 'registry', 'query' => 'листовая печать'])['total'] === 1, 'Unicode case-insensitive search never crosses site scope.');
 registry_check(!str_contains(implode(' ', array_slice($guard->queries, -2)), 'LOWER(d.id)'), 'Unicode search never compares UTF-8 literals against ASCII identity columns.');
 registry_check($app->command(['action' => 'registry', 'query' => '%_!'])['total'] === 1, 'LIKE wildcards in user input are literal.');
@@ -60,4 +69,23 @@ $empty = $app->command(['action' => 'registry', 'query' => 'not found', 'page' =
 registry_check($empty['rows'] === [] && $empty['total'] === 0 && $empty['page'] === 1 && $empty['pageCount'] === 1, 'Empty state has valid page bounds.');
 foreach ([['sort' => 'name; DROP TABLE'], ['status' => 'published'], ['query' => str_repeat('я', 101)], ['query' => []], ['page' => '1'], ['page' => 0], ['pageSize' => 101], ['scope' => 'site:foreign']] as $invalid) { registry_fails(fn() => $app->command(['action' => 'registry'] + $invalid)); }
 registry_check(!$db->inTransaction(), 'Read snapshots always close.');
+
+// Simulate an older unpublished document; explicit backfill must not renumber
+// an existing route, create a revision, or expose a publication.
+$identityBefore = $db->rows('SELECT public_id FROM b_pw_calc_site_identity WHERE document_id = ?', ['sheet']);
+$draftBefore = $repo->load('literal');
+$db->execute('DELETE FROM b_pw_calc_site_identity WHERE document_id = ?', ['literal']);
+DocumentSchema::backfillRegistryIdentities($db);
+$backfilled = $app->command(['action' => 'registry', 'query' => '%_!'])['rows'][0];
+registry_check(is_int($backfilled['publicId']) && $backfilled['publicId'] > 68 && $backfilled['activeSitePublication'] === null, 'Missing draft identity is allocated without publication.');
+registry_check($repo->load('literal') === $draftBefore, 'Backfill preserves all draft bytes and revisions.');
+registry_check($db->rows('SELECT public_id FROM b_pw_calc_site_identity WHERE document_id = ?', ['sheet']) === $identityBefore, 'Published route identity remains unchanged.');
+$identities = $db->rows('SELECT * FROM b_pw_calc_site_identity ORDER BY public_id');
+DocumentSchema::backfillRegistryIdentities($db);
+registry_check($db->rows('SELECT * FROM b_pw_calc_site_identity ORDER BY public_id') === $identities, 'Backfill is idempotent.');
+$repo->save('literal', 1, $make('literal', 'Переименован'));
+registry_check($app->command(['action' => 'registry', 'query' => 'Переименован'])['rows'][0]['publicId'] === $backfilled['publicId'], 'Renaming keeps the numeric ID.');
+$repo->lifecycle()->setEnabled('sheet', $repo->lifecycle()->preview('sheet')['revision'], false);
+registry_check($app->command(['action' => 'registry', 'status' => 'active'])['total'] === 0, 'Switching off a published calculator removes it from active results.');
+registry_check($app->command(['action' => 'registry', 'status' => 'inactive', 'query' => '66'])['rows'][0]['activeSitePublication'] === 'site-pub', 'Disabled calculator keeps its publication and remains inactive.');
 echo "PASS $checks document registry checks\n";
