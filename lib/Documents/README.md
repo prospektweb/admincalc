@@ -110,6 +110,11 @@ bindings remain unchanged. Registry search accepts an exact numeric ID or a name
 Registry activity means enabled with an existing site publication. An unpublished
 or disabled calculator is inactive; status filters use the same rule.
 
+`createVersion` also accepts explicit `creationMode: import`: a validated single
+document body whose ID matches the selected calculator, under the captured
+version-registry revision. It creates one new branch with no site connection;
+existing heads, active publication and product bindings remain unchanged.
+
 `b_pw_calc_catalog` and `b_pw_calc_section` own scope-local tree metadata and
 its independent CAS revision. Placement edits do not mutate calculator bodies.
 

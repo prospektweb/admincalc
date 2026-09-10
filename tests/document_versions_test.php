@@ -121,4 +121,28 @@ $baseline = $migrationRepo->load('sheet'); DocumentSchema::install($migration);
 $check($migrationRepo->load('sheet') === $baseline && count($migrationRepo->versions()->listing('sheet')['versions']) === 1, 'Schema bootstrap only adds metadata');
 DocumentSchema::install($migration);
 $check(count($migrationRepo->versions()->listing('sheet')['versions']) === 1, 'Metadata bootstrap is idempotent');
+$beforeImport = $registry(); $beforeImportHead = $repo->load('sheet'); $beforeImportSite = $repo->sitePublication('sheet');
+$beforeImportResources = $resourceCalls;
+$importBody = $body('Листовая печать');
+$imported = $cmd('createVersion', ['creationMode' => 'import', 'name' => 'Из JSON', 'documentJson' => $importBody,
+    'expectedVersionsRevision' => $beforeImport['registryRevision']]);
+$importRow = array_column($imported['versions'], null, 'versionId')[$imported['createdVersionId']];
+$importEnvelope = $cmd('loadVersion', ['versionId' => $importRow['versionId']]);
+$check(count($imported['versions']) === count($beforeImport['versions']) + 1 && !$importRow['active'], 'Import creates one independent unpublished version in the selected calculator');
+$check($importEnvelope['bodyJson'] === $importBody && $importEnvelope['connectionJson'] === null, 'Import preserves validated version content without copying site bindings');
+$check($repo->load('sheet') === $beforeImportHead && $repo->sitePublication('sheet') === $beforeImportSite && $resourceCalls === $beforeImportResources, 'Import leaves default head, site publication and resources unchanged');
+$afterImport = $registry();
+$rejects(fn() => $cmd('createVersion', ['creationMode' => 'import', 'name' => 'Stale import', 'documentJson' => $importBody,
+    'expectedVersionsRevision' => $beforeImport['registryRevision']]), 409);
+$wrongId = json_encode(array_replace(json_decode($importBody, true), ['id' => 'another-calculator']), JSON_THROW_ON_ERROR);
+$rejects(fn() => $cmd('createVersion', ['creationMode' => 'import', 'name' => 'Wrong target', 'documentJson' => $wrongId,
+    'expectedVersionsRevision' => $afterImport['registryRevision']]), 0);
+$rejects(fn() => $cmd('createVersion', ['creationMode' => 'import', 'name' => 'Broken JSON', 'documentJson' => '{',
+    'expectedVersionsRevision' => $afterImport['registryRevision']]), JSON_ERROR_SYNTAX);
+$rejects(fn() => $cmd('createVersion', ['creationMode' => 'import', 'name' => 'Unexpected bindings', 'documentJson' => $importBody,
+    'connectionJson' => $connection, 'expectedVersionsRevision' => $afterImport['registryRevision']]), 0);
+$check($registry() === $afterImport && $repo->sitePublication('sheet') === $beforeImportSite, 'Rejected imports allocate no version and leave publication intact');
+$foreignApp = new DocumentApplication($foreign, $core, static fn() => []);
+$rejects(fn() => $foreignApp->command(['action' => 'createVersion', 'id' => 'sheet', 'creationMode' => 'import', 'name' => 'Foreign',
+    'documentJson' => $importBody, 'expectedVersionsRevision' => $afterImport['registryRevision']]), 404);
 echo "PASS $checks named document version checks\n";

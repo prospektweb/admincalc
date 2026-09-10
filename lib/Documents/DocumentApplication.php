@@ -101,13 +101,13 @@ final class DocumentApplication
         if ($action === 'loadVersion') { return $this->repository->versions()->load($id, self::text($request, 'versionId')); }
         if ($action === 'createVersion') {
             $mode = self::text($request, 'creationMode');
-            if (!in_array($mode, ['blank', 'clone'], true)
-                || ($mode === 'blank' && (array_key_exists('basedOnVersionId', $request) || array_key_exists('expectedContentHash', $request)))
+            if (!in_array($mode, ['blank', 'clone', 'import'], true)
+                || ($mode !== 'clone' && (array_key_exists('basedOnVersionId', $request) || array_key_exists('expectedContentHash', $request)))
                 || ($mode === 'clone' && array_key_exists('documentJson', $request))) { throw new \InvalidArgumentException('Invalid version creation mode or fields.'); }
             return $this->repository->versions()->create($id, self::integer($request, 'expectedVersionsRevision'), self::text($request, 'name'),
                 $mode === 'clone' ? self::text($request, 'basedOnVersionId') : null,
                 $mode === 'clone' ? self::text($request, 'expectedContentHash') : null,
-                $mode === 'blank' ? $this->validate(self::text($request, 'documentJson')) : null);
+                $mode !== 'clone' ? $this->validate(self::text($request, 'documentJson')) : null);
         }
         if (in_array($action, ['renameVersion', 'archiveVersion', 'deleteVersion'], true)) {
             return $this->repository->versions()->change($id, self::text($request, 'versionId'), self::integer($request, 'expectedVersionsRevision'), $action,
