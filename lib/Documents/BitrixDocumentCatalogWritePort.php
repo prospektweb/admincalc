@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Prospektweb\Calc\Documents;
 
 require_once __DIR__ . '/DocumentCatalogWritePort.php';
+require_once __DIR__ . '/DocumentInputContext.php';
 require_once __DIR__ . '/BitrixCatalogPropertySnapshot.php';
 require_once __DIR__ . '/BitrixCatalogStateWriter.php';
 require_once dirname(__DIR__) . '/Services/CalculatorInputMappingService.php';
@@ -132,6 +133,7 @@ final class BitrixDocumentCatalogWritePort implements DocumentCatalogWritePort
             $protected[$offer]=['product'=>$product,'unownedPrices'=>array_values(array_filter($state['prices'],static fn(array $row):bool=>!in_array((int)$row['CATALOG_GROUP_ID'],$priceTypes,true)))];
             $name=$inputs['elements']['selected_offer'][$offer]['NAME'];
             $resolved=($this->services['input_builder'])($inputs['properties'],$id,$stored['id'],$runtime,$mappings,$parentByOffer[$offer],$offer,$name);
+            $resolved['values']=DocumentInputContext::values($sitePublication->core->plan->document,$resolved['values'],$presentations[(string)$parentByOffer[$offer]],true);
             $result[]=['offerId'=>$offer,'productId'=>$parentByOffer[$offer],'name'=>$name,'values'=>$resolved['values'],
                 'execution'=>$resolved['execution'],'current'=>$state['state']];
         }

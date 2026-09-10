@@ -5,6 +5,7 @@ namespace Prospektweb\Calc\Documents;
 
 require_once __DIR__ . '/DocumentRepository.php';
 require_once __DIR__ . '/CoreExecutionFailure.php';
+require_once __DIR__ . '/DocumentInputContext.php';
 
 /** CMS-independent use cases. Identity/authorization are owned by the outer adapter.
  * Only explicit context/check/compile/publish/preview load external resources;
@@ -56,7 +57,7 @@ final class DocumentApplication
             'saveVersionConnection' => ['id', 'versionId', 'expectedRevision', 'connectionJson'],
             'restoreVersionRevision' => ['id', 'versionId', 'expectedRevision', 'revision'],
             'activateVersion' => ['id', 'versionId', 'expectedRevision', 'expectedVersionsRevision', 'expectedSitePublication'],
-            'previewVersion' => ['id', 'versionId', 'revision', 'values', 'execution', 'name'],
+            'previewVersion' => ['id', 'versionId', 'revision', 'values', 'execution', 'name', 'storefrontId'],
             'formVersion' => ['id', 'versionId', 'revision'],
             'list' => ['limit', 'offset', 'archived'], 'load' => ['id', 'revision'],
             'history' => ['id', 'limit', 'beforeRevision'], 'create' => ['documentJson', 'sectionId', 'expectedCatalogRevision'],
@@ -66,7 +67,7 @@ final class DocumentApplication
             'publish' => ['id', 'expectedRevision', 'expectedPublication'],
             'saveConnection' => ['id', 'expectedRevision', 'connectionJson'],
             'publishSite' => ['id', 'expectedRevision', 'expectedSitePublication'],
-            'preview' => ['id', 'revision', 'values', 'execution', 'name'],
+            'preview' => ['id', 'revision', 'values', 'execution', 'name', 'storefrontId'],
         ];
         if (!is_string($action) || !isset($fields[$action]) || array_diff(array_keys($request), array_merge(['action'], $fields[$action]))) {
             throw new \InvalidArgumentException('Unknown document command or field.');
@@ -186,7 +187,8 @@ final class DocumentApplication
                 $resources = ($this->resources)($document);
                 try {
                     $result = ($this->core)(['action' => 'preview', 'document' => $document, 'resources' => $resources,
-                        'values' => $request['values'] ?? new \stdClass(), 'execution' => $request['execution'] ?? null, 'name' => $request['name'] ?? $document->name,
+                        'values' => DocumentInputContext::values($document, $request['values'] ?? new \stdClass(), isset($request['storefrontId']) ? self::text($request, 'storefrontId') : 'BASE'),
+                        'execution' => $request['execution'] ?? null, 'name' => $request['name'] ?? $document->name,
                         'includeReport' => $action === 'previewVersion']);
                 } catch (CoreExecutionFailure $error) {
                     if ($action !== 'previewVersion') throw $error;
