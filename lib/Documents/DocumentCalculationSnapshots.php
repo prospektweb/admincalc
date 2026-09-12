@@ -89,6 +89,7 @@ final class DocumentCalculationSnapshots
                 $body = json_decode($source['bodyJson'], true, 64, JSON_THROW_ON_ERROR);
                 $views = ['BASE' => $body['name'] ?? 'BASE'];
                 foreach ($body['presentations']['views'] ?? [] as $view) $views[$view['id']] = $view['name'] ?? $view['id'];
+                $views['BASE'] = $body['name'] ?? 'BASE';
                 $rows = $this->db->rows('SELECT id, storefront_id, created_at, form_hash, summary_json FROM b_pw_calc_snapshot WHERE ' . $where . ' ORDER BY created_at DESC, id DESC', $params);
                 $groups = $this->db->rows('SELECT id, storefront_id, name, sort, collapsed FROM b_pw_calc_snapshot_group WHERE ' . $where . ' ORDER BY sort, id', $params);
                 $members = $this->db->rows('SELECT m.snapshot_id, m.group_id FROM b_pw_calc_snapshot_member m JOIN b_pw_calc_snapshot_group g ON g.id = m.group_id WHERE g.' . str_replace(' AND ', ' AND g.', $where), $params);
