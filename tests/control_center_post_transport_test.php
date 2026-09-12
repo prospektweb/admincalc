@@ -980,15 +980,25 @@ PHP;
     $assert($formFirstInvalidRevision['status'] === 422,
         'Form-first writes must reject malformed aggregate revisions');
 
+    $formFirstLargeBinding = $post('editors.php', 'application/json', json_encode([
+        'sessid' => 'valid',
+        'action' => 'form_first_preview',
+        'presetId' => 41,
+        'formDefinition' => $formDefinition,
+        'bindingDefinition' => ['version' => 1, 'padding' => str_repeat('x', 70000)],
+    ], JSON_UNESCAPED_SLASHES));
+    $assert($formFirstLargeBinding['status'] === 200,
+        'Production-sized form-first documents must be accepted above the former 60 KB transport cap');
+
     $formFirstOversizedBinding = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',
         'action' => 'form_first_preview',
         'presetId' => 41,
         'formDefinition' => $formDefinition,
-        'bindingDefinition' => ['version' => 1, 'padding' => str_repeat('x', 60001)],
+        'bindingDefinition' => ['version' => 1, 'padding' => str_repeat('x', 2000001)],
     ], JSON_UNESCAPED_SLASHES));
     $assert($formFirstOversizedBinding['status'] === 422,
-        'Form-first bindings must be rejected above the 60 KB transport cap');
+        'Form-first documents must retain a defensive 2 MB request ceiling');
 
     $formFirstConflict = $post('editors.php', 'application/json', json_encode([
         'sessid' => 'valid',

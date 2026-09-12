@@ -522,8 +522,11 @@ $parseEditorDocument = static function ($value, string $field): array {
     if (!is_string($encoded)) {
         throw new \InvalidArgumentException($field . ' must be valid JSON data');
     }
-    if (strlen($encoded) > 60000) {
-        throw new \InvalidArgumentException($field . ' must not exceed 60000 bytes');
+    // The document schema stores JSON in LONGTEXT on MySQL. Keep a defensive request
+    // ceiling without rejecting normal production forms once their condition
+    // and option catalogs grow beyond the former 60 KB transport-era limit.
+    if (strlen($encoded) > 2000000) {
+        throw new \InvalidArgumentException($field . ' exceeds the 2 MB safety limit');
     }
 
     return $value;

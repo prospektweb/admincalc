@@ -13,6 +13,7 @@ $catalogMetaService = file_get_contents(__DIR__ . '/../lib/Services/CatalogMetaS
 $offerUpdateService = file_get_contents(__DIR__ . '/../lib/Services/OfferUpdateService.php');
 $aiGatewayService = file_get_contents(__DIR__ . '/../lib/Services/AiGatewayService.php');
 $calculatorAjax = file_get_contents(__DIR__ . '/../tools/calculator_ajax.php');
+$controlCenterEditors = file_get_contents(__DIR__ . '/../tools/control_center_editors.php');
 $installer = file_get_contents(__DIR__ . '/../install/step3.php');
 $stageVariantMappingService = file_get_contents(__DIR__ . '/../lib/Services/StageVariantMappingService.php');
 $appIndex = file_get_contents(__DIR__ . '/../install/assets/apps_dist/index.html');
@@ -24,8 +25,13 @@ if (!preg_match('~assets/index\.js\?v=([a-f0-9]{12})(?![a-f0-9])~', $appIndex, $
 }
 $release = $releaseMatch[1];
 
-if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($controlCenterPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($offerUpdateService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($installer) || !is_string($stageVariantMappingService) || !is_string($appIndex) || !is_string($appBundle) || !is_string($engineBundle)) {
+if (!is_string($integration) || !is_string($calculator) || !is_string($calculatorPage) || !is_string($controlCenterPage) || !is_string($elementDataService) || !is_string($detailHandler) || !is_string($customFieldsService) || !is_string($initPayloadService) || !is_string($presetEnrichmentService) || !is_string($catalogMetaService) || !is_string($offerUpdateService) || !is_string($aiGatewayService) || !is_string($calculatorAjax) || !is_string($controlCenterEditors) || !is_string($installer) || !is_string($stageVariantMappingService) || !is_string($appIndex) || !is_string($appBundle) || !is_string($engineBundle)) {
     throw new RuntimeException('Calculator JavaScript sources are unavailable');
+}
+
+if (strpos($controlCenterEditors, 'strlen($encoded) > 2000000') === false
+    || strpos($controlCenterEditors, 'must not exceed 60000 bytes') !== false) {
+    throw new RuntimeException('Large version-owned forms must use the current defensive JSON ceiling');
 }
 
 $integration = str_replace("\r\n", "\n", $integration);
