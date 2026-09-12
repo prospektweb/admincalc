@@ -66,4 +66,27 @@ $repo->snapshots()->command('deleteCalculationSnapshot','test',$version,'BASE',$
 $check(count($list($repo))===1,'delete only selected receipt');
 $repo->snapshots()->command('clearCalculationSnapshots','test',$version,'BASE');
 $check(!$list($repo) && count($list($other))===1,'clear is actor scoped');
+// The application returns a successful report even when capture loses a race.
+$core = function(array $command) use ($repo,$version) {
+    $head=$repo->versions()->load('test',$version);
+    $body=json_decode($head['bodyJson'],true);$body['name'].=' edited during preview';
+    $repo->versions()->save('test',$version,$head['revision'],json_encode($body,JSON_THROW_ON_ERROR));
+    return ['result'=>['calculatorId'=>'test','name'=>'Successful old result','purchasingPrice'=>12,'basePrice'=>17,'currency'=>'RUB']];
+};
+$app=new \Prospektweb\Calc\Documents\DocumentApplication($repo,$core,fn()=>[]);
+$head=$repo->versions()->load('test',$version);
+$response=$app->command(['action'=>'previewVersion','id'=>'test','versionId'=>$version,'revision'=>$head['revision'],'captureSnapshot'=>true,'execution'=>(object)['unitCount'=>100],'values'=>(object)[]]);
+$check(isset($response['snapshotError']) && $response['result']['basePrice']===17 && !isset($response['failure']),'capture race preserves successful result and reports save error separately');
+$check(!$list($repo),'failed capture inserts nothing');
+$key=$capture($repo);$second=$capture($repo);
+$db->execute('UPDATE b_pw_calc_snapshot SET payload_json = ? WHERE id = ?', ['corrupted test payload',$second]);
+$check(count($list($repo))===2,'list reads compact metadata, no payload parsing');
+$check($repo->snapshots()->command('loadCalculationSnapshot','test',$version,'BASE',$key)['payload']['response']['result']['basePrice']===17,'load selects only its own payload');
+$reject(fn()=>$repo->snapshots()->command('loadCalculationSnapshot','test',$version,'BASE',$second),0);
+$repo->snapshots()->command('clearCalculationSnapshots','test',$version,'BASE');
+$hugeCore=fn()=>['result'=>['calculatorId'=>'test','name'=>str_repeat('x',8000001),'purchasingPrice'=>12,'basePrice'=>17,'currency'=>'RUB']];
+$app=new \Prospektweb\Calc\Documents\DocumentApplication($repo,$hugeCore,fn()=>[]);
+$head=$repo->versions()->load('test',$version);
+$response=$app->command(['action'=>'previewVersion','id'=>'test','versionId'=>$version,'revision'=>$head['revision'],'captureSnapshot'=>true,'execution'=>(object)['unitCount'=>100],'values'=>(object)[]]);
+$check(isset($response['snapshotError']) && $response['result']['basePrice']===17 && !$list($repo),'size limit preserves result without partial insert');
 echo "PASS $checks snapshot checks\n";

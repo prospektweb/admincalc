@@ -190,7 +190,9 @@ final class DocumentApplication
             $document = json_decode($revision['bodyJson'], false, 64, JSON_THROW_ON_ERROR);
             if ($action === 'formVersion') {
                 if (!is_callable($this->formRuntime)) throw new \RuntimeException('Form projection unavailable.', 503);
-                $result = ['runtime' => ($this->formRuntime)($document, $revision['revision'])];
+                $hashes = [];
+                foreach (array_unique(['BASE', ...array_map(fn($view) => $view->id, $document->presentations->views ?? [])]) as $view) $hashes[$view] = DocumentCalculationSnapshots::signature($revision['bodyJson'], $view);
+                $result = ['runtime' => ($this->formRuntime)($document, $revision['revision']), 'formSignatures' => $hashes];
             } else {
                 $resources = ($this->resources)($document);
                 try {
@@ -205,11 +207,13 @@ final class DocumentApplication
             }
             // The result names the saved input revision, never an optimistic UI
             // draft or a concurrently edited branch head.
-            if ($versionId !== null && $this->repository->versions()->load($id, $versionId)['revision'] !== $revision['revision']) throw new DocumentConflict();
+            $capture = $action === 'previewVersion' && !isset($result['failure']) && self::boolean($request, 'captureSnapshot', false);
+            if (!$capture && $versionId !== null && $this->repository->versions()->load($id, $versionId)['revision'] !== $revision['revision']) throw new DocumentConflict();
             $response = $result + ['source' => ['documentId' => $id, 'versionId' => $versionId,
                 'revision' => $revision['revision'], 'bodyHash' => $revision['bodyHash']]];
-            if ($action === 'previewVersion' && !isset($result['failure']) && self::boolean($request, 'captureSnapshot', false)) {
-                $response['snapshotId'] = $this->repository->snapshots()->capture($id, $versionId, $revision, $response, $request, $resources);
+            if ($capture) {
+                try { $response['snapshotId'] = $this->repository->snapshots()->capture($id, $versionId, $revision, $response, $request, $resources); }
+                catch (\Throwable $error) { $response['snapshotError'] = 'Расчёт выполнен, но снимок не сохранён. ' . $error->getMessage(); }
             }
             return $response;
         }

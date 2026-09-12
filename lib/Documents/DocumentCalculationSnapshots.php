@@ -40,7 +40,9 @@ final class DocumentCalculationSnapshots
     {
         if (!$this->db->inTransaction()) throw new \LogicException('Snapshot guard requires document lock.');
         $rows = $this->db->rows('SELECT id, storefront_id FROM b_pw_calc_snapshot WHERE scope_id = ? AND document_id = ? AND version_id = ? AND actor_id = ?', [$this->scope, $id, $version, $this->actor]);
-        $affected = array_filter($rows, fn($row) => self::signature($before, $row['storefront_id']) !== self::signature($after, $row['storefront_id']));
+        $changed = [];
+        foreach (array_unique(array_column($rows, 'storefront_id')) as $view) $changed[$view] = self::signature($before, $view) !== self::signature($after, $view);
+        $affected = array_filter($rows, fn($row) => $changed[$row['storefront_id']]);
         if ($affected && !$confirmed) throw new DocumentConflict('CALCULATION_SNAPSHOTS_RESET_REQUIRED: Форма несовместима с сохранёнными расчётами. Ваш затронутый список будет очищен. Передача в подготовку товара пока недоступна.');
         foreach ($affected as $row) $this->db->execute('DELETE FROM b_pw_calc_snapshot WHERE id = ? AND actor_id = ? AND scope_id = ?', [$row['id'], $this->actor, $this->scope]);
         // Other actors retain their receipts; compatibility is checked on every read.
@@ -55,18 +57,17 @@ final class DocumentCalculationSnapshots
                 $this->db->execute('DELETE FROM b_pw_calc_snapshot WHERE ' . $where . ($snapshotId !== null ? ' AND id = ?' : ''), $snapshotId !== null ? [...$params, $snapshotId] : $params);
             }
             if ($action === 'clearIncompatibleCalculationSnapshots') $this->db->execute('DELETE FROM b_pw_calc_snapshot WHERE ' . $where . ' AND form_hash <> ?', [...$params, self::signature($source['bodyJson'], $storefront)]);
-            $rows = $this->db->rows('SELECT * FROM b_pw_calc_snapshot WHERE ' . $where . ' ORDER BY created_at DESC, id DESC', $params);
+            $load = $action === 'loadCalculationSnapshot';
+            $columns = 'id, created_at, form_hash, summary_json' . ($load ? ', payload_json, payload_hash' : '');
+            $rows = $this->db->rows('SELECT ' . $columns . ' FROM b_pw_calc_snapshot WHERE ' . $where . ($load ? ' AND id = ?' : '') . ' ORDER BY created_at DESC, id DESC', $load ? [...$params, $snapshotId] : $params);
             $signature = self::signature($source['bodyJson'], $storefront); $items = [];
             foreach ($rows as $row) {
-                if (!hash_equals($row['payload_hash'], hash('sha256', $row['payload_json']))) throw new \RuntimeException('Snapshot integrity check failed.');
-                $payload = json_decode($row['payload_json'], true, 64, JSON_THROW_ON_ERROR);
                 $compatible = hash_equals($signature, $row['form_hash']);
-                $item = ['id' => $row['id'], 'name' => $payload['response']['result']['name'], 'createdAt' => $row['created_at'], 'compatible' => $compatible,
-                    'revision' => $payload['response']['source']['revision'], 'purchasingPrice' => $payload['response']['result']['purchasingPrice'],
-                    'basePrice' => $payload['response']['result']['basePrice'], 'currency' => $payload['response']['result']['currency']];
-                if ($action === 'loadCalculationSnapshot' && $row['id'] === $snapshotId) {
+                $item = ['id' => $row['id'], 'createdAt' => $row['created_at'], 'compatible' => $compatible] + json_decode($row['summary_json'], true, 64, JSON_THROW_ON_ERROR);
+                if ($load) {
                     if (!$compatible) throw new DocumentConflict('Форма изменилась. Снимок сохранён, но восстановить ввод в несовместимую форму нельзя.');
-                    return $item + ['payload' => $payload, 'currentSource' => ['revision' => $source['revision'], 'bodyHash' => $source['bodyHash']]];
+                    if (!hash_equals($row['payload_hash'], hash('sha256', $row['payload_json']))) throw new \RuntimeException('Snapshot integrity check failed.');
+                    return $item + ['payload' => json_decode($row['payload_json'], true, 64, JSON_THROW_ON_ERROR), 'currentSource' => ['revision' => $source['revision'], 'bodyHash' => $source['bodyHash']]];
                 }
                 $items[] = $item;
             }
@@ -90,9 +91,11 @@ final class DocumentCalculationSnapshots
             if ($incompatible) throw new DocumentConflict('Форма изменена другим пользователем. Сначала откройте список и подтвердите очистку несовместимых расчётов.');
             $count = (int)$this->db->rows('SELECT COUNT(*) AS total FROM b_pw_calc_snapshot WHERE scope_id = ? AND document_id = ? AND version_id = ? AND actor_id = ?', [$this->scope, $id, $version, $this->actor])[0]['total'];
             if ($count >= 500) throw new \RuntimeException('В списке 500 расчётов. Удалите ненужные снимки.');
+            $result = $response['result'];
+            $summary = json_encode(['name' => $result['name'], 'revision' => $source['revision'], 'purchasingPrice' => $result['purchasingPrice'], 'basePrice' => $result['basePrice'], 'currency' => $result['currency']], JSON_THROW_ON_ERROR);
             $key = 'cs_' . bin2hex(random_bytes(16));
-            $this->db->execute('INSERT INTO b_pw_calc_snapshot (id, scope_id, document_id, version_id, actor_id, storefront_id, form_hash, payload_json, payload_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [$key, $this->scope, $id, $version, $this->actor, $view, self::signature($source['bodyJson'], $view), $payload, hash('sha256', $payload), gmdate('Y-m-d\TH:i:s\Z')]);
+            $this->db->execute('INSERT INTO b_pw_calc_snapshot (id, scope_id, document_id, version_id, actor_id, storefront_id, form_hash, payload_json, payload_hash, created_at, summary_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [$key, $this->scope, $id, $version, $this->actor, $view, self::signature($source['bodyJson'], $view), $payload, hash('sha256', $payload), gmdate('Y-m-d\TH:i:s\Z'), $summary]);
             return $key;
         });
     }
