@@ -19,6 +19,7 @@ $port=new class($db) {
     public bool $fail=false;public int $writes=0;public function __construct(public $db){}
     public function capture($site,$document,$product,$bindings,$lock){$rows=json_decode($this->db->rows('SELECT body FROM qa_generation')[0]['body'],true);$states=[];foreach($rows as $id=>$v)$states[$id]=['state'=>$v['state']];return ['schemas'=>[],'choices'=>[],'states'=>$states,'rows'=>$rows];}
     public function round($s,$t){return $s;}public function validate($c,$v,$key){}
+    public function parentProjection($c,$p){return null;}
     public function assertRemoved($ids){if(json_decode($this->db->rows('SELECT body FROM qa_generation')[0]['body'],true))throw new RuntimeException('Catalog still exists');}
     public function diff($c,$plan){$rows=[];foreach($plan['variants'] as $key=>$v)$rows[$key]=['action'=>$v['offerId']?'unchanged':'create'];return ['productDiff'=>[],'variants'=>$rows];}
     public function write($before,$plan){$this->writes++;$rows=$before['rows'];$ids=[];foreach($plan['variants'] as $key=>$v){$id=$v['offerId']??(100+count($rows));$rows[$id]=$v;$ids[$key]=$id;$this->db->execute('UPDATE qa_generation SET body=?',[json_encode($rows)]);if($this->fail)throw new RuntimeException('Injected mid-write failure');}return $ids;}

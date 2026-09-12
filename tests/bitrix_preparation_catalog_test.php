@@ -57,5 +57,15 @@ foreach(['b_sale_basket'=>'PRODUCT_ID','b_catalog_store_product'=>'PRODUCT_ID','
 $empty=function()use($db){$db->execute('UPDATE b_catalog_product SET TYPE=1 WHERE ID=1001');$db->execute('UPDATE b_iblock_element_prop_s15 SET PROPERTY_279=NULL');};
 $db->begin();$empty();$plain=$capture();check($plain['parentType']===1&&$plain['offerIds']===[],'Native empty simple parent allowed');check($port->diff($plain,['productProperties'=>[],'variants'=>[]])['productDiff'][0]['path']==='productType','First-SKU conversion explicit in preview');$db->rollback();
 foreach(['UPDATE b_catalog_product SET QUANTITY=1 WHERE ID=1001','UPDATE b_catalog_product SET PURCHASING_PRICE=10 WHERE ID=1001','UPDATE b_catalog_product SET TYPE=2 WHERE ID=1001','INSERT INTO b_sale_basket VALUES (1001)','INSERT INTO b_catalog_store_product VALUES (1001)','INSERT INTO b_catalog_product_sets VALUES (1001,NULL,NULL)','INSERT INTO b_catalog_docs_element VALUES (1001)','INSERT INTO b_catalog_subscribe VALUES (1001)'] as $sql){$db->begin();$empty();$db->execute($sql);reject(fn()=>$capture(),'commercial or unknown simple parent');$db->rollback();}
+$price=fn($amount,$from=null,$to=1)=>['typeId'=>1,'quantityFrom'=>$from,'quantityTo'=>$to,'price'=>(float)$amount,'currency'=>'RUB'];
+$plain['currencyRates']=['RUB'=>'1'];$plan=['variants'=>['a'=>['offerId'=>null,'state'=>['prices'=>[$price(590),$price(100,2,2)]]],'b'=>['offerId'=>null,'state'=>['prices'=>[$price(830)]]]],'productProperties'=>[]];
+$projection=$port->parentProjection($plain,$plan);check($projection===[array_replace($price(590),['quantityTo'=>null])],'Native minimum for one set, not cheapest bulk range');
+$diff=$port->diff($plain,['variants'=>[],'productProperties'=>[],'parentProjection'=>$projection]);check(end($diff['productDiff'])['path']==='parentPrices','Native parent prices explicitly previewed');
+$owned=$first;$owned['currencyRates']=['RUB'=>'1'];$owned['derivedParentOwned']=true;$owned['states'][2001]['state']['prices']=[$price(900)];$owned['states'][2001]['prices']=[];
+check($port->parentProjection($owned,$plan)[0]['price']===590.0,'Full final SKU set included');
+$owned['elements'][2001]['ACTIVE']='Y';$owned['states'][2001]['product']['AVAILABLE']='Y';
+check($port->parentProjection($owned,$plan)[0]['price']===900.0,'Available active SKU takes precedence over unavailable new ones');
+$owned['derivedParentOwned']=false;reject(fn()=>$port->parentProjection($owned,$plan),'Unowned parent prices protected before write');
+$db->begin();$hash=\Prospektweb\Calc\Documents\DocumentCatalogWritePlan::hash($first['states'][1001]['prices']);$ownedBindings=$bindings;$ownedBindings['variant']['parent_price_hash']=$hash;check($capture($ownedBindings)['derivedParentOwned'],'Exact persisted parent price provenance');$ownedBindings['variant']['parent_price_hash']=str_repeat('0',64);reject(fn()=>$capture($ownedBindings),'Manual parent price change invalidates authority');$db->rollback();
 echo "PASS $checks combined property and preparation catalog assertions\n";
 }

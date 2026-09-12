@@ -8,7 +8,7 @@ require_once __DIR__ . '/SqlConnection.php';
 /** Explicit, additive installation. Never called on a normal read/write request. */
 final class DocumentSchema
 {
-    public const VERSION = 14;
+    public const VERSION = 15;
     public static function install(SqlConnection $db): void
     {
         $mysql = $db->dialect() === 'mysql';
@@ -82,11 +82,13 @@ final class DocumentSchema
         $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_preparation_offer (
             preparation_id CHAR(64) NOT NULL, variant_key CHAR(64) NOT NULL,
             scope_id $id NOT NULL, offer_id INTEGER NOT NULL, result_id $id NOT NULL,
-            mapping_hash CHAR(64) NOT NULL, receipt_id CHAR(64) NOT NULL,
+            mapping_hash CHAR(64) NOT NULL, receipt_id CHAR(64) NOT NULL, parent_price_hash CHAR(64) NULL,
             PRIMARY KEY (preparation_id, variant_key), UNIQUE (scope_id, offer_id),
             FOREIGN KEY (preparation_id) REFERENCES b_pw_calc_preparation(id),
             FOREIGN KEY (result_id) REFERENCES b_pw_calc_preparation_result(id)
         )$suffix");
+        $offerColumns=$mysql?array_column($db->rows('SHOW COLUMNS FROM b_pw_calc_preparation_offer'),'Field'):array_column($db->rows('PRAGMA table_info(b_pw_calc_preparation_offer)'),'name');
+        if(!in_array('parent_price_hash',$offerColumns,true))$db->execute('ALTER TABLE b_pw_calc_preparation_offer ADD COLUMN parent_price_hash CHAR(64) NULL');
         $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_preparation_write (
             id CHAR(64) NOT NULL PRIMARY KEY, preparation_id CHAR(64) NOT NULL,
             scope_id $id NOT NULL, actor_id $id NOT NULL, fingerprint CHAR(64) NOT NULL,

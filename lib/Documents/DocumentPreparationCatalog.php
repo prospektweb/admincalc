@@ -47,18 +47,20 @@ final class DocumentPreparationCatalog
             $ids=$this->catalog->write($before['catalog'],$plan);
             if(array_keys($ids)!==array_keys($plan['variants']))throw new \RuntimeException('Неполный ответ записи каталога.');
             $mappingHash=$plan['public']['mappingRevision'];
+            $parentPriceHash=$plan['parentProjection']!==null?$this->catalog->parentPriceHash($before['catalog']['productId']):null;
             foreach($plan['variants'] as $variant=>$target){
                 $offer=$ids[$variant];if(!is_int($offer)||$offer<1)throw new \RuntimeException('Каталог не вернул ID предложения.');
                 if(isset($before['bindings'][$variant])){
                     if($offer!==(int)$before['bindings'][$variant]['offer_id'])throw new DocumentConflict('Связанное предложение заменено.');
-                    $this->db->execute('UPDATE b_pw_calc_preparation_offer SET result_id=?,mapping_hash=?,receipt_id=? WHERE preparation_id=? AND variant_key=?',[$target['resultId'],$mappingHash,$receiptId,$before['preparation']['id'],$variant]);
-                }else $this->db->execute('INSERT INTO b_pw_calc_preparation_offer (preparation_id,variant_key,scope_id,offer_id,result_id,mapping_hash,receipt_id) VALUES (?,?,?,?,?,?,?)',[$before['preparation']['id'],$variant,$this->scope,$offer,$target['resultId'],$mappingHash,$receiptId]);
+                    $this->db->execute('UPDATE b_pw_calc_preparation_offer SET result_id=?,mapping_hash=?,receipt_id=?,parent_price_hash=? WHERE preparation_id=? AND variant_key=?',[$target['resultId'],$mappingHash,$receiptId,$parentPriceHash,$before['preparation']['id'],$variant]);
+                }else $this->db->execute('INSERT INTO b_pw_calc_preparation_offer (preparation_id,variant_key,scope_id,offer_id,result_id,mapping_hash,receipt_id,parent_price_hash) VALUES (?,?,?,?,?,?,?,?)',[$before['preparation']['id'],$variant,$this->scope,$offer,$target['resultId'],$mappingHash,$receiptId,$parentPriceHash]);
             }
+            if($parentPriceHash!==null)$this->db->execute('UPDATE b_pw_calc_preparation_offer SET parent_price_hash=? WHERE preparation_id=? AND scope_id=?',[$parentPriceHash,$before['preparation']['id'],$this->scope]);
             $after=$this->capture($c,true);
             $this->catalog->verify($before['catalog'],$after['catalog'],$plan,$ids);
             $r=['contract'=>'prospektweb.calculator/preparation-write-v1','preparationId'=>$before['preparation']['id'],'resultIds'=>$c['resultIds'],'newActive'=>$c['newActive'],
                 'fingerprint'=>$c['fingerprint'],'afterHash'=>DocumentCatalogWritePlan::hash($after),'mappingRevision'=>$mappingHash,'offerIds'=>$ids,
-                'variants'=>$plan['variants'],'productProperties'=>$plan['productProperties'],'source'=>['documentId'=>$c['id'],'versionId'=>$c['versionId'],'revision'=>$c['expectedRevision']],
+                'variants'=>$plan['variants'],'productProperties'=>$plan['productProperties'],'parentProjection'=>$plan['parentProjection'],'source'=>['documentId'=>$c['id'],'versionId'=>$c['versionId'],'revision'=>$c['expectedRevision']],
                 'createdAt'=>gmdate('Y-m-d\TH:i:s\Z'),'applied'=>true];
             $json=DocumentCatalogWritePlan::canonical($r);
             $this->db->execute('INSERT INTO b_pw_calc_preparation_write (id,preparation_id,scope_id,actor_id,fingerprint,receipt_json,receipt_hash,created_at) VALUES (?,?,?,?,?,?,?,?)',[$receiptId,$before['preparation']['id'],$this->scope,$this->actor,$c['fingerprint'],$json,hash('sha256',$json),$r['createdAt']]);
@@ -152,6 +154,9 @@ final class DocumentPreparationCatalog
         // Keep variant lookup explicit; product properties are written exactly once.
         foreach($variants as $key=>&$variant)$variant['properties']=$consensus['offerProperties'][$key]??[];unset($variant);
         $plan=['variants'=>$variants,'productProperties'=>$consensus['productProperties']];
+        $plan['parentProjection']=null;
+        try{$plan['parentProjection']=$this->catalog->parentProjection($before['catalog'],$plan);}
+        catch(\InvalidArgumentException|DocumentConflict $e){$errors[]=$e->getMessage();}
         $display=$this->catalog->diff($before['catalog'],$plan);
         foreach($rows as $key=>&$row){$row+=($display['variants'][$key]??[]);if($row['errors']||$errors)$row['action']='conflict';}unset($row);
         $ready=!$errors&&!array_filter($rows,fn($r)=>$r['errors']);

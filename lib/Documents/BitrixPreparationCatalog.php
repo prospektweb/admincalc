@@ -80,15 +80,23 @@ final class BitrixPreparationCatalog
         foreach($site['priceTypes'] as $t)if(!in_array($t['key'],$known,true))throw new DocumentConflict('Настроенный тип цены удалён.');
         $rounding=$this->rows('b_catalog_rounding','1=1');$currencies=$this->rows('b_catalog_currency','1=1',[],200);$measures=$this->rows('b_catalog_measure','1=1',[],200);
         $handlers=$this->rows('b_module_to_module',"FROM_MODULE_ID IN ('iblock','catalog')");
-        $defaults=$this->rows('b_option',"MODULE_ID='catalog' AND NAME IN ('default_quantity_trace','default_can_buy_zero','default_subscribe','default_vat_included')");
+        $defaults=$this->rows('b_option',"MODULE_ID='catalog' AND NAME IN ('default_quantity_trace','default_can_buy_zero','default_subscribe','default_vat_included','show_catalog_tab_with_offers')");
+        $separate=(bool)array_filter($defaults,fn($r)=>$r['NAME']==='show_catalog_tab_with_offers'&&$r['VALUE']==='Y');
+        $derivedParentOwned=false;$boundSet=$boundIds;$offerSet=array_values($offerIds);sort($boundSet);sort($offerSet);
+        $parentHashes=array_column($bindings,'parent_price_hash');$knownParentHashes=array_filter($parentHashes,'is_string');
+        if($knownParentHashes){
+            $priceHash=DocumentCatalogWritePlan::hash($states[$product]['prices']);
+            if($boundSet!==$offerSet||count($knownParentHashes)!==count($bindings)||count(array_unique($knownParentHashes))!==1||!hash_equals(reset($knownParentHashes),$priceHash))throw new DocumentConflict('Цены товара изменены вручную или появились чужие ТП. Происхождение проекции больше не подтверждено.');
+            $derivedParentOwned=true;
+        }
         $sync=$this->rows('b_option',"MODULE_ID='aspro.premier' AND LOWER(NAME)='event_sync'");
         if(($_SESSION['CUSTOM_UPDATE']??'N')==='Y'||array_filter($sync,fn($r)=>$r['VALUE']==='Y'))throw new DocumentConflict('Включена синхронизация остатков Aspro: она может изменить другие ТП. Генерация остановлена.');
         if($this->db->dialect()==='mysql'){
             $tables=array_keys($this->tables);sort($tables);$engines=$this->db->rows('SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('.implode(',',array_fill(0,count($tables),'?')).') ORDER BY TABLE_NAME',$tables);
             if(array_column($engines,'TABLE_NAME')!==$tables||count(array_filter($engines,fn($r)=>strtoupper($r['ENGINE'])==='INNODB'))!==count($tables))throw new DocumentConflict('Каталожная запись требует InnoDB.');
         }
-        return ['productId'=>$product,'products'=>$products,'offers'=>$offers,'parentProperty'=>$parent,'parentType'=>$parentType,'schemas'=>$inputs['propertySchemas'],'choices'=>$inputs['propertyChoices'],
-            'allSchemas'=>$schemas,'elements'=>$elements,'rawProperties'=>$raw,'states'=>$states,'offerIds'=>array_values($offerIds),
+        return ['productId'=>$product,'products'=>$products,'offers'=>$offers,'parentProperty'=>$parent,'parentType'=>$parentType,'derivedParentOwned'=>$derivedParentOwned,'separate'=>$separate,'schemas'=>$inputs['propertySchemas'],'choices'=>$inputs['propertyChoices'],
+            'allSchemas'=>$schemas,'elements'=>$elements,'rawProperties'=>$raw,'states'=>$states,'offerIds'=>array_values($offerIds),'currencyRates'=>array_column($currencies,'CURRENT_BASE_RATE','CURRENCY'),
             'configuration'=>DocumentCatalogWritePlan::hash([$settings,$provider,$pairs,$p,$iblocks,$schemas,$types,$rounding,$currencies,$measures,$handlers,$defaults,$sync,$inputs['propertyChoices']]),
             'authority'=>DocumentCatalogWritePlan::hash([$this->evidence,$inputs['authority']])];
     }
@@ -106,6 +114,28 @@ final class BitrixPreparationCatalog
             foreach(['b_iblock_element'=>['ID'],'b_catalog_product'=>['ID'],'b_catalog_price'=>['PRODUCT_ID']] as $table=>$columns)
                 if($this->rows($table,$columns[0].'=?',[$id]))throw new DocumentConflict('Сначала удалите точное ТП #'.$id.' штатным жизненным циклом каталога.');
         }
+    }
+    public function parentPriceHash(int $id):string{return DocumentCatalogWritePlan::hash($this->writer->capture([$id],true)[$id]['prices']);}
+    /** Native Sku::loadProductData/loadProductPrices: available active offers when
+     * present, otherwise all offers; interval containing one; minimum price per type.
+     * Cross-currency scale selection needs a separate exact adapter and is rejected. */
+    public function parentProjection(array $catalog,array $plan):?array
+    {
+        if($catalog['separate'])return null;
+        $offers=[];$offerIds=$catalog['offerIds'];sort($offerIds,SORT_NUMERIC);foreach($offerIds as $id)$offers[(string)$id]=['prices'=>$catalog['states'][$id]['state']['prices'],'raw'=>$catalog['states'][$id]['prices'],'available'=>$catalog['elements'][$id]['ACTIVE']==='Y'&&($catalog['states'][$id]['product']['AVAILABLE']??'N')==='Y'];
+        foreach($plan['variants'] as $key=>$v){$id=$v['offerId'];$offers[$id?(string)$id:$key]=['prices'=>$v['state']['prices'],'raw'=>$id?$offers[(string)$id]['raw']:[],'available'=>$id?$offers[(string)$id]['available']:false];}
+        $available=array_filter($offers,fn($o)=>$o['available']);$candidates=$available?:$offers;$prices=[];$currencies=[];
+        foreach($candidates as $offer)foreach($offer['prices'] as $p)if(($p['quantityFrom']??0)<=1&&($p['quantityTo']??PHP_INT_MAX)>=1){
+            $type=$p['typeId'];$currencies[$type][$p['currency']]=true;
+            if(count($currencies[$type])>1)throw new DocumentConflict('Проекция цен товара в разных валютах требует точного адаптера PRICE_SCALE.');
+            $rate=$catalog['currencyRates'][$p['currency']]??null;if(!is_numeric($rate)||(float)$rate<=0)throw new DocumentConflict('Не подтверждён текущий базовый курс валюты каталога.');$scale=$p['price']*(float)$rate;
+            foreach($offer['raw'] as $raw)if((int)$raw['CATALOG_GROUP_ID']===$type&&($raw['QUANTITY_FROM']===null?null:(int)$raw['QUANTITY_FROM'])===$p['quantityFrom']&&($raw['QUANTITY_TO']===null?null:(int)$raw['QUANTITY_TO'])===$p['quantityTo']&&(float)$raw['PRICE']===$p['price']&&$raw['CURRENCY']===$p['currency']){$scale=(float)$raw['PRICE_SCALE'];break;}
+            if(!isset($prices[$type])||$scale<$prices[$type]['scale'])$prices[$type]=['typeId'=>$type,'quantityFrom'=>null,'quantityTo'=>null,'price'=>$p['price'],'currency'=>$p['currency'],'scale'=>$scale];
+        }
+        ksort($prices,SORT_NUMERIC);$prices=array_values($prices);foreach($prices as &$p)unset($p['scale']);unset($p);
+        if($catalog['parentType']===1||$catalog['derivedParentOwned'])return $prices;
+        if(DocumentCatalogWritePlan::hash($prices)!==DocumentCatalogWritePlan::hash($catalog['states'][$catalog['productId']]['state']['prices']))throw new DocumentConflict('Штатная проекция SKU изменит несвязанные цены товара. Запись запрещена.');
+        return null;
     }
     private function propertyValues(array $catalog,int $element,int $id):array
     {
@@ -125,6 +155,7 @@ final class BitrixPreparationCatalog
             $out[]=['label'=>$schema['NAME']??$schema['CODE'],'path'=>'property.'.$r['propertyId'],'old'=>$old,'new'=>$new,'oldDisplay'=>$display($old),'newDisplay'=>$display($new),'changed'=>DocumentCatalogWritePlan::hash($old)!==DocumentCatalogWritePlan::hash($new)];}return $out;};
         $productDiff=$properties($catalog['productId'],$plan['productProperties']);$variants=[];
         if($catalog['parentType']===1)$productDiff[]=['label'=>'Тип товара','path'=>'productType','old'=>'Простой товар без коммерческих данных','new'=>'Товар с предложениями','changed'=>true];
+        if(($plan['parentProjection']??null)!==null){$old=$catalog['states'][$catalog['productId']]['state']['prices'];$new=$plan['parentProjection'];$productDiff[]=['label'=>'Цены товара · штатный минимум SKU для 1 комплекта','path'=>'parentPrices','old'=>$old,'new'=>$new,'changed'=>DocumentCatalogWritePlan::hash($old)!==DocumentCatalogWritePlan::hash($new)];}
         foreach($plan['variants'] as $key=>$v){$id=$v['offerId'];$diff=$properties($id,$v['properties']);
             $old=$id?$catalog['states'][$id]['state']:['purchasingPrice'=>['value'=>null,'currency'=>null],'dimensions'=>['width'=>null,'length'=>null,'height'=>null,'weight'=>null],'prices'=>[]];
             $diff=array_merge([['label'=>'Название','path'=>'name','old'=>$id?$catalog['elements'][$id]['NAME']:null,'new'=>$v['name'],'changed'=>!$id||$catalog['elements'][$id]['NAME']!==$v['name']]],$diff,DocumentCatalogWritePlan::diffs($old,$v['state']));
@@ -188,6 +219,10 @@ final class BitrixPreparationCatalog
             if($id===$before['productId']){$old=$before['states'][$id];$new=$after['states'][$id];unset($old['product']['TIMESTAMP_X'],$new['product']['TIMESTAMP_X']);
                 if($after['parentType']!==3)throw new DocumentConflict('Штатный тип товара с предложениями не подтвердился.');
                 if($before['parentType']===1){unset($old['product']['TYPE'],$new['product']['TYPE']);}
+                if(($plan['parentProjection']??null)!==null){
+                    if(!($before['parentType']===1||$before['derivedParentOwned'])||DocumentCatalogWritePlan::hash($new['state']['prices'])!==DocumentCatalogWritePlan::hash($plan['parentProjection']))throw new DocumentConflict('Штатная проекция цен товара не совпала с планом.');
+                    unset($old['prices'],$new['prices'],$old['state']['prices'],$new['state']['prices']);
+                }
                 if(DocumentCatalogWritePlan::hash($old)!==DocumentCatalogWritePlan::hash($new))throw new DocumentConflict('Изменены посторонние каталожные параметры товара.');}
             elseif(isset($owned[$id])){
                 $old=$before['states'][$id]['product'];$new=$after['states'][$id]['product'];foreach(['PURCHASING_PRICE','PURCHASING_CURRENCY','WIDTH','LENGTH','HEIGHT','WEIGHT','TIMESTAMP_X'] as $k)unset($old[$k],$new[$k]);
