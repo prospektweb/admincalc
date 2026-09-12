@@ -45,7 +45,7 @@ final class DocumentCalculationSnapshots
         foreach (array_unique([...array_column($rows, 'storefront_id'), ...array_column($groupViews, 'storefront_id')]) as $view) $changed[$view] = self::signature($before, $view) !== self::signature($after, $view);
         $affected = array_filter($rows, fn($row) => $changed[$row['storefront_id']]);
         $affectedGroups = array_filter($groupViews, fn($row) => $changed[$row['storefront_id']]);
-        if (($affected || $affectedGroups) && !$confirmed) throw new DocumentConflict('CALCULATION_SNAPSHOTS_RESET_REQUIRED: Форма несовместима с сохранёнными расчётами. Ваш затронутый список будет очищен. Передача в подготовку товара пока недоступна.');
+        if (($affected || $affectedGroups) && !$confirmed) throw new DocumentConflict('CALCULATION_SNAPSHOTS_RESET_REQUIRED: Форма несовместима с сохранёнными расчётами. Передайте нужные снимки в подготовку товара до подтверждения очистки.');
         foreach ($affected as $row) $this->db->execute('DELETE FROM b_pw_calc_snapshot WHERE id = ? AND actor_id = ? AND scope_id = ?', [$row['id'], $this->actor, $this->scope]);
         foreach ($changed as $view => $reset) if ($reset) $this->db->execute('DELETE FROM b_pw_calc_snapshot_group WHERE scope_id = ? AND document_id = ? AND version_id = ? AND actor_id = ? AND storefront_id = ?', [$this->scope, $id, $version, $this->actor, $view]);
         // Other actors retain their receipts; compatibility is checked on every read.

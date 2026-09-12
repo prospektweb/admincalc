@@ -8,7 +8,7 @@ require_once __DIR__ . '/SqlConnection.php';
 /** Explicit, additive installation. Never called on a normal read/write request. */
 final class DocumentSchema
 {
-    public const VERSION = 11;
+    public const VERSION = 12;
     public static function install(SqlConnection $db): void
     {
         $mysql = $db->dialect() === 'mysql';
@@ -49,6 +49,29 @@ final class DocumentSchema
         $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_snapshot_member (
             snapshot_id $id NOT NULL PRIMARY KEY, group_id $id NOT NULL,
             FOREIGN KEY (snapshot_id) REFERENCES b_pw_calc_snapshot(id) ON DELETE CASCADE,
+            FOREIGN KEY (group_id) REFERENCES b_pw_calc_snapshot_group(id) ON DELETE CASCADE
+        )$suffix");
+        // Preparation owns its copies. No foreign key to working receipts, groups, versions or documents.
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_preparation (
+            id CHAR(64) NOT NULL PRIMARY KEY, scope_id $id NOT NULL, provider $id NOT NULL,
+            catalog_id $id NOT NULL, product_key $id NOT NULL, document_id $id NOT NULL,
+            storefront_id $id NOT NULL, revision INTEGER NOT NULL
+        )$suffix");
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_preparation_result (
+            id $id NOT NULL PRIMARY KEY, preparation_id CHAR(64) NOT NULL, variant_key CHAR(64) NOT NULL,
+            snapshot_id $id NOT NULL, active INTEGER NOT NULL, form_hash CHAR(64) NOT NULL,
+            payload_json $text NOT NULL, payload_hash CHAR(64) NOT NULL, summary_json $text NOT NULL,
+            provenance_json $text NOT NULL, created_at VARCHAR(30) NOT NULL,
+            UNIQUE (preparation_id, snapshot_id),
+            FOREIGN KEY (preparation_id) REFERENCES b_pw_calc_preparation(id)
+        )$suffix");
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_preparation_history (
+            id $id NOT NULL PRIMARY KEY, preparation_id CHAR(64) NOT NULL,
+            decision_json $text NOT NULL, actor_id $id NOT NULL, created_at VARCHAR(30) NOT NULL,
+            FOREIGN KEY (preparation_id) REFERENCES b_pw_calc_preparation(id)
+        )$suffix");
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_group_target (
+            group_id $id NOT NULL PRIMARY KEY, product_key $id NOT NULL,
             FOREIGN KEY (group_id) REFERENCES b_pw_calc_snapshot_group(id) ON DELETE CASCADE
         )$suffix");
         $snapshotColumns = $mysql ? array_column($db->rows('SHOW COLUMNS FROM b_pw_calc_snapshot'), 'Field') : array_column($db->rows('PRAGMA table_info(b_pw_calc_snapshot)'), 'name');

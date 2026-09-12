@@ -42,9 +42,10 @@ try {
     require_once $module . '/lib/Documents/BitrixResourceProvider.php';
     $catalogWrite = in_array($request->command->action ?? '', ['previewCatalogWrite', 'applyCatalogWrite'], true);
     $resourceCardWrite = ($request->command->action ?? '') === 'saveResourceCard';
+    $preparationWrite = ($request->command->action ?? '') === 'productPreparation' && ($request->command->operation ?? '') === 'transfer';
     $scope = 'site:' . $siteId;
     $actor = 'user:' . (int)$USER->GetID();
-    $connection = new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection(), $catalogWrite || $resourceCardWrite);
+    $connection = new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection(), $catalogWrite || $resourceCardWrite || $preparationWrite);
     $repository = new \Prospektweb\Calc\Documents\DocumentRepository($connection, $scope, $actor);
     if (in_array($request->command->action ?? '', ['priceTemplates', 'loadPriceTemplate', 'createPriceTemplate', 'savePriceTemplate', 'renamePriceTemplate', 'deletePriceTemplate'], true)) {
         require_once $module . '/lib/Documents/PriceTemplateApplication.php';
@@ -104,13 +105,18 @@ try {
         });
         $respond(200, ['success' => true, 'data' => $audit->command(get_object_vars($request->command))]);
     }
-    if (in_array($request->command->action ?? '', ['assignmentCatalog', 'previewProductAssignments', 'saveProductAssignments'], true)) {
+    if (in_array($request->command->action ?? '', ['assignmentCatalog', 'previewProductAssignments', 'saveProductAssignments', 'productPreparation'], true)) {
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock')) throw new \RuntimeException('Site catalog adapter unavailable.',503);
         require_once $module.'/lib/Documents/DocumentProductAssignments.php';
         $config=new \Prospektweb\Frontcalc\Config\ConfigManager(); $catalog=$config->getProductIblockId();
         $iblockType=(string)\CIBlock::GetArrayByID($catalog,'IBLOCK_TYPE_ID');
         $language=defined('LANGUAGE_ID')?(string)LANGUAGE_ID:'ru';
-        $assignments=new \Prospektweb\Calc\Documents\DocumentProductAssignments($repository,$provider,(string)$catalog,static function(array $queries,?array $ids) use($catalog,$iblockType,$language,$publicProductUrl): array {
+        $readProducts=static function(array $queries,?array $ids) use($catalog,$iblockType,$language,$publicProductUrl,$preparationWrite,$connection): array {
+            if ($preparationWrite && $ids) {
+                if (!$connection->inTransaction()) throw new \LogicException('Preparation product read requires its transaction.');
+                $lockedProducts=$connection->rows('SELECT ID FROM b_iblock_element WHERE IBLOCK_ID = ? AND ID IN ('.implode(',',array_fill(0,count($ids),'?')).') FOR UPDATE',array_merge([(int)$catalog],array_map('intval',$ids)));
+                if (count($lockedProducts)!==count($ids)) throw new \Prospektweb\Calc\Documents\DocumentConflict('Товар удалён или перемещён в другой каталог.');
+            }
             $filter=['IBLOCK_ID'=>$catalog,'CHECK_PERMISSIONS'=>'Y'];
             if ($ids!==null) $filter['ID']=array_map('intval',$ids);
             $rows=[]; $cursor=\CIBlockElement::GetList(['NAME'=>'ASC','ID'=>'ASC'],$filter,false,$ids===null?false:['nTopCount'=>100],['ID','NAME','ACTIVE','DETAIL_PAGE_URL']);
@@ -123,7 +129,11 @@ try {
                 if($ids===null&&count($rows)>=50)break;
             }
             return $rows;
-        });
+        };
+        if ($request->command->action === 'productPreparation') {
+            require_once $module.'/lib/Documents/DocumentProductPreparation.php';
+            $assignments=new \Prospektweb\Calc\Documents\DocumentProductPreparation($connection,$scope,$actor,$repository,$provider,(string)$catalog,$readProducts);
+        } else $assignments=new \Prospektweb\Calc\Documents\DocumentProductAssignments($repository,$provider,(string)$catalog,$readProducts);
         $respond(200,['success'=>true,'data'=>$assignments->command(get_object_vars($request->command))]);
     }
     if (in_array($request->command->action ?? '', ['siteOptions', 'sourceCatalog', 'searchProducts', 'catalogProducts', 'catalogProductSections'], true)) {
