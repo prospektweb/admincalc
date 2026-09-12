@@ -80,4 +80,8 @@ $capture($repo);$change('create');$capture($other);
 $change('clear');$check(!$board()['items'] && !$board()['groups'] && count($board($other)['items'])===1,'global clear isolated to owner');
 $check(!$db->rows('SELECT * FROM b_pw_calc_snapshot_member'),'no dangling membership');
 DocumentSchema::install($db);$check(count($board($other)['items'])===1,'schema reinstall preserves receipts');
+$capture($repo);$change('create');$preview=$repo->lifecycle()->preview('test');
+$repo->lifecycle()->delete('test',$preview['revision'],$preview['name']);
+$check(!$db->rows('SELECT * FROM b_pw_calc_snapshot_group') && !$db->rows('SELECT * FROM b_pw_calc_snapshot_member'),'lifecycle deletion removes every group/member');
+$check(!$db->rows('SELECT * FROM b_pw_calc_snapshot'),'lifecycle deletion removes receipts of all actors');
 echo "PASS {$checks} calculation group checks\n";
