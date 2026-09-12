@@ -8,7 +8,7 @@ require_once __DIR__ . '/SqlConnection.php';
 /** Explicit, additive installation. Never called on a normal read/write request. */
 final class DocumentSchema
 {
-    public const VERSION = 10;
+    public const VERSION = 11;
     public static function install(SqlConnection $db): void
     {
         $mysql = $db->dialect() === 'mysql';
@@ -40,6 +40,16 @@ final class DocumentSchema
             version_id $id NOT NULL, actor_id $id NOT NULL, storefront_id $id NOT NULL,
             form_hash CHAR(64) NOT NULL, summary_json $text NULL, payload_json $text NOT NULL, payload_hash CHAR(64) NOT NULL,
             created_at VARCHAR(30) NOT NULL
+        )$suffix");
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_snapshot_group (
+            id $id NOT NULL PRIMARY KEY, scope_id $id NOT NULL, document_id $id NOT NULL,
+            version_id $id NOT NULL, actor_id $id NOT NULL, storefront_id $id NOT NULL,
+            name VARCHAR(200) NOT NULL, sort INTEGER NOT NULL, collapsed INTEGER NOT NULL DEFAULT 0
+        )$suffix");
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_snapshot_member (
+            snapshot_id $id NOT NULL PRIMARY KEY, group_id $id NOT NULL,
+            FOREIGN KEY (snapshot_id) REFERENCES b_pw_calc_snapshot(id) ON DELETE CASCADE,
+            FOREIGN KEY (group_id) REFERENCES b_pw_calc_snapshot_group(id) ON DELETE CASCADE
         )$suffix");
         $snapshotColumns = $mysql ? array_column($db->rows('SHOW COLUMNS FROM b_pw_calc_snapshot'), 'Field') : array_column($db->rows('PRAGMA table_info(b_pw_calc_snapshot)'), 'name');
         if (!in_array('summary_json', $snapshotColumns, true)) $db->execute("ALTER TABLE b_pw_calc_snapshot ADD COLUMN summary_json $text NULL");

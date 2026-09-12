@@ -58,6 +58,7 @@ final class DocumentApplication
             'restoreVersionRevision' => ['id', 'versionId', 'expectedRevision', 'revision', 'resetSnapshots'],
             'activateVersion' => ['id', 'versionId', 'expectedRevision', 'expectedVersionsRevision', 'expectedSitePublication'],
             'previewVersion' => ['id', 'versionId', 'revision', 'values', 'execution', 'name', 'storefrontId', 'captureSnapshot', 'sectionActivation'],
+            'calculationGroups' => ['id', 'versionId', 'operation', 'expectedState', 'groupId', 'groupIds', 'snapshotId', 'storefrontId', 'name', 'collapsed'],
             'calculationSnapshots' => ['id', 'versionId', 'storefrontId'],
             'loadCalculationSnapshot' => ['id', 'versionId', 'storefrontId', 'snapshotId'],
             'deleteCalculationSnapshot' => ['id', 'versionId', 'storefrontId', 'snapshotId'],
@@ -100,6 +101,7 @@ final class DocumentApplication
                 array_key_exists('expectedCatalogRevision', $request) ? self::integer($request, 'expectedCatalogRevision') : null);
         }
         $id = self::text($request, 'id');
+        if ($action === 'calculationGroups') return $this->repository->snapshots()->groups($id, self::text($request, 'versionId'), $request);
         if (in_array($action, ['calculationSnapshots', 'loadCalculationSnapshot', 'deleteCalculationSnapshot', 'clearCalculationSnapshots', 'clearIncompatibleCalculationSnapshots'], true)) {
             return $this->repository->snapshots()->command($action, $id, self::text($request, 'versionId'), self::text($request, 'storefrontId'), in_array($action, ['loadCalculationSnapshot', 'deleteCalculationSnapshot'], true) ? self::text($request, 'snapshotId') : null);
         }
