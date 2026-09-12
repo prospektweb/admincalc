@@ -186,13 +186,14 @@ final class DocumentProductPreparation
     public function removeOwnedPreparation(string $preparationId, int $expectedRevision, array $expectedResultIds): void
     {
         if(!preg_match('/^[a-f0-9]{64}$/D',$preparationId)||$expectedRevision<1||!$expectedResultIds)throw new \InvalidArgumentException('Expected exact preparation and composition.');
+        // Resolve the lock identity before starting the consistent read view.
+        $heads=$this->db->rows('SELECT document_id FROM b_pw_calc_preparation WHERE id = ? AND scope_id = ?',[$preparationId,$this->scope]);
+        if(!$heads)throw new \RuntimeException('Preparation not found.',404);$head=$heads[0];
         $this->db->begin();
         try{
-            $heads=$this->db->rows('SELECT * FROM b_pw_calc_preparation WHERE id = ? AND scope_id = ?',[$preparationId,$this->scope]);
-            if(!$heads)throw new \RuntimeException('Preparation not found.',404);$head=$heads[0];
             $this->db->rows('SELECT id FROM b_pw_calc_document WHERE id = ? AND scope_id = ?'.($this->db->dialect()==='mysql'?' FOR UPDATE':''),[$head['document_id'],$this->scope]);
             $fresh=$this->db->rows('SELECT revision FROM b_pw_calc_preparation WHERE id = ?',[$preparationId]);
-            if((int)$fresh[0]['revision']!==$expectedRevision)throw new DocumentConflict('Preparation changed.');
+            if(!$fresh||(int)$fresh[0]['revision']!==$expectedRevision)throw new DocumentConflict('Preparation changed.');
             $rows=$this->db->rows('SELECT id, provenance_json FROM b_pw_calc_preparation_result WHERE preparation_id = ?',[$preparationId]);
             $actual=array_column($rows,'id');sort($actual);sort($expectedResultIds);
             if($actual!==$expectedResultIds)throw new DocumentConflict('Preparation composition changed.');
