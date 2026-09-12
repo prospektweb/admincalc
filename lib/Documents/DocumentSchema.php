@@ -8,7 +8,7 @@ require_once __DIR__ . '/SqlConnection.php';
 /** Explicit, additive installation. Never called on a normal read/write request. */
 final class DocumentSchema
 {
-    public const VERSION = 13;
+    public const VERSION = 14;
     public static function install(SqlConnection $db): void
     {
         $mysql = $db->dialect() === 'mysql';
@@ -78,6 +78,20 @@ final class DocumentSchema
         $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_group_target (
             group_id $id NOT NULL PRIMARY KEY, product_key $id NOT NULL,
             FOREIGN KEY (group_id) REFERENCES b_pw_calc_snapshot_group(id) ON DELETE CASCADE
+        )$suffix");
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_preparation_offer (
+            preparation_id CHAR(64) NOT NULL, variant_key CHAR(64) NOT NULL,
+            scope_id $id NOT NULL, offer_id INTEGER NOT NULL, result_id $id NOT NULL,
+            mapping_hash CHAR(64) NOT NULL, receipt_id CHAR(64) NOT NULL,
+            PRIMARY KEY (preparation_id, variant_key), UNIQUE (scope_id, offer_id),
+            FOREIGN KEY (preparation_id) REFERENCES b_pw_calc_preparation(id),
+            FOREIGN KEY (result_id) REFERENCES b_pw_calc_preparation_result(id)
+        )$suffix");
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_preparation_write (
+            id CHAR(64) NOT NULL PRIMARY KEY, preparation_id CHAR(64) NOT NULL,
+            scope_id $id NOT NULL, actor_id $id NOT NULL, fingerprint CHAR(64) NOT NULL,
+            receipt_json $text NOT NULL, receipt_hash CHAR(64) NOT NULL, created_at VARCHAR(30) NOT NULL,
+            FOREIGN KEY (preparation_id) REFERENCES b_pw_calc_preparation(id)
         )$suffix");
         $snapshotColumns = $mysql ? array_column($db->rows('SHOW COLUMNS FROM b_pw_calc_snapshot'), 'Field') : array_column($db->rows('PRAGMA table_info(b_pw_calc_snapshot)'), 'name');
         if (!in_array('summary_json', $snapshotColumns, true)) $db->execute("ALTER TABLE b_pw_calc_snapshot ADD COLUMN summary_json $text NULL");

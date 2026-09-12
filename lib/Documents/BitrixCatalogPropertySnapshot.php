@@ -24,13 +24,13 @@ final class BitrixCatalogPropertySnapshot
      * Catalog pair, SKU-parent membership, settings and publication remain the
      * outer port's responsibility; this reader must not be an HTTP entrypoint.
      */
-    public function capture(int $products, int $offers, array $productIds, array $offerIds, array $sources, bool $lock): array
+    public function capture(int $products, int $offers, array $productIds, array $offerIds, array $sources, bool $lock, bool $preparation = false): array
     {
         if (!$this->db->inTransaction()) throw new \LogicException('Catalog input reads require a coordinator-owned snapshot.');
         if ($lock && $this->db instanceof BitrixConnection) $this->db->assertCatalogWriteTransaction();
         self::id($products); self::id($offers);
         if ($products === $offers) throw new \InvalidArgumentException('Product and offer catalogs must differ.');
-        $elementIds = ['product' => self::ids($productIds), 'selected_offer' => self::ids($offerIds)];
+        $elementIds = ['product' => self::ids($productIds), 'selected_offer' => $preparation && $offerIds === [] ? [] : self::ids($offerIds)];
         if (array_intersect($elementIds['product'], $elementIds['selected_offer'])) throw new \InvalidArgumentException('Catalog element scopes overlap.');
         if (!array_is_list($sources) || count($sources) > 200) throw new \InvalidArgumentException('Invalid catalog source list.');
         $catalogs = ['product' => $products, 'selected_offer' => $offers]; $wanted = [];
@@ -62,13 +62,16 @@ final class BitrixCatalogPropertySnapshot
         $elements = [];
         foreach ($catalogs as $scope => $iblock) {
             $ids = $elementIds[$scope];
+            if (!$ids) continue;
             $rows = $this->select('b_iblock_element',
                 'ID,IBLOCK_ID,NAME,ACTIVE,ACTIVE_FROM,ACTIVE_TO,CASE WHEN (ACTIVE_FROM IS NULL OR ACTIVE_FROM<=CURRENT_TIMESTAMP) AND (ACTIVE_TO IS NULL OR ACTIVE_TO>=CURRENT_TIMESTAMP) THEN 1 ELSE 0 END AS DATE_ACTIVE',
                 'ID IN (' . self::marks($ids) . ')', $ids, 'ID', 100);
             if (count($rows) !== count($ids)) throw new DocumentConflict('Элемент каталога отсутствует.');
             foreach ($rows as $row) {
                 $id = self::dbId($row['ID']);
-                if (!in_array($id, $ids, true) || self::dbId($row['IBLOCK_ID']) !== $iblock || $row['ACTIVE'] !== 'Y' || (string)$row['DATE_ACTIVE'] !== '1') {
+                if (!in_array($id, $ids, true) || self::dbId($row['IBLOCK_ID']) !== $iblock
+                    || !in_array($row['ACTIVE'], ['Y','N'], true)
+                    || (!$preparation && ($row['ACTIVE'] !== 'Y' || (string)$row['DATE_ACTIVE'] !== '1'))) {
                     throw new DocumentConflict('Элемент неактивен или принадлежит другому каталогу.');
                 }
                 $elements[$scope][$id] = $row;
@@ -137,6 +140,7 @@ final class BitrixCatalogPropertySnapshot
         }
         foreach ($catalogs as $scope => $iblock) {
             $ids = $elementIds[$scope];
+            if (!$ids) continue;
             $props = array_keys(array_filter($wanted, static fn(array $source): bool => $source['scope'] === $scope));
             if (!$props) continue;
             if ($versions[$iblock] === 2) {
@@ -172,8 +176,12 @@ final class BitrixCatalogPropertySnapshot
         }
         unset($byElement, $byProperty, $property);
         $this->assertEngines();
-        return ['authority' => (object)['fingerprint' => DocumentCatalogWritePlan::hash($this->evidence)],
+        $result = ['authority' => (object)['fingerprint' => DocumentCatalogWritePlan::hash($this->evidence)],
             'sourceAuthority' => $validation, 'properties' => $properties, 'elements' => $elements];
+        // Only the generation planner needs raw exact IDs for inverse projection.
+        // This flag is internal; it never grants ACL or SKU ownership authority.
+        if ($preparation) $result += ['propertySchemas'=>$metadata, 'propertyChoices'=>$enumRows];
+        return $result;
     }
 
     private function append(array &$properties, string $scope, int $element, int $prop, $raw, array $choices): void

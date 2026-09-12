@@ -41,11 +41,12 @@ try {
     require_once $module . '/lib/Documents/BitrixCoreGateway.php';
     require_once $module . '/lib/Documents/BitrixResourceProvider.php';
     $catalogWrite = in_array($request->command->action ?? '', ['previewCatalogWrite', 'applyCatalogWrite'], true);
+    $preparationCatalog = ($request->command->action ?? '') === 'preparationCatalog';
     $resourceCardWrite = ($request->command->action ?? '') === 'saveResourceCard';
     $preparationWrite = ($request->command->action ?? '') === 'productPreparation' && ($request->command->operation ?? '') === 'transfer';
     $scope = 'site:' . $siteId;
     $actor = 'user:' . (int)$USER->GetID();
-    $connection = new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection(), $catalogWrite || $resourceCardWrite || $preparationWrite);
+    $connection = new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection(), $catalogWrite || $resourceCardWrite || $preparationWrite || $preparationCatalog);
     $repository = new \Prospektweb\Calc\Documents\DocumentRepository($connection, $scope, $actor);
     if (in_array($request->command->action ?? '', ['priceTemplates', 'loadPriceTemplate', 'createPriceTemplate', 'savePriceTemplate', 'renamePriceTemplate', 'deletePriceTemplate'], true)) {
         require_once $module . '/lib/Documents/PriceTemplateApplication.php';
@@ -53,6 +54,20 @@ try {
         $respond(200, ['success' => true, 'data' => $templates->command(get_object_vars($request->command))]);
     }
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
+    if ($preparationCatalog) {
+        if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock') || !\Bitrix\Main\Loader::includeModule('catalog')) throw new \RuntimeException('Каталожный адаптер недоступен.',503);
+        require_once $module.'/lib/Documents/DocumentPreparationCatalog.php';
+        require_once $module.'/lib/Documents/BitrixPreparationCatalog.php';
+        require_once $module.'/lib/Documents/DocumentBatchForm.php';
+        require_once $module.'/lib/Documents/DocumentFormRuntime.php';
+        require_once \Bitrix\Main\Loader::getLocal('modules/prospektweb.frontcalc/lib/Service/FormSectionState.php');
+        $form=static function(object $payload,string $view):array {
+            $runtime=(new \Prospektweb\Calc\Documents\DocumentFormRuntime())($payload->document,(int)$payload->response->source->revision);
+            return \Prospektweb\Calc\Documents\DocumentBatchForm::validate($runtime,$view,$payload->values,$payload->activation,$payload->execution);
+        };
+        $service=new \Prospektweb\Calc\Documents\DocumentPreparationCatalog($connection,$scope,$actor,$repository,new \Prospektweb\Calc\Documents\BitrixPreparationCatalog($connection,$scope,$provider,$actor),$form);
+        $respond(200,['success'=>true,'data'=>$service->command(get_object_vars($request->command))]);
+    }
     if (in_array($request->command->action ?? '', ['loadResourceCard', 'saveResourceCard'], true)) {
         require_once $module . '/lib/Documents/DocumentResourceCard.php';
         $card = new \Prospektweb\Calc\Documents\DocumentResourceCard($connection, $scope, $actor, $provider);

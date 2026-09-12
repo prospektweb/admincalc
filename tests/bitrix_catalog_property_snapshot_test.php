@@ -70,6 +70,21 @@ function fixture(int $productVersion = 1, int $offerVersion = 2, int $count = 2)
 }
 function capture(array $f, bool $lock = false): array { return $f['reader']->capture(14,15,$f['productIds'],$f['offerIds'],$f['sources'],$lock); }
 
+$f=fixture();$f['db']->execute("UPDATE b_iblock_element SET ACTIVE='N' WHERE ID=1001");$f['db']->begin();
+reject(fn()=>capture($f),'Published input reader still rejects inactive products');
+$prepared=$f['reader']->capture(14,15,$f['productIds'],[],$f['sources'],true,true);
+check($prepared['elements']['product'][1001]['ACTIVE']==='N','Preparation can inspect an inactive product');
+check(isset($prepared['propertySchemas'][21])&&count($prepared['propertyChoices'][21])===1,'No existing offer needed for exact SKU schema and enum IDs');
+check(!isset($prepared['elements']['selected_offer']),'New SKU capture does not invent an element');
+check($f['db']->inTransaction(),'Preparation reader retains transaction ownership');$f['db']->rollback();
+$f=fixture();$f['db']->execute("UPDATE b_iblock_element SET ACTIVE='N' WHERE ID=2001");$f['db']->begin();
+reject(fn()=>capture($f),'Legacy reader still rejects inactive SKU');
+$prepared=$f['reader']->capture(14,15,$f['productIds'],$f['offerIds'],$f['sources'],true,true);
+check($prepared['elements']['selected_offer'][2001]['ACTIVE']==='N','Exact inactive SKU readback supported');
+$f['db']->execute('UPDATE b_iblock_element SET IBLOCK_ID=14 WHERE ID=2001');
+reject(fn()=>$f['reader']->capture(14,15,$f['productIds'],$f['offerIds'],$f['sources'],true,true),'Preparation cannot bypass foreign catalog');$f['db']->rollback();
+$f=fixture();$f['db']->begin();$badSources=$f['sources'];$badSources[0]['property_id']=999;
+reject(fn()=>$f['reader']->capture(14,15,$f['productIds'],[],$badSources,true,true),'Preparation cannot bypass unknown property');$f['db']->rollback();
 $projection=null;$queryCounts=[];
 foreach([[1,1],[1,2],[2,1],[2,2]] as [$pv,$ov]) {
     $f=fixture($pv,$ov);$f['db']->begin(true);$snapshot=capture($f);$again=capture($f);

@@ -198,6 +198,8 @@ final class DocumentProductPreparation
             $actual=array_column($rows,'id');sort($actual);sort($expectedResultIds);
             if($actual!==$expectedResultIds)throw new DocumentConflict('Preparation composition changed.');
             foreach($rows as $row){$p=json_decode($row['provenance_json'],true,64,JSON_THROW_ON_ERROR);if($p['transferredBy']!==$this->actor||$p['sourceActor']!==$this->actor)throw new DocumentConflict('Preparation contains another author.');}
+            if($this->db->rows('SELECT preparation_id FROM b_pw_calc_preparation_offer WHERE preparation_id=?',[$preparationId])
+                ||$this->db->rows('SELECT id FROM b_pw_calc_preparation_write WHERE preparation_id=?',[$preparationId]))throw new DocumentConflict('Preparation has catalog bindings or write receipts. Exact generation maintenance is required first.');
             $this->db->execute('DELETE FROM b_pw_calc_preparation_history WHERE preparation_id = ?',[$preparationId]);
             $this->db->execute('DELETE FROM b_pw_calc_preparation_result WHERE preparation_id = ?',[$preparationId]);
             $this->db->execute('DELETE FROM b_pw_calc_preparation WHERE id = ?',[$preparationId]);
