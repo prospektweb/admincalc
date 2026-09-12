@@ -22,7 +22,16 @@ try {
     if (!$request instanceof \stdClass || !is_string($request->siteId ?? null) || !(($request->command ?? null) instanceof \stdClass)
         || array_diff(array_keys(get_object_vars($request)), ['siteId', 'command'])) { throw new \InvalidArgumentException('Invalid command envelope.'); }
     $siteId = $request->siteId;
-    if (!preg_match('/^[A-Za-z0-9]{1,2}$/D', $siteId) || !\CSite::GetByID($siteId)->Fetch()) { throw new \InvalidArgumentException('Unknown site scope.'); }
+    $siteRow = preg_match('/^[A-Za-z0-9]{1,2}$/D', $siteId) ? \CSite::GetByID($siteId)->Fetch() : false;
+    if (!$siteRow) { throw new \InvalidArgumentException('Unknown site scope.'); }
+    $siteServer = trim((string)($siteRow['SERVER_NAME'] ?? ''));
+    $siteOrigin = $siteServer !== '' && preg_match('/^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/D', $siteServer)
+        ? ((\Bitrix\Main\Context::getCurrent()->getRequest()->isHttps() ? 'https' : 'http').'://'.$siteServer) : '';
+    $publicProductUrl = static function (string $url) use ($siteOrigin): string {
+        $url = trim($url);
+        if ($url === '' || preg_match('/^https?:\/\//i', $url)) return $url;
+        return $siteOrigin !== '' && str_starts_with($url, '/') ? $siteOrigin.$url : $url;
+    };
     $module = dirname(__DIR__);
     // Installed tools are copied outside the module. Resolve the real module path through Loader.
     $module = \Bitrix\Main\Loader::getLocal('modules/prospektweb.calc');
@@ -99,12 +108,20 @@ try {
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock')) throw new \RuntimeException('Site catalog adapter unavailable.',503);
         require_once $module.'/lib/Documents/DocumentProductAssignments.php';
         $config=new \Prospektweb\Frontcalc\Config\ConfigManager(); $catalog=$config->getProductIblockId();
-        $assignments=new \Prospektweb\Calc\Documents\DocumentProductAssignments($repository,$provider,(string)$catalog,static function(string $query,?array $ids) use($catalog): array {
+        $iblockType=(string)\CIBlock::GetArrayByID($catalog,'IBLOCK_TYPE_ID');
+        $language=defined('LANGUAGE_ID')?(string)LANGUAGE_ID:'ru';
+        $assignments=new \Prospektweb\Calc\Documents\DocumentProductAssignments($repository,$provider,(string)$catalog,static function(array $queries,?array $ids) use($catalog,$iblockType,$language,$publicProductUrl): array {
             $filter=['IBLOCK_ID'=>$catalog,'CHECK_PERMISSIONS'=>'Y'];
             if ($ids!==null) $filter['ID']=array_map('intval',$ids);
-            elseif ($query!=='') { if(ctype_digit($query)) $filter['ID']=(int)$query; else $filter['%NAME']=$query; }
-            $rows=[]; $cursor=\CIBlockElement::GetList(['NAME'=>'ASC','ID'=>'ASC'],$filter,false,['nTopCount'=>$ids===null?50:100],['ID','NAME','ACTIVE']);
-            while($row=$cursor->Fetch()) $rows[]=['key'=>(string)$row['ID'],'name'=>(string)$row['NAME'],'active'=>$row['ACTIVE']==='Y'];
+            $rows=[]; $cursor=\CIBlockElement::GetList(['NAME'=>'ASC','ID'=>'ASC'],$filter,false,$ids===null?false:['nTopCount'=>100],['ID','NAME','ACTIVE','DETAIL_PAGE_URL']);
+            while($row=$cursor->GetNext()) {
+                $haystack=mb_strtolower((string)$row['NAME'].' '.(string)$row['ID'],'UTF-8');
+                if($ids===null&&array_filter($queries,static fn(string $term):bool=>!str_contains($haystack,mb_strtolower($term,'UTF-8'))))continue;
+                $rows[]=['key'=>(string)$row['ID'],'name'=>(string)$row['NAME'],'active'=>$row['ACTIVE']==='Y',
+                    'adminUrl'=>'/bitrix/admin/iblock_element_edit.php?'.http_build_query(['IBLOCK_ID'=>$catalog,'type'=>$iblockType,'lang'=>$language,'ID'=>(int)$row['ID']]),
+                    'siteUrl'=>$publicProductUrl((string)($row['DETAIL_PAGE_URL']??''))];
+                if($ids===null&&count($rows)>=50)break;
+            }
             return $rows;
         });
         $respond(200,['success'=>true,'data'=>$assignments->command(get_object_vars($request->command))]);
@@ -140,8 +157,12 @@ try {
             if (!is_string($query) || mb_strlen($query) < 2 || mb_strlen($query) > 100) { throw new \InvalidArgumentException('Введите от 2 до 100 символов.'); }
             if (ctype_digit($query)) { $filter['ID'] = (int)$query; } else { $filter['%NAME'] = $query; }
         }
-        $items = []; $cursor = \CIBlockElement::GetList(['NAME' => 'ASC', 'ID' => 'ASC'], $filter, false, ['nTopCount' => $action === 'catalogProducts' ? 100 : 30], ['ID', 'NAME', 'ACTIVE']);
-        while ($row = $cursor->Fetch()) { $items[] = ['key' => (string)$row['ID'], 'name' => (string)$row['NAME'], 'active' => $row['ACTIVE'] === 'Y']; }
+        $items = []; $cursor = \CIBlockElement::GetList(['NAME' => 'ASC', 'ID' => 'ASC'], $filter, false, ['nTopCount' => $action === 'catalogProducts' ? 100 : 30], ['ID', 'NAME', 'ACTIVE', 'DETAIL_PAGE_URL']);
+        $iblockType=(string)\CIBlock::GetArrayByID($config->getProductIblockId(),'IBLOCK_TYPE_ID');
+        $language=defined('LANGUAGE_ID')?(string)LANGUAGE_ID:'ru';
+        while ($row = $cursor->GetNext()) { $items[] = ['key' => (string)$row['ID'], 'name' => (string)$row['NAME'], 'active' => $row['ACTIVE'] === 'Y',
+            'adminUrl'=>'/bitrix/admin/iblock_element_edit.php?'.http_build_query(['IBLOCK_ID'=>$config->getProductIblockId(),'type'=>$iblockType,'lang'=>$language,'ID'=>(int)$row['ID']]),
+            'siteUrl'=>$publicProductUrl((string)($row['DETAIL_PAGE_URL']??''))]; }
         $respond(200, ['success' => true, 'data' => ['items' => $items]]);
     }
     $siteCompiler = static function (object $document, object $connection, int $revision) use ($provider): array {
