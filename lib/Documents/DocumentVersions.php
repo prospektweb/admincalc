@@ -72,9 +72,9 @@ final class DocumentVersions
         });
     }
 
-    public function save(string $id, string $versionId, int $expectedRevision, string $json, ?string $connectionJson = null, bool $replaceConnection = false): array
+    public function save(string $id, string $versionId, int $expectedRevision, string $json, ?string $connectionJson = null, bool $replaceConnection = false, bool $resetSnapshots = false): array
     {
-        return $this->transaction(function () use ($id, $versionId, $expectedRevision, $json, $connectionJson, $replaceConnection): array {
+        return $this->transaction(function () use ($id, $versionId, $expectedRevision, $json, $connectionJson, $replaceConnection, $resetSnapshots): array {
             $meta = $this->lock($id); $version = $this->requireWritableVersion($id, $versionId);
             if ((int)$version['head_revision'] !== $expectedRevision) { throw new DocumentConflict('Версия изменилась. Ваши правки не перезаписаны.'); }
             $current = $this->envelope($id, $version);
@@ -85,6 +85,7 @@ final class DocumentVersions
             if (hash_equals($current['bodyHash'], hash('sha256', $json)) && $connection === $current['connectionJson']) {
                 return $current + ['saveReceipt' => $receipt + ['toRevision' => $expectedRevision, 'toRegistryRevision' => (int)$meta['versions_revision']]];
             }
+            $this->documents->snapshots()->guardSave($id, $versionId, $current['bodyJson'], $json, $resetSnapshots);
             $revision = $this->append($id, $json, $connection); $at = self::now();
             $this->db->execute('UPDATE b_pw_calc_version SET head_revision = ?, updated_at = ?, updated_by = ? WHERE id = ? AND document_id = ?', [$revision, $at, $this->actor, $versionId, $id]);
             if ($versionId === self::primaryId($id)) {

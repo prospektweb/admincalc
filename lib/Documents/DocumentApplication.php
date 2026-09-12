@@ -49,20 +49,25 @@ final class DocumentApplication
             'renameVersion' => ['id', 'versionId', 'expectedVersionsRevision', 'name'],
             'archiveVersion' => ['id', 'versionId', 'expectedVersionsRevision', 'archived'],
             'deleteVersion' => ['id', 'versionId', 'expectedVersionsRevision'],
-            'saveVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
+            'saveVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson', 'resetSnapshots'],
             'checkVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
             'checkInputMappings' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
             'checkOutputMappings' => ['id', 'versionId', 'expectedRevision', 'documentJson', 'connectionJson'],
             'contextVersion' => ['id', 'versionId', 'expectedRevision', 'documentJson'],
             'saveVersionConnection' => ['id', 'versionId', 'expectedRevision', 'connectionJson'],
-            'restoreVersionRevision' => ['id', 'versionId', 'expectedRevision', 'revision'],
+            'restoreVersionRevision' => ['id', 'versionId', 'expectedRevision', 'revision', 'resetSnapshots'],
             'activateVersion' => ['id', 'versionId', 'expectedRevision', 'expectedVersionsRevision', 'expectedSitePublication'],
-            'previewVersion' => ['id', 'versionId', 'revision', 'values', 'execution', 'name', 'storefrontId'],
+            'previewVersion' => ['id', 'versionId', 'revision', 'values', 'execution', 'name', 'storefrontId', 'captureSnapshot', 'sectionActivation'],
+            'calculationSnapshots' => ['id', 'versionId', 'storefrontId'],
+            'loadCalculationSnapshot' => ['id', 'versionId', 'storefrontId', 'snapshotId'],
+            'deleteCalculationSnapshot' => ['id', 'versionId', 'storefrontId', 'snapshotId'],
+            'clearCalculationSnapshots' => ['id', 'versionId', 'storefrontId'],
+            'clearIncompatibleCalculationSnapshots' => ['id', 'versionId', 'storefrontId'],
             'formVersion' => ['id', 'versionId', 'revision'],
             'list' => ['limit', 'offset', 'archived'], 'load' => ['id', 'revision'],
             'history' => ['id', 'limit', 'beforeRevision'], 'create' => ['documentJson', 'sectionId', 'expectedCatalogRevision'],
-            'save' => ['id', 'expectedRevision', 'documentJson'],
-            'restore' => ['id', 'expectedRevision', 'revision'],
+            'save' => ['id', 'expectedRevision', 'documentJson', 'resetSnapshots'],
+            'restore' => ['id', 'expectedRevision', 'revision', 'resetSnapshots'],
             'archive' => ['id', 'expectedRevision', 'archived'],
             'publish' => ['id', 'expectedRevision', 'expectedPublication'],
             'saveConnection' => ['id', 'expectedRevision', 'connectionJson'],
@@ -95,6 +100,9 @@ final class DocumentApplication
                 array_key_exists('expectedCatalogRevision', $request) ? self::integer($request, 'expectedCatalogRevision') : null);
         }
         $id = self::text($request, 'id');
+        if (in_array($action, ['calculationSnapshots', 'loadCalculationSnapshot', 'deleteCalculationSnapshot', 'clearCalculationSnapshots', 'clearIncompatibleCalculationSnapshots'], true)) {
+            return $this->repository->snapshots()->command($action, $id, self::text($request, 'versionId'), self::text($request, 'storefrontId'), in_array($action, ['loadCalculationSnapshot', 'deleteCalculationSnapshot'], true) ? self::text($request, 'snapshotId') : null);
+        }
         if ($action === 'previewCalculatorLifecycle') return $this->repository->lifecycle()->preview($id);
         if ($action === 'setCalculatorEnabled') return $this->repository->lifecycle()->setEnabled($id, self::text($request, 'expectedLifecycleRevision'), self::boolean($request, 'enabled'));
         if ($action === 'deleteCalculator') return $this->repository->lifecycle()->delete($id, self::text($request, 'expectedLifecycleRevision'), self::text($request, 'confirmationName'));
@@ -116,7 +124,7 @@ final class DocumentApplication
         }
         if ($action === 'restoreVersionRevision') {
             $source = $this->repository->load($id, self::integer($request, 'revision'));
-            return $this->repository->versions()->save($id, self::text($request, 'versionId'), self::integer($request, 'expectedRevision'), $this->validate($source['bodyJson']), $source['connectionJson'], true);
+            return $this->repository->versions()->save($id, self::text($request, 'versionId'), self::integer($request, 'expectedRevision'), $this->validate($source['bodyJson']), $source['connectionJson'], true, self::boolean($request, 'resetSnapshots', false));
         }
         if ($action === 'contextVersion') {
             $versionId = self::text($request, 'versionId'); $expected = self::integer($request, 'expectedRevision');
@@ -171,7 +179,7 @@ final class DocumentApplication
             $replaceConnection = array_key_exists('connectionJson', $request);
             $connection = $replaceConnection ? self::text($request, 'connectionJson') : null;
             return $this->repository->versions()->save($id, $versionId, $expected,
-                $this->validate(self::text($request, 'documentJson')), $connection, $replaceConnection);
+                $this->validate(self::text($request, 'documentJson')), $connection, $replaceConnection, self::boolean($request, 'resetSnapshots', false));
         }
         if ($action === 'load') { return $this->repository->load($id, isset($request['revision']) ? self::integer($request, 'revision') : null); }
         if ($action === 'history') { return ['items' => $this->repository->history($id, self::integer($request, 'limit', 50), self::integer($request, 'beforeRevision', 2147483647))]; }
@@ -198,8 +206,12 @@ final class DocumentApplication
             // The result names the saved input revision, never an optimistic UI
             // draft or a concurrently edited branch head.
             if ($versionId !== null && $this->repository->versions()->load($id, $versionId)['revision'] !== $revision['revision']) throw new DocumentConflict();
-            return $result + ['source' => ['documentId' => $id, 'versionId' => $versionId,
+            $response = $result + ['source' => ['documentId' => $id, 'versionId' => $versionId,
                 'revision' => $revision['revision'], 'bodyHash' => $revision['bodyHash']]];
+            if ($action === 'previewVersion' && !isset($result['failure']) && self::boolean($request, 'captureSnapshot', false)) {
+                $response['snapshotId'] = $this->repository->snapshots()->capture($id, $versionId, $revision, $response, $request, $resources);
+            }
+            return $response;
         }
         $expected = self::integer($request, 'expectedRevision');
         if ($action === 'saveConnection') {
@@ -211,7 +223,7 @@ final class DocumentApplication
         if ($action === 'save' || $action === 'restore') {
             $historical = $action === 'restore' ? $this->repository->load($id, self::integer($request, 'revision')) : null;
             $json = $historical !== null ? $historical['bodyJson'] : self::text($request, 'documentJson');
-            return $this->repository->save($id, $expected, $this->validate($json), $historical['connectionJson'] ?? null, $historical !== null);
+            return $this->repository->save($id, $expected, $this->validate($json), $historical['connectionJson'] ?? null, $historical !== null, self::boolean($request, 'resetSnapshots', false));
         }
         if ($action === 'publishSite' || $action === 'activateVersion') {
             if (!is_callable($this->siteCompiler)) { throw new \RuntimeException('Site publication compiler is unavailable.', 503); }

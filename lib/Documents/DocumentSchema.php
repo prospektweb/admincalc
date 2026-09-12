@@ -8,7 +8,7 @@ require_once __DIR__ . '/SqlConnection.php';
 /** Explicit, additive installation. Never called on a normal read/write request. */
 final class DocumentSchema
 {
-    public const VERSION = 8;
+    public const VERSION = 9;
     public static function install(SqlConnection $db): void
     {
         $mysql = $db->dialect() === 'mysql';
@@ -34,6 +34,12 @@ final class DocumentSchema
             snapshot_json $text NOT NULL, snapshot_hash CHAR(64) NOT NULL,
             actor_id $id NOT NULL, created_at VARCHAR(30) NOT NULL,
             FOREIGN KEY (document_id, source_revision) REFERENCES b_pw_calc_revision(document_id, revision)
+        )$suffix");
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_snapshot (
+            id $id NOT NULL PRIMARY KEY, scope_id $id NOT NULL, document_id $id NOT NULL,
+            version_id $id NOT NULL, actor_id $id NOT NULL, storefront_id $id NOT NULL,
+            form_hash CHAR(64) NOT NULL, payload_json $text NOT NULL, payload_hash CHAR(64) NOT NULL,
+            created_at VARCHAR(30) NOT NULL
         )$suffix");
         // Additive upgrade of existing installations; old revisions remain intact.
         $columns = $mysql ? array_column($db->rows('SHOW COLUMNS FROM b_pw_calc_revision'), 'Field')

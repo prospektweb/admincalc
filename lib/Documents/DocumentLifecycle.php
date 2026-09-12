@@ -36,7 +36,7 @@ final class DocumentLifecycle
                 'corePublications' => $this->read('SELECT * FROM b_pw_calc_publication WHERE document_id = ? ORDER BY id', [$id], true),
                 'catalogReceipts' => $this->read('SELECT * FROM b_pw_calc_catalog_write WHERE document_id = ? ORDER BY id', [$id], true)]);
             // No iblock, product, offer, resource, basket or order writes.
-            foreach (['product_binding', 'site_active', 'site_identity', 'version', 'catalog_write', 'site_publication', 'publication', 'revision'] as $table) {
+            foreach (['snapshot', 'product_binding', 'site_active', 'site_identity', 'version', 'catalog_write', 'site_publication', 'publication', 'revision'] as $table) {
                 $this->db->execute('DELETE FROM b_pw_calc_' . $table . ' WHERE document_id = ?', [$id]);
             }
             $this->db->execute('DELETE FROM b_pw_calc_document WHERE id = ? AND scope_id = ?', [$id, $this->scope]);
@@ -59,6 +59,7 @@ final class DocumentLifecycle
             $this->db->execute('DELETE FROM b_pw_calc_site_active WHERE document_id = ?', [$id]);
         }
         $this->db->execute('UPDATE b_pw_calc_version SET based_on_version_id = NULL WHERE document_id = ? AND based_on_version_id = ?', [$id, $versionId]);
+        $this->db->execute('DELETE FROM b_pw_calc_snapshot WHERE document_id = ? AND version_id = ?', [$id, $versionId]);
         $this->db->execute('DELETE FROM b_pw_calc_version WHERE document_id = ? AND id = ?', [$id, $versionId]);
         if ($this->db->rows('SELECT id FROM b_pw_calc_version WHERE document_id = ? AND id = ?', [$id, $versionId])) throw new \RuntimeException('Удаление версии не подтверждено.');
         // Revisions belong to the document and may be shared by cloned versions,

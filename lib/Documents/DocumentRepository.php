@@ -8,6 +8,7 @@ require_once __DIR__ . '/SiteConnection.php';
 require_once __DIR__ . '/DocumentCatalog.php';
 require_once __DIR__ . '/DocumentVersions.php';
 require_once __DIR__ . '/DocumentLifecycle.php';
+require_once __DIR__ . '/DocumentCalculationSnapshots.php';
 
 final class DocumentConflict extends \RuntimeException
 {
@@ -30,6 +31,8 @@ final class DocumentRepository
         self::identity($scope); self::identity($actor);
         $this->db = $db; $this->scope = $scope; $this->actor = $actor;
     }
+
+    public function snapshots(): DocumentCalculationSnapshots { return new DocumentCalculationSnapshots($this->db, $this->scope, $this->actor, $this); }
 
     public function versions(): DocumentVersions { return new DocumentVersions($this->db, $this->scope, $this->actor, $this); }
     public function lifecycle(): DocumentLifecycle { return new DocumentLifecycle($this->db, $this->scope, $this->actor); }
@@ -55,12 +58,12 @@ final class DocumentRepository
         });
     }
 
-    public function save(string $id, int $expectedRevision, string $json, ?string $connectionJson = null, bool $replaceConnection = false): array
+    public function save(string $id, int $expectedRevision, string $json, ?string $connectionJson = null, bool $replaceConnection = false, bool $resetSnapshots = false): array
     {
         self::identity($id); self::revision($expectedRevision);
         $document = self::body($json);
         if ($document['id'] !== $id) { throw new \InvalidArgumentException('Document identity is immutable.'); }
-        return $this->transaction(function () use ($id, $expectedRevision, $json, $document, $connectionJson, $replaceConnection): array {
+        return $this->transaction(function () use ($id, $expectedRevision, $json, $document, $connectionJson, $replaceConnection, $resetSnapshots): array {
             $meta = $this->requireMetadata($id, true);
             $this->expectRevision($meta, $expectedRevision);
             $this->versions()->assertPrimaryWritable($id);
@@ -68,6 +71,7 @@ final class DocumentRepository
             $connection = $replaceConnection ? $connectionJson : $current['connectionJson'];
             if ($connection !== null) { $connection = SiteConnection::canonical($connection, $document); }
             if (hash_equals($current['bodyHash'], hash('sha256', $json)) && $connection === $current['connectionJson']) { return $current; }
+            $this->snapshots()->guardSave($id, DocumentVersions::primaryId($id), $current['bodyJson'], $json, $resetSnapshots);
             $next = $this->nextRevision($id); $now = self::now();
             $this->appendRevision($id, $next, $json, $now, $connection);
             $this->db->execute('UPDATE b_pw_calc_document SET name = ?, current_revision = ?, updated_at = ? WHERE id = ? AND scope_id = ?',
