@@ -81,6 +81,20 @@ $failure=true;$command(['operation'=>'step','packetId'=>$pc['id']]);$failure=fal
 $command(['operation'=>'cancel','packetId'=>$pc['id']]);$command(['operation'=>'retry','packetId'=>$pc['id'],'itemIds'=>[0]]);
 $command(['operation'=>'resume','packetId'=>$pc['id']]);$count=$executions;$s=$command(['operation'=>'step','packetId'=>$pc['id']]);
 $check($executions===$count+1&&$s['status']==='completed'&&$s['items'][1]['status']==='cancelled'&&$s['items'][2]['status']==='cancelled','retry after cancellation executes only errors');
+$lost=$prepare('cancel-lost-00001',[$candidate(1),$candidate(2),$candidate(3)]);$command(['operation'=>'start','packetId'=>$lost['id']]);
+$failure=true;$command(['operation'=>'step','packetId'=>$lost['id']]);$failure=false;
+$before=count($repo->snapshots()->command('calculationSnapshots','batch-test',$version,'BASE')['items']);
+$hook=function()use($db,$lost,$command,$check){
+ $command(['operation'=>'cancel','packetId'=>$lost['id']]);
+ $row=$db->rows('SELECT state_json FROM b_pw_calc_batch WHERE id = ?',[$lost['id']])[0];$state=json_decode($row['state_json'],true);$state['items'][1]['lease']=time()-1;
+ $db->execute('UPDATE b_pw_calc_batch SET state_json = ? WHERE id = ?',[json_encode($state),$lost['id']]);
+ $settled=$command(['operation'=>'status','packetId'=>$lost['id']]);
+ $check($settled['items'][1]['status']==='cancelled'&&$settled['items'][2]['status']==='cancelled','expired cancelled claim becomes terminal without execution');
+};
+$command(['operation'=>'step','packetId'=>$lost['id']]);
+$check(count($repo->snapshots()->command('calculationSnapshots','batch-test',$version,'BASE')['items'])===$before,'late worker after cancelled claim expiry cannot append snapshot');
+$command(['operation'=>'retry','packetId'=>$lost['id'],'itemIds'=>[0]]);$command(['operation'=>'resume','packetId'=>$lost['id']]);$count=$executions;$s=$command(['operation'=>'step','packetId'=>$lost['id']]);
+$check($executions===$count+1&&$s['status']==='completed','expired cancelled worker does not block retry of prior errors');
 $p3=$prepare('packet-key-000003',[$candidate(1)]);$command(['operation'=>'start','packetId'=>$p3['id']]);
 $hook=function()use($db,$p3,$command){$row=$db->rows('SELECT state_json FROM b_pw_calc_batch WHERE id = ?',[$p3['id']])[0];$s=json_decode($row['state_json'],true);$s['items'][0]['lease']=0;$db->execute('UPDATE b_pw_calc_batch SET state_json = ? WHERE id = ?',[json_encode($s),$p3['id']]);$command(['operation'=>'step','packetId'=>$p3['id']]);};
 $before=count($repo->snapshots()->command('calculationSnapshots','batch-test',$version,'BASE')['items']);$s=$command(['operation'=>'step','packetId'=>$p3['id']]);

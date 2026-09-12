@@ -42,6 +42,18 @@ final class DocumentCalculationBatch
     {
         $this->db->execute('UPDATE b_pw_calc_batch SET state_json = ? WHERE id = ?', [json_encode($state, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), $key]);
     }
+    private function settleCancelled(array $state): array
+    {
+        if ($state['status'] !== 'cancelled') return $state;
+        foreach ($state['items'] as &$item) {
+            if ($item['status'] === 'running' && ($item['lease'] ?? 0) <= time()) {
+                // Revoke the claim; a delayed worker can no longer append a snapshot.
+                $item = ['description' => $item['description'], 'status' => 'cancelled'];
+                $state['message'] = 'Пакет отменён. Срок ожидания текущего варианта истёк; поздний результат не будет добавлен.';
+            }
+        }
+        unset($item); return $state;
+    }
     private function available(string $id, string $version): int
     {
         return max(0, 500 - (int)$this->db->rows('SELECT COUNT(*) AS total FROM b_pw_calc_snapshot WHERE scope_id = ? AND document_id = ? AND version_id = ? AND actor_id = ?', [$this->scope, $id, $version, $this->actor])[0]['total']);
@@ -69,7 +81,7 @@ final class DocumentCalculationBatch
         if (preg_match('/^[a-f0-9]{64}$/D', $requestId) && $this->rows($id, $version, $requestId)) $key = $requestId;
         if ($op === 'step') return $this->step($id, $version, $key, $core);
         return $this->lock($id, function() use ($id, $version, $key, $op, $r) {
-            $packet = $this->load($id, $version, $key); $s = $packet['state'];
+            $packet = $this->load($id, $version, $key); $s = $this->settleCancelled($packet['state']);
             if ($op === 'cancel') {
                 foreach ($s['items'] as &$item) if ($item['status'] === 'pending') $item['status'] = 'cancelled';
                 unset($item);
@@ -94,6 +106,7 @@ final class DocumentCalculationBatch
                 }
                 $s['status'] = 'paused'; $s['message'] = 'Ошибочные варианты подготовлены к повтору. Нажмите продолжить.';
             } elseif ($op !== 'status') throw new \InvalidArgumentException('Неизвестная операция пакета.');
+            $s = $this->settleCancelled($s);
             $this->save($key, $s); return $this->view($key, $s);
         });
     }
@@ -172,7 +185,8 @@ final class DocumentCalculationBatch
     private function step(string $id, string $version, string $key, callable $core): array
     {
         $claim = $this->lock($id, function() use ($id, $version, $key) {
-            $p = $this->load($id, $version, $key); $s = $p['state'];
+            $p = $this->load($id, $version, $key); $s = $this->settleCancelled($p['state']);
+            if ($s !== $p['state']) $this->save($key, $s);
             if ($s['status'] !== 'running') return ['view' => $this->view($key, $s)];
             $source = $this->documents->versions()->loadInTransaction($id, $version);
             if ($source['revision'] !== $p['artifact']['source']['revision'] || $source['bodyHash'] !== $p['artifact']['source']['bodyHash'] || $this->available($id, $version) === 0) {
@@ -195,7 +209,8 @@ final class DocumentCalculationBatch
                 'values' => DocumentInputContext::values($document, (object)$candidate['values'], $claim['state']['storefrontId']), 'execution' => (object)$candidate['execution'], 'name' => $document->name]);
         } catch (\Throwable $e) { $error = $e; }
         return $this->lock($id, function() use ($id, $version, $key, $claim, $a, $candidate, $result, $error) {
-            $p = $this->load($id, $version, $key); $s = $p['state']; $i = $claim['index'];
+            $p = $this->load($id, $version, $key); $s = $this->settleCancelled($p['state']); $i = $claim['index'];
+            if ($s !== $p['state']) $this->save($key, $s);
             if (($s['items'][$i]['token'] ?? '') !== $claim['token']) return $this->view($key, $s);
             if ($error !== null) {
                 $s['items'][$i] = ['description' => $s['items'][$i]['description'], 'status' => 'error', 'error' => mb_substr($error->getMessage(), 0, 2000)];
