@@ -25,7 +25,10 @@ final class DocumentCalculationBatch
     {
         $row = $this->rows($id, $version, $key)[0] ?? null;
         if (!$row) throw new \RuntimeException('Пакет не найден.', 404);
-        return ['artifact' => json_decode($row['artifact_json'], true, 64, JSON_THROW_ON_ERROR), 'state' => json_decode($row['state_json'], true, 64, JSON_THROW_ON_ERROR), 'hash' => $row['request_hash']];
+        // Keep JSON object/array identity inside the compiled document and inputs.
+        $artifact = (array)json_decode($row['artifact_json'], false, 64, JSON_THROW_ON_ERROR);
+        $artifact['source'] = (array)$artifact['source'];
+        return ['artifact' => $artifact, 'state' => json_decode($row['state_json'], true, 64, JSON_THROW_ON_ERROR), 'hash' => $row['request_hash']];
     }
     private function activePacket(string $id, string $version, ?string $except = null): ?array
     {
@@ -185,7 +188,7 @@ final class DocumentCalculationBatch
             return ['view' => $this->view($key, $s)];
         });
         if (isset($claim['view'])) return $claim['view'];
-        $a = $claim['artifact']; $candidate = $a['candidates'][$claim['index']];
+        $a = $claim['artifact']; $candidate = (array)$a['candidates'][$claim['index']];
         $document = json_decode($a['source']['bodyJson']); $error = null; $result = null;
         try {
             $result = $core(['action' => 'execute', 'publication' => json_decode(json_encode($a['publication'])), 'expectedRuntimeFingerprint' => $a['runtimeFingerprint'], 'includeReport' => true,
@@ -201,7 +204,7 @@ final class DocumentCalculationBatch
                 $response = $result + ['source' => ['documentId' => $id, 'versionId' => $version, 'revision' => $a['source']['revision'], 'bodyHash' => $a['source']['bodyHash']]];
                 try {
                     $snapshot = $this->documents->snapshots()->capture($id, $version, $a['source'], $response,
-                        ['values' => (object)$candidate['values'], 'sectionActivation' => (object)$candidate['activation'], 'execution' => $candidate['execution'], 'storefrontId' => $s['storefrontId']], $a['publication']['resources']);
+                        ['values' => (object)$candidate['values'], 'sectionActivation' => (object)$candidate['activation'], 'execution' => $candidate['execution'], 'storefrontId' => $s['storefrontId']], $a['publication']->resources);
                     $s['items'][$i] = ['description' => $s['items'][$i]['description'], 'status' => 'success', 'snapshotId' => $snapshot];
                 } catch (\Throwable $e) {
                     $s['items'][$i] = ['description' => $s['items'][$i]['description'], 'status' => 'error', 'error' => $e->getMessage()]; $s['status'] = 'stopped';

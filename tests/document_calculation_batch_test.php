@@ -20,7 +20,8 @@ $runtime=['formDefinition'=>$body['form'],'bindingDefinition'=>['bindings'=>[['f
  ['property_code'=>'CALC_PROP_KIND','name'=>'Основа','selection_mode'=>'single','required'=>true,'inputs'=>[],'options'=>[['xml_id'=>'a','label'=>'A'],['xml_id'=>'b','label'=>'B']]]]]]]];
 $reads=0;$price=10;$executions=0;$failure=false;$hook=null;
 $core=function($c)use(&$executions,&$failure,&$hook){
- if($c['action']==='compile')return ['snapshotJson'=>json_encode(['resources'=>$c['resources'],'plan'=>['document'=>$c['document']]]),'runtimeFingerprint'=>str_repeat('a',64)];
+ if($c['action']==='compile')return ['snapshotJson'=>json_encode(['resources'=>$c['resources'],'plan'=>['document'=>$c['document'],'emptyObject'=>(object)[],'emptyArray'=>[]]]),'runtimeFingerprint'=>str_repeat('a',64)];
+ if(!is_object($c['publication']->plan->emptyObject)||!is_array($c['publication']->plan->emptyArray))throw new RuntimeException('JSON shape lost across packet persistence');
  $executions++; if($hook){$fn=$hook;$hook=null;$fn();} if($failure)throw new RuntimeException('QA execution failure');
  return ['result'=>['name'=>'Result','purchasingPrice'=>$c['publication']->resources[0]->price,'basePrice'=>20,'currency'=>'RUB']];
 };
