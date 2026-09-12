@@ -44,7 +44,8 @@ final class DocumentCalculationSnapshots
         $groupViews = $this->db->rows('SELECT storefront_id FROM b_pw_calc_snapshot_group WHERE scope_id = ? AND document_id = ? AND version_id = ? AND actor_id = ?', [$this->scope, $id, $version, $this->actor]);
         foreach (array_unique([...array_column($rows, 'storefront_id'), ...array_column($groupViews, 'storefront_id')]) as $view) $changed[$view] = self::signature($before, $view) !== self::signature($after, $view);
         $affected = array_filter($rows, fn($row) => $changed[$row['storefront_id']]);
-        if ($affected && !$confirmed) throw new DocumentConflict('CALCULATION_SNAPSHOTS_RESET_REQUIRED: Форма несовместима с сохранёнными расчётами. Ваш затронутый список будет очищен. Передача в подготовку товара пока недоступна.');
+        $affectedGroups = array_filter($groupViews, fn($row) => $changed[$row['storefront_id']]);
+        if (($affected || $affectedGroups) && !$confirmed) throw new DocumentConflict('CALCULATION_SNAPSHOTS_RESET_REQUIRED: Форма несовместима с сохранёнными расчётами. Ваш затронутый список будет очищен. Передача в подготовку товара пока недоступна.');
         foreach ($affected as $row) $this->db->execute('DELETE FROM b_pw_calc_snapshot WHERE id = ? AND actor_id = ? AND scope_id = ?', [$row['id'], $this->actor, $this->scope]);
         foreach ($changed as $view => $reset) if ($reset) $this->db->execute('DELETE FROM b_pw_calc_snapshot_group WHERE scope_id = ? AND document_id = ? AND version_id = ? AND actor_id = ? AND storefront_id = ?', [$this->scope, $id, $version, $this->actor, $view]);
         // Other actors retain their receipts; compatibility is checked on every read.
@@ -59,7 +60,8 @@ final class DocumentCalculationSnapshots
                 $this->db->execute('DELETE FROM b_pw_calc_snapshot WHERE ' . $where . ($snapshotId !== null ? ' AND id = ?' : ''), $snapshotId !== null ? [...$params, $snapshotId] : $params);
             }
             if ($action === 'clearIncompatibleCalculationSnapshots') $this->db->execute('DELETE FROM b_pw_calc_snapshot WHERE ' . $where . ' AND form_hash <> ?', [...$params, self::signature($source['bodyJson'], $storefront)]);
-            if (in_array($action, ['clearCalculationSnapshots', 'clearIncompatibleCalculationSnapshots'], true)) $this->db->execute('DELETE FROM b_pw_calc_snapshot_group WHERE ' . $where, $params);
+            if ($action === 'clearCalculationSnapshots') $this->db->execute('DELETE FROM b_pw_calc_snapshot_group WHERE ' . $where, $params);
+            if ($action === 'clearIncompatibleCalculationSnapshots') $this->db->execute('DELETE FROM b_pw_calc_snapshot_group WHERE ' . $where . ' AND NOT EXISTS (SELECT 1 FROM b_pw_calc_snapshot_member m WHERE m.group_id = b_pw_calc_snapshot_group.id)', $params);
             $load = $action === 'loadCalculationSnapshot';
             $columns = 'id, created_at, form_hash, summary_json' . ($load ? ', payload_json, payload_hash' : '');
             $rows = $this->db->rows('SELECT ' . $columns . ' FROM b_pw_calc_snapshot WHERE ' . $where . ($load ? ' AND id = ?' : '') . ' ORDER BY created_at DESC, id DESC', $load ? [...$params, $snapshotId] : $params);

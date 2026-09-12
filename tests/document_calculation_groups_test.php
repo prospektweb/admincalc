@@ -80,6 +80,32 @@ $capture($repo);$change('create');$capture($other);
 $change('clear');$check(!$board()['items'] && !$board()['groups'] && count($board($other)['items'])===1,'global clear isolated to owner');
 $check(!$db->rows('SELECT * FROM b_pw_calc_snapshot_member'),'no dangling membership');
 DocumentSchema::install($db);$check(count($board($other)['items'])===1,'schema reinstall preserves receipts');
+// Empty folders retain user-authored metadata until the same reset confirmation.
+$emptySnapshot=$capture($repo);$emptyBoard=$change('create');$emptyGroup=$emptyBoard['groups'][0]['id'];
+$change('rename',['groupId'=>$emptyGroup,'name'=>'Keep empty metadata']);$change('collapse',['groupId'=>$emptyGroup,'collapsed'=>true]);
+$change('delete',['snapshotId'=>$emptySnapshot]);$emptyBefore=$board();
+$head=$repo->versions()->load('test',$version);$emptyChanged=json_decode($head['bodyJson'],true);$emptyChanged['form']['fields'][0]['unit']='mm';
+$reject(fn()=>$repo->versions()->save('test',$version,$head['revision'],$json($emptyChanged)),409);
+$check($board()===$emptyBefore && !$board()['items'],'unconfirmed reset preserves empty folder name/order/collapse');
+$db->execute("CREATE TRIGGER fail_empty_save BEFORE INSERT ON b_pw_calc_revision BEGIN SELECT RAISE(ABORT, 'empty folder rollback'); END");
+try{$repo->versions()->save('test',$version,$head['revision'],$json($emptyChanged),null,false,true);throw new RuntimeException('expected fail');}catch(PDOException $e){}
+$check($board()===$emptyBefore,'failed confirmed save restores empty folder');$db->execute('DROP TRIGGER fail_empty_save');
+$repo->versions()->save('test',$version,$head['revision'],$json($emptyChanged),null,false,true);
+$check(!$board()['groups'],'confirmed empty-folder reset clears affected group');
+// Legacy targeted cleanup must not dissolve compatible or mixed groups.
+$compatible=$capture($repo);$goodGroup=$change('create')['groups'][0]['id'];
+$stale=$capture($repo);$staleGroup=$change('create')['groups'][1]['id'];
+$mixed=$capture($repo);$change('assign',['snapshotId'=>$mixed,'groupId'=>$goodGroup]);
+$db->execute('UPDATE b_pw_calc_snapshot SET form_hash = ? WHERE id IN (?, ?)',[str_repeat('0',64),$stale,$mixed]);
+$beforeLegacy=$board();
+$db->execute("CREATE TRIGGER fail_legacy_cleanup BEFORE DELETE ON b_pw_calc_snapshot_group BEGIN SELECT RAISE(ABORT, 'legacy rollback'); END");
+try{$repo->snapshots()->command('clearIncompatibleCalculationSnapshots','test',$version,'BASE');throw new RuntimeException('expected fail');}catch(PDOException $e){}
+$check($board()===$beforeLegacy,'legacy cleanup failure rolls back snapshot/member deletions');$db->execute('DROP TRIGGER fail_legacy_cleanup');
+$repo->snapshots()->command('clearIncompatibleCalculationSnapshots','test',$version,'BASE');$afterLegacy=$board();
+$check(count($afterLegacy['items'])===1 && $afterLegacy['items'][0]['id']===$compatible && $afterLegacy['items'][0]['groupId']===$goodGroup,'legacy cleanup preserves compatible snapshot membership');
+$check(count($afterLegacy['groups'])===1 && $afterLegacy['groups'][0]['id']===$goodGroup,'legacy cleanup deletes only emptied groups');
+$check(!$db->rows('SELECT * FROM b_pw_calc_snapshot_member WHERE snapshot_id IN (?, ?)',[$stale,$mixed]),'legacy cleanup leaves no stale memberships');
+$change('clear');
 $capture($repo);$change('create');$preview=$repo->lifecycle()->preview('test');
 $repo->lifecycle()->delete('test',$preview['revision'],$preview['name']);
 $check(!$db->rows('SELECT * FROM b_pw_calc_snapshot_group') && !$db->rows('SELECT * FROM b_pw_calc_snapshot_member'),'lifecycle deletion removes every group/member');
