@@ -22,7 +22,7 @@ final class ControlCenterEditorsService
     public const CALCULATOR_CATALOG_CONTRACT = 'prospektweb.calc.calculator-catalog/v1';
 
     private const MAX_CALCULATION_OFFERS = 500;
-    private const MAX_EDITOR_DOCUMENT_BYTES = 60000;
+    private const MAX_EDITOR_DOCUMENT_BYTES = 2000000;
     private const FORM_FIRST_AUTHORING_PROVIDER = '\\Prospektweb\\Frontcalc\\Service\\ControlCenterFormFirstAuthoringService';
     private const FORM_FIRST_AUTHORING_METHODS = [
         'loadFormFirstWorkspace',
