@@ -35,6 +35,7 @@ final class DocumentApplication
     {
         $action = $request['action'] ?? null;
         $fields = [
+            'calculationBatch' => ['id', 'versionId', 'operation', 'packetId', 'revision', 'storefrontId', 'candidates', 'itemIds'],
             'previewCalculatorLifecycle' => ['id'],
             'setCalculatorEnabled' => ['id', 'expectedLifecycleRevision', 'enabled'],
             'deleteCalculator' => ['id', 'expectedLifecycleRevision', 'confirmationName'],
@@ -101,6 +102,11 @@ final class DocumentApplication
                 array_key_exists('expectedCatalogRevision', $request) ? self::integer($request, 'expectedCatalogRevision') : null);
         }
         $id = self::text($request, 'id');
+        if ($action === 'calculationBatch') {
+            self::text($request, 'versionId');
+            if (!is_callable($this->formRuntime)) throw new \RuntimeException('Form adapter unavailable.');
+            return $this->repository->batches()->command($request, $this->core, $this->resources, $this->formRuntime);
+        }
         if ($action === 'calculationGroups') return $this->repository->snapshots()->groups($id, self::text($request, 'versionId'), $request);
         if (in_array($action, ['calculationSnapshots', 'loadCalculationSnapshot', 'deleteCalculationSnapshot', 'clearCalculationSnapshots', 'clearIncompatibleCalculationSnapshots'], true)) {
             return $this->repository->snapshots()->command($action, $id, self::text($request, 'versionId'), self::text($request, 'storefrontId'), in_array($action, ['loadCalculationSnapshot', 'deleteCalculationSnapshot'], true) ? self::text($request, 'snapshotId') : null);
@@ -194,7 +200,9 @@ final class DocumentApplication
                 if (!is_callable($this->formRuntime)) throw new \RuntimeException('Form projection unavailable.', 503);
                 $hashes = [];
                 foreach (array_unique(['BASE', ...array_map(fn($view) => $view->id, $document->presentations->views ?? [])]) as $view) $hashes[$view] = DocumentCalculationSnapshots::signature($revision['bodyJson'], $view);
-                $result = ['runtime' => ($this->formRuntime)($document, $revision['revision']), 'formSignatures' => $hashes];
+                $runtime = ($this->formRuntime)($document, $revision['revision']); $controllers = [];
+                foreach ($runtime['storefronts'] as $view) $controllers[$view['id']] = DocumentBatchForm::controllers($runtime, $view['id']);
+                $result = ['runtime' => $runtime, 'formSignatures' => $hashes, 'batchControllers' => $controllers];
             } else {
                 $resources = ($this->resources)($document);
                 try {

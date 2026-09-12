@@ -35,7 +35,10 @@ final class BitrixCoreGateway
         if ($response === false) { throw new \RuntimeException('Calculation core is temporarily unavailable.', 503); }
         $decoded = json_decode($response, true, 64, JSON_THROW_ON_ERROR);
         if ($status !== 200 || ($decoded['success'] ?? false) !== true) {
-            if ($status === 422 && ($command['action'] ?? '') === 'preview' && ($command['includeReport'] ?? false) === true
+            if ($status === 409 && ($decoded['error']['code'] ?? '') === 'CALCULATOR_RUNTIME_CHANGED') {
+                throw new \RuntimeException('Движок расчёта обновлён. Этот пакет остановлен; готовые снимки сохранены. Создайте новый пакет.', 409);
+            }
+            if ($status === 422 && in_array(($command['action'] ?? ''), ['preview', 'execute'], true) && ($command['includeReport'] ?? false) === true
                 && isset($decoded['error']['failure'])) {
                 if (($decoded['success'] ?? null) !== false || ($decoded['error']['code'] ?? '') !== 'CALCULATOR_EXECUTION_INVALID'
                     || !is_array($decoded['error']['failure']) || array_key_exists('data', $decoded)) {

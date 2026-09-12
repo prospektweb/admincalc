@@ -190,12 +190,13 @@ final class DocumentCalculationSnapshots
 
     private function locked(string $id, string $version, callable $operation): mixed
     {
-        $this->db->begin();
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) $this->db->begin();
         try {
             $row = $this->db->rows('SELECT id FROM b_pw_calc_document WHERE id = ? AND scope_id = ?' . ($this->db->dialect() === 'mysql' ? ' FOR UPDATE' : ''), [$id, $this->scope]);
             if (!$row) throw new \RuntimeException('Document not found.', 404);
             $source = $this->documents->versions()->loadInTransaction($id, $version);
-            $result = $operation($source); $this->db->commit(); return $result;
-        } catch (\Throwable $e) { $this->db->rollback(); throw $e; }
+            $result = $operation($source); if ($ownsTransaction) $this->db->commit(); return $result;
+        } catch (\Throwable $e) { if ($ownsTransaction) $this->db->rollback(); throw $e; }
     }
 }

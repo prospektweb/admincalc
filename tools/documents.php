@@ -183,6 +183,9 @@ try {
     require_once $module . '/lib/Documents/BitrixOutputMappingValidator.php';
     $formRuntime = static function (object $document, int $revision) use ($module): array {
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc')) throw new \RuntimeException('Form adapter unavailable.', 503);
+        $sectionState = \Bitrix\Main\Loader::getLocal('modules/prospektweb.frontcalc/lib/Service/FormSectionState.php');
+        if (!$sectionState) throw new \RuntimeException('Section form adapter unavailable.', 503);
+        require_once $sectionState;
         require_once $module . '/lib/Documents/DocumentFormRuntime.php';
         return (new \Prospektweb\Calc\Documents\DocumentFormRuntime())($document, $revision);
     };

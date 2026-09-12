@@ -8,13 +8,18 @@ require_once __DIR__ . '/SqlConnection.php';
 /** Explicit, additive installation. Never called on a normal read/write request. */
 final class DocumentSchema
 {
-    public const VERSION = 12;
+    public const VERSION = 13;
     public static function install(SqlConnection $db): void
     {
         $mysql = $db->dialect() === 'mysql';
         $id = $mysql ? 'VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin' : 'TEXT';
         $text = $mysql ? 'LONGTEXT' : 'TEXT';
         $suffix = $mysql ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin' : '';
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_batch (
+            id CHAR(64) NOT NULL PRIMARY KEY, scope_id $id NOT NULL, document_id $id NOT NULL,
+            version_id $id NOT NULL, actor_id $id NOT NULL, request_hash CHAR(64) NOT NULL,
+            artifact_json $text NOT NULL, state_json $text NOT NULL, created_at VARCHAR(30) NOT NULL
+        )$suffix");
         $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_document (
             id $id NOT NULL PRIMARY KEY, scope_id $id NOT NULL,
             name VARCHAR(255) NOT NULL, current_revision INTEGER NOT NULL,
@@ -228,7 +233,7 @@ final class DocumentSchema
             if (!in_array('ix_pw_calc_document_scope', array_column($indexes, 'Key_name'), true)) {
                 $db->execute('CREATE INDEX ix_pw_calc_document_scope ON b_pw_calc_document(scope_id, archived, updated_at, id)');
             }
-            foreach (['b_pw_calc_deletion_audit', 'b_pw_calc_document', 'b_pw_calc_revision', 'b_pw_calc_publication', 'b_pw_calc_site_publication', 'b_pw_calc_site_active', 'b_pw_calc_site_identity', 'b_pw_calc_product_binding', 'b_pw_calc_catalog', 'b_pw_calc_section', 'b_pw_calc_version', 'b_pw_calc_catalog_write', 'b_pw_calc_library_catalog', 'b_pw_calc_library_record', 'b_pw_calc_library_revision'] as $table) {
+            foreach (['b_pw_calc_batch', 'b_pw_calc_deletion_audit', 'b_pw_calc_document', 'b_pw_calc_revision', 'b_pw_calc_publication', 'b_pw_calc_site_publication', 'b_pw_calc_site_active', 'b_pw_calc_site_identity', 'b_pw_calc_product_binding', 'b_pw_calc_catalog', 'b_pw_calc_section', 'b_pw_calc_version', 'b_pw_calc_catalog_write', 'b_pw_calc_library_catalog', 'b_pw_calc_library_record', 'b_pw_calc_library_revision'] as $table) {
                 $status = $db->rows('SHOW TABLE STATUS WHERE Name = ?', [$table]);
                 if (($status[0]['Engine'] ?? '') !== 'InnoDB') {
                     throw new \RuntimeException('Document tables must use InnoDB; installation stopped.');

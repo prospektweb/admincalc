@@ -9,6 +9,7 @@ require_once __DIR__ . '/DocumentCatalog.php';
 require_once __DIR__ . '/DocumentVersions.php';
 require_once __DIR__ . '/DocumentLifecycle.php';
 require_once __DIR__ . '/DocumentCalculationSnapshots.php';
+require_once __DIR__ . '/DocumentCalculationBatch.php';
 
 final class DocumentConflict extends \RuntimeException
 {
@@ -33,6 +34,7 @@ final class DocumentRepository
     }
 
     public function snapshots(): DocumentCalculationSnapshots { return new DocumentCalculationSnapshots($this->db, $this->scope, $this->actor, $this); }
+    public function batches(): DocumentCalculationBatch { return new DocumentCalculationBatch($this->db, $this->scope, $this->actor, $this); }
 
     public function versions(): DocumentVersions { return new DocumentVersions($this->db, $this->scope, $this->actor, $this); }
     public function lifecycle(): DocumentLifecycle { return new DocumentLifecycle($this->db, $this->scope, $this->actor); }
