@@ -65,7 +65,16 @@ final class BitrixPreparationCatalog
                 $states[$id]=$this->writer->capture([$id],$lock)[$id];
             }
         }
-        if((int)$states[$product]['product']['TYPE']!==3)throw new DocumentConflict('Товар должен иметь тип «Товар с предложениями».');
+        $parentType=(int)$states[$product]['product']['TYPE'];
+        if(!in_array($parentType,[1,3],true))throw new DocumentConflict('Тип товара не поддерживает генерацию ТП.');
+        if($parentType===1){
+            $native=$states[$product]['product'];
+            if($offerIds||$states[$product]['state']['prices']||(float)($native['PURCHASING_PRICE']??0)!==0.0
+                ||(float)($native['QUANTITY']??0)!==0.0||(float)($native['QUANTITY_RESERVED']??0)!==0.0||($native['BUNDLE']??'N')!=='N')throw new DocumentConflict('Простой товар содержит коммерческие данные: автоматическое преобразование в товар с ТП запрещено.');
+            foreach(['b_sale_basket'=>['PRODUCT_ID'],'b_catalog_store_product'=>['PRODUCT_ID'],'b_catalog_store_barcode'=>['PRODUCT_ID'],'b_catalog_product_sets'=>['OWNER_ID','ITEM_ID','SET_ID'],'b_catalog_docs_element'=>['ELEMENT_ID'],'b_catalog_product2group'=>['PRODUCT_ID'],'b_catalog_subscribe'=>['ITEM_ID']] as $table=>$columns){
+                if($this->rows($table,implode(' OR ',array_map(fn($c)=>$c.'=?',$columns)),array_fill(0,count($columns),$product)))throw new DocumentConflict('Простой товар используется в коммерческих данных ('.$table.'). Преобразование запрещено.');
+            }
+        }
         foreach($offerIds as $id)if((int)$states[$id]['product']['TYPE']!==4)throw new DocumentConflict('Связанный элемент не является торговым предложением.');
         $types=$this->rows('b_catalog_group','1=1',[],100);$known=array_column($types,'ID');
         foreach($site['priceTypes'] as $t)if(!in_array($t['key'],$known,true))throw new DocumentConflict('Настроенный тип цены удалён.');
@@ -78,7 +87,7 @@ final class BitrixPreparationCatalog
             $tables=array_keys($this->tables);sort($tables);$engines=$this->db->rows('SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('.implode(',',array_fill(0,count($tables),'?')).') ORDER BY TABLE_NAME',$tables);
             if(array_column($engines,'TABLE_NAME')!==$tables||count(array_filter($engines,fn($r)=>strtoupper($r['ENGINE'])==='INNODB'))!==count($tables))throw new DocumentConflict('Каталожная запись требует InnoDB.');
         }
-        return ['productId'=>$product,'products'=>$products,'offers'=>$offers,'parentProperty'=>$parent,'schemas'=>$inputs['propertySchemas'],'choices'=>$inputs['propertyChoices'],
+        return ['productId'=>$product,'products'=>$products,'offers'=>$offers,'parentProperty'=>$parent,'parentType'=>$parentType,'schemas'=>$inputs['propertySchemas'],'choices'=>$inputs['propertyChoices'],
             'allSchemas'=>$schemas,'elements'=>$elements,'rawProperties'=>$raw,'states'=>$states,'offerIds'=>array_values($offerIds),
             'configuration'=>DocumentCatalogWritePlan::hash([$settings,$provider,$pairs,$p,$iblocks,$schemas,$types,$rounding,$currencies,$measures,$handlers,$defaults,$sync,$inputs['propertyChoices']]),
             'authority'=>DocumentCatalogWritePlan::hash([$this->evidence,$inputs['authority']])];
@@ -115,6 +124,7 @@ final class BitrixPreparationCatalog
             $display=function($values)use($catalog,$schema,$r){return array_map(function($v)use($catalog,$schema,$r){foreach($catalog['choices'][$r['propertyId']]??[] as $c)if(($schema['PROPERTY_TYPE']==='L'?(string)$c['ID']:$c['XML_ID'])===(string)$v)return $c['VALUE'];return $v;},$values);};
             $out[]=['label'=>$schema['NAME']??$schema['CODE'],'path'=>'property.'.$r['propertyId'],'old'=>$old,'new'=>$new,'oldDisplay'=>$display($old),'newDisplay'=>$display($new),'changed'=>DocumentCatalogWritePlan::hash($old)!==DocumentCatalogWritePlan::hash($new)];}return $out;};
         $productDiff=$properties($catalog['productId'],$plan['productProperties']);$variants=[];
+        if($catalog['parentType']===1)$productDiff[]=['label'=>'Тип товара','path'=>'productType','old'=>'Простой товар без коммерческих данных','new'=>'Товар с предложениями','changed'=>true];
         foreach($plan['variants'] as $key=>$v){$id=$v['offerId'];$diff=$properties($id,$v['properties']);
             $old=$id?$catalog['states'][$id]['state']:['purchasingPrice'=>['value'=>null,'currency'=>null],'dimensions'=>['width'=>null,'length'=>null,'height'=>null,'weight'=>null],'prices'=>[]];
             $diff=array_merge([['label'=>'Название','path'=>'name','old'=>$id?$catalog['elements'][$id]['NAME']:null,'new'=>$v['name'],'changed'=>!$id||$catalog['elements'][$id]['NAME']!==$v['name']]],$diff,DocumentCatalogWritePlan::diffs($old,$v['state']));
@@ -175,7 +185,10 @@ final class BitrixPreparationCatalog
                 if(isset($raw['single']))foreach($raw['single'] as &$r)foreach($props as $p){unset($r['PROPERTY_'.$p],$r['DESCRIPTION_'.$p]);}unset($r);return $raw;};
             if(DocumentCatalogWritePlan::hash($clean($before['rawProperties'][$id]))!==DocumentCatalogWritePlan::hash($clean($after['rawProperties'][$id])))throw new DocumentConflict('Изменены несвязанные свойства элемента #'.$id.'.');
             if(!isset($owned[$id])&&DocumentCatalogWritePlan::hash($before['states'][$id])!==DocumentCatalogWritePlan::hash($after['states'][$id]))throw new DocumentConflict('Изменено несвязанное предложение #'.$id.'.');
-            if($id===$before['productId']){$old=$before['states'][$id];$new=$after['states'][$id];unset($old['product']['TIMESTAMP_X'],$new['product']['TIMESTAMP_X']);if(DocumentCatalogWritePlan::hash($old)!==DocumentCatalogWritePlan::hash($new))throw new DocumentConflict('Изменены посторонние каталожные параметры товара.');}
+            if($id===$before['productId']){$old=$before['states'][$id];$new=$after['states'][$id];unset($old['product']['TIMESTAMP_X'],$new['product']['TIMESTAMP_X']);
+                if($after['parentType']!==3)throw new DocumentConflict('Штатный тип товара с предложениями не подтвердился.');
+                if($before['parentType']===1){unset($old['product']['TYPE'],$new['product']['TYPE']);}
+                if(DocumentCatalogWritePlan::hash($old)!==DocumentCatalogWritePlan::hash($new))throw new DocumentConflict('Изменены посторонние каталожные параметры товара.');}
             elseif(isset($owned[$id])){
                 $old=$before['states'][$id]['product'];$new=$after['states'][$id]['product'];foreach(['PURCHASING_PRICE','PURCHASING_CURRENCY','WIDTH','LENGTH','HEIGHT','WEIGHT','TIMESTAMP_X'] as $k)unset($old[$k],$new[$k]);
                 if(DocumentCatalogWritePlan::hash($old)!==DocumentCatalogWritePlan::hash($new))throw new DocumentConflict('Изменены остатки, мера или другие посторонние параметры ТП #'.$id.'.');
