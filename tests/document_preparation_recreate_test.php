@@ -59,4 +59,7 @@ ok(count(json_decode($db->rows('SELECT body FROM qa_generation')[0]['body'],true
 ok(count($db->rows('SELECT * FROM b_pw_calc_preparation_offer'))===2,'Stable variant binding count');
 ok($db->rows('SELECT * FROM b_pw_calc_preparation_write WHERE id=?',[$oldReceipt[0]['id']])===$oldReceipt,'Original receipt retained exactly');
 ok(!array_intersect(array_values($r['offerIds']),array_values($next['offerIds'])),'New IDs replace missing IDs');
+$listCmd=array_diff_key($base,array_flip(['groupId','snapshotIds']))+['operation'=>'list'];$list=$prep->command($listCmd);$archivedId=$cmd['resultIds'][0];$archivedKey=array_column($remaining['rows'],'variantKey','resultId')[$archivedId];$native=json_decode($db->rows('SELECT body FROM qa_generation')[0]['body'],true);unset($native[$next['offerIds'][$archivedKey]]);$db->execute('UPDATE qa_generation SET body=?',[json_encode($native)]);
+$prep->command(array_replace($listCmd,['operation'=>'remove','expectedPreparationRevision'=>$list['revision'],'resultIds'=>[$archivedId],'all'=>false]));
+$currentOnly=array_replace($cmd,['resultIds'=>[$cmd['resultIds'][1]]]);ok($service->command($currentOnly)['ready'],'Archived missing binding does not block selected current result');reject(fn()=>$service->command($one));
 echo "PASS $checks recreate SQL assertions\n";
