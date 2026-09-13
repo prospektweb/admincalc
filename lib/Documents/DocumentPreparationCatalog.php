@@ -126,7 +126,7 @@ final class DocumentPreparationCatalog
         if(count($rows)!==1)throw new DocumentConflict('Подготовка товара отсутствует.');$preparation=$rows[0];
         $all=$this->db->rows('SELECT * FROM b_pw_calc_preparation_result WHERE preparation_id=? ORDER BY id'.$suffix,[$preparation['id']]);$results=[];
         foreach($all as $row)if(in_array($row['id'],$c['resultIds'],true)){
-            if(!(bool)$row['active']||!hash_equals(DocumentCalculationSnapshots::signature($source['bodyJson'],$c['storefrontId']),$row['form_hash']))throw new DocumentConflict('Результат '.$row['id'].' не текущий или форма несовместима. Выберите актуальную подготовку.');
+            if((bool)$row['archived']||!(bool)$row['active']||!hash_equals(DocumentCalculationSnapshots::signature($source['bodyJson'],$c['storefrontId']),$row['form_hash']))throw new DocumentConflict('Результат '.$row['id'].' не текущий или форма несовместима. Выберите актуальную подготовку.');
             if(!hash_equals($row['payload_hash'],hash('sha256',$row['payload_json'])))throw new \RuntimeException('Нарушена целостность результата.');
             $results[$row['id']]=$row;
         }

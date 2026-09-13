@@ -43,6 +43,20 @@ $r=$service->command($apply);ok(count($r['offerIds'])===2,'Real returned IDs bou
 $again=$service->command($apply);ok($again['replayed']&&$port->writes===$writes,'Exact replay does not call writer');
 ok(count($db->rows('SELECT * FROM b_pw_calc_preparation_offer'))===2,'No duplicate binding');
 $reopen=$service->command($cmd);ok($reopen['ready']&&array_column($reopen['rows'],'action')===['unchanged','unchanged'],'Reopen resolves linked IDs');
+// Removing preparation rows preserves catalog ownership and invalidates old receipts.
+$listCmd=array_diff_key($base,array_flip(['groupId','snapshotIds']))+['operation'=>'list'];
+$list=$prep->command($listCmd);
+$durable=fn()=>[$db->rows('SELECT * FROM b_pw_calc_preparation_offer ORDER BY variant_key'),$db->rows('SELECT * FROM b_pw_calc_preparation_write ORDER BY id'),$db->rows('SELECT * FROM b_pw_calc_preparation_prices'),$db->rows('SELECT * FROM qa_generation')];
+$kept=$durable();$ids=array_column($list['items'],'id');
+$prep->command(array_replace($listCmd,['operation'=>'remove','expectedPreparationRevision'=>$list['revision'],'resultIds'=>$ids,'all'=>true]));
+ok($durable()===$kept&&$port->writes===$writes,'Archive retains bindings receipts prices native state without catalog writes');
+reject(fn()=>$service->command($apply));reject(fn()=>$service->command($cmd));
+$restore=$prep->command($base+['operation'=>'preview']);$prep->command($base+['operation'=>'transfer','fingerprint'=>$restore['fingerprint'],'choices'=>(object)[]]);
+ok(array_column($prep->command($listCmd)['items'],'id')===$ids,'Reimport restores exact bound result IDs');
+ok($durable()===$kept,'Restore preserves custom settings and catalog provenance');
+reject(fn()=>$service->command($apply));
+$restoredPlan=$service->command($cmd);ok($restoredPlan['ready']&&array_column($restoredPlan['rows'],'action')===['unchanged','unchanged'],'Fresh preview reuses bound SKU after clear');
+ok($port->writes===$writes,'Archive/restore/replay rejection performs no native writes');
 $preparation=$db->rows('SELECT * FROM b_pw_calc_preparation')[0];
 $maintenanceHash=Hash::hash([$db->rows('SELECT * FROM b_pw_calc_preparation_offer ORDER BY variant_key'),$db->rows('SELECT * FROM b_pw_calc_preparation_write ORDER BY id')]);
 reject(fn()=>$prep->removeOwnedPreparation($preparation['id'],(int)$preparation['revision'],$cmd['resultIds']));

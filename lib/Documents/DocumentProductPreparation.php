@@ -35,7 +35,8 @@ final class DocumentProductPreparation
     {
         $operation=$c['operation']??'';
         $fields=['targets'=>['groupId','query'],'list'=>['productKey'],'load'=>['productKey','resultId'],
-            'preview'=>['productKey','groupId','snapshotIds'],'transfer'=>['productKey','groupId','snapshotIds','fingerprint','choices']];
+            'preview'=>['productKey','groupId','snapshotIds'],'transfer'=>['productKey','groupId','snapshotIds','fingerprint','choices'],
+            'remove'=>['productKey','expectedPreparationRevision','resultIds','all']];
         if (($c['action']??'')!=='productPreparation'||!is_string($operation)||!isset($fields[$operation])) throw new \InvalidArgumentException('Unknown preparation operation.');
         $keys=array_keys($c);sort($keys);$expected=array_merge(['action','operation','id','versionId','expectedRevision','storefrontId'],$fields[$operation]);sort($expected);
         if($keys!==$expected)throw new \InvalidArgumentException('Unknown preparation field.');
@@ -71,7 +72,7 @@ final class DocumentProductPreparation
             }else{
                 $product=self::identity($c['productKey']);
                 if(!in_array($product,$linked,true))throw new DocumentConflict('Товар не связан с этой витриной в сохранённой версии.');
-                if($operation==='transfer'&&$this->db->dialect()==='mysql'){
+                if(in_array($operation,['transfer','remove'],true)&&$this->db->dialect()==='mysql'){
                     $owners=$this->db->rows('SELECT document_id FROM b_pw_calc_product_binding WHERE scope_id = ? AND provider = ? AND catalog_key = ? AND product_key = ? FOR UPDATE',[$this->scope,$this->provider,$this->catalog,$product]);
                     if($owners&&$owners[0]['document_id']!==$id)throw new DocumentConflict('Товар связан с другим калькулятором.');
                 }
@@ -79,16 +80,27 @@ final class DocumentProductPreparation
                 if(count($rows)!==1)throw new DocumentConflict('Товар отсутствует, недоступен или связан с другим калькулятором.');
                 $preparation=hash('sha256',self::json([$this->scope,$this->provider,$this->catalog,$product,$id,$view]));
                 $heads=$this->db->rows('SELECT revision FROM b_pw_calc_preparation WHERE id = ?',[$preparation]);$revision=(int)($heads[0]['revision']??0);
-                $stored=$this->db->rows('SELECT id, variant_key, snapshot_id, active, form_hash, summary_json, provenance_json, payload_hash, created_at FROM b_pw_calc_preparation_result WHERE preparation_id = ? ORDER BY created_at, id',[$preparation]);
+                $stored=$this->db->rows('SELECT id, variant_key, snapshot_id, active, archived, form_hash, summary_json, provenance_json, payload_hash, created_at FROM b_pw_calc_preparation_result WHERE preparation_id = ? ORDER BY created_at, id',[$preparation]);
                 $form=DocumentCalculationSnapshots::signature($source['bodyJson'],$view);
                 $items=array_map(fn($r)=>['id'=>$r['id'],'variantKey'=>$r['variant_key'],'snapshotId'=>$r['snapshot_id'],'active'=>(bool)$r['active'],
                     'needsReview'=>!hash_equals($form,$r['form_hash']),'summary'=>json_decode($r['summary_json'],true,64,JSON_THROW_ON_ERROR),
-                    'provenance'=>json_decode($r['provenance_json'],true,64,JSON_THROW_ON_ERROR),'createdAt'=>$r['created_at']],$stored);
+                    'provenance'=>json_decode($r['provenance_json'],true,64,JSON_THROW_ON_ERROR),'createdAt'=>$r['created_at']],array_values(array_filter($stored,fn($r)=>!$r['archived'])));
                 $base=['preparationId'=>$preparation,'revision'=>$revision,'product'=>$rows[0],'items'=>$items];
                 if($operation==='list')$result=$base;
-                elseif($operation==='load'){
+                elseif($operation==='remove'){
+                    $ids=$c['resultIds'];
+                    if(!is_bool($c['all'])||!is_int($c['expectedPreparationRevision'])||!is_array($ids)||!array_is_list($ids)||!$ids||count($ids)>10000||count(array_unique($ids))!==count($ids))throw new \InvalidArgumentException('Укажите точный список удаляемых результатов.');
+                    foreach($ids as $resultId)self::identity($resultId);sort($ids,SORT_STRING);
+                    $available=array_column($items,'id');sort($available,SORT_STRING);
+                    if($revision!==$c['expectedPreparationRevision']||array_diff($ids,$available)||($c['all']&&$ids!==$available))throw new DocumentConflict('Состав подготовки изменился. Обновите список и выберите результаты заново.');
+                    foreach($ids as $resultId)$this->db->execute('UPDATE b_pw_calc_preparation_result SET archived = 1, active = 0 WHERE preparation_id = ? AND id = ?',[$preparation,$resultId]);
+                    $this->db->execute('UPDATE b_pw_calc_preparation SET revision = revision + 1 WHERE id = ?',[$preparation]);
+                    $this->db->execute('INSERT INTO b_pw_calc_preparation_history (id, preparation_id, decision_json, actor_id, created_at) VALUES (?, ?, ?, ?, ?)',
+                        ['ph_'.bin2hex(random_bytes(16)),$preparation,self::json(['operation'=>'remove','resultIds'=>$ids,'all'=>$c['all']]),$this->actor,gmdate('Y-m-d\TH:i:s\Z')]);
+                    $result=array_replace($base,['revision'=>$revision+1,'items'=>array_values(array_filter($items,fn($r)=>!in_array($r['id'],$ids,true))),'removedIds'=>$ids]);
+                }elseif($operation==='load'){
                     $resultId=self::identity($c['resultId']);
-                    $found=$this->db->rows('SELECT payload_json, payload_hash FROM b_pw_calc_preparation_result WHERE preparation_id = ? AND id = ?',[$preparation,$resultId]);
+                    $found=$this->db->rows('SELECT payload_json, payload_hash FROM b_pw_calc_preparation_result WHERE preparation_id = ? AND id = ? AND archived = 0',[$preparation,$resultId]);
                     if(!$found)throw new \RuntimeException('Результат подготовки не найден.',404);
                     if(!hash_equals($found[0]['payload_hash'],hash('sha256',$found[0]['payload_json'])))throw new \RuntimeException('Preparation integrity check failed.');
                     $result=$base+['payload'=>json_decode($found[0]['payload_json'],false,64,JSON_THROW_ON_ERROR)];
@@ -99,7 +111,7 @@ final class DocumentProductPreparation
                     $all=$this->db->rows('SELECT s.id, s.payload_hash, m.group_id FROM b_pw_calc_snapshot s LEFT JOIN b_pw_calc_snapshot_member m ON m.snapshot_id = s.id WHERE s.scope_id = ? AND s.document_id = ? AND s.version_id = ? AND s.actor_id = ? AND s.storefront_id = ? ORDER BY s.id',[$this->scope,$id,$version,$this->actor,$view]);
                     $selected=array_values(array_filter($all,fn($r)=>in_array($r['id'],$snapshots,true)));
                     if(count($selected)!==count($snapshots))throw new DocumentConflict('Состав расчётов изменился. Выберите его заново.');
-                    $active=[];$seen=[];foreach($stored as $r){$seen[$r['snapshot_id']]=true;if($r['active'])$active[$r['variant_key']]=$r['snapshot_id'];}
+                    $active=[];$seen=[];$archived=[];foreach($stored as $r){if($r['archived']){$archived[$r['snapshot_id']]=$r;continue;}$seen[$r['snapshot_id']]=true;if($r['active'])$active[$r['variant_key']]=$r['snapshot_id'];}
                     $incoming=[];$bytes=0;
                     foreach($selected as $s){
                         if($group&&$s['group_id']!==$group['id'])throw new DocumentConflict('Расчёт больше не входит в выбранную группу.');
@@ -142,6 +154,12 @@ final class DocumentProductPreparation
                             $this->db->execute('UPDATE b_pw_calc_preparation_result SET active = 0 WHERE preparation_id = ? AND variant_key = ?',[$preparation,$key]);
                             foreach($incoming[$key] as $candidate){
                                 if($candidate['already'])continue;$s=$copies[$candidate['snapshotId']];
+                                if(isset($archived[$s['id']])){
+                                    $old=$archived[$s['id']];
+                                    if(!hash_equals($old['payload_hash'],$s['payload_hash'])||$old['variant_key']!==$key)throw new DocumentConflict('Происхождение восстановленного результата изменилось.');
+                                    $this->db->execute('UPDATE b_pw_calc_preparation_result SET archived = 0 WHERE preparation_id = ? AND id = ?',[$preparation,$old['id']]);
+                                    continue;
+                                }
                                 $p=json_decode($s['payload_json'],false,64,JSON_THROW_ON_ERROR);
                                 $provenance=['site'=>$this->scope,'provider'=>$this->provider,'catalog'=>$this->catalog,'productKey'=>$product,'documentId'=>$id,
                                     'versionId'=>$version,'storefrontId'=>$view,'sourceActor'=>$s['actor_id'],'transferredBy'=>$this->actor,'snapshotId'=>$s['id'],
@@ -150,7 +168,7 @@ final class DocumentProductPreparation
                                 $this->db->execute('INSERT INTO b_pw_calc_preparation_result (id, preparation_id, variant_key, snapshot_id, active, form_hash, payload_json, payload_hash, summary_json, provenance_json, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)',
                                     ['pr_'.bin2hex(random_bytes(16)),$preparation,$key,$s['id'],$s['form_hash'],$s['payload_json'],$s['payload_hash'],$s['summary_json'],self::json($provenance),gmdate('Y-m-d\TH:i:s\Z')]);
                             }
-                            $this->db->execute('UPDATE b_pw_calc_preparation_result SET active = 1 WHERE preparation_id = ? AND variant_key = ? AND snapshot_id = ?',[$preparation,$key,$decision['after']]);
+                            $this->db->execute('UPDATE b_pw_calc_preparation_result SET active = 1 WHERE preparation_id = ? AND variant_key = ? AND snapshot_id = ? AND archived = 0',[$preparation,$key,$decision['after']]);
                         }
                         if($decisions){
                             $this->db->execute('UPDATE b_pw_calc_preparation SET revision = revision + 1 WHERE id = ?',[$preparation]);

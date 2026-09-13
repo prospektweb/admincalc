@@ -43,7 +43,7 @@ try {
     $catalogWrite = in_array($request->command->action ?? '', ['previewCatalogWrite', 'applyCatalogWrite'], true);
     $preparationCatalog = ($request->command->action ?? '') === 'preparationCatalog';
     $resourceCardWrite = ($request->command->action ?? '') === 'saveResourceCard';
-    $preparationWrite = ($request->command->action ?? '') === 'productPreparation' && ($request->command->operation ?? '') === 'transfer';
+    $preparationWrite = ($request->command->action ?? '') === 'productPreparation' && in_array($request->command->operation ?? '', ['transfer', 'remove'], true);
     $scope = 'site:' . $siteId;
     $actor = 'user:' . (int)$USER->GetID();
     $connection = new \Prospektweb\Calc\Documents\BitrixConnection(\Bitrix\Main\Application::getConnection(), $catalogWrite || $resourceCardWrite || $preparationWrite || $preparationCatalog);
