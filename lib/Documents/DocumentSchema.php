@@ -8,13 +8,23 @@ require_once __DIR__ . '/SqlConnection.php';
 /** Explicit, additive installation. Never called on a normal read/write request. */
 final class DocumentSchema
 {
-    public const VERSION = 15;
+    public const VERSION = 16;
     public static function install(SqlConnection $db): void
     {
         $mysql = $db->dialect() === 'mysql';
         $id = $mysql ? 'VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin' : 'TEXT';
         $text = $mysql ? 'LONGTEXT' : 'TEXT';
         $suffix = $mysql ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin' : '';
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_preparation_prices (
+            preparation_id CHAR(64) NOT NULL PRIMARY KEY, scope_id $id NOT NULL,
+            revision INTEGER NOT NULL, settings_json $text NOT NULL, settings_hash CHAR(64) NOT NULL,
+            actor_id $id NOT NULL, updated_at VARCHAR(30) NOT NULL
+        )$suffix");
+        $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_property_links (
+            id CHAR(64) NOT NULL PRIMARY KEY, scope_id $id NOT NULL, revision INTEGER NOT NULL,
+            settings_json $text NOT NULL, settings_hash CHAR(64) NOT NULL,
+            actor_id $id NOT NULL, updated_at VARCHAR(30) NOT NULL
+        )$suffix");
         $db->execute("CREATE TABLE IF NOT EXISTS b_pw_calc_batch (
             id CHAR(64) NOT NULL PRIMARY KEY, scope_id $id NOT NULL, document_id $id NOT NULL,
             version_id $id NOT NULL, actor_id $id NOT NULL, request_hash CHAR(64) NOT NULL,

@@ -8,6 +8,13 @@ require_once __DIR__.'/DocumentCatalogWritePlan.php';
  * Non-injective or lossy mappings deliberately require operator correction. */
 final class DocumentPreparationPropertyPlan
 {
+    public static function savedInput(object $values,string $field,array $shape):array
+    {
+        if(!property_exists($values,$field))return ['state'=>'absent','intended'=>false,'value'=>null];
+        $value=$values->$field;
+        if(!($shape[$field]['visible']??false)&&in_array($value,[null,'',[],false],true))return ['state'=>'inactive-placeholder','intended'=>false,'value'=>$value];
+        return ['state'=>in_array($value,[null,'',[]],true)?'explicit-empty':'value','intended'=>true,'value'=>$value];
+    }
     public static function value(array $mapping, mixed $value, array $property, array $choices): array
     {
         $source=$mapping['source']; $field=$mapping['target']['field_id'];

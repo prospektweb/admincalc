@@ -18,7 +18,7 @@ final class BitrixPreparationCatalog
         usort($rows,fn($a,$b)=>strcmp(DocumentCatalogWritePlan::canonical($a),DocumentCatalogWritePlan::canonical($b)));
         $this->tables[$table]=true;$this->evidence[]=[$table,$rows];return $rows;
     }
-    public function capture(array $site,object $document,int $product,array $bindings,bool $lock):array
+    public function capture(array $site,object $document,int $product,array $bindings,bool $lock,array $extraPropertyIds=[]):array
     {
         if(!$this->db->inTransaction())throw new \LogicException('Catalog capture requires a transaction.');
         if($lock&&$this->db instanceof BitrixConnection)$this->db->assertCatalogWriteTransaction();
@@ -55,6 +55,11 @@ final class BitrixPreparationCatalog
         (new \Prospektweb\Calc\Services\CalculatorInputMappingService())->validateDocumentMappings($site['inputMappings'],['formDefinition'=>json_decode(json_encode($document->form,JSON_THROW_ON_ERROR),true),'bindingDefinition'=>$site['formBindings']],$inputs['sourceAuthority']);
         // Include required unbound properties as schema authority; never create them.
         $schemas=$this->rows('b_iblock_property','IBLOCK_ID IN (?,?)',[$products,$offers]);
+        $extra=[];$directIds=array_map('intval',array_column(array_column($site['inputMappings'],'source'),'property_id'));
+        foreach($schemas as $s)if(in_array((int)$s['ID'],$extraPropertyIds,true)&&!in_array((int)$s['ID'],$directIds,true)&&$s['ACTIVE']==='Y')
+            $extra[]=['iblock_id'=>(int)$s['IBLOCK_ID'],'property_id'=>(int)$s['ID'],'property_code'=>$s['CODE'],'scope'=>(int)$s['IBLOCK_ID']===$products?'product':'selected_offer'];
+        if($extra){$additional=(new BitrixCatalogPropertySnapshot($this->db))->capture($products,$offers,[$product],$boundIds,$extra,$lock,true);
+            $inputs['propertySchemas']+=$additional['propertySchemas'];$inputs['propertyChoices']+=$additional['propertyChoices'];$inputs['authority']=DocumentCatalogWritePlan::hash([$inputs['authority'],$additional['authority']]);}
         $elements=[];$raw=[];$states=[];
         foreach(['product'=>[$product],'selected_offer'=>array_values($offerIds)] as $scope=>$ids){
             $iblock=$scope==='product'?$products:$offers;
@@ -96,7 +101,7 @@ final class BitrixPreparationCatalog
             if(array_column($engines,'TABLE_NAME')!==$tables||count(array_filter($engines,fn($r)=>strtoupper($r['ENGINE'])==='INNODB'))!==count($tables))throw new DocumentConflict('Каталожная запись требует InnoDB.');
         }
         return ['productId'=>$product,'products'=>$products,'offers'=>$offers,'parentProperty'=>$parent,'parentType'=>$parentType,'derivedParentOwned'=>$derivedParentOwned,'separate'=>$separate,'schemas'=>$inputs['propertySchemas'],'choices'=>$inputs['propertyChoices'],
-            'allSchemas'=>$schemas,'elements'=>$elements,'rawProperties'=>$raw,'states'=>$states,'offerIds'=>array_values($offerIds),'currencyRates'=>array_column($currencies,'CURRENT_BASE_RATE','CURRENCY'),
+            'allSchemas'=>$schemas,'priceTypeNames'=>array_column($types,'NAME','ID'),'elements'=>$elements,'rawProperties'=>$raw,'states'=>$states,'offerIds'=>array_values($offerIds),'currencyRates'=>array_column($currencies,'CURRENT_BASE_RATE','CURRENCY'),
             'configuration'=>DocumentCatalogWritePlan::hash([$settings,$provider,$pairs,$p,$iblocks,$schemas,$types,$rounding,$currencies,$measures,$handlers,$defaults,$sync,$inputs['propertyChoices']]),
             'authority'=>DocumentCatalogWritePlan::hash([$this->evidence,$inputs['authority']])];
     }

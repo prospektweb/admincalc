@@ -28,6 +28,15 @@ $port=new class($db) {
 $service=new DocumentPreparationCatalog($db,'site:s1','user:1',$repo,$port,fn()=>['qty'=>['visible'=>true]]);
 $cmd=['action'=>'preparationCatalog','operation'=>'preview','id'=>'sheet','versionId'=>$version,'expectedRevision'=>$source['revision'],'storefrontId'=>'BASE','productKey'=>'42','resultIds'=>array_column($results,'id'),'newActive'=>false];
 $plan=$service->command($cmd);ok($plan['ready']&&count($plan['rows'])===2,'Two immutable results ready');ok($port->writes===0,'Preview does not write');
+$priceRow=$plan['rows'][0];$priceSlot=$priceRow['priceSlots'][0];
+$settingsCmd=array_replace($cmd,['operation'=>'savePrices','expectedSettingsRevision'=>0,'edits'=>[['variantKey'=>$priceRow['variantKey'],'key'=>$priceSlot['key'],'mode'=>'custom','value'=>'123.456']]]);
+$custom=$service->command($settingsCmd);ok($custom['settingsRevision']===1&&$port->writes===0,'Durable settings save without native catalog write');
+$reopenedSettings=$service->command($cmd);$customRow=array_column($reopenedSettings['rows'],null,'variantKey')[$priceRow['variantKey']];
+ok($customRow['state']['purchasingPrice']['value']===123.456&&$customRow['priceSlots'][0]['mode']==='custom','Reopen preserves manual amount/mode');
+reject(fn()=>$service->command($settingsCmd));
+reject(fn()=>$service->command(array_replace($cmd,['operation'=>'apply','fingerprint'=>$plan['fingerprint']])));
+$reset=array_replace($settingsCmd,['expectedSettingsRevision'=>1,'edits'=>[['variantKey'=>$priceRow['variantKey'],'key'=>$priceSlot['key'],'mode'=>'calculated','value'=>null]]]);
+$plan=$service->command($reset);ok($plan['settingsRevision']===2&&$plan['ready'],'Explicit reset restores calculated plan');
 $apply=array_replace($cmd,['operation'=>'apply','fingerprint'=>$plan['fingerprint']]);
 $port->fail=true;reject(fn()=>$service->command($apply));ok(!$db->rows('SELECT * FROM b_pw_calc_preparation_offer')&&!$db->rows('SELECT * FROM b_pw_calc_preparation_write'),'Partial failure rolls back bindings and receipts');ok($db->rows('SELECT body FROM qa_generation')[0]['body']==='{}','Catalog rollback');$port->fail=false;
 $r=$service->command($apply);ok(count($r['offerIds'])===2,'Real returned IDs bound');$writes=$port->writes;
@@ -50,6 +59,6 @@ reject(fn()=>$service->command($cmd+['actor'=>'user:3']));reject(fn()=>$service-
 $db->begin();reject(fn()=>$service->command($cmd));ok($db->inTransaction(),'Nested call does not roll back caller transaction');$db->rollback();
 $db->execute('UPDATE qa_generation SET body=?',['{}']);
 reject(fn()=>$service->removeOwnedGeneration($preparation['id'],(int)$preparation['revision'],$maintenanceHash));
-$service->removeOwnedGeneration($preparation['id'],(int)$preparation['revision']+1,$maintenanceHash);
+$service->removeOwnedGeneration($preparation['id'],(int)$preparation['revision']+1,$maintenanceHash,Hash::hash($db->rows('SELECT * FROM b_pw_calc_preparation_prices WHERE preparation_id=?',[$preparation['id']])));
 ok(!$db->rows('SELECT * FROM b_pw_calc_preparation_offer')&&!$db->rows('SELECT * FROM b_pw_calc_preparation_write'),'Exact owner cleanup after native removal');
 echo "PASS $checks preparation catalog SQL assertions\n";
