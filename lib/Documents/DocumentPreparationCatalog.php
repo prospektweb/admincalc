@@ -65,8 +65,9 @@ final class DocumentPreparationCatalog
             foreach($plan['variants'] as $variant=>$target){
                 $offer=$ids[$variant];if(!is_int($offer)||$offer<1)throw new \RuntimeException('Каталог не вернул ID предложения.');
                 if(isset($before['bindings'][$variant])){
-                    if($offer!==(int)$before['bindings'][$variant]['offer_id'])throw new DocumentConflict('Связанное предложение заменено.');
-                    $this->db->execute('UPDATE b_pw_calc_preparation_offer SET result_id=?,mapping_hash=?,receipt_id=?,parent_price_hash=? WHERE preparation_id=? AND variant_key=?',[$target['resultId'],$mappingHash,$receiptId,$parentPriceHash,$before['preparation']['id'],$variant]);
+                    $previous=(int)$before['bindings'][$variant]['offer_id'];
+                    if($offer!==$previous&&(($before['catalog']['missingBindings'][$variant]??null)!==$previous||($target['previousOfferId']??null)!==$previous||$target['offerId']!==null))throw new DocumentConflict('Связанное предложение заменено.');
+                    $this->db->execute('UPDATE b_pw_calc_preparation_offer SET offer_id=?,result_id=?,mapping_hash=?,receipt_id=?,parent_price_hash=? WHERE preparation_id=? AND variant_key=? AND offer_id=?',[$offer,$target['resultId'],$mappingHash,$receiptId,$parentPriceHash,$before['preparation']['id'],$variant,$previous]);
                 }else $this->db->execute('INSERT INTO b_pw_calc_preparation_offer (preparation_id,variant_key,scope_id,offer_id,result_id,mapping_hash,receipt_id,parent_price_hash) VALUES (?,?,?,?,?,?,?,?)',[$before['preparation']['id'],$variant,$this->scope,$offer,$target['resultId'],$mappingHash,$receiptId,$parentPriceHash]);
             }
             if($parentPriceHash!==null)$this->db->execute('UPDATE b_pw_calc_preparation_offer SET parent_price_hash=? WHERE preparation_id=? AND scope_id=?',[$parentPriceHash,$before['preparation']['id'],$this->scope]);
@@ -181,6 +182,8 @@ final class DocumentPreparationCatalog
                 if(count($quote['parts']??[])!==1)throw new \InvalidArgumentException('Для нескольких деталей требуется явное правило итоговых размеров.');
                 $priceConnection=DocumentQuotePricing::connection($payload->document,$quote,$site);
                 $offerId=isset($before['bindings'][$key])?(int)$before['bindings'][$key]['offer_id']:null;
+                $previousOfferId=$before['catalog']['missingBindings'][$key]??null;
+                if($previousOfferId!==null)$offerId=null;
                 $current=$offerId?$before['catalog']['states'][$offerId]['state']:['purchasingPrice'=>['value'=>null,'currency'=>null],'dimensions'=>['width'=>null,'length'=>null,'height'=>null,'weight'=>null],'prices'=>[]];
                 $target=DocumentCatalogWritePlan::target($quote,$priceConnection,$current);
                 $target=$this->catalog->round($target,array_map(fn($t)=>(int)$t->key,$priceConnection->priceTypes));
@@ -188,7 +191,7 @@ final class DocumentPreparationCatalog
                 $target=$prices['state'];$priceViews[$key]=$prices;
                 if($prices['orphanKeys'])$rowErrors[]='Сохранённая ручная цена относится к другому диапазону или валюте. Сбросьте неприменимые цены.';
                 $name=$quote['name']??null;if(!is_string($name)||trim($name)===''||mb_strlen($name)>255)throw new \InvalidArgumentException('Название результата должно содержать от 1 до 255 символов.');
-                $variants[$key]=['resultId'=>$result['id'],'payloadHash'=>$result['payload_hash'],'provenance'=>json_decode($result['provenance_json'],true),'offerId'=>$offerId,'name'=>$name,'newActive'=>$c['newActive'],
+                $variants[$key]=['resultId'=>$result['id'],'payloadHash'=>$result['payload_hash'],'provenance'=>json_decode($result['provenance_json'],true),'offerId'=>$offerId,'previousOfferId'=>$previousOfferId,'name'=>$name,'newActive'=>$c['newActive'],
                     'state'=>$target,'priceTypeIds'=>array_map(fn($t)=>(int)$t->key,$priceConnection->priceTypes),'properties'=>$properties];
                 $this->catalog->validate($before['catalog'],$variants[$key],$key);
             }catch(\InvalidArgumentException|DocumentConflict $e){$rowErrors[]=$e->getMessage();}
@@ -202,7 +205,7 @@ final class DocumentPreparationCatalog
         try{$plan['parentProjection']=$this->catalog->parentProjection($before['catalog'],$plan);}
         catch(\InvalidArgumentException|DocumentConflict $e){$errors[]=$e->getMessage();}
         $display=$this->catalog->diff($before['catalog'],$plan);
-        foreach($rows as $key=>&$row){$row+=($display['variants'][$key]??[]);if($row['errors']||$errors)$row['action']='conflict';}unset($row);
+        foreach($rows as $key=>&$row){$row+=($display['variants'][$key]??[]);$row['previousOfferId']=$variants[$key]['previousOfferId']??null;if($row['previousOfferId']!==null){$row['action']='recreate';$row['reason']='Прежнее ТП #'.$row['previousOfferId'].' удалено. При применении будет создано новое.';}if($row['errors']||$errors)$row['action']='conflict';}unset($row);
         $view=PreparationCatalogView::build($before['catalog'],$mapped,$consensus,$variants);
         foreach($rows as $key=>&$row){$row['properties']=$view['propertyCells'][$key]??[];$row['state']=$variants[$key]['state']??null;$row['priceSlots']=$priceViews[$key]['slots']??[];$row['orphanPriceKeys']=$priceViews[$key]['orphanKeys']??[];}unset($row);
         unset($view['propertyCells']);

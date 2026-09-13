@@ -49,7 +49,19 @@ final class BitrixPreparationCatalog
         if((int)$iblocks[$offers]['VERSION']===2)$parents=$this->rows('b_iblock_element_prop_s'.$offers,'PROPERTY_'.$parent.'=?',[(string)$product],500);
         else $parents=$this->rows('b_iblock_element_property','IBLOCK_PROPERTY_ID=? AND VALUE=?',[$parent,(string)$product],500);
         foreach($parents as $r){$id=(int)$r['IBLOCK_ELEMENT_ID'];if(isset($offerIds[$id]))throw new DocumentConflict('Неоднозначный родитель ТП.');$offerIds[$id]=$id;}
-        $boundIds=[];foreach($bindings as $binding){$id=(int)$binding['offer_id'];if(!isset($offerIds[$id])||$binding['scope_id']!==$this->scope)throw new DocumentConflict('Связанное предложение удалено или перенесено к другому товару.');$boundIds[]=$id;}
+        $boundIds=[];$missingBindings=[];
+        foreach($bindings as $key=>$binding){
+            $id=(int)$binding['offer_id'];
+            if($binding['scope_id']!==$this->scope)throw new DocumentConflict('Область связи предложения изменилась.');
+            $element=$this->rows('b_iblock_element','ID=?',[$id],1);
+            if(!$element){
+                foreach(['b_catalog_product'=>'ID','b_catalog_price'=>'PRODUCT_ID'] as $table=>$column)if($this->rows($table,$column.'=?',[$id]))throw new DocumentConflict('Удаление ТП #'.$id.' не завершено в товарном каталоге.');
+                if(isset($offerIds[$id]))throw new DocumentConflict('У удалённого ТП #'.$id.' осталась связь каталога.');
+                $missingBindings[$key]=$id;continue;
+            }
+            if(!isset($offerIds[$id])||(int)$element[0]['IBLOCK_ID']!==$offers)throw new DocumentConflict('Связанное ТП #'.$id.' существует, но перенесено к другому товару или в другой инфоблок.');
+            $boundIds[]=$id;
+        }
         $inputs=(new BitrixCatalogPropertySnapshot($this->db))->capture($products,$offers,[$product],$boundIds,array_column($site['inputMappings'],'source'),$lock,true);
         require_once dirname(__DIR__).'/Services/CalculatorInputMappingService.php';
         (new \Prospektweb\Calc\Services\CalculatorInputMappingService())->validateDocumentMappings($site['inputMappings'],['formDefinition'=>json_decode(json_encode($document->form,JSON_THROW_ON_ERROR),true),'bindingDefinition'=>$site['formBindings']],$inputs['sourceAuthority']);
@@ -91,7 +103,26 @@ final class BitrixPreparationCatalog
         $parentHashes=array_column($bindings,'parent_price_hash');$knownParentHashes=array_filter($parentHashes,'is_string');
         if($knownParentHashes){
             $priceHash=DocumentCatalogWritePlan::hash($states[$product]['prices']);
-            if($boundSet!==$offerSet||count($knownParentHashes)!==count($bindings)||count(array_unique($knownParentHashes))!==1||!hash_equals(reset($knownParentHashes),$priceHash))throw new DocumentConflict('Цены товара изменены вручную или появились чужие ТП. Происхождение проекции больше не подтверждено.');
+            $samePrice=hash_equals(reset($knownParentHashes),$priceHash);
+            if(!$samePrice&&$missingBindings&&$boundSet===$offerSet){
+                // Native OnAfterIBlockElementDelete recalculates the surviving SKU set.
+                // A projection alone is not ownership: require each survivor's intact receipt/state.
+                $samePrice=$parentType===1&&!$offerIds;
+                if($parentType===3&&$offerIds&&!$separate){
+                    $intact=true;
+                    foreach($bindings as $key=>$binding){
+                        if(isset($missingBindings[$key]))continue;
+                        $receipts=$this->rows('b_pw_calc_preparation_write','id=? AND preparation_id=? AND scope_id=?',[$binding['receipt_id'],$binding['preparation_id'],$this->scope],1);
+                        $receipt=$receipts[0]??null;$r=$receipt?json_decode($receipt['receipt_json'],true):null;$id=(int)$binding['offer_id'];
+                        if(!$receipt||!hash_equals($receipt['receipt_hash'],hash('sha256',$receipt['receipt_json']))||($r['offerIds'][$key]??null)!==$id||DocumentCatalogWritePlan::hash($r['variants'][$key]['state']??null)!==DocumentCatalogWritePlan::hash($states[$id]['state'])){$intact=false;break;}
+                    }
+                    if($intact){
+                        $projection=$this->parentProjection(['separate'=>false,'offerIds'=>array_values($offerIds),'states'=>$states,'elements'=>$elements,'currencyRates'=>array_column($currencies,'CURRENT_BASE_RATE','CURRENCY'),'parentType'=>3,'derivedParentOwned'=>true],['variants'=>[]]);
+                        $samePrice=DocumentCatalogWritePlan::hash($projection)===DocumentCatalogWritePlan::hash($states[$product]['state']['prices']);
+                    }
+                }
+            }
+            if($boundSet!==$offerSet||count($knownParentHashes)!==count($bindings)||count(array_unique($knownParentHashes))!==1||!$samePrice)throw new DocumentConflict('Цены товара изменены вручную или появились чужие ТП. Происхождение проекции больше не подтверждено.');
             $derivedParentOwned=true;
         }
         $sync=$this->rows('b_option',"MODULE_ID='aspro.premier' AND LOWER(NAME)='event_sync'");
@@ -100,7 +131,7 @@ final class BitrixPreparationCatalog
             $tables=array_keys($this->tables);sort($tables);$engines=$this->db->rows('SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('.implode(',',array_fill(0,count($tables),'?')).') ORDER BY TABLE_NAME',$tables);
             if(array_column($engines,'TABLE_NAME')!==$tables||count(array_filter($engines,fn($r)=>strtoupper($r['ENGINE'])==='INNODB'))!==count($tables))throw new DocumentConflict('Каталожная запись требует InnoDB.');
         }
-        return ['productId'=>$product,'products'=>$products,'offers'=>$offers,'parentProperty'=>$parent,'parentType'=>$parentType,'derivedParentOwned'=>$derivedParentOwned,'separate'=>$separate,'schemas'=>$inputs['propertySchemas'],'choices'=>$inputs['propertyChoices'],
+        return ['missingBindings'=>$missingBindings,'productId'=>$product,'products'=>$products,'offers'=>$offers,'parentProperty'=>$parent,'parentType'=>$parentType,'derivedParentOwned'=>$derivedParentOwned,'separate'=>$separate,'schemas'=>$inputs['propertySchemas'],'choices'=>$inputs['propertyChoices'],
             'allSchemas'=>$schemas,'priceTypeNames'=>array_column($types,'NAME','ID'),'elements'=>$elements,'rawProperties'=>$raw,'states'=>$states,'offerIds'=>array_values($offerIds),'currencyRates'=>array_column($currencies,'CURRENT_BASE_RATE','CURRENCY'),
             'configuration'=>DocumentCatalogWritePlan::hash([$settings,$provider,$pairs,$p,$iblocks,$schemas,$types,$rounding,$currencies,$measures,$handlers,$defaults,$sync,$inputs['propertyChoices']]),
             'authority'=>DocumentCatalogWritePlan::hash([$this->evidence,$inputs['authority']])];
@@ -208,6 +239,7 @@ final class BitrixPreparationCatalog
     }
     public function verify(array $before,array $after,array $plan,array $ids):void
     {
+        if($before['missingBindings']??[])$this->assertRemoved(array_values($before['missingBindings']));
         if($before['configuration']!==$after['configuration'])throw new DocumentConflict('Настройки или схема изменились во время записи.');
         $expectedIds=array_unique(array_merge($before['offerIds'],array_values($ids)));sort($expectedIds);$actual=$after['offerIds'];sort($actual);
         if($actual!==$expectedIds)throw new DocumentConflict('Обработчик изменил состав предложений.');
