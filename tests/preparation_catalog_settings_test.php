@@ -4,6 +4,8 @@ require_once __DIR__.'/document_preparation_catalog_test.php';
 require_once __DIR__.'/../lib/Documents/PreparationPropertyLinks.php';
 use Prospektweb\Calc\Documents\{PreparationPriceOverrides as Prices,PreparationPropertyLinks as Links,DocumentPreparationPropertyPlan as Properties};
 $state=$v['state'];$types=$v['priceTypeIds'];$slots=Prices::slots($state,$types);$purchase=$slots[0];$sale=$slots[1];
+$unordered=$state;$unordered['prices']=[['typeId'=>1,'quantityFrom'=>3,'quantityTo'=>null,'currency'=>'RUB','price'=>30],['typeId'=>1,'quantityFrom'=>null,'quantityTo'=>1,'currency'=>'RUB','price'=>10],['typeId'=>1,'quantityFrom'=>2,'quantityTo'=>2,'currency'=>'RUB','price'=>20]];
+ok(array_column(array_slice(Prices::slots($unordered,[1]),1),'quantityFrom')===[null,2,3],'Price intervals display in numerical order');
 $custom=Prices::resolve($state,$types,[$purchase['key']=>'55.125',$sale['key']=>'777.12345678']);
 ok($custom['state']['purchasingPrice']['value']===55.125,'Purchase override independent');
 ok(count(array_filter($custom['state']['prices'],fn($p)=>$p['price']===777.12345678))===1,'Only exact sale interval overridden');

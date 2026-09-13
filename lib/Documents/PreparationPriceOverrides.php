@@ -10,6 +10,7 @@ final class PreparationPriceOverrides
     {
         $p=$state['purchasingPrice'];$out=[['kind'=>'purchase','typeId'=>null,'quantityFrom'=>null,'quantityTo'=>null,'currency'=>$p['currency'],'calculated'=>$p['value']]];
         foreach($state['prices'] as $p)if(in_array($p['typeId'],$ownedTypes,true))$out[]=['kind'=>'sale','typeId'=>$p['typeId'],'quantityFrom'=>$p['quantityFrom'],'quantityTo'=>$p['quantityTo'],'currency'=>$p['currency'],'calculated'=>$p['price']];
+        usort($out,fn($a,$b)=>[($a['kind']==='purchase'?0:1),$a['typeId']??0,$a['quantityFrom']??0,$a['quantityTo']??PHP_INT_MAX]<=>[($b['kind']==='purchase'?0:1),$b['typeId']??0,$b['quantityFrom']??0,$b['quantityTo']??PHP_INT_MAX]);
         foreach($out as &$slot)$slot['key']=self::key($slot);unset($slot);return $out;
     }
     public static function key(array $slot):string
