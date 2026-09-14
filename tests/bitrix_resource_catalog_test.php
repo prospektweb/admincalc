@@ -40,11 +40,12 @@ namespace {
     $map = ['CALC_MATERIALS'=>1, 'CALC_MATERIALS_VARIANTS'=>2, 'CALC_OPERATIONS'=>3, 'CALC_OPERATIONS_VARIANTS'=>4, 'CALC_EQUIPMENT'=>5];
     $links = static function (int $iblock, array $ids): array {
         CIBlockElement::$bulk++; if (count($ids) > 250) throw new RuntimeException('Unbounded links');
-        return array_fill_keys($ids, ['CML2_LINK' => in_array($iblock, [2,4], true) ? ['1'] : [], 'SUPPORTED_EQUIPMENT_LIST' => ['5','5','','0'], 'SUPPORTED_MATERIALS_VARIANTS_LIST' => ['7']]);
+        return array_fill_keys($ids, ['CML2_LINK' => in_array($iblock, [2,4], true) ? ['1'] : [], 'SUPPORTED_EQUIPMENT_LIST' => ['5','5','','0'], 'SUPPORTED_MATERIALS_VARIANTS_LIST' => ['7'], 'LINKED_OPTION_CODES'=>['white','white']]);
     };
     $browser = new \Prospektweb\Calc\Documents\BitrixResourceCatalog('bitrix:test', fn($code) => $map[$code], $links); $checks = 0;
     $check = static function (bool $ok, string $message) use (&$checks): void { $checks++; if (!$ok) throw new RuntimeException($message); };
     $result = $browser();
+    $check($result['items'][0]['linkedOptionCodes'] === ['white'], 'Option link metadata preserved and deduplicated');
     $check(count($result['items']) === 10 && count($result['sections']) === 5 && CIBlockElement::$bulk === 5, 'Bounded bulk queries, full directories');
     $check($result['items'][2]['parentBinding'] === ['provider'=>'bitrix:test','catalog'=>'CALC_MATERIALS','key'=>'1'], 'Explicit external parent binding');
     $check($result['items'][0]['supportedEquipmentKeys'] === ['5'] && $result['items'][0]['supportedMaterialVariantKeys'] === ['7'], 'Typed supported identities');

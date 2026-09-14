@@ -20,17 +20,18 @@ foreach([1,2] as $version) {
     $db=new PdoConnection(new PDO('sqlite::memory:'));
     $db->execute('CREATE TABLE b_iblock (ID INTEGER,VERSION INTEGER)');$db->execute('INSERT INTO b_iblock VALUES (7,?)',[$version]);
     $db->execute('CREATE TABLE b_iblock_property (ID INTEGER,IBLOCK_ID INTEGER,ACTIVE TEXT,CODE TEXT,PROPERTY_TYPE TEXT,USER_TYPE TEXT,MULTIPLE TEXT)');
-    $db->execute("INSERT INTO b_iblock_property VALUES (10,7,'Y','CML2_LINK','E','','N'),(11,7,'Y','SUPPORTED_EQUIPMENT_LIST','E','','Y'),(12,7,'N','SUPPORTED_MATERIALS_VARIANTS_LIST','E','','Y')");
+    $db->execute("INSERT INTO b_iblock_property VALUES (10,7,'Y','CML2_LINK','E','','N'),(11,7,'Y','SUPPORTED_EQUIPMENT_LIST','E','','Y'),(12,7,'N','SUPPORTED_MATERIALS_VARIANTS_LIST','E','','Y'),(13,7,'Y','PARAMETRS','S','','Y')");
     $db->execute('CREATE TABLE b_iblock_element_prop_s7 (IBLOCK_ELEMENT_ID INTEGER, PROPERTY_10 TEXT, PROPERTY_11 TEXT)');
     $db->execute("INSERT INTO b_iblock_element_prop_s7 VALUES (1,'100',NULL),(2,'200','intentionally stale serialized cache')");
     foreach(['b_iblock_element_property','b_iblock_element_prop_m7'] as $table) {
-        $db->execute('CREATE TABLE '.$table.' (ID INTEGER, IBLOCK_ELEMENT_ID INTEGER,IBLOCK_PROPERTY_ID INTEGER,VALUE TEXT)');
-        $db->execute('INSERT INTO '.$table." VALUES (1,1,10,'100'),(2,2,10,'200'),(3,1,11,'300'),(4,1,11,'301'),(5,2,11,'302'),(6,1,12,'secret-inactive')");
+        $db->execute('CREATE TABLE '.$table.' (ID INTEGER, IBLOCK_ELEMENT_ID INTEGER,IBLOCK_PROPERTY_ID INTEGER,VALUE TEXT,DESCRIPTION TEXT)');
+        $db->execute('INSERT INTO '.$table." (ID,IBLOCK_ELEMENT_ID,IBLOCK_PROPERTY_ID,VALUE) VALUES (1,1,10,'100'),(2,2,10,'200'),(3,1,11,'300'),(4,1,11,'301'),(5,2,11,'302'),(6,1,12,'secret-inactive')");
+        $db->execute('INSERT INTO '.$table.' VALUES (7,1,13,?,?),(8,2,13,?,?),(9,1,13,?,?)', ['link.property_code','shine_white_s|Property option|Help','link.property_code','"shine_black_s"|Option','other','not-a-link']);
     }
     $db->begin();$reader=new ReadOnlyLinksDb($db);$links=new BitrixResourceLinks($reader);
     $before=$db->rows('SELECT * FROM b_iblock_element_prop_s7');
     $result=$links->load(7,[1,2]);
-    $check($result === [1=>['CML2_LINK'=>['100'],'SUPPORTED_EQUIPMENT_LIST'=>['300','301']],2=>['CML2_LINK'=>['200'],'SUPPORTED_EQUIPMENT_LIST'=>['302']]],'Same V1/V2 semantics without serialized cache');
+    $check($result === [1=>['CML2_LINK'=>['100'],'SUPPORTED_EQUIPMENT_LIST'=>['300','301'],'LINKED_OPTION_CODES'=>['shine_white_s']],2=>['CML2_LINK'=>['200'],'SUPPORTED_EQUIPMENT_LIST'=>['302'],'LINKED_OPTION_CODES'=>['shine_black_s']]],'Same V1/V2 semantics and exact option links without serialized cache');
     $check($before===$db->rows('SELECT * FROM b_iblock_element_prop_s7'),'Serialized cache not repaired');
     $check(count($reader->queries)===($version===1?3:4),'Bounded metadata and value queries');
     $reader->queries=[];$links->load(7,[1]);$check(count($reader->queries)===($version===1?1:2),'Metadata reused within snapshot');

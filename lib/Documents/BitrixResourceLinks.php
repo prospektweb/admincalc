@@ -4,7 +4,7 @@ namespace Prospektweb\Calc\Documents;
 require_once __DIR__ . '/SqlConnection.php';
 
 /** The standard property API repairs its serialized V2 cache while reading.
- * Read only the three declared element-link properties from authoritative rows instead. */
+ * Read declared links and parameter metadata from authoritative rows instead. */
 final class BitrixResourceLinks
 {
     private SqlConnection $db;
@@ -19,11 +19,13 @@ final class BitrixResourceLinks
         if (!isset($this->metadata[$iblockId])) {
             $rows = $this->db->rows('SELECT ID,VERSION FROM b_iblock WHERE ID=?', [$iblockId]);
             if (count($rows) !== 1 || !in_array((string)$rows[0]['VERSION'], ['1','2'], true)) throw new \RuntimeException('Unsupported resource storage.', 409);
-            $properties = $this->db->rows("SELECT ID,CODE,PROPERTY_TYPE,USER_TYPE,MULTIPLE FROM b_iblock_property WHERE IBLOCK_ID=? AND ACTIVE='Y' AND CODE IN ('CML2_LINK','SUPPORTED_EQUIPMENT_LIST','SUPPORTED_MATERIALS_VARIANTS_LIST') ORDER BY ID", [$iblockId]);
+            $properties = $this->db->rows("SELECT ID,CODE,PROPERTY_TYPE,USER_TYPE,MULTIPLE FROM b_iblock_property WHERE IBLOCK_ID=? AND ACTIVE='Y' AND CODE IN ('CML2_LINK','SUPPORTED_EQUIPMENT_LIST','SUPPORTED_MATERIALS_VARIANTS_LIST','PARAMETRS') ORDER BY ID", [$iblockId]);
             $codes = [];
             foreach ($properties as $property) {
-                if (!preg_match('/^[1-9][0-9]{0,8}$/D', (string)$property['ID']) || isset($codes[$property['CODE']]) || $property['PROPERTY_TYPE'] !== 'E'
+                $parameter = $property['CODE'] === 'PARAMETRS';
+                if (!preg_match('/^[1-9][0-9]{0,8}$/D', (string)$property['ID']) || isset($codes[$property['CODE']]) || $property['PROPERTY_TYPE'] !== ($parameter ? 'S' : 'E')
                     || (string)($property['USER_TYPE'] ?? '') !== '' || !in_array($property['MULTIPLE'], ['Y','N'], true)
+                    || ($parameter && $property['MULTIPLE'] !== 'Y')
                     || ($property['CODE'] === 'CML2_LINK' && $property['MULTIPLE'] !== 'N')) throw new \RuntimeException('Resource link schema changed.', 409);
                 $codes[$property['CODE']] = true;
             }
@@ -33,8 +35,17 @@ final class BitrixResourceLinks
         $byId = []; foreach ($properties as $property) $byId[(int)$property['ID']] = $property;
         if (!$byId) return $result;
         $marks = implode(',', array_fill(0, count($ids), '?'));
-        $append = static function ($element, int $prop, $value) use (&$result, $byId): void {
+        $append = static function ($element, int $prop, $value, $description = '') use (&$result, $byId): void {
             if (!isset($result[$element], $byId[$prop])) throw new \RuntimeException('Resource link escaped the requested batch.', 409);
+            if ($byId[$prop]['CODE'] === 'PARAMETRS') {
+                if (trim((string)$value) === 'link.property_code') {
+                    $code = trim(explode('|', (string)$description, 2)[0]);
+                    $decoded = json_decode($code, true);
+                    if (is_string($decoded)) $code = trim($decoded);
+                    if ($code !== '') $result[$element]['LINKED_OPTION_CODES'][] = $code;
+                }
+                return;
+            }
             if ($value === null || $value === '' || (string)$value === '0') return;
             if (!is_scalar($value) || !preg_match('/^[1-9][0-9]{0,8}$/D', (string)$value)) throw new \RuntimeException('Invalid resource link value.', 409);
             $code = $byId[$prop]['CODE'];
@@ -52,9 +63,9 @@ final class BitrixResourceLinks
         if ($multi) {
             $table = $version === 2 ? 'b_iblock_element_prop_m' . $iblockId : 'b_iblock_element_property';
             $where = implode(',', array_fill(0, count($multi), '?'));
-            $rows = $this->db->rows('SELECT IBLOCK_ELEMENT_ID,IBLOCK_PROPERTY_ID,VALUE FROM ' . $table . ' WHERE IBLOCK_ELEMENT_ID IN (' . $marks . ') AND IBLOCK_PROPERTY_ID IN (' . $where . ') ORDER BY IBLOCK_ELEMENT_ID,IBLOCK_PROPERTY_ID,ID LIMIT 20001', array_merge($ids, array_keys($multi)));
+            $rows = $this->db->rows('SELECT IBLOCK_ELEMENT_ID,IBLOCK_PROPERTY_ID,VALUE,DESCRIPTION FROM ' . $table . ' WHERE IBLOCK_ELEMENT_ID IN (' . $marks . ') AND IBLOCK_PROPERTY_ID IN (' . $where . ') ORDER BY IBLOCK_ELEMENT_ID,IBLOCK_PROPERTY_ID,ID LIMIT 20001', array_merge($ids, array_keys($multi)));
             if (count($rows) > 20000) throw new \InvalidArgumentException('Слишком много связей ресурса; данные не усечены.');
-            foreach ($rows as $row) $append($row['IBLOCK_ELEMENT_ID'], (int)$row['IBLOCK_PROPERTY_ID'], $row['VALUE']);
+            foreach ($rows as $row) $append($row['IBLOCK_ELEMENT_ID'], (int)$row['IBLOCK_PROPERTY_ID'], $row['VALUE'], $row['DESCRIPTION'] ?? '');
         }
         return $result;
     }

@@ -64,6 +64,7 @@ final class BitrixResourceCatalog
                         'description' => (string)($row['PREVIEW_TEXT'] ?? ''), 'code' => (string)($row['CODE'] ?? ''),
                         'sectionKey' => (int)$row['IBLOCK_SECTION_ID'] > 0 ? $catalog . ':section:' . $row['IBLOCK_SECTION_ID'] : null,
                         'parentBinding' => $parentCatalog && preg_match('/^[1-9][0-9]*$/D', $parent) ? $this->binding($parentCatalog, $parent) : null,
+                        'linkedOptionCodes' => array_values(array_unique($props['LINKED_OPTION_CODES'] ?? [])),
                         'supportedEquipmentKeys' => self::keys($props['SUPPORTED_EQUIPMENT_LIST'] ?? []),
                         'supportedMaterialVariantKeys' => self::keys($props['SUPPORTED_MATERIALS_VARIANTS_LIST'] ?? [])];
                 }
