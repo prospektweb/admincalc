@@ -17,6 +17,27 @@ class ModuleCapabilityRegistryService
 
     private const MODULES = [
         [
+            'id' => 'prospektweb.orderterms',
+            'name' => 'Сроки и готовность заказов',
+            'description' => 'Версии календарей и preview для администратора. Рабочие сроки заказов выключены; корзина использует прежние правила.',
+            'capabilities' => [
+                [
+                    'id' => 'admin.orderterms.calendar_preview',
+                    'name' => 'Календарь: версии и диагностический preview',
+                    'description' => 'Диагностика: /bitrix/admin/prospektweb_orderterms_diagnostic.php. Импорт старых настроек создаёт только проверяемый проект календаря.',
+                    'surface' => 'admin', 'defaultEnabled' => true, 'mutable' => false,
+                    'state' => 'managed', 'risk' => 'low', 'requiresReload' => false,
+                ],
+                [
+                    'id' => 'storefront.orderterms.enrollment',
+                    'name' => 'Новые сроки заказов',
+                    'description' => 'Выключены до приёмки интеграции, согласования рабочих политик и управляемого перехода.',
+                    'surface' => 'storefront', 'defaultEnabled' => false, 'mutable' => false,
+                    'state' => 'managed-later', 'risk' => 'high', 'requiresReload' => false,
+                ],
+            ],
+        ],
+        [
             'id' => 'prospektweb.calc',
             'name' => 'Калькуляции PROSPEKT',
             'description' => 'Центр управления, пресеты, справочники и редактор калькуляций.',

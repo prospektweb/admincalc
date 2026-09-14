@@ -32,6 +32,7 @@ namespace Bitrix\Main {
 
         public static array $versions = [
             'prospektweb.calc' => '1.4.0',
+            'prospektweb.orderterms' => '0.1.0',
             'prospektweb.frontcalc' => '2.0.0',
             'prospektweb.propvalmanager' => '1.0.0',
             'prospektweb.storefrontui' => '1.1.0',
@@ -122,8 +123,12 @@ namespace {
     $assert($initial['contract'] === 'prospektweb.control-plane/catalog/v1', 'Catalog contract must be versioned');
     $assert(strlen((string)$initial['revision']) === 64, 'Catalog revision must be SHA-256');
     $assert($repeat['revision'] === $initial['revision'], 'Unchanged catalogs must have a stable revision');
-    $assert(count($initial['modules']) === 8, 'Catalog must expose exactly eight canonical modules');
-    $assert($initial['summary']['capabilities'] === 23, 'Catalog capability summary must match the allowlist');
+    $assert(count($initial['modules']) === 9, 'Catalog must expose nine canonical modules');
+    $assert($initial['summary']['capabilities'] === 25, 'Catalog capability summary must match the allowlist');
+    $calendarPreview = $findCapability($initial, 'admin.orderterms.calendar_preview');
+    $ordertermsEnrollment = $findCapability($initial, 'storefront.orderterms.enrollment');
+    $assert($calendarPreview['enabled'] && !$calendarPreview['mutable'], 'Calendar preview is available without enrollment');
+    $assert(!$ordertermsEnrollment['enabled'] && !$ordertermsEnrollment['mutable'], 'Stage02 cannot enable orderterms writer');
     $assert($initial['summary']['mutableCapabilities'] === 16, 'Provider-owned feature guards must be mutable');
 
     $moduleIds = array_column($initial['modules'], 'id');
