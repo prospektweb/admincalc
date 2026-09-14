@@ -42,6 +42,7 @@ $assert(strpos($service, "public const CONTRACT = 'prospektweb.control-plane/cat
 $assert(substr_count($service, "'id' => 'prospektweb.") >= 5, 'Registry must statically allowlist canonical module IDs');
 $assert(strpos($service, "'id' => 'prospektweb.layoutfiles'") !== false, 'Registry must use the canonical layoutfiles module ID');
 $assert(strpos($service, "'id' => 'storefront.property_descriptions'") !== false, 'Property description capability must be stable');
+$assert(strpos($service, "'name' => 'Обычная сортировка'") !== false && strpos($service, "'optionName' => 'CATALOG_STANDARD_SORTING'") !== false, 'Ordinary catalog sorting must be owned by storefrontui and expose the requested copy');
 $assert(strpos($service, "'optionModule' => 'prospektweb.propvalmanager'") !== false && strpos($service, "'optionName' => 'ENABLED'") !== false && strpos($service, "'optionDefault' => 'Y'") !== false, 'Property descriptions must reuse the existing provider option and default');
 $assert(strpos($service, "'id' => 'storefront.checkout.company_suggestions'") !== false, 'Company suggestions capability must be stable');
 $assert(strpos($service, "'optionModule' => 'prospektweb.companyrequisites'") !== false && strpos($service, "'optionName' => 'enabled'") !== false, 'Company suggestions must reuse the existing provider option');
