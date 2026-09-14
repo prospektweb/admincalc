@@ -204,6 +204,11 @@ final class DocumentApplication
                 foreach ($runtime['storefronts'] as $view) $controllers[$view['id']] = DocumentBatchForm::controllers($runtime, $view['id']);
                 $result = ['runtime' => $runtime, 'formSignatures' => $hashes, 'batchControllers' => $controllers];
             } else {
+                if ($this->hasStorefrontScenarios($document)) {
+                    if (!is_callable($this->formRuntime)) throw new \RuntimeException('Form projection unavailable.', 503);
+                    DocumentBatchForm::validate(($this->formRuntime)($document, $revision['revision']), $request['storefrontId'] ?? 'BASE',
+                        $request['values'] ?? new \stdClass(), $request['sectionActivation'] ?? new \stdClass(), $request['execution'] ?? new \stdClass());
+                }
                 $resources = ($this->resources)($document);
                 try {
                     $result = ($this->core)(['action' => 'preview', 'document' => $document, 'resources' => $resources,
@@ -278,11 +283,24 @@ final class DocumentApplication
         if (strlen($json) > 8000000) { throw new \InvalidArgumentException('Document exceeds byte limit.'); }
         $document = json_decode($json, false, 64, JSON_THROW_ON_ERROR);
         if (!$document instanceof \stdClass) { throw new \InvalidArgumentException('Expected a JSON document.'); }
+        if ($this->hasStorefrontScenarios($document)) {
+            if (!is_callable($this->formRuntime)) throw new \RuntimeException('Form projection unavailable.', 503);
+            ($this->formRuntime)($document, 1);
+        }
         $result = ($this->core)(['action' => 'validate', 'document' => $document]);
         if (!is_string($result['documentJson'] ?? null) || !hash_equals(hash('sha256', $result['documentJson']), $result['documentHash'] ?? '')) {
             throw new \RuntimeException('Core canonical document integrity failed.');
         }
         return $result['documentJson'];
+    }
+
+    private function hasStorefrontScenarios(object $document): bool
+    {
+        foreach ($document->presentations->views ?? [] as $view) {
+            if (isset($view->presentation->scenarios)) return true;
+            foreach ($view->presentation->field_patches ?? [] as $patch) if (isset($patch->input_patches)) return true;
+        }
+        return false;
     }
     private static function text(array $r, string $key): string
     {

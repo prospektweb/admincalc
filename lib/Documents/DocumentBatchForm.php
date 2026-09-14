@@ -86,6 +86,9 @@ final class DocumentBatchForm
         }
         $resolved = (new \Prospektweb\Frontcalc\Service\CalculatorConditionResolver())->reconcile($schema, $selection);
         foreach ($resolved['changes'] as $change) if ($change['type'] === 'hidden_removed') {
+            // Reconciliation may seed a form default before removing a hidden field.
+            // Reject submitted hidden values, not defaults introduced by the resolver.
+            if (($selection[$change['field']] ?? '') === '' || ($selection[$change['field']] ?? null) === []) continue;
             $fieldId = array_search($change['field'], $codes, true);
             $field = $form['fields'][array_search($fieldId, array_column($form['fields'], 'fieldId'), true)];
             if ($field['type'] === 'checkbox' && ($values->{$fieldId} ?? null) === false) continue;
@@ -109,6 +112,16 @@ final class DocumentBatchForm
             if ($key !== null && ($values->{$field['fieldId']} ?? null) !== $execution->{$key}) throw new \InvalidArgumentException('Количество или срок не соответствует вводу формы.');
         }
         $sections = \Prospektweb\Frontcalc\Service\FormSectionState::values($form['sections'], (array)$activation, $resolved['selection']);
+        $rendered = []; $inline = [];
+        foreach ($schema['fields'] as $config) foreach ($config['options'] ?? [] as $option) if (!empty($option['inline_number_property_code'])) $inline[$option['inline_number_property_code']] = true;
+        $resolver = new \Prospektweb\Frontcalc\Service\CalculatorConditionResolver();
+        foreach ($schema['fields'] as $config) {
+            $effective = \Prospektweb\Frontcalc\Service\StorefrontScenarios::effectiveField($config, $resolved['selection'], $resolver);
+            $code = $config['property_code'];
+            if (in_array($code, $resolved['visible_fields'], true) && (($effective['_storefront_hidden'] ?? false) !== true || isset($inline[$code]))) $rendered[$code] = true;
+        }
+        foreach ($form['sections'] as $section) if (($section['userActivatable'] ?? false) !== true
+            && !array_filter($section['fieldIds'], fn($id) => isset($rendered[$codes[$id]]))) $sections['section:' . $section['id']] = false;
         foreach ($sections as $key => $active) {
             if (($values->{$key} ?? null) !== $active) throw new \InvalidArgumentException('Состояние раздела не соответствует форме: ' . $key);
         }

@@ -31,6 +31,17 @@ $command=fn($r)=>$repo->batches()->command(['id'=>'batch-test','versionId'=>$ver
 $candidate=fn($qty)=>json_decode(json_encode(['values'=>['qty'=>$qty,'kind'=>'a','section:main'=>true],'activation'=>(object)[],'execution'=>['unitCount'=>1,'layoutCount'=>1,'runCount'=>1,'deadlineType'=>'strict']]));
 $n=0;$check=function($ok,$message)use(&$n){$n++;if(!$ok)throw new RuntimeException($message);};
 $reject=function($fn)use($check){try{$fn();}catch(Throwable $e){$check(true,'rejected');return;}throw new RuntimeException('Expected rejection');};
+$seededHidden=$runtime;
+$seededHidden['storefronts'][0]['runtimeSchema']['fields'][0]['hidden']=true;
+$seededHidden['storefronts'][0]['runtimeSchema']['fields'][0]['default_xml_ids']=['10'];
+$seededHidden['storefronts'][0]['runtimeSchema']['fields'][0]['_storefront_rules']=[['id'=>'seed','priority'=>1,'on_enter'=>'preserve','when'=>['mode'=>'all','conditions'=>[['property_code'=>'CALC_PROP_KIND','operator'=>'equals','values'=>['a']]]],'patch'=>[]]];
+$emptyHidden=$candidate('');
+$check(is_array(\Prospektweb\Calc\Documents\DocumentBatchForm::validate($seededHidden,'BASE',$emptyHidden->values,$emptyHidden->activation,$emptyHidden->execution)),'Resolver-seeded hidden default is not a submitted hidden value');
+$nonemptyHidden=$candidate(10);
+$reject(fn()=>\Prospektweb\Calc\Documents\DocumentBatchForm::validate($seededHidden,'BASE',$nonemptyHidden->values,$nonemptyHidden->activation,$nonemptyHidden->execution));
+$seededHidden['formDefinition']['sections']=[['id'=>'main','fieldIds'=>['kind']],['id'=>'empty','fieldIds'=>['qty']]];
+$emptyHidden->values->{'section:empty'}=false;
+$check(is_array(\Prospektweb\Calc\Documents\DocumentBatchForm::validate($seededHidden,'BASE',$emptyHidden->values,$emptyHidden->activation,$emptyHidden->execution)),'Empty rendered section is inactive, matching editor projection');
 $conditional=$runtime;
 $conditional['storefronts'][0]['runtimeSchema']['fields'][0]['visible_when']=['mode'=>'all','conditions'=>[['property_code'=>'CALC_PROP_KIND','operator'=>'equals','values'=>['a']]]];
 $conditional['storefronts'][]=['id'=>'other','runtimeSchema'=>['version'=>2,'fields'=>[['property_code'=>'CALC_PROP_KIND','visible_when'=>['mode'=>'all','conditions'=>[['property_code'=>'CALC_PROP_QTY','operator'=>'equals','values'=>['1']]]]]]]];

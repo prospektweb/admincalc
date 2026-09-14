@@ -48,4 +48,15 @@ $restored = $app->command(['action' => 'restore', 'id' => 'test', 'expectedRevis
 check($restored['revision'] === 5 && $restored['bodyJson'] === $json, 'Restore appends new revision');
 check($repo->publication('test')['sourceRevision'] === 4, 'Draft restore does not change publication');
 $other = new DocumentRepository($db, 'site:other', 'user:2'); fails(fn() => $other->load('test'), 404);
+$enhanced = json_decode($json);
+$enhanced->id = 'scenario-validation';
+$enhanced->presentations = (object)['views'=>[(object)['id'=>'BASE','presentation'=>(object)['scenarios'=>(object)['contract'=>'prospektweb.storefront-scenarios/v1','items'=>[]]]]]];
+$enhancedJson = json_encode($enhanced, JSON_THROW_ON_ERROR);
+fails(fn() => $app->command(['action'=>'create','documentJson'=>$enhancedJson]), 503);
+$projected = 0;
+$scenarioApp = new DocumentApplication($repo, $core, static fn()=>[], null, null, null, static function(object $document, int $revision) use (&$projected): array { check($revision >= 1, 'Validation projection uses a valid synthetic revision'); $projected++; throw new InvalidArgumentException('Scenario limits conflict.'); });
+$callsBefore = count($calls);
+fails(fn() => $scenarioApp->command(['action'=>'create','documentJson'=>$enhancedJson]));
+check($projected === 1 && count($calls) === $callsBefore, 'Invalid scenarios rejected before core validation or persistence');
+fails(fn() => $repo->load('scenario-validation'), 404);
 echo "PASS $checks document application checks\n";
