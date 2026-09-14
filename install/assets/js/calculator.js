@@ -1,14 +1,14 @@
-/**
- * ProspekwebCalc - Калькулятор себестоимости
- * Интеграция React-приложения через iframe + postMessage
+﻿/**
+ * ProspekwebCalc - РљР°Р»СЊРєСѓР»СЏС‚РѕСЂ СЃРµР±РµСЃС‚РѕРёРјРѕСЃС‚Рё
+ * РРЅС‚РµРіСЂР°С†РёСЏ React-РїСЂРёР»РѕР¶РµРЅРёСЏ С‡РµСЂРµР· iframe + postMessage
  * @version 2.0.0
  */
 
 console.log('[BitrixBridge] calculator.js loaded, init integration...');
 
 var ProspekwebCalc = {
-    // Пути
-    appUrl: '/local/apps/prospektweb.calc/index.html?v=865074c32bde',
+    // РџСѓС‚Рё
+    appUrl: '/local/apps/prospektweb.calc/index.html?v=d0c454a48c2f',
     cssPath: '/local/css/prospektweb.calc/calculator.css',
 
     loadCss: function(href) {
@@ -22,12 +22,12 @@ var ProspekwebCalc = {
         document.head.appendChild(link);
     },
     
-    // Константы
-    DOM_STABILIZATION_DELAY: 150, // Задержка в мс для стабилизации DOM после AJAX-обновлений
-    INIT_RETRY_DELAY: 200,        // Задержка в мс между повторными попытками initAdminButton
-    MAX_INIT_RETRIES: 10,         // Максимальное количество повторных попыток initAdminButton
+    // РљРѕРЅСЃС‚Р°РЅС‚С‹
+    DOM_STABILIZATION_DELAY: 150, // Р—Р°РґРµСЂР¶РєР° РІ РјСЃ РґР»СЏ СЃС‚Р°Р±РёР»РёР·Р°С†РёРё DOM РїРѕСЃР»Рµ AJAX-РѕР±РЅРѕРІР»РµРЅРёР№
+    INIT_RETRY_DELAY: 200,        // Р—Р°РґРµСЂР¶РєР° РІ РјСЃ РјРµР¶РґСѓ РїРѕРІС‚РѕСЂРЅС‹РјРё РїРѕРїС‹С‚РєР°РјРё initAdminButton
+    MAX_INIT_RETRIES: 10,         // РњР°РєСЃРёРјР°Р»СЊРЅРѕРµ РєРѕР»РёС‡РµСЃС‚РІРѕ РїРѕРІС‚РѕСЂРЅС‹С… РїРѕРїС‹С‚РѕРє initAdminButton
     
-    // Состояние
+    // РЎРѕСЃС‚РѕСЏРЅРёРµ
     dialog: null,
     iframe: null,
     observer: null,
@@ -36,8 +36,8 @@ var ProspekwebCalc = {
     _isInserting: false,
 
     /**
-     * Внутренний диалог вместо системных alert/confirm. Возвращает Promise,
-     * чтобы одинаково работать в обычных и асинхронных сценариях.
+     * Р’РЅСѓС‚СЂРµРЅРЅРёР№ РґРёР°Р»РѕРі РІРјРµСЃС‚Рѕ СЃРёСЃС‚РµРјРЅС‹С… alert/confirm. Р’РѕР·РІСЂР°С‰Р°РµС‚ Promise,
+     * С‡С‚РѕР±С‹ РѕРґРёРЅР°РєРѕРІРѕ СЂР°Р±РѕС‚Р°С‚СЊ РІ РѕР±С‹С‡РЅС‹С… Рё Р°СЃРёРЅС…СЂРѕРЅРЅС‹С… СЃС†РµРЅР°СЂРёСЏС….
      */
     showInternalDialog: function(options) {
         options = options || {};
@@ -55,7 +55,7 @@ var ProspekwebCalc = {
 
             var title = document.createElement('div');
             title.style.cssText = 'font-size:18px;font-weight:600;margin:0 0 10px;';
-            title.textContent = options.title || 'Калькуляция';
+            title.textContent = options.title || 'РљР°Р»СЊРєСѓР»СЏС†РёСЏ';
 
             var message = document.createElement('div');
             message.style.cssText = 'white-space:pre-wrap;color:#4b5563;margin-bottom:22px;';
@@ -87,7 +87,7 @@ var ProspekwebCalc = {
                 var cancelButton = document.createElement('button');
                 cancelButton.type = 'button';
                 cancelButton.className = 'adm-btn';
-                cancelButton.textContent = options.cancelLabel || 'Отмена';
+                cancelButton.textContent = options.cancelLabel || 'РћС‚РјРµРЅР°';
                 cancelButton.addEventListener('click', function() { settle(false); });
                 actions.appendChild(cancelButton);
             }
@@ -95,7 +95,7 @@ var ProspekwebCalc = {
             var acceptButton = document.createElement('button');
             acceptButton.type = 'button';
             acceptButton.className = 'adm-btn adm-btn-save';
-            acceptButton.textContent = options.confirmLabel || 'Понятно';
+            acceptButton.textContent = options.confirmLabel || 'РџРѕРЅСЏС‚РЅРѕ';
             acceptButton.addEventListener('click', function() { settle(true); });
             actions.appendChild(acceptButton);
 
@@ -110,20 +110,20 @@ var ProspekwebCalc = {
     },
 
     showMessage: function(message, title) {
-        return this.showInternalDialog({ title: title || 'Калькуляция', message: message });
+        return this.showInternalDialog({ title: title || 'РљР°Р»СЊРєСѓР»СЏС†РёСЏ', message: message });
     },
 
     showConfirmation: function(message, title, confirmLabel) {
         return this.showInternalDialog({
-            title: title || 'Подтвердите действие',
+            title: title || 'РџРѕРґС‚РІРµСЂРґРёС‚Рµ РґРµР№СЃС‚РІРёРµ',
             message: message,
             confirm: true,
-            confirmLabel: confirmLabel || 'Продолжить'
+            confirmLabel: confirmLabel || 'РџСЂРѕРґРѕР»Р¶РёС‚СЊ'
         });
     },
 
     /**
-     * Инициализация кнопки в админке
+     * РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РєРЅРѕРїРєРё РІ Р°РґРјРёРЅРєРµ
      */
     init: function(containerId, props) {
         this.loadCss(this.cssPath);
@@ -134,7 +134,7 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Инициализация кнопки в админке
+     * РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РєРЅРѕРїРєРё РІ Р°РґРјРёРЅРєРµ
      */
     initAdminButton: function(retryCount) {
         var self = this;
@@ -154,26 +154,26 @@ var ProspekwebCalc = {
         var toolbar = context.toolbar;
         var anchorNode = context.anchor;
 
-        // Если кнопка уже есть — ничего не делаем
+        // Р•СЃР»Рё РєРЅРѕРїРєР° СѓР¶Рµ РµСЃС‚СЊ вЂ” РЅРёС‡РµРіРѕ РЅРµ РґРµР»Р°РµРј
         var existingCalc = document.getElementById('btn_prospektweb_calc');
 
         if (existingCalc) {
             return;
         }
 
-        // Блокируем Observer на время вставки
+        // Р‘Р»РѕРєРёСЂСѓРµРј Observer РЅР° РІСЂРµРјСЏ РІСЃС‚Р°РІРєРё
         self._isInserting = true;
 
         try {
-            // Создаём кнопку "Калькуляция" если её нет
+            // РЎРѕР·РґР°С‘Рј РєРЅРѕРїРєСѓ "РљР°Р»СЊРєСѓР»СЏС†РёСЏ" РµСЃР»Рё РµС‘ РЅРµС‚
             var calcBtn = existingCalc;
             if (!calcBtn) {
                 calcBtn = document.createElement('a');
                 calcBtn.id = 'btn_prospektweb_calc';
                 calcBtn.className = 'adm-btn';
                 calcBtn.href = 'javascript:void(0)';
-                calcBtn.title = 'Калькуляция себестоимости';
-                calcBtn.textContent = 'Калькуляция';
+                calcBtn.title = 'РљР°Р»СЊРєСѓР»СЏС†РёСЏ СЃРµР±РµСЃС‚РѕРёРјРѕСЃС‚Рё';
+                calcBtn.textContent = 'РљР°Р»СЊРєСѓР»СЏС†РёСЏ';
 
                 calcBtn.addEventListener('click', function() {
                     self.openCalculatorDialog();
@@ -187,7 +187,7 @@ var ProspekwebCalc = {
             }
 
         } finally {
-            // Снимаем блокировку через микрозадержку, чтобы Observer успел пропустить наши изменения
+            // РЎРЅРёРјР°РµРј Р±Р»РѕРєРёСЂРѕРІРєСѓ С‡РµСЂРµР· РјРёРєСЂРѕР·Р°РґРµСЂР¶РєСѓ, С‡С‚РѕР±С‹ Observer СѓСЃРїРµР» РїСЂРѕРїСѓСЃС‚РёС‚СЊ РЅР°С€Рё РёР·РјРµРЅРµРЅРёСЏ
             setTimeout(function() {
                 self._isInserting = false;
             }, 0);
@@ -195,7 +195,7 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Найти тулбар ТП и опорную кнопку, рядом с которой вставлять наши кнопки.
+     * РќР°Р№С‚Рё С‚СѓР»Р±Р°СЂ РўРџ Рё РѕРїРѕСЂРЅСѓСЋ РєРЅРѕРїРєСѓ, СЂСЏРґРѕРј СЃ РєРѕС‚РѕСЂРѕР№ РІСЃС‚Р°РІР»СЏС‚СЊ РЅР°С€Рё РєРЅРѕРїРєРё.
      */
     findOffersToolbarContext: function() {
         var offersTab = document.getElementById('tab_sub_list');
@@ -229,30 +229,30 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Запуск наблюдателя за изменениями DOM
+     * Р—Р°РїСѓСЃРє РЅР°Р±Р»СЋРґР°С‚РµР»СЏ Р·Р° РёР·РјРµРЅРµРЅРёСЏРјРё DOM
      */
     startObserver: function() {
         var self = this;
         
-        // Если уже запущен - не запускаем повторно
+        // Р•СЃР»Рё СѓР¶Рµ Р·Р°РїСѓС‰РµРЅ - РЅРµ Р·Р°РїСѓСЃРєР°РµРј РїРѕРІС‚РѕСЂРЅРѕ
         if (this.observer) {
             return;
         }
         
-        // Следим только за таблицей торговых предложений. Общая панель карточки
-        // товара не является допустимым местом для этих массовых действий.
+        // РЎР»РµРґРёРј С‚РѕР»СЊРєРѕ Р·Р° С‚Р°Р±Р»РёС†РµР№ С‚РѕСЂРіРѕРІС‹С… РїСЂРµРґР»РѕР¶РµРЅРёР№. РћР±С‰Р°СЏ РїР°РЅРµР»СЊ РєР°СЂС‚РѕС‡РєРё
+        // С‚РѕРІР°СЂР° РЅРµ СЏРІР»СЏРµС‚СЃСЏ РґРѕРїСѓСЃС‚РёРјС‹Рј РјРµСЃС‚РѕРј РґР»СЏ СЌС‚РёС… РјР°СЃСЃРѕРІС‹С… РґРµР№СЃС‚РІРёР№.
         var targetNode = document.getElementById('tab_sub_list');
         if (!targetNode) {
             return;
         }
         
         this.observer = new MutationObserver(function(mutations) {
-            // Пропускаем, если мы сами вставляем кнопки
+            // РџСЂРѕРїСѓСЃРєР°РµРј, РµСЃР»Рё РјС‹ СЃР°РјРё РІСЃС‚Р°РІР»СЏРµРј РєРЅРѕРїРєРё
             if (self._isInserting) {
                 return;
             }
 
-            // Оптимизация: проверяем, есть ли изменения в добавленных/удалённых узлах
+            // РћРїС‚РёРјРёР·Р°С†РёСЏ: РїСЂРѕРІРµСЂСЏРµРј, РµСЃС‚СЊ Р»Рё РёР·РјРµРЅРµРЅРёСЏ РІ РґРѕР±Р°РІР»РµРЅРЅС‹С…/СѓРґР°Р»С‘РЅРЅС‹С… СѓР·Р»Р°С…
             var hasRelevantChanges = false;
             for (var i = 0; i < mutations.length; i++) {
                 if (mutations[i].addedNodes.length > 0 || mutations[i].removedNodes.length > 0) {
@@ -265,7 +265,7 @@ var ProspekwebCalc = {
                 return;
             }
             
-            // Проверяем, что кнопка калькуляции присутствует после AJAX-перерисовки
+            // РџСЂРѕРІРµСЂСЏРµРј, С‡С‚Рѕ РєРЅРѕРїРєР° РєР°Р»СЊРєСѓР»СЏС†РёРё РїСЂРёСЃСѓС‚СЃС‚РІСѓРµС‚ РїРѕСЃР»Рµ AJAX-РїРµСЂРµСЂРёСЃРѕРІРєРё
             var calcBtn = document.getElementById('btn_prospektweb_calc');
 
             if (!calcBtn) {
@@ -282,7 +282,7 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Остановка наблюдателя за изменениями DOM
+     * РћСЃС‚Р°РЅРѕРІРєР° РЅР°Р±Р»СЋРґР°С‚РµР»СЏ Р·Р° РёР·РјРµРЅРµРЅРёСЏРјРё DOM
      */
     stopObserver: function() {
         if (this.observer) {
@@ -292,7 +292,7 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Получение полной информации о выбранных торговых предложениях
+     * РџРѕР»СѓС‡РµРЅРёРµ РїРѕР»РЅРѕР№ РёРЅС„РѕСЂРјР°С†РёРё Рѕ РІС‹Р±СЂР°РЅРЅС‹С… С‚РѕСЂРіРѕРІС‹С… РїСЂРµРґР»РѕР¶РµРЅРёСЏС…
      */
     getSelectedOffers: function() {
         var checkboxes = document.querySelectorAll('input[name="SUB_ID[]"]:checked');
@@ -308,16 +308,16 @@ var ProspekwebCalc = {
                 continue;
             }
             
-            // Находим строку таблицы для получения названия
+            // РќР°С…РѕРґРёРј СЃС‚СЂРѕРєСѓ С‚Р°Р±Р»РёС†С‹ РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ РЅР°Р·РІР°РЅРёСЏ
             var row = checkbox.closest('tr');
-            var name = 'ТП #' + id; // Значение по умолчанию
+            var name = 'РўРџ #' + id; // Р—РЅР°С‡РµРЅРёРµ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
             
             if (row) {
-                // Ищем ячейку с названием (обычно это вторая или третья колонка после чекбокса)
+                // РС‰РµРј СЏС‡РµР№РєСѓ СЃ РЅР°Р·РІР°РЅРёРµРј (РѕР±С‹С‡РЅРѕ СЌС‚Рѕ РІС‚РѕСЂР°СЏ РёР»Рё С‚СЂРµС‚СЊСЏ РєРѕР»РѕРЅРєР° РїРѕСЃР»Рµ С‡РµРєР±РѕРєСЃР°)
                 var cells = row.querySelectorAll('td');
                 for (var j = 0; j < cells.length; j++) {
                     var cell = cells[j];
-                    // Пропускаем ячейку с чекбоксом и ячейки с кнопками/иконками
+                    // РџСЂРѕРїСѓСЃРєР°РµРј СЏС‡РµР№РєСѓ СЃ С‡РµРєР±РѕРєСЃРѕРј Рё СЏС‡РµР№РєРё СЃ РєРЅРѕРїРєР°РјРё/РёРєРѕРЅРєР°РјРё
                     if (!cell.querySelector('input[type="checkbox"]') && 
                         !cell.querySelector('a.adm-btn-delete') &&
                         cell.textContent.trim().length > 0) {
@@ -327,7 +327,7 @@ var ProspekwebCalc = {
                 }
             }
             
-            // Формируем URL для редактирования ТП
+            // Р¤РѕСЂРјРёСЂСѓРµРј URL РґР»СЏ СЂРµРґР°РєС‚РёСЂРѕРІР°РЅРёСЏ РўРџ
             var editUrl = '/bitrix/admin/iblock_list_admin.php?IBLOCK_ID=' + iblockId +
                          '&type=catalog&lang=ru&find_section_section=0&find_id=' + productId +
                          '&set_filter=Y&apply_filter=Y';
@@ -345,34 +345,34 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Открытие диалога с iframe
+     * РћС‚РєСЂС‹С‚РёРµ РґРёР°Р»РѕРіР° СЃ iframe
      */
     openCalculatorDialog: async function() {
         this.loadCss(this.cssPath);
         var self = this;
 
-        // Получаем выбранные ТП с полной информацией
+        // РџРѕР»СѓС‡Р°РµРј РІС‹Р±СЂР°РЅРЅС‹Рµ РўРџ СЃ РїРѕР»РЅРѕР№ РёРЅС„РѕСЂРјР°С†РёРµР№
         var offers = this.getSelectedOffers();
 
         if (offers.length === 0) {
-            this.showMessage('Не выбраны торговые предложения');
+            this.showMessage('РќРµ РІС‹Р±СЂР°РЅС‹ С‚РѕСЂРіРѕРІС‹Рµ РїСЂРµРґР»РѕР¶РµРЅРёСЏ');
             return;
         }
 
-        // Загружаем тот же строгий INIT, который получит редактор. Это единая
-        // проверка всех выбранных ТП, их товаров и одного явного CALC_PRESET.
+        // Р—Р°РіСЂСѓР¶Р°РµРј С‚РѕС‚ Р¶Рµ СЃС‚СЂРѕРіРёР№ INIT, РєРѕС‚РѕСЂС‹Р№ РїРѕР»СѓС‡РёС‚ СЂРµРґР°РєС‚РѕСЂ. Р­С‚Рѕ РµРґРёРЅР°СЏ
+        // РїСЂРѕРІРµСЂРєР° РІСЃРµС… РІС‹Р±СЂР°РЅРЅС‹С… РўРџ, РёС… С‚РѕРІР°СЂРѕРІ Рё РѕРґРЅРѕРіРѕ СЏРІРЅРѕРіРѕ CALC_PRESET.
         var catalogInit = await this.loadCatalogInitPayload(offers);
         if (!catalogInit || catalogInit.error) {
             return;
         }
 
-        // Создаём контейнер для iframe
+        // РЎРѕР·РґР°С‘Рј РєРѕРЅС‚РµР№РЅРµСЂ РґР»СЏ iframe
         var container = document.createElement('div');
         container.style.width = '100%';
         container.style.height = '100%';
         container.style.overflow = 'hidden';
 
-        // Создаём iframe
+        // РЎРѕР·РґР°С‘Рј iframe
         var iframe = document.createElement('iframe');
         iframe.src = this.appUrl;
         iframe.style.width = '100%';
@@ -383,9 +383,9 @@ var ProspekwebCalc = {
         container.appendChild(iframe);
         this.iframe = iframe;
 
-        // Создаём диалог
+        // РЎРѕР·РґР°С‘Рј РґРёР°Р»РѕРі
         var dialog = new BX.CAdminDialog({
-            title: 'Калькуляция себестоимости',
+            title: 'РљР°Р»СЊРєСѓР»СЏС†РёСЏ СЃРµР±РµСЃС‚РѕРёРјРѕСЃС‚Рё',
             content: container,
             width: 1400,
             height: 800,
@@ -398,17 +398,17 @@ var ProspekwebCalc = {
         this.windowCloseHandler = this.handleWindowClose.bind(this);
         BX.addCustomEvent(dialog, 'onWindowClose', this.windowCloseHandler);
 
-        // Используем ProspektwebCalcIntegration для обработки postMessage сразу,
-        // чтобы не пропустить первое сообщение READY, которое iframe отправляет
-        // сразу после загрузки приложения.
-        // Проверяем доступность ProspektwebCalcIntegration
+        // РСЃРїРѕР»СЊР·СѓРµРј ProspektwebCalcIntegration РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё postMessage СЃСЂР°Р·Сѓ,
+        // С‡С‚РѕР±С‹ РЅРµ РїСЂРѕРїСѓСЃС‚РёС‚СЊ РїРµСЂРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ READY, РєРѕС‚РѕСЂРѕРµ iframe РѕС‚РїСЂР°РІР»СЏРµС‚
+        // СЃСЂР°Р·Сѓ РїРѕСЃР»Рµ Р·Р°РіСЂСѓР·РєРё РїСЂРёР»РѕР¶РµРЅРёСЏ.
+        // РџСЂРѕРІРµСЂСЏРµРј РґРѕСЃС‚СѓРїРЅРѕСЃС‚СЊ ProspektwebCalcIntegration
         if (typeof window.ProspektwebCalcIntegration === 'undefined') {
             console.error('[ProspekwebCalc] ProspektwebCalcIntegration not loaded');
-            this.showMessage('Ошибка загрузки модуля интеграции', 'Не удалось открыть калькуляцию');
+            this.showMessage('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РјРѕРґСѓР»СЏ РёРЅС‚РµРіСЂР°С†РёРё', 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєСЂС‹С‚СЊ РєР°Р»СЊРєСѓР»СЏС†РёСЋ');
             return;
         }
 
-        // Создаём интеграцию с передачей iframe напрямую
+        // РЎРѕР·РґР°С‘Рј РёРЅС‚РµРіСЂР°С†РёСЋ СЃ РїРµСЂРµРґР°С‡РµР№ iframe РЅР°РїСЂСЏРјСѓСЋ
         self.integration = new window.ProspektwebCalcIntegration({
             iframe: iframe,
             ajaxEndpoint: '/bitrix/tools/prospektweb.calc/calculator_ajax.php',
@@ -421,7 +421,7 @@ var ProspekwebCalc = {
             },
             onError: function(error) {
                 console.error('[ProspekwebCalc] Calc error:', error);
-                self.showMessage('Ошибка калькулятора: ' + (error.message || 'Неизвестная ошибка'), 'Ошибка калькулятора');
+                self.showMessage('РћС€РёР±РєР° РєР°Р»СЊРєСѓР»СЏС‚РѕСЂР°: ' + (error.message || 'РќРµРёР·РІРµСЃС‚РЅР°СЏ РѕС€РёР±РєР°'), 'РћС€РёР±РєР° РєР°Р»СЊРєСѓР»СЏС‚РѕСЂР°');
             }
         });
 
@@ -435,8 +435,8 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Разворачивает CAdminDialog сразу после показа. Bitrix добавляет кнопку
-     * асинхронно, поэтому ждём два кадра отрисовки и используем штатное действие.
+     * Р Р°Р·РІРѕСЂР°С‡РёРІР°РµС‚ CAdminDialog СЃСЂР°Р·Сѓ РїРѕСЃР»Рµ РїРѕРєР°Р·Р°. Bitrix РґРѕР±Р°РІР»СЏРµС‚ РєРЅРѕРїРєСѓ
+     * Р°СЃРёРЅС…СЂРѕРЅРЅРѕ, РїРѕСЌС‚РѕРјСѓ Р¶РґС‘Рј РґРІР° РєР°РґСЂР° РѕС‚СЂРёСЃРѕРІРєРё Рё РёСЃРїРѕР»СЊР·СѓРµРј С€С‚Р°С‚РЅРѕРµ РґРµР№СЃС‚РІРёРµ.
      */
     expandCalculatorDialog: function(dialog) {
         var expand = function() {
@@ -547,19 +547,19 @@ var ProspekwebCalc = {
             var textResponse = await response.text();
             // Log only first 200 characters to avoid exposing sensitive data
             console.error('[ProspektwebCalc] Non-JSON response received:', textResponse.substring(0, 200));
-            throw new Error('Сервер вернул некорректный ответ (HTML вместо JSON). Статус: ' + response.status);
+            throw new Error('РЎРµСЂРІРµСЂ РІРµСЂРЅСѓР» РЅРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РѕС‚РІРµС‚ (HTML РІРјРµСЃС‚Рѕ JSON). РЎС‚Р°С‚СѓСЃ: ' + response.status);
         }
 
         try {
             return await response.json();
         } catch (parseError) {
             console.error('[ProspektwebCalc] JSON parse error:', parseError);
-            throw new Error('Ошибка парсинга ответа сервера. Возможно, сервер вернул HTML вместо JSON.');
+            throw new Error('РћС€РёР±РєР° РїР°СЂСЃРёРЅРіР° РѕС‚РІРµС‚Р° СЃРµСЂРІРµСЂР°. Р’РѕР·РјРѕР¶РЅРѕ, СЃРµСЂРІРµСЂ РІРµСЂРЅСѓР» HTML РІРјРµСЃС‚Рѕ JSON.');
         }
     },
 
     /**
-     * Загрузить строгий catalog INIT до открытия диалога.
+     * Р—Р°РіСЂСѓР·РёС‚СЊ СЃС‚СЂРѕРіРёР№ catalog INIT РґРѕ РѕС‚РєСЂС‹С‚РёСЏ РґРёР°Р»РѕРіР°.
      * @param {Array} offers
      * @returns {Promise<{success: boolean, presetId?: number, initPayload?: Object, error?: boolean}>}
      */
@@ -587,28 +587,28 @@ var ProspekwebCalc = {
 
             var initData = await this.parseJsonResponse(initResponse);
             if (!initResponse.ok || !initData.success || !initData.data) {
-                throw new Error((initData && (initData.message || initData.error)) || 'Не удалось загрузить калькулятор');
+                throw new Error((initData && (initData.message || initData.error)) || 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РєР°Р»СЊРєСѓР»СЏС‚РѕСЂ');
             }
 
             var presetId = parseInt(initData.data.preset && initData.data.preset.id, 10) || 0;
             if (!presetId || !initData.data.editorRuntime) {
-                throw new Error('Сервер вернул неполный контракт запуска калькулятора');
+                throw new Error('РЎРµСЂРІРµСЂ РІРµСЂРЅСѓР» РЅРµРїРѕР»РЅС‹Р№ РєРѕРЅС‚СЂР°РєС‚ Р·Р°РїСѓСЃРєР° РєР°Р»СЊРєСѓР»СЏС‚РѕСЂР°');
             }
 
             return { success: true, presetId: presetId, initPayload: initData.data };
         } catch (error) {
             console.error('[ProspektwebCalc] Catalog INIT error:', error);
-            var message = error && error.message ? error.message : 'Не удалось загрузить калькулятор';
-            if (message.indexOf('не имеет пресета') !== -1 || message.indexOf('CALC_PRESET') !== -1) {
-                message = 'Товару не назначен калькулятор. Назначьте пресет в Центре управления и повторите запуск.';
+            var message = error && error.message ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РєР°Р»СЊРєСѓР»СЏС‚РѕСЂ';
+            if (message.indexOf('РЅРµ РёРјРµРµС‚ РїСЂРµСЃРµС‚Р°') !== -1 || message.indexOf('CALC_PRESET') !== -1) {
+                message = 'РўРѕРІР°СЂСѓ РЅРµ РЅР°Р·РЅР°С‡РµРЅ РєР°Р»СЊРєСѓР»СЏС‚РѕСЂ. РќР°Р·РЅР°С‡СЊС‚Рµ РїСЂРµСЃРµС‚ РІ Р¦РµРЅС‚СЂРµ СѓРїСЂР°РІР»РµРЅРёСЏ Рё РїРѕРІС‚РѕСЂРёС‚Рµ Р·Р°РїСѓСЃРє.';
             }
-            this.showMessage(message, 'Калькулятор не открыт');
+            this.showMessage(message, 'РљР°Р»СЊРєСѓР»СЏС‚РѕСЂ РЅРµ РѕС‚РєСЂС‹С‚');
             return { success: false, error: true };
         }
     },
 
     /**
-     * Закрытие диалога
+     * Р—Р°РєСЂС‹С‚РёРµ РґРёР°Р»РѕРіР°
      */
     handleWindowClose: function() {
         this.closeDialog({ skipDialogClose: true });
@@ -623,7 +623,7 @@ var ProspekwebCalc = {
 
         this.isClosing = true;
 
-        // Уничтожаем интеграцию если она существует
+        // РЈРЅРёС‡С‚РѕР¶Р°РµРј РёРЅС‚РµРіСЂР°С†РёСЋ РµСЃР»Рё РѕРЅР° СЃСѓС‰РµСЃС‚РІСѓРµС‚
         if (this.integration && typeof this.integration.destroy === 'function') {
             this.integration.destroy();
             this.integration = null;
@@ -649,7 +649,7 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Получение ID товара из URL
+     * РџРѕР»СѓС‡РµРЅРёРµ ID С‚РѕРІР°СЂР° РёР· URL
      */
     getProductId: function() {
         var match = window.location.search.match(/ID=(\d+)/);
@@ -657,7 +657,7 @@ var ProspekwebCalc = {
     },
 
     /**
-     * Получение ID инфоблока из URL
+     * РџРѕР»СѓС‡РµРЅРёРµ ID РёРЅС„РѕР±Р»РѕРєР° РёР· URL
      */
     getIblockId: function() {
         var match = window.location.search.match(/IBLOCK_ID=(\d+)/);
@@ -665,7 +665,7 @@ var ProspekwebCalc = {
     }
 };
 
-// Экспорт
+// Р­РєСЃРїРѕСЂС‚
 if (typeof window !== 'undefined') {
     window.ProspekwebCalc = ProspekwebCalc;
 }
