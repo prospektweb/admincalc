@@ -36,7 +36,9 @@ final class CommercialPolicyQuote
             $variant['calendarResult']=$result;
             if (($result['error'] ?? null) !== null) { $variant['available']=false; $variant['reason']=$result['error']; $variant['prices']=[]; continue; }
             $minutes=$result['elapsedWorkMinutes'] ?? null;
-            if (!is_int($minutes) || $minutes < $w['minMinutes'] || ($w['includeMax'] ? $minutes > $w['maxMinutes'] : $minutes >= $w['maxMinutes'])) self::fail('calendarResult.elapsedWorkMinutes','DEFAULT_OUTSIDE_WINDOW');
+            // Calendar preserves anchor seconds. Do not quantize elapsed time at a boundary.
+            if ((!is_int($minutes) && !is_float($minutes)) || !is_finite((float)$minutes) || $minutes < 0 || $minutes > 9007199254740991
+                || $minutes < $w['minMinutes'] || ($w['includeMax'] ? $minutes > $w['maxMinutes'] : $minutes >= $w['maxMinutes'])) self::fail('calendarResult.elapsedWorkMinutes','DEFAULT_OUTSIDE_WINDOW');
             $variant['available']=true; $variant['reason']=null; $prices=[];
             foreach ($variant['prices'] as $price) {
                 $group=$byType[$price['typeId']] ?? null;
