@@ -82,6 +82,9 @@ candidate, full copied grid, source profiles, unresolved paths and receiptHash.
 There is no effortPercent-to-duration conversion. The caller supplies the complete
 new terms and calendar/start refs. Nullable or mismatched money currencies require
 an explicit binding. Templates are copied, never followed as mutable references.
+For `price-template-v1`, `typeCodeMap` explicitly maps portable typeCode values to
+owned document type IDs. Missing/colliding mappings keep the receipt unresolved;
+the receipt retains both the original template and the reviewed mapping.
 
 Profiles require a reviewed map to existing v2 postProduction registry IDs and
 typed boolean globals. Conditions/enabled state must match; unresolved or ambiguous
