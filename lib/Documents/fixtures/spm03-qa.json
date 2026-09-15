@@ -83,7 +83,77 @@
     "globals": [],
     "groups": [],
     "resources": [],
-    "form": {},
+    "form": {
+      "fields": [
+        {
+          "fieldId": "volume",
+          "systemKey": "volume",
+          "type": "number",
+          "label": "QA quantity",
+          "required": true,
+          "min": 1,
+          "step": 1,
+          "defaultValue": 10,
+          "dimensionInputs": [],
+          "options": []
+        },
+        {
+          "fieldId": "system.layout-count",
+          "systemKey": "layoutCount",
+          "type": "number",
+          "label": "QA layouts",
+          "required": true,
+          "min": 1,
+          "step": 1,
+          "defaultValue": 1,
+          "dimensionInputs": [],
+          "options": []
+        },
+        {
+          "fieldId": "system.deadline-type",
+          "systemKey": "deadlineType",
+          "type": "select",
+          "label": "QA deadline",
+          "required": true,
+          "defaultValue": "strict",
+          "dimensionInputs": [],
+          "options": [
+            {
+              "id": "urgent",
+              "label": "urgent"
+            },
+            {
+              "id": "strict",
+              "label": "strict"
+            },
+            {
+              "id": "flexible",
+              "label": "flexible"
+            }
+          ]
+        },
+        {
+          "fieldId": "system.desired-date",
+          "systemKey": "desiredDate",
+          "type": "datetime",
+          "label": "QA date",
+          "dimensionInputs": [],
+          "options": []
+        }
+      ],
+      "sections": [
+        {
+          "id": "parameters",
+          "title": "QA parameters",
+          "fieldIds": [
+            "volume",
+            "system.layout-count",
+            "system.deadline-type",
+            "system.desired-date"
+          ]
+        }
+      ]
+    },
     "pricing": {
       "types": [
         {
@@ -136,6 +206,7 @@
       "views": [
         {
           "id": "qa_store",
+          "name": "SPM-03 QA storefront",
           "presentation": {
             "field_patches": {},
             "scenarios": {
@@ -163,7 +234,7 @@
   "bundle": {
     "contract": "prospektweb.orderterms.policy-bundle/v1",
     "ownerVersionId": "qa_v1",
-    "documentHash": "1da1fa33bedafbcd2674d5e9814c196b4bf0e54895274a0944ebc43a37eacbe6",
+    "documentHash": "a49a0b13747ccbabdbd97db6112ed1218749093285b77a30fdbfb570ef3a769f",
     "calculator": {
       "contract": "prospektweb.orderterms.authoring-policy/v1",
       "id": "policy_qa",
@@ -321,10 +392,10 @@
       },
       "provenance": {
         "sourceVersionId": "qa_v1",
-        "sourceHash": "1da1fa33bedafbcd2674d5e9814c196b4bf0e54895274a0944ebc43a37eacbe6",
+        "sourceHash": "a49a0b13747ccbabdbd97db6112ed1218749093285b77a30fdbfb570ef3a769f",
         "purpose": "qa"
       },
-      "bodyHash": "c6d20825fea149a2164ac788a7e078287c1146f64fd65d30297f4f2f4fe8eddf"
+      "bodyHash": "b3738ba77469d344a1fce2139464e975a129531148268d9b76763ea8f5f00e12"
     },
     "storefront": {
       "contract": "prospektweb.orderterms.authoring-policy/v1",
@@ -335,7 +406,7 @@
       "parentRef": {
         "id": "policy_qa",
         "revision": 1,
-        "bodyHash": "c6d20825fea149a2164ac788a7e078287c1146f64fd65d30297f4f2f4fe8eddf"
+        "bodyHash": "b3738ba77469d344a1fce2139464e975a129531148268d9b76763ea8f5f00e12"
       },
       "calendarRef": {
         "mode": "inherit"
@@ -367,10 +438,10 @@
       },
       "provenance": {
         "sourceVersionId": "qa_v1",
-        "sourceHash": "1da1fa33bedafbcd2674d5e9814c196b4bf0e54895274a0944ebc43a37eacbe6",
+        "sourceHash": "a49a0b13747ccbabdbd97db6112ed1218749093285b77a30fdbfb570ef3a769f",
         "purpose": "qa"
       },
-      "bodyHash": "6aaf6591f2273ed079a5742f09f2a4b4ce8aa93fecc4fe630b99da60ce01c4fa"
+      "bodyHash": "df57e1073b02da650cb8ed08a2e2c263087c37c70209c63c4fe274dbf750ef31"
     },
     "scenarios": [],
     "globals": []
