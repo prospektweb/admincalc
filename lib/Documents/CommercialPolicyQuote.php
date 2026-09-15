@@ -29,7 +29,7 @@ final class CommercialPolicyQuote
         foreach ($variants as &$variant) {
             if (!in_array($variant['deadlineType'] ?? '', ['urgent','strict','flexible'],true)) self::fail('deadlineType','TYPE_UNKNOWN');
             $variant['calendarResult']=null;
-            if (($variant['enabled'] ?? null) !== true) { $variant['prices']=[]; $variant['reason']='TYPE_DISABLED'; continue; }
+            if (($variant['enabled'] ?? null) !== true) { $variant['available']=false; $variant['prices']=[]; $variant['reason']='TYPE_DISABLED'; continue; }
             $w=$variant['window'];
             $result=$preview($calendar,$anchor,$asOf,$variant['defaultMinutes'],['min'=>$w['minMinutes'],'max'=>$w['maxMinutes'],'maxInclusive'=>$w['includeMax']]);
             if (($result['calendarHash'] ?? null) !== $ref['bodyHash'] || ($result['anchor'] ?? null) !== $anchor || ($result['asOf'] ?? null) !== $asOf) self::fail('calendarResult','CALENDAR_STALE');

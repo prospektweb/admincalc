@@ -19,6 +19,8 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
    (new \Prospektweb\OrderTerms\CalendarStore())->append($site,$packet->calendar,null,(int)$USER->GetID(),gmdate('Y-m-d\TH:i:s\Z'));
    $hash=hash('sha256',CommercialPolicyQuote::canonicalJson($packet));
    $record=CommercialPolicyService::storeQa('spm03_qa_'.substr($hash,0,24),$packet,$hash,(int)$USER->GetID());
+   $readback=CommercialPolicyService::readQa($record['id']);
+   if($readback!==$record)throw new \RuntimeException('QA_READBACK_MISMATCH');
    $result['publication']=['id'=>$record['id'],'bodyHash'=>$record['bodyHash'],'enrollmentEnabled'=>false];
   }
  }catch(\Throwable $e){$error=$e->getMessage();}

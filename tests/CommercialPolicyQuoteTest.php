@@ -13,7 +13,7 @@ foreach([1,2,6]as$n){$e=$source;$e['quantities']['layoutCount']=$e['quantities']
 $before=serialize($source);$run($source);$assert(serialize($source)===$before);
 try{$run($source,[]);throw new RuntimeException('ACL bypass');}catch(DomainException $e){$assert(str_contains($e->getMessage(),'PRICE_ACCESS_DENIED'));}
 $source['variants'][1]['prices'][0]['unroundedPerRun']='1.005';$q=$run($source);$assert($q['variants'][1]['prices'][0]['roundedPerRun']==='1.01');$assert($q['variants'][1]['prices'][0]['positionTotal']==='6.06');
-$source['variants'][0]['enabled']=false;$q=$run($source);$assert($q['variants'][0]['prices']===[]&&$q['variants'][0]['reason']==='TYPE_DISABLED');
+$source['variants'][0]['enabled']=false;$q=$run($source);$assert($q['variants'][0]['available']===false&&$q['variants'][0]['prices']===[]&&$q['variants'][0]['reason']==='TYPE_DISABLED');
 $plan=\Prospektweb\Calc\Documents\CommercialPolicyCatalogAdapter::line($q,'strict',1,$q['quoteFingerprint']);
 $assert($plan['PRICE']==='1.01'&&$plan['QUANTITY']===6&&$plan['positionTotal']==='6.06'&&$plan['writerEnabled']===false);
 $tampered=$q;$tampered['variants'][1]['prices'][0]['roundedPerRun']='0';
