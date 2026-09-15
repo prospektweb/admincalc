@@ -15,10 +15,12 @@ final class CommercialPolicyService
     { return ($this->gateway)(['action'=>'commercialValidate','document'=>$document,'resources'=>$resources,'bundle'=>$bundle]); }
     public function executeContext(object $document,array $resources,object $bundle,array $values,array $quantities,array $valuesByFieldId,string $fingerprint): array
     {
+        $views=$document->presentations->views??[];$view=null;
+        $matches=array_values(array_filter($views,static fn($candidate)=>($candidate->id??null)===$bundle->storefront->ownerId));
+        if(count($matches)!==1)throw new \InvalidArgumentException('STOREFRONT_OWNER_MISSING_OR_AMBIGUOUS:bundle.storefront.ownerId');
+        $view=$matches[0];
         $production=($this->gateway)(['action'=>'commercialProduction','document'=>$document,'resources'=>$resources,'bundle'=>$bundle,'values'=>(object)$values,'quantities'=>$quantities,'expectedRuntimeFingerprint'=>$fingerprint]);
         if(($production['runtimeFingerprint']??'')!==$fingerprint)throw new \RuntimeException('RUNTIME_FINGERPRINT_MISMATCH',409);
-        $views=$document->presentations->views??[];$view=null;
-        foreach($views as $candidate)if(($candidate->id??null)===$bundle->storefront->ownerId)$view=$candidate;
         $matched=[];
         if($view!==null){
             if(!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc'))throw new \RuntimeException('SCENARIO_RUNTIME_UNAVAILABLE');

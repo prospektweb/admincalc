@@ -61,6 +61,18 @@ code/path. Unknown contracts/fields fail closed. The fingerprint covers actual
 executable files, package-lock bytes and Node version; Node version is returned for
 reproduction from the delivered LF build.
 
+`commercialValidate` checks all effective chains, including dormant overrides,
+before returning a receipt. Literal bounds/defaults and pinned parent refs are
+validated statically. Global-dependent relations are left unresolved, without
+substitute values. The receipt contains policy-validation/v1, contexts with pending
+global paths, status `static-valid` or `runtime-preview-required`, and explicit
+runtimeValidated=false/publicationValidated=false. Policy records retain that
+validationState; they cannot represent static checks as completed publication.
+Runtime preview still resolves actual produced globals and the real calendar.
+Storefront ownership must resolve uniquely in the pinned source's views, even for
+QA. Missing/stale owners cannot validate or execute; historical records still read
+their original bytes without implicit rebinding.
+
 CommercialPolicyQuote finalizes three variants using the single orderterms PHP
 Calendar. It verifies the pinned calendar, uses explicit anchor/asOf, rejects an
 archived calendar, and rechecks the rounded working-minute window. Disabled/NO_SLOT

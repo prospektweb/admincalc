@@ -45,10 +45,13 @@ final class CommercialPolicyApplication
         $resources=($this->resources)($document);
         $validation=(new CommercialPolicyService($this->core))->validate($document,$resources,$bundle);
         if(($validation['documentHash']??null)!==$source['bodyHash']||!preg_match('/^[a-f0-9]{64}$/D',$validation['runtimeFingerprint']??'')||!preg_match('/^[a-f0-9]{64}$/D',$validation['bundleHash']??''))throw new \RuntimeException('POLICY_VALIDATION_RECEIPT_INVALID');
+        $state=$validation['validation']??[];
+        if(($state['contract']??'')!=='prospektweb.orderterms.policy-validation/v1'||!in_array($state['status']??'', ['static-valid','runtime-preview-required'],true)
+            ||($state['runtimeValidated']??null)!==false||($state['publicationValidated']??null)!==false)throw new \RuntimeException('POLICY_VALIDATION_STATE_REQUIRED');
         $json=CommercialPolicyQuote::canonicalJson((object)[
             'contract'=>'prospektweb.orderterms.policy-record/v1','documentId'=>$command['documentId'],
             'versionId'=>$command['versionId'],'sourceRevision'=>$source['revision'],'sourceHash'=>$source['bodyHash'],
-            'sourceJson'=>$source['bodyJson'],'resources'=>$resources,'bundle'=>$bundle,'validation'=>$validation,'enrollmentEnabled'=>false,
+            'sourceJson'=>$source['bodyJson'],'resources'=>$resources,'bundle'=>$bundle,'validation'=>$validation,'validationState'=>$state['status'],'publicationValidated'=>false,'enrollmentEnabled'=>false,
         ]);
         if($action==='createCommercialPolicy')return $this->library->create($command['expectedCatalogRevision'],$command['name'],$json);
         $old=json_decode($this->library->load($command['id'],$command['expectedRevision'])['bodyJson'],true,64,JSON_THROW_ON_ERROR);

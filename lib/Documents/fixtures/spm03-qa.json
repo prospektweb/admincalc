@@ -132,7 +132,20 @@
         }
       }
     },
-    "presentations": {},
+    "presentations": {
+      "views": [
+        {
+          "id": "qa_store",
+          "presentation": {
+            "field_patches": {},
+            "scenarios": {
+              "contract": "prospektweb.storefront-scenarios/v2",
+              "items": []
+            }
+          }
+        }
+      ]
+    },
     "execution": {
       "currency": "RUB",
       "costs": {
@@ -150,7 +163,7 @@
   "bundle": {
     "contract": "prospektweb.orderterms.policy-bundle/v1",
     "ownerVersionId": "qa_v1",
-    "documentHash": "fe7e9cc9663730fcd50b84d73c5c3982a63a2c9210324b855cbbf6bf2e9031eb",
+    "documentHash": "1da1fa33bedafbcd2674d5e9814c196b4bf0e54895274a0944ebc43a37eacbe6",
     "calculator": {
       "contract": "prospektweb.orderterms.authoring-policy/v1",
       "id": "policy_qa",
@@ -308,10 +321,10 @@
       },
       "provenance": {
         "sourceVersionId": "qa_v1",
-        "sourceHash": "fe7e9cc9663730fcd50b84d73c5c3982a63a2c9210324b855cbbf6bf2e9031eb",
+        "sourceHash": "1da1fa33bedafbcd2674d5e9814c196b4bf0e54895274a0944ebc43a37eacbe6",
         "purpose": "qa"
       },
-      "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+      "bodyHash": "c6d20825fea149a2164ac788a7e078287c1146f64fd65d30297f4f2f4fe8eddf"
     },
     "storefront": {
       "contract": "prospektweb.orderterms.authoring-policy/v1",
@@ -322,7 +335,7 @@
       "parentRef": {
         "id": "policy_qa",
         "revision": 1,
-        "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+        "bodyHash": "c6d20825fea149a2164ac788a7e078287c1146f64fd65d30297f4f2f4fe8eddf"
       },
       "calendarRef": {
         "mode": "inherit"
@@ -354,10 +367,10 @@
       },
       "provenance": {
         "sourceVersionId": "qa_v1",
-        "sourceHash": "fe7e9cc9663730fcd50b84d73c5c3982a63a2c9210324b855cbbf6bf2e9031eb",
+        "sourceHash": "1da1fa33bedafbcd2674d5e9814c196b4bf0e54895274a0944ebc43a37eacbe6",
         "purpose": "qa"
       },
-      "bodyHash": "cbfe007a534813d42d644de05c2beeca5a9f5047014100c95eaa87a259ee691c"
+      "bodyHash": "6aaf6591f2273ed079a5742f09f2a4b4ce8aa93fecc4fe630b99da60ce01c4fa"
     },
     "scenarios": [],
     "globals": []
