@@ -355,7 +355,7 @@ class ModuleCapabilityRegistryService
         [
             'id' => 'prospektweb.layoutfiles',
             'name' => 'Макеты и хранение',
-            'description' => 'Настройки → Макеты: файлы, версии, сопоставление, согласование и очередь Диска. Прежняя дата корзины сохранена до управляемого перехода.',
+            'description' => 'Файлы, версии, согласование и хранение на Яндекс Диске. Нажмите название функции, чтобы открыть настройки.',
             'capabilities' => [
                 [
                     'id' => 'storefront.cart.layout_uploads',
@@ -385,7 +385,7 @@ class ModuleCapabilityRegistryService
                     'description' => 'Показывает до шести фотографий горизонтальной плиткой, остальные открывает в штатном просмотрщике.',
                     'surface' => 'storefront',
                     'group' => 'Контакты',
-                    'tooltip' => 'Фотографии и их порядок настраиваются в разделе «Настройки → Витрина».',
+                    'tooltip' => 'Нажмите название функции, чтобы изменить фотографии и их порядок.',
                     'defaultEnabled' => false,
                     'mutable' => true,
                     'state' => 'managed',
