@@ -1,0 +1,365 @@
+{
+  "document": {
+    "contract": "prospektweb.calculator/document-v2",
+    "schemaVersion": 2,
+    "id": "calculator",
+    "name": "Test",
+    "description": "",
+    "roots": [
+      "part"
+    ],
+    "parts": [
+      {
+        "id": "part",
+        "name": "Part",
+        "description": "",
+        "kind": "part",
+        "children": [],
+        "stages": [
+          "stage"
+        ],
+        "parameters": []
+      }
+    ],
+    "stages": [
+      {
+        "id": "stage",
+        "name": "Stage",
+        "description": "",
+        "calculationId": "logic",
+        "inputs": [
+          {
+            "name": "quantity",
+            "source": {
+              "kind": "input",
+              "key": "qty"
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "key": "cost",
+            "source": "total",
+            "title": "",
+            "effort": null
+          }
+        ],
+        "globals": [],
+        "resources": {},
+        "selections": {},
+        "activation": null,
+        "capabilities": [],
+        "resultTemplates": []
+      }
+    ],
+    "calculations": [
+      {
+        "id": "logic",
+        "name": "Logic",
+        "description": "",
+        "inputs": [
+          {
+            "name": "quantity",
+            "type": "number",
+            "title": "",
+            "description": ""
+          }
+        ],
+        "formulas": [
+          {
+            "id": "f1",
+            "name": "total",
+            "expression": "quantity * 10",
+            "title": "",
+            "description": "",
+            "publish": null
+          }
+        ],
+        "testValues": {},
+        "globalDependencies": [],
+        "authoring": {}
+      }
+    ],
+    "globals": [],
+    "groups": [],
+    "resources": [],
+    "form": {},
+    "pricing": {
+      "types": [
+        {
+          "id": "retail",
+          "code": "RETAIL",
+          "base": true,
+          "sort": 1
+        }
+      ],
+      "profiles": [],
+      "ranges": [
+        {
+          "typeId": "retail",
+          "price": 25,
+          "mode": "markupPercent",
+          "currency": null,
+          "quantityFrom": null,
+          "quantityTo": null,
+          "limitAmount": null,
+          "limitCurrency": "RUB"
+        }
+      ],
+      "policy": {
+        "deadlinePolicy": {
+          "mode": "basic",
+          "effortBasis": "productionMinutes",
+          "fallback": "error",
+          "ranges": [],
+          "basic": {
+            "strict": {
+              "effortPercent": 0,
+              "markupPercent": 0,
+              "discountPercent": 0
+            },
+            "flexible": {
+              "effortPercent": 0,
+              "markupPercent": 0,
+              "discountPercent": 10
+            },
+            "urgent": {
+              "effortPercent": 50,
+              "markupPercent": 20,
+              "discountPercent": 0
+            }
+          }
+        }
+      }
+    },
+    "presentations": {},
+    "execution": {
+      "currency": "RUB",
+      "costs": {
+        "purchasing": [
+          "cost"
+        ],
+        "base": [
+          "cost"
+        ]
+      },
+      "geometry": [],
+      "accumulators": []
+    }
+  },
+  "bundle": {
+    "contract": "prospektweb.orderterms.policy-bundle/v1",
+    "ownerVersionId": "qa_v1",
+    "documentHash": "fe7e9cc9663730fcd50b84d73c5c3982a63a2c9210324b855cbbf6bf2e9031eb",
+    "calculator": {
+      "contract": "prospektweb.orderterms.authoring-policy/v1",
+      "id": "policy_qa",
+      "revision": 1,
+      "scope": "calculator",
+      "ownerId": "calculator",
+      "parentRef": null,
+      "calendarRef": {
+        "mode": "own",
+        "value": {
+          "id": "qa_calendar",
+          "revision": 1,
+          "bodyHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "startRuleRef": {
+        "mode": "own",
+        "value": {
+          "id": "qa_start",
+          "revision": 1,
+          "bodyHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "terms": {
+        "U": {
+          "mode": "own",
+          "value": {
+            "kind": "literal",
+            "type": "duration",
+            "unit": "minute",
+            "value": 480
+          }
+        },
+        "S": {
+          "mode": "own",
+          "value": {
+            "kind": "literal",
+            "type": "duration",
+            "unit": "minute",
+            "value": 2400
+          }
+        },
+        "delta": {
+          "mode": "own",
+          "value": {
+            "kind": "literal",
+            "type": "duration",
+            "unit": "minute",
+            "value": 480
+          }
+        },
+        "H": {
+          "mode": "own",
+          "value": {
+            "kind": "literal",
+            "type": "duration",
+            "unit": "minute",
+            "value": 4800
+          }
+        },
+        "windows": {
+          "mode": "own",
+          "value": [
+            {
+              "id": "urgent",
+              "label": "urgent",
+              "enabled": true,
+              "defaultMinutes": {
+                "kind": "literal",
+                "type": "duration",
+                "unit": "minute",
+                "value": 1920
+              },
+              "markupPercent": {
+                "kind": "literal",
+                "type": "percent",
+                "unit": "percent",
+                "value": 20
+              },
+              "discountPercent": {
+                "kind": "literal",
+                "type": "percent",
+                "unit": "percent",
+                "value": 0
+              }
+            },
+            {
+              "id": "strict",
+              "label": "strict",
+              "enabled": true,
+              "defaultMinutes": {
+                "kind": "literal",
+                "type": "duration",
+                "unit": "minute",
+                "value": 2400
+              },
+              "markupPercent": {
+                "kind": "literal",
+                "type": "percent",
+                "unit": "percent",
+                "value": 0
+              },
+              "discountPercent": {
+                "kind": "literal",
+                "type": "percent",
+                "unit": "percent",
+                "value": 0
+              }
+            },
+            {
+              "id": "flexible",
+              "label": "flexible",
+              "enabled": true,
+              "defaultMinutes": {
+                "kind": "literal",
+                "type": "duration",
+                "unit": "minute",
+                "value": 2880
+              },
+              "markupPercent": {
+                "kind": "literal",
+                "type": "percent",
+                "unit": "percent",
+                "value": 0
+              },
+              "discountPercent": {
+                "kind": "literal",
+                "type": "percent",
+                "unit": "percent",
+                "value": 10
+              }
+            }
+          ]
+        }
+      },
+      "prices": {
+        "grid": {
+          "mode": "own",
+          "value": [
+            {
+              "typeId": "retail",
+              "mode": "markupPercent",
+              "price": {
+                "kind": "literal",
+                "type": "percent",
+                "unit": "percent",
+                "value": 20
+              },
+              "quantityFrom": null,
+              "quantityTo": null,
+              "limitAmount": null
+            }
+          ]
+        }
+      },
+      "provenance": {
+        "sourceVersionId": "qa_v1",
+        "sourceHash": "fe7e9cc9663730fcd50b84d73c5c3982a63a2c9210324b855cbbf6bf2e9031eb",
+        "purpose": "qa"
+      },
+      "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+    },
+    "storefront": {
+      "contract": "prospektweb.orderterms.authoring-policy/v1",
+      "id": "store_qa",
+      "revision": 1,
+      "scope": "storefront",
+      "ownerId": "qa_store",
+      "parentRef": {
+        "id": "policy_qa",
+        "revision": 1,
+        "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+      },
+      "calendarRef": {
+        "mode": "inherit"
+      },
+      "startRuleRef": {
+        "mode": "inherit"
+      },
+      "terms": {
+        "U": {
+          "mode": "inherit"
+        },
+        "S": {
+          "mode": "inherit"
+        },
+        "delta": {
+          "mode": "inherit"
+        },
+        "H": {
+          "mode": "inherit"
+        },
+        "windows": {
+          "mode": "inherit"
+        }
+      },
+      "prices": {
+        "grid": {
+          "mode": "inherit"
+        }
+      },
+      "provenance": {
+        "sourceVersionId": "qa_v1",
+        "sourceHash": "fe7e9cc9663730fcd50b84d73c5c3982a63a2c9210324b855cbbf6bf2e9031eb",
+        "purpose": "qa"
+      },
+      "bodyHash": "cbfe007a534813d42d644de05c2beeca5a9f5047014100c95eaa87a259ee691c"
+    },
+    "scenarios": [],
+    "globals": []
+  }
+}

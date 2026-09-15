@@ -43,6 +43,13 @@ class ModuleCapabilityRegistryService
             'description' => 'Центр управления, пресеты, справочники и редактор калькуляций.',
             'capabilities' => [
                 [
+                    'id' => 'admin.calculator.commercial_policy_preview',
+                    'name' => 'Политики сроков и цен: QA-публикация',
+                    'description' => 'Типизированные globals, наследование, три предложения и календарь. Рабочее применение выключено.',
+                    'surface' => 'admin', 'defaultEnabled' => true, 'mutable' => false,
+                    'state' => 'managed', 'risk' => 'low', 'requiresReload' => false,
+                ],
+                [
                     'id' => 'admin.calculator.context_tools',
                     'name' => 'Контекстные инструменты калькулятора',
                     'description' => 'Кнопки и инструменты калькуляций в административных карточках.',

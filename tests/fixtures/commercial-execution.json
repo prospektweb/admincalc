@@ -1,0 +1,250 @@
+{
+  "contract": "prospektweb.orderterms.execution/v1",
+  "documentHash": "fe7e9cc9663730fcd50b84d73c5c3982a63a2c9210324b855cbbf6bf2e9031eb",
+  "bundleHash": "d506c24b2822a8deb2ee464f121f53d26f251371576158abfce980daaa4b8118",
+  "runtimeFingerprint": "b5b05dbe99baac19ffd5083b92e4bdcbc5971426a3c8cbc5d938b1f5a1678415",
+  "runtimeNodeVersion": "v22.18.0",
+  "inputHash": "c3ed52629bc080ce7a92ca691f9de07c6cb7bab691bdd7646b845799779f3f69",
+  "technicalHash": "b578f703037a291356ffa66fe6095b1fd29bb1b415943387c23425ba941d3f27",
+  "resolvedPolicy": {
+    "contract": "prospektweb.orderterms.resolved-policy/v1",
+    "resolverVersion": "commercial-policy:1",
+    "terms": {
+      "U": 480,
+      "S": 2400,
+      "delta": 480,
+      "H": 4800,
+      "F": 2880,
+      "windows": [
+        {
+          "id": "urgent",
+          "label": "urgent",
+          "enabled": true,
+          "minMinutes": 480,
+          "maxMinutes": 2400,
+          "includeMax": false,
+          "defaultMinutes": 1920,
+          "markupPercent": 20,
+          "discountPercent": 0
+        },
+        {
+          "id": "strict",
+          "label": "strict",
+          "enabled": true,
+          "minMinutes": 2400,
+          "maxMinutes": 2880,
+          "includeMax": false,
+          "defaultMinutes": 2400,
+          "markupPercent": 0,
+          "discountPercent": 0
+        },
+        {
+          "id": "flexible",
+          "label": "flexible",
+          "enabled": true,
+          "minMinutes": 2880,
+          "maxMinutes": 4800,
+          "includeMax": true,
+          "defaultMinutes": 2880,
+          "markupPercent": 0,
+          "discountPercent": 10
+        }
+      ]
+    },
+    "prices": {
+      "grid": [
+        {
+          "typeId": "retail",
+          "mode": "markupPercent",
+          "price": 20,
+          "quantityFrom": null,
+          "quantityTo": null,
+          "limitAmount": null
+        }
+      ]
+    },
+    "calendarRef": {
+      "id": "qa_calendar",
+      "revision": 1,
+      "bodyHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "startRuleRef": {
+      "id": "qa_start",
+      "revision": 1,
+      "bodyHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "fieldSources": {
+      "calendarRef": {
+        "scope": "calculator",
+        "id": "policy_qa",
+        "revision": 1,
+        "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+      },
+      "startRuleRef": {
+        "scope": "calculator",
+        "id": "policy_qa",
+        "revision": 1,
+        "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+      },
+      "terms.U": {
+        "scope": "calculator",
+        "id": "policy_qa",
+        "revision": 1,
+        "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+      },
+      "terms.S": {
+        "scope": "calculator",
+        "id": "policy_qa",
+        "revision": 1,
+        "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+      },
+      "terms.delta": {
+        "scope": "calculator",
+        "id": "policy_qa",
+        "revision": 1,
+        "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+      },
+      "terms.H": {
+        "scope": "calculator",
+        "id": "policy_qa",
+        "revision": 1,
+        "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+      },
+      "terms.windows": {
+        "scope": "calculator",
+        "id": "policy_qa",
+        "revision": 1,
+        "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+      },
+      "prices.grid": {
+        "scope": "calculator",
+        "id": "policy_qa",
+        "revision": 1,
+        "bodyHash": "cca1629fe21fa40ea9a8eb72a8d8821488a410789ad3c5b0e66b9194dc05e142"
+      }
+    },
+    "calculatorId": "calculator",
+    "ownerVersionId": "qa_v1",
+    "publicationHash": "d506c24b2822a8deb2ee464f121f53d26f251371576158abfce980daaa4b8118",
+    "storefrontId": "qa_store",
+    "matchedScenarioIds": [],
+    "effectiveScenarioId": null,
+    "inputHash": "c3ed52629bc080ce7a92ca691f9de07c6cb7bab691bdd7646b845799779f3f69",
+    "globalSnapshotHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "resolvedHash": "4448f23a683a15de4b326d55f1f3528a156cbd436b4429a51b0e8bddb6e75e91"
+  },
+  "quantities": {
+    "unitCount": 10,
+    "layoutCount": 6,
+    "runCount": 6
+  },
+  "technical": {
+    "basePrice": 100,
+    "laborMinutes": 0,
+    "productionMinutes": 0
+  },
+  "variants": [
+    {
+      "deadlineType": "urgent",
+      "label": "urgent",
+      "enabled": true,
+      "window": {
+        "minMinutes": 480,
+        "maxMinutes": 2400,
+        "includeMax": false
+      },
+      "defaultMinutes": 1920,
+      "markupPercent": 20,
+      "discountPercent": 0,
+      "prices": [
+        {
+          "typeId": "retail",
+          "currency": "RUB",
+          "basis": "per-run",
+          "basePerRun": "100",
+          "gridAddition": "20",
+          "deadlineMultiplier": "1.2",
+          "unroundedPerRun": "144",
+          "gridRule": {
+            "typeId": "retail",
+            "mode": "markupPercent",
+            "price": 20,
+            "quantityFrom": null,
+            "quantityTo": null,
+            "limitAmount": null,
+            "currency": null,
+            "limitCurrency": "RUB"
+          }
+        }
+      ]
+    },
+    {
+      "deadlineType": "strict",
+      "label": "strict",
+      "enabled": true,
+      "window": {
+        "minMinutes": 2400,
+        "maxMinutes": 2880,
+        "includeMax": false
+      },
+      "defaultMinutes": 2400,
+      "markupPercent": 0,
+      "discountPercent": 0,
+      "prices": [
+        {
+          "typeId": "retail",
+          "currency": "RUB",
+          "basis": "per-run",
+          "basePerRun": "100",
+          "gridAddition": "20",
+          "deadlineMultiplier": "1",
+          "unroundedPerRun": "120",
+          "gridRule": {
+            "typeId": "retail",
+            "mode": "markupPercent",
+            "price": 20,
+            "quantityFrom": null,
+            "quantityTo": null,
+            "limitAmount": null,
+            "currency": null,
+            "limitCurrency": "RUB"
+          }
+        }
+      ]
+    },
+    {
+      "deadlineType": "flexible",
+      "label": "flexible",
+      "enabled": true,
+      "window": {
+        "minMinutes": 2880,
+        "maxMinutes": 4800,
+        "includeMax": true
+      },
+      "defaultMinutes": 2880,
+      "markupPercent": 0,
+      "discountPercent": 10,
+      "prices": [
+        {
+          "typeId": "retail",
+          "currency": "RUB",
+          "basis": "per-run",
+          "basePerRun": "100",
+          "gridAddition": "20",
+          "deadlineMultiplier": "0.9",
+          "unroundedPerRun": "108",
+          "gridRule": {
+            "typeId": "retail",
+            "mode": "markupPercent",
+            "price": 20,
+            "quantityFrom": null,
+            "quantityTo": null,
+            "limitAmount": null,
+            "currency": null,
+            "limitCurrency": "RUB"
+          }
+        }
+      ]
+    }
+  ]
+}

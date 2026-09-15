@@ -288,6 +288,11 @@ class prospektweb_calc extends CModule
             // Копируем полноэкранный центр управления. Он использует тот же
             // установленный SPA bundle, но не требует контекста торговых предложений.
             $adminControlCenterFile = $sourceAdmin . '/prospektweb_calc_control_center.php';
+            $commercialDiagnostic = $sourceAdmin . '/prospektweb_calc_commercial_policy.php';
+            if (is_file($commercialDiagnostic) && !copy($commercialDiagnostic, $targetAdmin . '/prospektweb_calc_commercial_policy.php')) {
+                $errors[] = 'Не удалось скопировать диагностику коммерческих политик';
+                $success = false;
+            }
             if (file_exists($adminControlCenterFile)) {
                 if (!copy($adminControlCenterFile, $targetAdmin . '/prospektweb_calc_control_center.php')) {
                     $errors[] = "Не удалось скопировать центр управления";
@@ -362,6 +367,12 @@ class prospektweb_calc extends CModule
         }
         if (file_exists($adminControlCenterFile)) {
             unlink($adminControlCenterFile);
+        }
+        $commercialDiagnostic = Application::getDocumentRoot() . '/bitrix/admin/prospektweb_calc_commercial_policy.php';
+        $commercialSource = dirname(__DIR__) . '/admin/prospektweb_calc_commercial_policy.php';
+        if (is_file($commercialDiagnostic) && is_file($commercialSource)
+            && hash_file('sha256', $commercialDiagnostic) === hash_file('sha256', $commercialSource)) {
+            unlink($commercialDiagnostic);
         }
         if (file_exists($adminCustomFieldFile)) {
             unlink($adminCustomFieldFile);

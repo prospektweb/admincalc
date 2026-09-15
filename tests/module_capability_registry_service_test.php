@@ -124,7 +124,9 @@ namespace {
     $assert(strlen((string)$initial['revision']) === 64, 'Catalog revision must be SHA-256');
     $assert($repeat['revision'] === $initial['revision'], 'Unchanged catalogs must have a stable revision');
     $assert(count($initial['modules']) === 9, 'Catalog must expose nine canonical modules');
-    $assert($initial['summary']['capabilities'] === 25, 'Catalog capability summary must match the allowlist');
+    $assert($initial['summary']['capabilities'] === 26, 'Catalog capability summary must match the allowlist');
+    $commercialPreview = $findCapability($initial, 'admin.calculator.commercial_policy_preview');
+    $assert($commercialPreview['enabled'] && !$commercialPreview['mutable'], 'Commercial preview cannot enable working policies');
     $calendarPreview = $findCapability($initial, 'admin.orderterms.calendar_preview');
     $ordertermsEnrollment = $findCapability($initial, 'storefront.orderterms.enrollment');
     $assert($calendarPreview['enabled'] && !$calendarPreview['mutable'], 'Calendar preview is available without enrollment');

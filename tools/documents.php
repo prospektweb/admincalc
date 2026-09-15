@@ -54,6 +54,12 @@ try {
         $respond(200, ['success' => true, 'data' => $templates->command(get_object_vars($request->command))]);
     }
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
+    if (in_array($request->command->action ?? '', ['commercialPolicies', 'loadCommercialPolicy', 'createCommercialPolicy', 'saveCommercialPolicy'], true)) {
+        require_once $module . '/lib/Documents/CommercialPolicyApplication.php';
+        $policies = new \Prospektweb\Calc\Documents\CommercialPolicyApplication($connection, $scope, $actor,
+            new \Prospektweb\Calc\Documents\BitrixCoreGateway(), new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider));
+        $respond(200, ['success' => true, 'data' => $policies->command(get_object_vars($request->command))]);
+    }
     if ($preparationCatalog) {
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock') || !\Bitrix\Main\Loader::includeModule('catalog')) throw new \RuntimeException('Каталожный адаптер недоступен.',503);
         require_once $module.'/lib/Documents/DocumentPreparationCatalog.php';

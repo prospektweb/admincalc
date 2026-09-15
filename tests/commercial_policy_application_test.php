@@ -1,0 +1,33 @@
+<?php
+declare(strict_types=1);
+require_once dirname(__DIR__).'/lib/Documents/PdoConnection.php';
+require_once dirname(__DIR__).'/lib/Documents/DocumentSchema.php';
+require_once dirname(__DIR__).'/lib/Documents/CommercialPolicyApplication.php';
+use Prospektweb\Calc\Documents\{PdoConnection,DocumentSchema,DocumentRepository,CommercialPolicyApplication,CommercialPolicyQuote};
+$checks=0;
+function check_policy(bool $ok):void {global $checks;$checks++;if(!$ok)throw new RuntimeException('Check '.$checks.' failed');}
+function fails_policy(callable $fn,string $message):void {try{$fn();}catch(Throwable $e){check_policy(str_contains($e->getMessage(),$message));return;}throw new RuntimeException('Expected '.$message);}
+$db=new PdoConnection(new PDO('sqlite::memory:'));DocumentSchema::install($db);
+$repo=new DocumentRepository($db,'site:qa','user:1');
+$source=$repo->create('{"contract":"prospektweb.calculator/document-v1","schemaVersion":1,"id":"qa_policy_source","name":"QA"}');
+$version=$repo->versions()->listing('qa_policy_source')['versions'][0]['versionId'];
+$calls=0;$core=static function(array $command)use(&$calls):array{$calls++;check_policy($command['action']==='commercialValidate');return ['documentHash'=>$command['bundle']->documentHash,'bundleHash'=>str_repeat('b',64),'runtimeFingerprint'=>str_repeat('a',64)];};
+$app=new CommercialPolicyApplication($db,'site:qa','user:1',$core,static fn()=>[]);
+$bundle=(object)['ownerVersionId'=>$version,'documentHash'=>$source['bodyHash']];
+$create=['action'=>'createCommercialPolicy','expectedCatalogRevision'=>0,'name'=>'QA policy','documentId'=>'qa_policy_source','versionId'=>$version,'expectedSourceHash'=>$source['bodyHash'],'bundleJson'=>json_encode($bundle)];
+$result=$app->command($create);$id=$result['record']['id'];
+check_policy($result['record']['revision']===1&&$result['catalog']['revision']===1);
+$body=json_decode($result['record']['bodyJson'],true);check_policy($body['sourceJson']===$source['bodyJson']&&$body['enrollmentEnabled']===false);
+check_policy($repo->load('qa_policy_source')['bodyHash']===$source['bodyHash']);
+$count=$calls;$app->command(['action'=>'loadCommercialPolicy','id'=>$id,'revision'=>1]);check_policy($calls===$count);
+fails_policy(fn()=>$app->command($create),'Список шаблонов изменился');
+fails_policy(fn()=>$app->command(array_replace($create,['expectedSourceHash'=>str_repeat('c',64)])),'POLICY_SOURCE_STALE');
+fails_policy(fn()=>$app->command($create+['scope'=>'site:other']),'UNKNOWN_OR_MISSING');
+$other=new CommercialPolicyApplication($db,'site:other','user:1',$core,static fn()=>[]);
+fails_policy(fn()=>$other->command(['action'=>'loadCommercialPolicy','id'=>$id,'revision'=>1]),'не найден');
+$save=$create;unset($save['name']);$save['action']='saveCommercialPolicy';$save['id']=$id;$save['expectedRevision']=1;$save['expectedCatalogRevision']=1;
+$same=$app->command($save);check_policy($same['record']['revision']===1);
+$bundle->marker='next';$save['bundleJson']=json_encode($bundle);$next=$app->command($save);check_policy($next['record']['revision']===2);
+check_policy($app->command(['action'=>'loadCommercialPolicy','id'=>$id,'revision'=>1])['bodyJson']===$result['record']['bodyJson']);
+fails_policy(fn()=>$app->command($save),'Список шаблонов изменился');
+echo "commercial_policy_application: $checks checks passed\n";
