@@ -106,6 +106,30 @@ if (!check_bitrix_sessid()) {
     ]);
 }
 
+// Module-owned layout workflow enforces its configured reviewer/admin roles.
+if (($request['action'] ?? '') === 'layout') {
+    try {
+        if (!Loader::includeModule('prospektweb.layoutfiles')) throw new \DomainException('MODULE_NOT_INSTALLED');
+        $respond(200, ['success'=>true,'data'=>\Prospektweb\LayoutFiles\LayoutAdmin::dispatch((array)($request['layout'] ?? []))]);
+    } catch (\DomainException $e) {
+        $code=$e->getMessage();
+        $status=$code==='ACCESS_DENIED'?403:(in_array($code,['REVISION_CONFLICT','IDEMPOTENCY_CONFLICT','BUSY'],true)?409:422);
+        $messages=['ACCESS_DENIED'=>'Недостаточно прав на это действие.','REVISION_CONFLICT'=>'Данные изменились. Перечитайте комплект и повторите действие.',
+            'IDEMPOTENCY_CONFLICT'=>'Этот повтор содержит другие данные. Перечитайте состояние.','BUSY'=>'Позиция сейчас изменяется. Повторите действие.',
+            'FILE_REVALIDATION_REQUIRED'=>'Сначала проверьте содержимое выбранного файла.','FILE_NOT_AVAILABLE'=>'Файл недоступен для этого сайта или состояния.',
+            'FILE_LINE_MISMATCH'=>'Файл относится к другой позиции.','SET_LINE_ID_MISMATCH'=>'Комплект относится к другой позиции.',
+            'INVALID_TRANSITION'=>'Сначала отправьте версию на проверку.','REASON_REQUIRED'=>'Укажите причину действия.',
+            'MIME_MISMATCH'=>'Содержимое файла не соответствует разрешённому формату.','EXECUTABLE_FILE'=>'Исполняемое содержимое запрещено.',
+            'SUPERSEDED_VERSION'=>'Выберите актуальную версию файла.','INVALID_PAGE_RANGE'=>'Проверьте диапазон страниц.',
+            'UPLOAD_POLICY_REQUIRED'=>'Сначала настройте правила загрузки.','UPLOAD_DISABLED_FOR_LINE'=>'Правила запрещают загрузку на этом этапе заказа.',
+            'POSITION_FILE_LIMIT'=>'Превышен лимит числа или объёма файлов позиции.','RETENTION_STALE'=>'Список очистки изменился. Выполните новый предпросмотр.',
+            'RETENTION_PENDING'=>'Диск ещё выполняет очистку. Повторите проверку позже.'];
+        $respond($status,['success'=>false,'errorCode'=>$code,'error'=>'Операция с макетами не выполнена. '.($messages[$code]??'Проверьте значения ('.$code.').')]);
+    } catch (\Throwable $e) {
+        $respond(503,['success'=>false,'errorCode'=>'LAYOUT_UNAVAILABLE','error'=>'Операция с макетами недоступна. Проверьте подключение и повторите.']);
+    }
+}
+
 if (!$USER || !$USER->IsAdmin()) {
     $respond(403, [
         'success' => false,

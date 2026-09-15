@@ -354,8 +354,8 @@ class ModuleCapabilityRegistryService
         ],
         [
             'id' => 'prospektweb.layoutfiles',
-            'name' => 'Макеты и дата получения',
-            'description' => 'Файлы макетов в корзине и выбор желаемой даты получения заказа.',
+            'name' => 'Макеты и хранение',
+            'description' => 'Настройки → Макеты: файлы, версии, сопоставление, согласование и очередь Диска. Прежняя дата корзины сохранена до управляемого перехода.',
             'capabilities' => [
                 [
                     'id' => 'storefront.cart.layout_uploads',
@@ -364,7 +364,7 @@ class ModuleCapabilityRegistryService
                     'surface' => 'storefront',
                     'defaultEnabled' => true,
                     'mutable' => false,
-                    'state' => 'managed-later',
+                    'state' => 'managed-in-workspace',
                     'risk' => 'high',
                     'requiresReload' => true,
                 ],
@@ -375,7 +375,7 @@ class ModuleCapabilityRegistryService
                     'surface' => 'storefront',
                     'defaultEnabled' => true,
                     'mutable' => false,
-                    'state' => 'managed-later',
+                    'state' => 'managed-in-workspace',
                     'risk' => 'medium',
                     'requiresReload' => true,
                 ],
