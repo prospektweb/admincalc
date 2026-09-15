@@ -54,6 +54,10 @@ try {
         $respond(200, ['success' => true, 'data' => $templates->command(get_object_vars($request->command))]);
     }
     $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
+    if (($request->command->action ?? '') === 'previewCommercialPolicy') {
+        require_once $module . '/lib/Documents/CommercialPolicyPreview.php';
+        $respond(200, ['success'=>true,'data'=>\Prospektweb\Calc\Documents\CommercialPolicyPreview::run(get_object_vars($request->command),$repository,new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider),$siteId)]);
+    }
     if (in_array($request->command->action ?? '', ['commercialPolicies', 'loadCommercialPolicy', 'createCommercialPolicy', 'saveCommercialPolicy'], true)) {
         require_once $module . '/lib/Documents/CommercialPolicyApplication.php';
         $policies = new \Prospektweb\Calc\Documents\CommercialPolicyApplication($connection, $scope, $actor,
