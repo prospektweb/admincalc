@@ -115,6 +115,11 @@ if (($request['action'] ?? '') === 'layout') {
         $code=$e->getMessage();
         $status=$code==='ACCESS_DENIED'?403:(in_array($code,['REVISION_CONFLICT','IDEMPOTENCY_CONFLICT','BUSY'],true)?409:422);
         $messages=['ACCESS_DENIED'=>'Недостаточно прав на это действие.','REVISION_CONFLICT'=>'Данные изменились. Перечитайте комплект и повторите действие.',
+            'OAUTH_CLIENT_ID_REQUIRED'=>'Укажите корректный Client ID приложения Яндекса.','OAUTH_SECRET_REQUIRED'=>'Введите Client Secret для этого приложения.',
+            'OAUTH_SECRET_INVALID'=>'Проверьте Client Secret: он не должен содержать пробелы.','OAUTH_FLOW_EXPIRED'=>'Подключение истекло. Начните заново.',
+            'OAUTH_CODE_REQUIRED'=>'Введите код со страницы Яндекса.','OAUTH_CODE_REJECTED'=>'Код не принят Яндексом. Получите новый код и повторите подключение.',
+            'INVALID_STORAGE_PATH'=>'Укажите абсолютный путь папки без переходов на уровень выше.','TOTAL_SMALLER_THAN_FILE'=>'Общий объём должен быть не меньше размера одного файла.',
+            'INVALID_maxSize'=>'Укажите размер файла, соответствующий целому числу байт.','INVALID_maxTotalSize'=>'Укажите объём, соответствующий целому числу байт.','INVALID_maxFiles'=>'Укажите целое число файлов больше нуля.',
             'IDEMPOTENCY_CONFLICT'=>'Этот повтор содержит другие данные. Перечитайте состояние.','BUSY'=>'Позиция сейчас изменяется. Повторите действие.',
             'FILE_REVALIDATION_REQUIRED'=>'Сначала проверьте содержимое выбранного файла.','FILE_NOT_AVAILABLE'=>'Файл недоступен для этого сайта или состояния.',
             'FILE_LINE_MISMATCH'=>'Файл относится к другой позиции.','SET_LINE_ID_MISMATCH'=>'Комплект относится к другой позиции.',
