@@ -355,7 +355,7 @@ class ModuleCapabilityRegistryService
         [
             'id' => 'prospektweb.layoutfiles',
             'name' => 'Макеты и хранение',
-            'description' => 'Файлы, версии, согласование и хранение на Яндекс Диске. Нажмите название функции, чтобы открыть настройки.',
+            'description' => 'Загрузка макетов для позиций и хранение на Яндекс Диске. Нажмите название функции, чтобы открыть настройки.',
             'capabilities' => [
                 [
                     'id' => 'storefront.cart.layout_uploads',
