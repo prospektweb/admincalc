@@ -22,3 +22,9 @@ $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'urgency','urgency
 AdditionalServices::validate($d);
 foreach(['step','paymentDefault','extra'] as $key){$bad=unserialize(serialize($d));$bad->form->fields[0]->urgencyWindow->$key='0';try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Accepted invalid urgency '.$key);}
 echo "PASS urgency window persistence validation\n";
+$v->labelHelp=(object)['paymentTitle'=>(object)['enabled'=>false,'text'=>'Описание сохранено']];
+$before=json_encode($d);AdditionalServices::validate($d);
+if(json_encode($d)!==$before)throw new Exception('Label help mutated');
+$v->labelHelp->paymentTitle->enabled='false';
+try{AdditionalServices::validate($d);throw new Exception('Invalid switch accepted');}catch(InvalidArgumentException $e){}
+echo "PASS optional label help validation and preservation\n";

@@ -10,7 +10,17 @@ final class AdditionalServices
         foreach ($document->form->fields ?? [] as $field) {
             if (!property_exists($field, 'urgencyWindow')) continue;
             if (($field->systemKey ?? '') !== 'urgency') self::fail('Окно срочности допустимо только для поля Срочность');
-            $v=$field->urgencyWindow;
+            if (!$field->urgencyWindow instanceof \stdClass) self::fail('Некорректное окно срочности');
+            $v=clone $field->urgencyWindow;
+            if (property_exists($v, 'labelHelp')) {
+                if (!$v->labelHelp instanceof \stdClass) self::fail('Некорректные подсказки лейблов');
+                foreach (get_object_vars($v->labelHelp) as $key=>$help) {
+                    if (!in_array($key,['desiredLabel','amountLabel','paymentTitle','paymentAfterLabel','paymentImmediateLabel','refundTitle','refundLabel','balanceLabel'],true)) self::fail('Неизвестный лейбл');
+                    self::shape($help,['enabled','text']);
+                    if (!is_bool($help->enabled) || !is_string($help->text) || mb_strlen($help->text)>10000) self::fail('Некорректная подсказка лейбла');
+                }
+                unset($v->labelHelp);
+            }
             self::shape($v, ['paymentTitle','paymentDefault','paymentAfterLabel','paymentAfterHint','paymentImmediateLabel','paymentImmediateHint','title','desiredLabel','desiredPlaceholder','desiredHelp','amountLabel','minimum','step','explanation','allocation','refundTitle','refundLabel','refundHint','balanceLabel','balanceHint','refundNote','cancelLabel','doneLabel']);
             foreach (get_object_vars($v) as $text) if (!is_string($text) || mb_strlen($text)>10000) self::fail('Некорректный текст окна срочности');
             if (!in_array($v->paymentDefault,['after_confirmation','immediate'],true)) self::fail('Неизвестный порядок оплаты');
