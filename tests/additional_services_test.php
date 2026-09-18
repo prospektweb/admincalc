@@ -50,6 +50,8 @@ $storage=(object)['mode'=>'anchors','daily'=>0,'maxAmount'=>1000,'anchors'=>[(ob
 $texts=(object)array_fill_keys(['title','method','addresses','address','addressHint','comment','recipient','name','phone','carrier','terminal','consent','note','total','cancel','apply'],'text');
 $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'receipt','processWindow'=>(object)['texts'=>$texts,'help'=>(object)[],'rules'=>(object)[],'allowBudget'=>true,'requireDescription'=>false,'storage'=>$storage]]]]];
 AdditionalServices::validate($d);
+$bad=unserialize(serialize($d));$bad->form->fields[0]->processWindow->storage->anchors[0]->value=50;$bad->form->fields[0]->processWindow->storage->anchors[1]->value=100;
+try{AdditionalServices::validate($bad);throw new Exception('Paid first storage day accepted');}catch(InvalidArgumentException $e){}
 $d->form->fields[0]->processWindow->storage->anchors[2]->days=3;
 try{AdditionalServices::validate($d);throw new Exception('Duplicate storage marks accepted');}catch(InvalidArgumentException $e){}
 echo "PASS storage zero marks, schema and duplicate rejection\n";
