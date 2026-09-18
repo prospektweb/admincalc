@@ -8,6 +8,15 @@ final class AdditionalServices
     public static function validate(object $document): void
     {
         foreach ($document->form->fields ?? [] as $field) {
+            if (property_exists($field, 'dateSelection')) {
+                if (($field->systemKey??'')!=='desiredDate') self::fail('Ограничения даты допустимы только для желаемой даты');
+                $p=$field->dateSelection; self::shape($p,['calendarId','weekend','holiday','overtime']);
+                if(!is_string($p->calendarId)||strlen($p->calendarId)>64) self::fail('Некорректный календарь');
+                foreach(['weekend','holiday','overtime'] as $key){
+                    $r=$p->$key;self::shape($r,['allowed','source','from','to']);
+                    if(!is_bool($r->allowed)||!in_array($r->source,['global','individual'],true)||!is_int($r->from)||!is_int($r->to)||$r->from<0||$r->to>1440||$r->to<=0||($key==='overtime'?$r->from!==0:$r->from>=$r->to))self::fail('Некорректный интервал выбора даты');
+                }
+            }
             if (!property_exists($field, 'urgencyWindow')) continue;
             if (($field->systemKey ?? '') !== 'urgency') self::fail('Окно срочности допустимо только для поля Срочность');
             if (!$field->urgencyWindow instanceof \stdClass) self::fail('Некорректное окно срочности');
