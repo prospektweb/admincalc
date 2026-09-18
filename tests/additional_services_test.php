@@ -61,3 +61,10 @@ $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'payment','process
 AdditionalServices::validate($d);
 foreach(['proof','hours','reason'] as $case){$bad=unserialize(serialize($d));$q=$bad->form->fields[0]->processWindow->payment;if($case==='proof')$q->proofEnabled=true;if($case==='hours')$q->laterHours=0;if($case==='reason')$q->reasons=[''];try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Invalid payment accepted: '.$case);}
 echo "PASS payment policy proof limit, intervals and reasons\n";
+
+$rp=(object)['texts'=>$texts,'help'=>(object)[],'rules'=>(object)[],'allowBudget'=>true,'requireDescription'=>false,'deliverySlots'=>[(object)['from'=>'10:00','to'=>'14:00'],(object)['from'=>'14:00','to'=>'18:00']]];
+$receipt=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'receipt','processWindow'=>$rp]]]];
+AdditionalServices::validate($receipt);
+$receipt->form->fields[0]->processWindow->deliverySlots[1]->from='13:00';
+try{AdditionalServices::validate($receipt);throw new Exception('Overlapping delivery slots accepted');}catch(InvalidArgumentException $e){}
+echo "PASS delivery slots and overlap rejection\n";

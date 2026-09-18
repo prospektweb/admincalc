@@ -12,7 +12,11 @@ final class AdditionalServices
                 $kind=$field->systemKey??'';
                 $keys=['design'=>['title','task','budget','timeline','description','placeholder','upload','uploadHint','verification','approval','total','cancel','apply'],'payment'=>['title','intro','time','note','cancel','apply'],'receipt'=>['title','method','addresses','address','addressHint','comment','recipient','name','phone','carrier','terminal','consent','note','total','cancel','apply']];
                 if(!isset($keys[$kind]))self::fail('Настройки процесса недопустимы для этого поля');
-                $p=$field->processWindow;self::shape($p,array_merge(['texts','help','rules','allowBudget','requireDescription'],property_exists($p,'storage')?['storage']:[],property_exists($p,'payment')?['payment']:[]));
+                $p=$field->processWindow;self::shape($p,array_merge(['texts','help','rules','allowBudget','requireDescription'],property_exists($p,'storage')?['storage']:[],property_exists($p,'payment')?['payment']:[],property_exists($p,'deliverySlots')?['deliverySlots']:[]));
+                if(property_exists($p,'deliverySlots')){
+                    if($kind!=='receipt'||!is_array($p->deliverySlots)||count($p->deliverySlots)<1||count($p->deliverySlots)>12)self::fail('Некорректные интервалы доставки');
+                    $last='';foreach($p->deliverySlots as $slot){self::shape($slot,['from','to']);if(!is_string($slot->from)||!is_string($slot->to)||!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/',$slot->from)||!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/',$slot->to)||$slot->from>=$slot->to||$slot->from<$last)self::fail('Интервалы доставки пересекаются или некорректны');$last=$slot->to;}
+                }
                 if(property_exists($p,'payment')){
                     if($kind!=='payment')self::fail('Условия оплаты допустимы только для оплаты');
                     $q=$p->payment;self::shape($q,['immediateMinutes','proofEnabled','proofLimit','laterHours','fixPrice','fixHours','reasons','immediateHint','laterHint','expiryNotice','cancellationNotice']);
