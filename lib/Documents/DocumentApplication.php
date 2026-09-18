@@ -6,6 +6,7 @@ namespace Prospektweb\Calc\Documents;
 require_once __DIR__ . '/DocumentRepository.php';
 require_once __DIR__ . '/CoreExecutionFailure.php';
 require_once __DIR__ . '/DocumentInputContext.php';
+require_once __DIR__ . '/AdditionalServices.php';
 
 /** CMS-independent use cases. Identity/authorization are owned by the outer adapter.
  * Only explicit context/check/compile/publish/preview load external resources;
@@ -283,6 +284,7 @@ final class DocumentApplication
         if (strlen($json) > 8000000) { throw new \InvalidArgumentException('Document exceeds byte limit.'); }
         $document = json_decode($json, false, 64, JSON_THROW_ON_ERROR);
         if (!$document instanceof \stdClass) { throw new \InvalidArgumentException('Expected a JSON document.'); }
+        AdditionalServices::validate($document);
         if ($this->hasStorefrontScenarios($document)) {
             if (!is_callable($this->formRuntime)) throw new \RuntimeException('Form projection unavailable.', 503);
             ($this->formRuntime)($document, 1);
