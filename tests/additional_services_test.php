@@ -53,3 +53,9 @@ AdditionalServices::validate($d);
 $d->form->fields[0]->processWindow->storage->anchors[2]->days=3;
 try{AdditionalServices::validate($d);throw new Exception('Duplicate storage marks accepted');}catch(InvalidArgumentException $e){}
 echo "PASS storage zero marks, schema and duplicate rejection\n";
+$q=(object)['immediateMinutes'=>60,'proofEnabled'=>false,'proofLimit'=>0,'laterHours'=>72,'fixPrice'=>true,'fixHours'=>72,'reasons'=>['Approval','Other'],'immediateHint'=>'Now','laterHint'=>'Later','expiryNotice'=>'Expired','cancellationNotice'=>'Cancel'];
+$p=(object)['texts'=>(object)array_fill_keys(['title','intro','time','note','cancel','apply'],'Text'),'help'=>(object)[],'rules'=>(object)[],'allowBudget'=>true,'requireDescription'=>false,'payment'=>$q];
+$d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'payment','processWindow'=>$p]]]];
+AdditionalServices::validate($d);
+foreach(['proof','hours','reason'] as $case){$bad=unserialize(serialize($d));$q=$bad->form->fields[0]->processWindow->payment;if($case==='proof')$q->proofEnabled=true;if($case==='hours')$q->laterHours=0;if($case==='reason')$q->reasons=[''];try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Invalid payment accepted: '.$case);}
+echo "PASS payment policy proof limit, intervals and reasons\n";

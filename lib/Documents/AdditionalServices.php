@@ -12,7 +12,16 @@ final class AdditionalServices
                 $kind=$field->systemKey??'';
                 $keys=['design'=>['title','task','budget','timeline','description','placeholder','upload','uploadHint','verification','approval','total','cancel','apply'],'payment'=>['title','intro','time','note','cancel','apply'],'receipt'=>['title','method','addresses','address','addressHint','comment','recipient','name','phone','carrier','terminal','consent','note','total','cancel','apply']];
                 if(!isset($keys[$kind]))self::fail('Настройки процесса недопустимы для этого поля');
-                $p=$field->processWindow;self::shape($p,array_merge(['texts','help','rules','allowBudget','requireDescription'],property_exists($p,'storage')?['storage']:[]));
+                $p=$field->processWindow;self::shape($p,array_merge(['texts','help','rules','allowBudget','requireDescription'],property_exists($p,'storage')?['storage']:[],property_exists($p,'payment')?['payment']:[]));
+                if(property_exists($p,'payment')){
+                    if($kind!=='payment')self::fail('Условия оплаты допустимы только для оплаты');
+                    $q=$p->payment;self::shape($q,['immediateMinutes','proofEnabled','proofLimit','laterHours','fixPrice','fixHours','reasons','immediateHint','laterHint','expiryNotice','cancellationNotice']);
+                    foreach(['immediateMinutes','laterHours','fixHours'] as $key)if(!is_int($q->$key)||$q->$key<1||$q->$key>8760)self::fail('Некорректный интервал оплаты');
+                    if(!is_bool($q->proofEnabled)||!is_bool($q->fixPrice)||(!is_int($q->proofLimit)&&!is_float($q->proofLimit))||!is_finite((float)$q->proofLimit)||$q->proofLimit<0||$q->proofLimit>1e12||($q->proofEnabled&&$q->proofLimit<=0))self::fail('Некорректный лимит платёжного поручения');
+                    if(!is_array($q->reasons)||count($q->reasons)<1||count($q->reasons)>20)self::fail('Укажите причины отсрочки');
+                    foreach($q->reasons as $r)if(!is_string($r)||trim($r)===''||mb_strlen($r)>200)self::fail('Некорректная причина отсрочки');
+                    foreach(['immediateHint','laterHint','expiryNotice','cancellationNotice'] as $key)if(!is_string($q->$key)||mb_strlen($q->$key)>10000)self::fail('Некорректное описание оплаты');
+                }
                 if(property_exists($p,'storage')){
                     if($kind!=='receipt')self::fail('Хранение допустимо только для получения');
                     $s=$p->storage;self::shape($s,array_merge(['mode','daily','maxAmount','anchors'],property_exists($s,'notice')?['notice']:[]));if(property_exists($s,'notice')&&(!is_string($s->notice)||mb_strlen($s->notice)>10000))self::fail('Некорректное описание хранения');
