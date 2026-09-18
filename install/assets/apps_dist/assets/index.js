@@ -1096,7 +1096,7 @@ window.PilotDeliveryWorkbench=({q,modal,addresses,addressDialog,bookDialog,kindR
  const positions=(widths,right)=>{const result=[];for(let i=widths.length-1;i>=0;i--){right-=widths[i];result[i]=right;}return result;};\r
  if(typeof document==='undefined'){module.exports={positions};return;}\r
  const selector='#drawer,dialog.delivery-dialog,#editor.designer-drawer,#editor.payment-drawer,.service-drawer';let stack=[],queued=false;\r
- const style=document.createElement('style');style.textContent=\`.pilot-stack-panel{translate:var(--stack-offset,0px) 0;transition:translate .22s ease,opacity .22s ease!important}.pilot-stack-leaving{translate:var(--leave-offset,100vw) 0!important;pointer-events:none}@media(prefers-reduced-motion:reduce){.pilot-stack-panel{transition:none!important}}\`;document.head.append(style);\r
+ const style=document.createElement('style');style.textContent=\`dialog.delivery-dialog::backdrop,.delivery-date-popover::backdrop{background:transparent!important;backdrop-filter:none!important}.designer-veil,.service-drawer-veil{background:transparent!important;backdrop-filter:none!important}.pilot-stack-panel{translate:var(--stack-offset,0px) 0;transition:translate .22s ease,opacity .22s ease!important}.pilot-stack-leaving{translate:var(--leave-offset,100vw) 0!important;pointer-events:none}@media(prefers-reduced-motion:reduce){.pilot-stack-panel{transition:none!important}}\`;document.head.append(style);\r
  const visible=e=>e.tagName==='DIALOG'?e.open:!e.hidden&&e.getClientRects().length>0&&(e.id!=='drawer'||document.body.classList.contains('is-open'));\r
  function sync(){queued=false;const panels=Array.from(document.querySelectorAll(selector));const current=panels.filter(e=>visible(e)&&!e.classList.contains('pilot-stack-leaving'));stack=stack.filter(e=>current.includes(e));current.forEach(e=>{if(!stack.includes(e))stack.push(e);if(!e.classList.contains('pilot-stack-panel'))e.classList.add('pilot-stack-panel');});const widths=stack.map(e=>e.getBoundingClientRect().width),lefts=positions(widths,innerWidth);stack.forEach((e,i)=>e.style.setProperty('--stack-offset',(lefts[i]-(innerWidth-widths[i]))+'px'));panels.filter(e=>!current.includes(e)).forEach(e=>e.style.removeProperty('--stack-offset'));}\r
  const schedule=()=>{if(!queued){queued=true;requestAnimationFrame(sync);}};\r
@@ -1165,7 +1165,8 @@ window.PilotDeliveryWorkbench=({q,modal,addresses,addressDialog,bookDialog,kindR
  window.addEventListener('message',e=>{if(e.source===parent&&e.data?.channel==='process-preview'&&e.data.type==='render')render(e.data)});\r
  document.addEventListener('click',e=>{\r
   if(e.target.closest('#editor-close,#delivery-close,#cancel,#delivery-cancel')){e.preventDefault();e.stopImmediatePropagation();send('close');}\r
-  if(e.target.closest('button[type=submit]')){e.preventDefault();e.stopImmediatePropagation();send('edit','apply');}\r
+  const submit=e.target.closest('button[type=submit]');\r
+  if(submit&&['editor-form','delivery-form'].includes(submit.form?.id)){e.preventDefault();e.stopImmediatePropagation();send('edit','apply');}\r
  },true);\r
  document.addEventListener('submit',e=>e.preventDefault(),true);\r
  document.addEventListener('change',e=>{if(e.target.id==='delivery-kind')send('method',e.target.value==='terminal'?'terminal':'courier')});\r
