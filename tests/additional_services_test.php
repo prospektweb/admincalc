@@ -34,3 +34,8 @@ $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'flexible','flexib
 AdditionalServices::validate($d);
 foreach(['max','count','descending','wrongField'] as $case){$bad=unserialize(serialize($d));$b=$bad->form->fields[0]->flexibilityWindow;if($case==='max')$b->maxAmount=-1;if($case==='count')$b->anchors=array_fill(0,6,$b->anchors[0]);if($case==='descending')$b->anchors[1]->value=1;if($case==='wrongField')$bad->form->fields[0]->systemKey='urgency';try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Invalid flexibility accepted: '.$case);}
 echo "PASS flexibility storage shape, cap, ordering and field boundary\n";
+$p=(object)['texts'=>(object)array_fill_keys(['title','intro','time','note','cancel','apply'],'Text'),'help'=>(object)[],'rules'=>(object)['immediate'=>(object)['days'=>0,'serviceId'=>'']],'allowBudget'=>true,'requireDescription'=>false];
+$d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'payment','processWindow'=>$p]]]];
+AdditionalServices::validate($d);$before=json_encode($d);AdditionalServices::validate($d);if(json_encode($d)!==$before)throw new Exception('Process settings mutated');
+foreach(['days','wrongField','help'] as $case){$bad=unserialize(serialize($d));if($case==='days')$bad->form->fields[0]->processWindow->rules->immediate->days=-1;if($case==='wrongField')$bad->form->fields[0]->systemKey='urgency';if($case==='help')$bad->form->fields[0]->processWindow->help->unknown=(object)['enabled'=>true,'text'=>'x'];try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Invalid process accepted: '.$case);}
+echo "PASS process windows storage, rules and field boundary\n";

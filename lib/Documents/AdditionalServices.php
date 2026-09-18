@@ -8,6 +8,17 @@ final class AdditionalServices
     public static function validate(object $document): void
     {
         foreach ($document->form->fields ?? [] as $field) {
+            if (property_exists($field, 'processWindow')) {
+                $kind=$field->systemKey??'';
+                $keys=['design'=>['title','task','budget','timeline','description','placeholder','upload','uploadHint','verification','approval','total','cancel','apply'],'payment'=>['title','intro','time','note','cancel','apply'],'receipt'=>['title','method','addresses','address','addressHint','comment','recipient','name','phone','carrier','terminal','consent','note','total','cancel','apply']];
+                if(!isset($keys[$kind]))self::fail('Настройки процесса недопустимы для этого поля');
+                $p=$field->processWindow;self::shape($p,['texts','help','rules','allowBudget','requireDescription']);self::shape($p->texts,$keys[$kind]);
+                if(!is_bool($p->allowBudget)||!is_bool($p->requireDescription)||!$p->help instanceof \stdClass||!$p->rules instanceof \stdClass)self::fail('Некорректные настройки процесса');
+                foreach(get_object_vars($p->texts) as $text)if(!is_string($text)||mb_strlen($text)>10000)self::fail('Некорректный текст процесса');
+                foreach(get_object_vars($p->help) as $key=>$help){if(!in_array($key,$keys[$kind],true))self::fail('Неизвестная подсказка');self::shape($help,['enabled','text']);if(!is_bool($help->enabled)||!is_string($help->text)||mb_strlen($help->text)>10000)self::fail('Некорректная подсказка');}
+                if(count(get_object_vars($p->rules))>50)self::fail('Слишком много вариантов');
+                foreach(get_object_vars($p->rules) as $key=>$rule){self::shape($rule,['days','serviceId']);if(!preg_match('/^[a-zA-Z0-9_.-]{1,100}$/D',(string)$key)||!is_int($rule->days)||$rule->days<0||$rule->days>365||!is_string($rule->serviceId)||strlen($rule->serviceId)>100)self::fail('Некорректное правило процесса');}
+            }
             if (property_exists($field, 'dateSelection')) {
                 if (($field->systemKey??'')!=='desiredDate') self::fail('Ограничения даты допустимы только для желаемой даты');
                 $p=$field->dateSelection; self::shape($p,['calendarId','weekend','holiday','overtime']);
