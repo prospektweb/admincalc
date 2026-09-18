@@ -12,7 +12,14 @@ final class AdditionalServices
                 $kind=$field->systemKey??'';
                 $keys=['design'=>['title','task','budget','timeline','description','placeholder','upload','uploadHint','verification','approval','total','cancel','apply'],'payment'=>['title','intro','time','note','cancel','apply'],'receipt'=>['title','method','addresses','address','addressHint','comment','recipient','name','phone','carrier','terminal','consent','note','total','cancel','apply']];
                 if(!isset($keys[$kind]))self::fail('Настройки процесса недопустимы для этого поля');
-                $p=$field->processWindow;self::shape($p,['texts','help','rules','allowBudget','requireDescription']);self::shape($p->texts,$keys[$kind]);
+                $p=$field->processWindow;self::shape($p,array_merge(['texts','help','rules','allowBudget','requireDescription'],property_exists($p,'storage')?['storage']:[]));
+                if(property_exists($p,'storage')){
+                    if($kind!=='receipt')self::fail('Хранение допустимо только для получения');
+                    $s=$p->storage;self::shape($s,array_merge(['mode','daily','maxAmount','anchors'],property_exists($s,'notice')?['notice']:[]));if(property_exists($s,'notice')&&(!is_string($s->notice)||mb_strlen($s->notice)>10000))self::fail('Некорректное описание хранения');
+                    $money=static fn($n)=>is_numeric($n)&&!is_string($n)&&is_finite((float)$n)&&$n>=0&&$n<=1e12&&abs($n*100-round($n*100))<0.0001;
+                    if(!in_array($s->mode,['anchors','daily'],true)||!$money($s->daily)||($s->maxAmount!==null&&(!$money($s->maxAmount)||$s->maxAmount<=0))||!is_array($s->anchors)||count($s->anchors)<2||count($s->anchors)>5)self::fail('Некорректные настройки хранения');
+                    $day=0;$amount=0;foreach($s->anchors as $a){self::shape($a,['days','value']);if(!is_int($a->days)||$a->days<1||$a->days>365||$a->days<=$day||!$money($a->value)||$a->value<$amount)self::fail('Некорректные отметки хранения');$day=$a->days;$amount=$a->value;}
+                }self::shape($p->texts,$keys[$kind]);
                 if(!is_bool($p->allowBudget)||!is_bool($p->requireDescription)||!$p->help instanceof \stdClass||!$p->rules instanceof \stdClass)self::fail('Некорректные настройки процесса');
                 foreach(get_object_vars($p->texts) as $text)if(!is_string($text)||mb_strlen($text)>10000)self::fail('Некорректный текст процесса');
                 foreach(get_object_vars($p->help) as $key=>$help){if(!in_array($key,$keys[$kind],true))self::fail('Неизвестная подсказка');self::shape($help,['enabled','text']);if(!is_bool($help->enabled)||!is_string($help->text)||mb_strlen($help->text)>10000)self::fail('Некорректная подсказка');}
@@ -20,7 +27,7 @@ final class AdditionalServices
                 foreach(get_object_vars($p->rules) as $key=>$rule){self::shape($rule,['days','serviceId']);if(!preg_match('/^[a-zA-Z0-9_.-]{1,100}$/D',(string)$key)||!is_int($rule->days)||$rule->days<0||$rule->days>365||!is_string($rule->serviceId)||strlen($rule->serviceId)>100)self::fail('Некорректное правило процесса');}
             }
             if (property_exists($field, 'dateSelection')) {
-                if (($field->systemKey??'')!=='desiredDate') self::fail('Ограничения даты допустимы только для желаемой даты');
+                if (!in_array($field->systemKey??'',['desiredDate','payment'],true)) self::fail('Ограничения даты допустимы для желаемой даты и подтверждения оплаты');
                 $p=$field->dateSelection; self::shape($p,['calendarId','weekend','holiday','overtime']);
                 if(!is_string($p->calendarId)||strlen($p->calendarId)>64) self::fail('Некорректный календарь');
                 foreach(['weekend','holiday','overtime'] as $key){

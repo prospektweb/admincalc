@@ -39,3 +39,17 @@ $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'payment','process
 AdditionalServices::validate($d);$before=json_encode($d);AdditionalServices::validate($d);if(json_encode($d)!==$before)throw new Exception('Process settings mutated');
 foreach(['days','wrongField','help'] as $case){$bad=unserialize(serialize($d));if($case==='days')$bad->form->fields[0]->processWindow->rules->immediate->days=-1;if($case==='wrongField')$bad->form->fields[0]->systemKey='urgency';if($case==='help')$bad->form->fields[0]->processWindow->help->unknown=(object)['enabled'=>true,'text'=>'x'];try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Invalid process accepted: '.$case);}
 echo "PASS process windows storage, rules and field boundary\n";
+
+$d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'payment','dateSelection'=>(object)['calendarId'=>'qa','weekend'=>(object)['allowed'=>true,'source'=>'global','from'=>540,'to'=>1080],'holiday'=>(object)['allowed'=>false,'source'=>'global','from'=>540,'to'=>1080],'overtime'=>(object)['allowed'=>true,'source'=>'individual','from'=>0,'to'=>1200]]]]]];
+AdditionalServices::validate($d);
+$d->form->fields[0]->dateSelection->overtime->from=540;
+try{AdditionalServices::validate($d);throw new Exception('Invalid overtime start accepted');}catch(InvalidArgumentException $e){}
+echo "PASS payment calendar rules and locked overtime start\n";
+
+$storage=(object)['mode'=>'anchors','daily'=>0,'maxAmount'=>1000,'anchors'=>[(object)['days'=>1,'value'=>0],(object)['days'=>3,'value'=>0],(object)['days'=>30,'value'=>2000]],'notice'=>'Правила хранения'];
+$texts=(object)array_fill_keys(['title','method','addresses','address','addressHint','comment','recipient','name','phone','carrier','terminal','consent','note','total','cancel','apply'],'text');
+$d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'receipt','processWindow'=>(object)['texts'=>$texts,'help'=>(object)[],'rules'=>(object)[],'allowBudget'=>true,'requireDescription'=>false,'storage'=>$storage]]]]];
+AdditionalServices::validate($d);
+$d->form->fields[0]->processWindow->storage->anchors[2]->days=3;
+try{AdditionalServices::validate($d);throw new Exception('Duplicate storage marks accepted');}catch(InvalidArgumentException $e){}
+echo "PASS storage zero marks, schema and duplicate rejection\n";
