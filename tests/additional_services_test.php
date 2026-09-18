@@ -15,3 +15,10 @@ foreach (['zeroStep','missingSection','invalidMoney','unknownSection'] as $case)
  throw new Exception('Accepted '.$case);
 }
 echo "PASS additional services storage validation, legacy compatibility and invalid inputs\n";
+
+$keys=['paymentTitle','paymentAfterLabel','paymentAfterHint','paymentImmediateLabel','paymentImmediateHint','title','desiredLabel','desiredPlaceholder','desiredHelp','amountLabel','explanation','allocation','refundTitle','refundLabel','refundHint','balanceLabel','balanceHint','refundNote','cancelLabel','doneLabel'];
+$v=(object)array_fill_keys($keys,'Text');$v->minimum='1000';$v->step='100';$v->paymentDefault='after_confirmation';
+$d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'urgency','urgencyWindow'=>$v]]]];
+AdditionalServices::validate($d);
+foreach(['step','paymentDefault','extra'] as $key){$bad=unserialize(serialize($d));$bad->form->fields[0]->urgencyWindow->$key='0';try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Accepted invalid urgency '.$key);}
+echo "PASS urgency window persistence validation\n";

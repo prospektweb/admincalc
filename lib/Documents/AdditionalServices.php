@@ -7,6 +7,16 @@ final class AdditionalServices
 {
     public static function validate(object $document): void
     {
+        foreach ($document->form->fields ?? [] as $field) {
+            if (!property_exists($field, 'urgencyWindow')) continue;
+            if (($field->systemKey ?? '') !== 'urgency') self::fail('Окно срочности допустимо только для поля Срочность');
+            $v=$field->urgencyWindow;
+            self::shape($v, ['paymentTitle','paymentDefault','paymentAfterLabel','paymentAfterHint','paymentImmediateLabel','paymentImmediateHint','title','desiredLabel','desiredPlaceholder','desiredHelp','amountLabel','minimum','step','explanation','allocation','refundTitle','refundLabel','refundHint','balanceLabel','balanceHint','refundNote','cancelLabel','doneLabel']);
+            foreach (get_object_vars($v) as $text) if (!is_string($text) || mb_strlen($text)>10000) self::fail('Некорректный текст окна срочности');
+            if (!in_array($v->paymentDefault,['after_confirmation','immediate'],true)) self::fail('Неизвестный порядок оплаты');
+            self::money($v->minimum); self::money($v->step);
+            if ((float)$v->step<=0) self::fail('Шаг доплаты должен быть больше нуля');
+        }
         if (!isset($document->pricing) || !property_exists($document->pricing, 'additionalServices')) return;
         $s = $document->pricing->additionalServices;
         self::shape($s, ['contract','calculator','storefronts','scenarios']);

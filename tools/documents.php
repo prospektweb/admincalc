@@ -161,6 +161,13 @@ try {
         } else $assignments=new \Prospektweb\Calc\Documents\DocumentProductAssignments($repository,$provider,(string)$catalog,$readProducts);
         $respond(200,['success'=>true,'data'=>$assignments->command(get_object_vars($request->command))]);
     }
+    if (($request->command->action ?? '') === 'prepareUrgencyProperty') {
+        if (array_keys(get_object_vars($request->command)) !== ['action']) throw new \InvalidArgumentException('Invalid urgency setup command.');
+        if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock')) throw new \RuntimeException('Catalog unavailable.');
+        require_once $module.'/lib/Documents/UrgencyProperty.php';
+        \Prospektweb\Calc\Documents\UrgencyProperty::ensure((new \Prospektweb\Frontcalc\Config\ConfigManager())->getProductIblockId());
+        $respond(200,['success'=>true,'data'=>['ready'=>true]]);
+    }
     if (in_array($request->command->action ?? '', ['siteOptions', 'sourceCatalog', 'searchProducts', 'catalogProducts', 'catalogProductSections'], true)) {
         if (!\Bitrix\Main\Loader::includeModule('prospektweb.frontcalc') || !\Bitrix\Main\Loader::includeModule('iblock')) { throw new \RuntimeException('Site catalog adapter unavailable.', 503); }
         $keys = array_keys(get_object_vars($request->command)); sort($keys);
