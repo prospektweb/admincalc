@@ -17,6 +17,18 @@ final class AdditionalServices
                     if(!is_bool($r->allowed)||!in_array($r->source,['global','individual'],true)||!is_int($r->from)||!is_int($r->to)||$r->from<0||$r->to>1440||$r->to<=0||($key==='overtime'?$r->from!==0:$r->from>=$r->to))self::fail('Некорректный интервал выбора даты');
                 }
             }
+            if (property_exists($field, 'flexibilityWindow')) {
+                if (($field->systemKey??'')!=='flexible') self::fail('Окно гибкости допустимо только для гибкого срока');
+                $f=$field->flexibilityWindow;self::shape($f,['texts','mode','unit','daily','maxAmount','anchors']);
+                self::shape($f->texts,['title','intro','timeline','deadline','discount','percent','amount','basis','explanation','cancel','apply']);
+                foreach(get_object_vars($f->texts) as $text) if(!is_string($text)||mb_strlen($text)>10000)self::fail('Некорректный текст гибкости');
+                if(!in_array($f->mode,['anchors','daily'],true)||!in_array($f->unit,['percent','rubles'],true))self::fail('Некорректный режим гибкости');
+                $number=static function($n):bool{return (is_int($n)||is_float($n))&&is_finite((float)$n)&&$n>=0&&$n<=1e12&&abs($n*100-round($n*100))<0.0001;};
+                if(!$number($f->daily)||$f->daily<=0||($f->maxAmount!==null&&(!$number($f->maxAmount)||$f->maxAmount<=0)))self::fail('Некорректная скидка или ограничитель');
+                if(!is_array($f->anchors)||count($f->anchors)<2||count($f->anchors)>5)self::fail('Допустимо от 2 до 5 отметок');
+                $previous=null;
+                foreach($f->anchors as $a){self::shape($a,['days','value']);if(!is_int($a->days)||$a->days<1||$a->days>365||!$number($a->value)||($f->unit==='percent'&&$a->value>100)||($previous&&($a->days<=$previous->days||($f->mode==='anchors'&&$a->value<=$previous->value))))self::fail('Отметки и скидки должны возрастать');$previous=$a;}
+            }
             if (!property_exists($field, 'urgencyWindow')) continue;
             if (($field->systemKey ?? '') !== 'urgency') self::fail('Окно срочности допустимо только для поля Срочность');
             if (!$field->urgencyWindow instanceof \stdClass) self::fail('Некорректное окно срочности');

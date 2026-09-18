@@ -28,3 +28,9 @@ if(json_encode($d)!==$before)throw new Exception('Label help mutated');
 $v->labelHelp->paymentTitle->enabled='false';
 try{AdditionalServices::validate($d);throw new Exception('Invalid switch accepted');}catch(InvalidArgumentException $e){}
 echo "PASS optional label help validation and preservation\n";
+
+$f=(object)['texts'=>(object)array_fill_keys(['title','intro','timeline','deadline','discount','percent','amount','basis','explanation','cancel','apply'],'Text'),'mode'=>'anchors','unit'=>'percent','daily'=>1,'maxAmount'=>1000,'anchors'=>[(object)['days'=>5,'value'=>5],(object)['days'=>30,'value'=>20]]];
+$d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'flexible','flexibilityWindow'=>$f]]]];
+AdditionalServices::validate($d);
+foreach(['max','count','descending','wrongField'] as $case){$bad=unserialize(serialize($d));$b=$bad->form->fields[0]->flexibilityWindow;if($case==='max')$b->maxAmount=-1;if($case==='count')$b->anchors=array_fill(0,6,$b->anchors[0]);if($case==='descending')$b->anchors[1]->value=1;if($case==='wrongField')$bad->form->fields[0]->systemKey='urgency';try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Invalid flexibility accepted: '.$case);}
+echo "PASS flexibility storage shape, cap, ordering and field boundary\n";
