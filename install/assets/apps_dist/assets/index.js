@@ -496,7 +496,7 @@ window.PilotCalendar = function (root, minimum, initial, options = {}) {\r
   function closeEditor(restoreFocus=true) { document.getElementById('editor').classList.remove('urgency-date-editor','payment-drawer');designerVeil.hidden=true;document.getElementById('drawer').inert=false;document.dispatchEvent(new Event('pilot-design-change'));$('editor').hidden=true;if(restoreFocus)returnFocus?.focus(); }\r
   function openEditor(kind,anchor) {\r
     closeMenus(); editorKind=kind;returnFocus=anchor;draftFiles=[...state.files];\r
-    const editor=$('editor'), fields=$('editor-fields');editor.dataset.processKind=kind;editor.classList.toggle('designer-drawer',kind==='help');editor.classList.toggle('payment-drawer',kind==='payment');editor.setAttribute('aria-modal',String(kind==='help'||kind==='payment'));designerVeil.hidden=kind!=='help'&&kind!=='payment';document.getElementById('drawer').inert=kind==='help'||kind==='payment';\r
+    const editor=$('editor'), fields=$('editor-fields');editor.dataset.processKind=kind;editor.classList.toggle('designer-drawer',kind==='help');editor.classList.toggle('payment-drawer',kind==='payment');editor.setAttribute('aria-modal',String(kind==='help'||kind==='payment'));designerVeil.hidden=kind!=='help'&&kind!=='payment';document.getElementById('drawer').inert=false;\r
     $('editor-title').textContent=kind==='help'?'Помощь дизайнера':kind==='design'?'Когда предоставите макет?':kind==='payment'?'Когда подтвердите оплату?':'Желаемая дата получения';\r
     if(kind==='help') {\r
       fields.innerHTML='<label>Что необходимо сделать<select id="service"><option value="minor">Внесение незначительных правок</option><option value="refine">Доработка существующего макета</option><option value="new">Разработка с нуля</option></select></label><label>Описание задачи<textarea id="brief" placeholder="Что изменить или разработать"></textarea></label><label class="dropzone" id="dropzone"><b>＋</b>Перетащите материалы или выберите файлы<small>Тексты, изображения, исходный макет</small><input type="file" id="files" multiple hidden></label><button type="button" class="outline" id="choose-files">Выбрать материалы</button><small>Материалы остаются только в этой вкладке.</small><div class="file-list" id="file-list"></div>';\r
@@ -709,7 +709,7 @@ window.PilotDesignBudget=(fields,state)=>{\r
   const head=box.querySelector('.editor-head'),foot=box.querySelector('.editor-actions');\r
   Array.from(box.children).filter(x=>x!==head&&x!==foot).forEach(x=>body.append(x));head.after(body);\r
   const veil=document.createElement('div');veil.className='service-drawer-veil';veil.hidden=true;document.body.append(veil);veil.onclick=onClose;\r
-  new MutationObserver(()=>{veil.hidden=box.hidden;document.getElementById('drawer').inert=!box.hidden;}).observe(box,{attributes:true,attributeFilter:['hidden']});\r
+  new MutationObserver(()=>{veil.hidden=box.hidden;document.getElementById('drawer').inert=false;}).observe(box,{attributes:true,attributeFilter:['hidden']});\r
   box.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();onClose();}if(e.key==='Tab'){const all=Array.from(box.querySelectorAll('button,input,select,textarea,[tabindex]')).filter(x=>!x.disabled&&x.getClientRects().length);const first=all[0],last=all.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}});\r
  };\r
 })();\r
@@ -904,7 +904,7 @@ window.PilotDeliveryWorkbench=({q,modal,addresses,addressDialog,bookDialog,kindR
  $('#speed').onclick=()=>{setUrgency(true);window.PilotOpenUrgency($('#speed'));};\r
  urgencyPopup.querySelector('.icon').onclick=closeUrgency;$('#urgency-done').onclick=()=>{if(!window.PilotHasDesiredDate()){copiedDate.focus();dateRequired.hidden=false;return;}dateRequired.hidden=true;setUrgency(true);closeUrgency();};$('#urgency-disable').onclick=()=>{window.PilotCancelUrgency();closeUrgency();};\r
  window.PilotCloseUrgency=closeUrgency;window.PilotServiceDrawer(urgencyPopup,closeUrgency);\r
- document.addEventListener('click',e=>{const link=e.target.closest('[data-edit-urgency]');if(link){window.PilotOpenUrgency(link);return;}if(!urgencyPopup.hidden&&!urgencyPopup.contains(e.target)&&!$('#editor').contains(e.target)&&!edit.contains(e.target)&&!$('#speed').contains(e.target))closeUrgency();});\r
+ document.addEventListener('click',e=>{const link=e.target.closest('[data-edit-urgency]');if(link){window.PilotOpenUrgency(link);return;}if(e.target.closest('#drawer .product,#drawer .footer-left')&&!urgencyPopup.hidden&&!urgencyPopup.contains(e.target)&&!$('#editor').contains(e.target)&&!edit.contains(e.target)&&!$('#speed').contains(e.target))closeUrgency();});\r
 })();\r
 <\/script><script>/* Pilot-only configurable flexibility tiers. No commercial tariff or order activation. */\r
 (()=>{\r
@@ -936,7 +936,7 @@ window.PilotDeliveryWorkbench=({q,modal,addresses,addressDialog,bookDialog,kindR
  trigger.dataset.tip='Выберите, сколько дополнительных дней вы готовы подождать, чтобы получить скидку.';\r
  trigger.onclick=()=>{window.PilotCloseUrgency?.();draft=applied??draft;render();box.hidden=false;const r=trigger.getBoundingClientRect();box.style.left=Math.max(12,Math.min(innerWidth-box.offsetWidth-12,r.right-box.offsetWidth))+'px';box.style.top=Math.max(12,Math.min(innerHeight-box.offsetHeight-12,r.top-box.offsetHeight-8))+'px';range.focus()};\r
  $('#flex-apply').onclick=()=>{window.PilotCancelUrgency?.();applied=draft;sync();window.PilotCloseFlexibility()};$('#flex-disable').onclick=()=>{window.PilotCancelFlexibility();window.PilotCloseFlexibility()};box.querySelector('.icon').onclick=window.PilotCloseFlexibility;window.PilotServiceDrawer(box,window.PilotCloseFlexibility);\r
- document.addEventListener('click',e=>{if(!box.hidden&&!box.contains(e.target)&&!trigger.contains(e.target))window.PilotCloseFlexibility()});\r
+ document.addEventListener('click',e=>{if(e.target.closest('#drawer .product,#drawer .footer-left')&&!box.hidden&&!box.contains(e.target)&&!trigger.contains(e.target))window.PilotCloseFlexibility()});\r
  document.addEventListener('pilot-design-change',()=>{if(!box.hidden)render()});\r
  const style=document.createElement('style');style.textContent='.desired-date-actions{display:flex;align-items:center;gap:8px}.desired-date-actions #receive-edit{width:auto;flex:0 1 auto;margin:0}.desired-date-actions .urgency-cancel{flex:none;margin:0}.urgency-cancel{vertical-align:middle;margin-left:8px;color:#8093a6}.urgency-date-required{font-size:12px;color:#b84e25;margin:8px 0}.flexibility-popover>p{font-size:13px;line-height:1.55}.flex-timing{padding:14px;background:#f4f9fc;border:1px solid #e1ebf2;border-radius:8px}.flex-timing>span{font-size:11px;color:#7b8c9a}.flex-timing>strong{float:right;font-size:12px;color:#0071bc}.flex-timing input{width:100%;margin:20px 0 10px;accent-color:#0071bc}.flex-tiers{display:flex;justify-content:space-between;gap:8px}.flex-tiers button{background:transparent;border:1px solid transparent;padding:6px;border-radius:5px;font-size:12px;color:#637b8d}.flex-tiers button[aria-pressed=true]{background:white;border-color:#88bae0;color:#0071bc}.flex-tiers small{display:block;margin-top:4px}.flex-timing p{font-size:12px;margin:14px 0 0}.flex-savings{margin-top:16px}.flex-savings>div{display:flex;justify-content:space-between;margin:10px 0;font-size:13px}.flex-savings small{font-size:11px;color:#8193a1}.flexibility-popover .editor-actions{position:sticky;bottom:-20px;background:white;padding:12px 0}.flexibility-popover .urgency-explanation{font-size:12px}';document.head.append(style);\r
 })();\r
@@ -986,7 +986,7 @@ window.PilotDeliveryWorkbench=({q,modal,addresses,addressDialog,bookDialog,kindR
   }, true);\r
   let outsideEditor = false;\r
   document.addEventListener('pointerdown', event => {\r
-    outsideEditor = visible(editor) && !editor.classList.contains('designer-drawer') &&\r
+    outsideEditor = !!event.target.closest('#drawer .product,#drawer .footer-left') && visible(editor) && !editor.classList.contains('designer-drawer') &&\r
       !editor.contains(event.target) && !event.target.closest('#receive-edit,.urgency-desired,#design-edit,#payment-edit');\r
   });\r
   document.addEventListener('click', event => {\r
@@ -1033,7 +1033,7 @@ window.PilotDeliveryWorkbench=({q,modal,addresses,addressDialog,bookDialog,kindR
  range.oninput=()=>{draft=dates[Number(range.value)].days;backupWarning.classList.remove('attention');render();live()};box.querySelector('.icon').onclick=$('#storage-cancel').onclick=close;$('#storage-apply').onclick=()=>{if(draft<=free&&!window.PilotHasBackupDelivery()){backupWarning.classList.add('attention');backupWarning.focus();return;}applied=true;saved=draft;payment=paymentFields.querySelector('input:checked').value;refund=refundFields.querySelector('input:checked').value;sync();close()};\r
  const choice=$('[data-delivery="Самовывоз"]'),previous=choice.onclick;choice.onclick=e=>{previous?.call(choice,e);sync();open()};\r
  new MutationObserver(sync).observe($('#delivery-label'),{childList:true,subtree:true,characterData:true});\r
- document.addEventListener('click',e=>{if(!box.hidden&&!box.contains(e.target)&&!edit.contains(e.target)&&!$('#delivery-edit').contains(e.target)&&!choice.contains(e.target))close()});box.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();close()}});window.addEventListener('resize',position);refreshDates();saved=dates.at(-1)?.days??saved;draft=saved;sync();\r
+ document.addEventListener('click',e=>{if(e.target.closest('#drawer .product,#drawer .footer-left')&&!box.hidden&&!box.contains(e.target)&&!edit.contains(e.target)&&!$('#delivery-edit').contains(e.target)&&!choice.contains(e.target))close()});box.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();close()}});window.addEventListener('resize',position);refreshDates();saved=dates.at(-1)?.days??saved;draft=saved;sync();\r
 })();\r
 <\/script><script>/* One header/footer geometry measured from the main calculator drawer. */\r
 (()=>{\r
@@ -1098,8 +1098,11 @@ window.PilotDeliveryWorkbench=({q,modal,addresses,addressDialog,bookDialog,kindR
 /* Successive drawers reveal the previous levels on the left. */\r
 (()=>{\r
  const positions=(widths,right)=>{const result=[];for(let i=widths.length-1;i>=0;i--){right=Math.max(0,right-widths[i]);result[i]=right;}return result;};\r
- const dockBounds=(left,right,bottom)=>({width:Math.max(280,Math.min(760,right-Math.max(0,left))),height:Math.max(240,bottom)});\r
+ const dockBounds=(left,right,bottom,summaryWidth=500)=>({width:summaryWidth,height:Math.max(240,bottom)});\r
  if(typeof document==='undefined'){module.exports={positions,dockBounds};return;}\r
+ const host=document.createElement('div');host.id='process-dock-host';document.body.append(host);\r
+ const main=e=>e.id==='editor'||e.classList.contains('service-drawer')||!!e.querySelector(':scope > #delivery-form');\r
+ const delivery=document.querySelector('#delivery-form')?.closest('dialog');if(delivery){const modal=delivery.showModal.bind(delivery);delivery.showModal=()=>innerWidth>760?delivery.show():modal();}\r
  const selector='#drawer,dialog.delivery-dialog,#editor,.service-drawer';let stack=[],queued=false;\r
  const style=document.createElement('style');style.textContent=\`dialog.delivery-dialog::backdrop,.delivery-date-popover::backdrop{background:transparent!important;backdrop-filter:none!important}.designer-veil,.service-drawer-veil{background:transparent!important;backdrop-filter:none!important}#drawer .summary,#drawer .footer-right,#drawer .header-actions{position:relative;z-index:8;translate:var(--root-summary-offset,0px) 0;transition:translate .22s ease;background:#f8f9fb} .pilot-stack-panel{translate:var(--stack-offset,0px) 0;transition:translate .22s ease,opacity .22s ease!important}.pilot-stack-leaving{translate:var(--leave-offset,100vw) 0!important;pointer-events:none}@media(prefers-reduced-motion:reduce){.pilot-stack-panel{transition:none!important}}\r
 #editor.pilot-process-dock,.service-drawer.pilot-process-dock,dialog.delivery-dialog.pilot-process-dock{position:fixed!important;inset:0 0 auto auto!important;margin:0!important;width:var(--dock-width)!important;max-width:var(--dock-width)!important;height:var(--dock-height)!important;max-height:var(--dock-height)!important;padding:0!important;border:0!important;border-left:1px solid #e5eaf0!important;border-right:1px solid #e5eaf0!important;border-radius:0!important;box-sizing:border-box!important;display:flex;flex-direction:column;overflow:hidden!important;background:white}\r
@@ -1109,6 +1112,21 @@ window.PilotDeliveryWorkbench=({q,modal,addresses,addressDialog,bookDialog,kindR
 #editor.pilot-process-dock #editor-fields{flex:1;overflow:auto;min-height:0;padding:24px 32px;display:block}\r
 #editor.pilot-process-dock #editor-form>.service-footer,#editor.pilot-process-dock #editor-form>.editor-actions,.pilot-process-dock>form>.delivery-footer,.pilot-process-dock>.editor-actions{height:auto!important;min-height:64px!important;max-height:210px!important;flex:0 0 auto!important;padding:12px 32px!important;border-top:1px solid #e5eaf0!important;overflow:auto}\r
 .pilot-process-dock .calendar{max-width:390px;margin-inline:auto}.pilot-process-dock>.editor-head{margin:0!important}.pilot-process-dock .delivery-footer{gap:8px 20px!important}.pilot-process-dock .delivery-price strong{font-size:24px!important;margin:2px 0!important}.pilot-process-dock #delivery-allocation{font-size:10px;line-height:1.35;margin:4px 0}.drawer-head,.unified-total{border-color:#e5eaf0!important}.summary{border-color:#e5eaf0!important}\r
+\r
+#process-dock-host{position:fixed;inset:0 auto auto 0;width:var(--host-width);height:var(--host-height);overflow:hidden;pointer-events:none;z-index:40}\r
+#process-dock-host>.pilot-process-dock{position:absolute!important;pointer-events:auto;translate:var(--stack-offset,0px) 0;animation:process-reveal .22s ease both;box-shadow:-8px 0 24px #24364b0a!important}\r
+@keyframes process-reveal{from{transform:translateX(100%)}to{transform:translateX(0)}}\r
+.designer-veil,.service-drawer-veil{display:none!important}\r
+.pilot-process-dock .dock-scroll{overflow-y:auto;overflow-x:hidden;direction:rtl;scrollbar-width:thin;scrollbar-color:#dce3e9 transparent;flex:1;min-height:0}\r
+.pilot-process-dock .dock-scroll>*{direction:ltr}\r
+.pilot-process-dock .dock-scroll::-webkit-scrollbar{width:5px}.pilot-process-dock .dock-scroll::-webkit-scrollbar-thumb{background:#dce3e9;border-radius:5px}\r
+#editor.pilot-process-dock .dock-scroll>#editor-fields,.pilot-process-dock .dock-scroll>.delivery-body,.pilot-process-dock .dock-scroll>.service-drawer-body{overflow:visible!important;flex:none!important;height:auto;max-height:none;padding:24px 28px!important}\r
+.pilot-process-dock .dock-scroll>.service-footer,.pilot-process-dock .dock-scroll>.delivery-footer,.pilot-process-dock .dock-scroll>.editor-actions{position:static!important;display:block!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;padding:0 28px 24px!important;margin:0!important;border:0!important;background:white!important;flex:none!important}\r
+.pilot-process-dock .dock-scroll .designer-price,.pilot-process-dock .dock-scroll .delivery-price{display:none!important}\r
+.pilot-process-dock .dock-scroll .editor-actions{position:static!important;border:0!important;background:transparent!important;padding:12px 0 0!important;margin:0!important}\r
+.pilot-process-dock .dock-scroll .service-terms{margin-bottom:12px}\r
+#editor.pilot-process-dock #editor-form{overflow:hidden!important}\r
+@media(prefers-reduced-motion:reduce){#process-dock-host>.pilot-process-dock{animation:none}}\r
 \`;document.head.append(style);\r
  const visible=e=>e.tagName==='DIALOG'?e.open:!e.hidden&&e.getClientRects().length>0&&(e.id!=='drawer'||document.body.classList.contains('is-open'));\r
  function sync(){\r
@@ -1117,18 +1135,16 @@ window.PilotDeliveryWorkbench=({q,modal,addresses,addressDialog,bookDialog,kindR
  const current=panels.filter(e=>visible(e)&&!e.classList.contains('pilot-stack-leaving'));stack=stack.filter(e=>current.includes(e));current.forEach(e=>{if(!stack.includes(e))stack.push(e);e.classList.add('pilot-stack-panel');});\r
  const summary=root.querySelector('.summary').getBoundingClientRect(),footer=root.querySelector('.unified-total').getBoundingClientRect(),rootRect=root.getBoundingClientRect();\r
  const dock=innerWidth>760&&visible(root),right=dock?summary.left:innerWidth;\r
- const bounds=dockBounds(rootRect.left,right,footer.top);const children=stack.filter(e=>e!==root);children.forEach(e=>{e.classList.toggle('pilot-process-dock',dock);e.style.setProperty('--dock-width',bounds.width+'px');e.style.setProperty('--dock-height',bounds.height+'px');});\r
+ host.style.setProperty('--host-width',right+'px');host.style.setProperty('--host-height',footer.top+'px');root.inert=false;const bounds=dockBounds(rootRect.left,right,footer.top,summary.width);const children=stack.filter(e=>e!==root);children.forEach(e=>{if(dock&&main(e)){if(e.parentElement!==host)host.append(e);const form=e.id==='editor'?e.querySelector('#editor-form'):e.querySelector(':scope > form')||e;let scroll=form.querySelector(':scope > .dock-scroll');if(!scroll){scroll=document.createElement('div');scroll.className='dock-scroll';const parts=Array.from(form.children).filter(x=>!x.classList.contains('editor-head'));form.append(scroll);parts.forEach(x=>scroll.append(x));}e.setAttribute('aria-modal','false');}e.classList.toggle('pilot-process-dock',dock);e.style.setProperty('--dock-width',bounds.width+'px');e.style.setProperty('--dock-height',bounds.height+'px');});\r
  const widths=children.map(e=>e.getBoundingClientRect().width),lefts=positions(widths,right);\r
- children.forEach((e,i)=>e.style.setProperty('--stack-offset',(lefts[i]-(innerWidth-widths[i]))+'px'));\r
+ children.forEach((e,i)=>e.style.setProperty('--stack-offset',(lefts[i]-((e.parentElement===host?right:innerWidth)-widths[i]))+'px'));\r
  panels.filter(e=>!current.includes(e)&&!e.classList.contains('pilot-stack-leaving')).forEach(e=>e.style.removeProperty('--stack-offset'));\r
  }\r
  const schedule=()=>{if(!queued){queued=true;requestAnimationFrame(sync);}};\r
  new MutationObserver(records=>{if(records.some(r=>r.attributeName!=='class'||r.target===document.body||r.target.id==='editor'))schedule();}).observe(document.body,{subtree:true,attributes:true,attributeFilter:['hidden','open','class']});window.addEventListener('resize',schedule);\r
  document.querySelectorAll('dialog.delivery-dialog').forEach(dialog=>{const original=dialog.close.bind(dialog);let closing=false;dialog.close=value=>{if(!dialog.open||closing)return;closing=true;dialog.style.setProperty('--leave-offset',((parseFloat(dialog.style.getPropertyValue('--stack-offset'))||0)+dialog.getBoundingClientRect().width)+'px');dialog.classList.add('pilot-stack-leaving');schedule();setTimeout(()=>{original(value);dialog.classList.remove('pilot-stack-leaving');dialog.style.removeProperty('--leave-offset');closing=false;schedule();},matchMedia('(prefers-reduced-motion: reduce)').matches?0:220);};});\r
  const cancel=e=>{const button=e.querySelector(':scope > form > .editor-head > button.icon,:scope > .editor-head > button.icon');if(e.tagName==='DIALOG')button?.click();else{e.classList.add('pilot-stack-leaving');setTimeout(()=>{button?.click();e.classList.remove('pilot-stack-leaving');},180);}};\r
- let outsideDown=false;\r
- document.addEventListener('pointerdown',e=>{const top=stack.at(-1);if(stack.length<2||!top)return;const r=top.getBoundingClientRect();outsideDown=e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom;},true);\r
- document.addEventListener('click',e=>{if(!outsideDown||stack.length<2)return;outsideDown=false;const top=stack.at(-1),r=top.getBoundingClientRect();if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom)return;if(document.querySelector('dialog.delivery-date-popover[open]'))return;e.preventDefault();e.stopImmediatePropagation();let target=stack.length-2;for(let i=stack.length-2;i>=0;i--){const b=stack[i].getBoundingClientRect();if(e.clientX>=b.left&&e.clientX<=b.right){target=i;break;}}for(let i=stack.length-1;i>target;i--)cancel(stack[i]);},true);\r
+ document.addEventListener('pointerdown',e=>{if(e.target.closest('#drawer .product,#drawer .footer-left,#drawer .drawer-head>div:not(.header-actions)')){for(let i=stack.length-1;i>=0;i--)if(stack[i].id!=='drawer')cancel(stack[i]);}},true);\r
  sync();\r
 })();\r
 <\/script></body></html>\r
