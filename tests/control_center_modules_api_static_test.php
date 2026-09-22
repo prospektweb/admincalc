@@ -41,6 +41,7 @@ $assert(strpos($endpoint, "header('Cache-Control: no-store, private')") !== fals
 $assert(strpos($service, "public const CONTRACT = 'prospektweb.control-plane/catalog/v1'") !== false, 'Registry contract must be versioned');
 $assert(substr_count($service, "'id' => 'prospektweb.") >= 5, 'Registry must statically allowlist canonical module IDs');
 $assert(strpos($service, "'id' => 'prospektweb.layoutfiles'") !== false, 'Registry must use the canonical layoutfiles module ID');
+$assert(strpos($service, "'id' => 'prospektweb.yandexmaps'") !== false && strpos($service, "'id' => 'admin.yandexmaps.settings'") !== false, 'Yandex Maps module and settings capability must be present');
 $assert(strpos($service, "'id' => 'storefront.property_descriptions'") !== false, 'Property description capability must be stable');
 $assert(strpos($service, "'name' => 'Обычная сортировка'") !== false && strpos($service, "'optionName' => 'CATALOG_STANDARD_SORTING'") !== false, 'Ordinary catalog sorting must be owned by storefrontui and expose the requested copy');
 $assert(strpos($service, "'optionModule' => 'prospektweb.propvalmanager'") !== false && strpos($service, "'optionName' => 'ENABLED'") !== false && strpos($service, "'optionDefault' => 'Y'") !== false, 'Property descriptions must reuse the existing provider option and default');

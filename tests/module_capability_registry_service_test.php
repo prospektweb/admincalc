@@ -40,6 +40,7 @@ namespace Bitrix\Main {
             'prospektweb.layoutfiles' => '1.1.5',
             'prospektweb.partnermanager' => '1.0.0',
             'prospektweb.offerfilter' => '1.0.0',
+            'prospektweb.yandexmaps' => '0.1.0',
         ];
 
         public static function isModuleInstalled(string $moduleId): bool
@@ -123,8 +124,8 @@ namespace {
     $assert($initial['contract'] === 'prospektweb.control-plane/catalog/v1', 'Catalog contract must be versioned');
     $assert(strlen((string)$initial['revision']) === 64, 'Catalog revision must be SHA-256');
     $assert($repeat['revision'] === $initial['revision'], 'Unchanged catalogs must have a stable revision');
-    $assert(count($initial['modules']) === 9, 'Catalog must expose nine canonical modules');
-    $assert($initial['summary']['capabilities'] === 26, 'Catalog capability summary must match the allowlist');
+    $assert(count($initial['modules']) === 10, 'Catalog must expose ten canonical modules');
+    $assert($initial['summary']['capabilities'] === 27, 'Catalog capability summary must match the allowlist');
     $commercialPreview = $findCapability($initial, 'admin.calculator.commercial_policy_preview');
     $assert($commercialPreview['enabled'] && !$commercialPreview['mutable'], 'Commercial preview cannot enable working policies');
     $calendarPreview = $findCapability($initial, 'admin.orderterms.calendar_preview');
@@ -137,6 +138,7 @@ namespace {
     $assert(in_array('prospektweb.layoutfiles', $moduleIds, true), 'Canonical layoutfiles module ID must be used');
     $assert(in_array('prospektweb.partnermanager', $moduleIds, true), 'Canonical partner manager module ID must be used');
     $assert(in_array('prospektweb.storefrontui', $moduleIds, true), 'Dedicated public UI module must be exposed');
+    $assert(in_array('prospektweb.yandexmaps', $moduleIds, true), 'Yandex Maps module must be exposed');
     $assert(!in_array('prospekt.layoutfiles', $moduleIds, true), 'Deprecated layoutfiles module ID must not be exposed');
 
     $propertyDescriptions = $findCapability($initial, 'storefront.property_descriptions');
@@ -146,6 +148,7 @@ namespace {
     $mobilePagination = $findCapability($initial, 'mobile.catalog.pagination_containment');
     $massProperties = $findCapability($initial, 'admin.offers.mass_property_editor');
     $contactsGallery = $findCapability($initial, 'storefront.contacts.gallery');
+    $yandexMaps = $findCapability($initial, 'admin.yandexmaps.settings');
     $assert($propertyDescriptions['enabled'] === true && $propertyDescriptions['mutable'] === true, 'Property descriptions must default to enabled and be mutable');
     $assert($companySuggestions['enabled'] === true && $companySuggestions['mutable'] === true, 'Company suggestions must default to enabled and be mutable');
     $assert($calculator['mutable'] === false && $calculator['state'] === 'managed-later', 'Ungarded calculator capability must be honestly marked for later management');
@@ -154,6 +157,7 @@ namespace {
     $assert($mobilePagination['group'] === 'Мобильная версия' && $mobilePagination['mutable'] === true && $mobilePagination['enabled'] === true, 'Mobile pagination containment must be provider-owned and enabled by default');
     $assert($massProperties['mutable'] === true && $massProperties['enabled'] === true, 'Mass offer property editor must be guarded and enabled by default');
     $assert($contactsGallery['mutable'] === true && $contactsGallery['enabled'] === false, 'Contacts gallery must be manageable and disabled by default');
+    $assert($yandexMaps['mutable'] === false && $yandexMaps['enabled'] === true, 'Yandex Maps settings must be installed and read-only from the capability switch');
 
     $updated = $service->setCapability(
         'storefront.property_descriptions',

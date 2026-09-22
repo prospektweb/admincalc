@@ -63,6 +63,25 @@ class ModuleCapabilityRegistryService
             ],
         ],
         [
+            'id' => 'prospektweb.yandexmaps',
+            'name' => 'Яндекс.Карты',
+            'description' => 'Конфигурационный модуль карты: ключи API и параметры будущего подключения к витрине.',
+            'settingsUrl' => '/bitrix/admin/settings.php?mid=prospektweb.yandexmaps&lang=ru',
+            'capabilities' => [
+                [
+                    'id' => 'admin.yandexmaps.settings',
+                    'name' => 'Настройки доступа к API',
+                    'description' => 'Хранит ключ JavaScript API, ключ подсказок и ключ геокодера в настройках сайта. Реальное подключение карты выполняется отдельным этапом.',
+                    'surface' => 'admin',
+                    'defaultEnabled' => true,
+                    'mutable' => false,
+                    'state' => 'managed',
+                    'risk' => 'medium',
+                    'requiresReload' => false,
+                ],
+            ],
+        ],
+        [
             'id' => 'prospektweb.frontcalc',
             'name' => 'Калькулятор витрины',
             'description' => 'Публичный калькулятор продукции и расчётные позиции корзины.',
@@ -483,6 +502,7 @@ class ModuleCapabilityRegistryService
                 'id' => $moduleId,
                 'name' => (string)$moduleDefinition['name'],
                 'description' => (string)$moduleDefinition['description'],
+                'settingsUrl' => (string)($moduleDefinition['settingsUrl'] ?? ''),
                 'version' => $version,
                 'installed' => $installed,
                 'status' => $installed ? 'installed' : 'not-installed',
