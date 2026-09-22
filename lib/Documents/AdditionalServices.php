@@ -19,12 +19,10 @@ final class AdditionalServices
                 }
                 if(property_exists($p,'payment')){
                     if($kind!=='payment')self::fail('Условия оплаты допустимы только для оплаты');
-                    $q=$p->payment;self::shape($q,['immediateMinutes','proofEnabled','proofLimit','laterHours','fixPrice','fixHours','reasons','immediateHint','laterHint','expiryNotice','cancellationNotice']);
+                    $q=$p->payment;self::shape($q,['immediateMinutes','laterHours','fixPrice','fixHours','immediateHint','laterHint']);
                     foreach(['immediateMinutes','laterHours','fixHours'] as $key)if(!is_int($q->$key)||$q->$key<1||$q->$key>8760)self::fail('Некорректный интервал оплаты');
-                    if(!is_bool($q->proofEnabled)||!is_bool($q->fixPrice)||(!is_int($q->proofLimit)&&!is_float($q->proofLimit))||!is_finite((float)$q->proofLimit)||$q->proofLimit<0||$q->proofLimit>1e12||($q->proofEnabled&&$q->proofLimit<=0))self::fail('Некорректный лимит платёжного поручения');
-                    if(!is_array($q->reasons)||count($q->reasons)<1||count($q->reasons)>20)self::fail('Укажите причины отсрочки');
-                    foreach($q->reasons as $r)if(!is_string($r)||trim($r)===''||mb_strlen($r)>200)self::fail('Некорректная причина отсрочки');
-                    foreach(['immediateHint','laterHint','expiryNotice','cancellationNotice'] as $key)if(!is_string($q->$key)||mb_strlen($q->$key)>10000)self::fail('Некорректное описание оплаты');
+                    if(!is_bool($q->fixPrice))self::fail('Некорректная фиксация цены');
+                    foreach(['immediateHint','laterHint'] as $key)if(!is_string($q->$key)||mb_strlen($q->$key)>10000)self::fail('Некорректное описание оплаты');
                 }
                 if(property_exists($p,'storage')){
                     if($kind!=='receipt')self::fail('Хранение допустимо только для получения');
@@ -40,7 +38,7 @@ final class AdditionalServices
                 foreach(get_object_vars($p->rules) as $key=>$rule){self::shape($rule,['days','serviceId']);if(!preg_match('/^[a-zA-Z0-9_.-]{1,100}$/D',(string)$key)||!is_int($rule->days)||$rule->days<0||$rule->days>365||!is_string($rule->serviceId)||strlen($rule->serviceId)>100)self::fail('Некорректное правило процесса');}
             }
             if (property_exists($field, 'dateSelection')) {
-                if (!in_array($field->systemKey??'',['desiredDate','payment'],true)) self::fail('Ограничения даты допустимы для желаемой даты и подтверждения оплаты');
+                if (!in_array($field->systemKey??'',['desiredDate','design','payment'],true)) self::fail('Ограничения даты допустимы для желаемой даты, макета и подтверждения оплаты');
                 $p=$field->dateSelection; self::shape($p,['calendarId','weekend','holiday','overtime']);
                 if(!is_string($p->calendarId)||strlen($p->calendarId)>64) self::fail('Некорректный календарь');
                 foreach(['weekend','holiday','overtime'] as $key){

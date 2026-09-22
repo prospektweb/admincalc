@@ -42,6 +42,9 @@ echo "PASS process windows storage, rules and field boundary\n";
 
 $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'payment','dateSelection'=>(object)['calendarId'=>'qa','weekend'=>(object)['allowed'=>true,'source'=>'global','from'=>540,'to'=>1080],'holiday'=>(object)['allowed'=>false,'source'=>'global','from'=>540,'to'=>1080],'overtime'=>(object)['allowed'=>true,'source'=>'individual','from'=>0,'to'=>1200]]]]]];
 AdditionalServices::validate($d);
+$d->form->fields[0]->systemKey='design';
+AdditionalServices::validate($d);
+$d->form->fields[0]->systemKey='payment';
 $d->form->fields[0]->dateSelection->overtime->from=540;
 try{AdditionalServices::validate($d);throw new Exception('Invalid overtime start accepted');}catch(InvalidArgumentException $e){}
 echo "PASS payment calendar rules and locked overtime start\n";
@@ -55,12 +58,12 @@ try{AdditionalServices::validate($bad);throw new Exception('Paid first storage d
 $d->form->fields[0]->processWindow->storage->anchors[2]->days=3;
 try{AdditionalServices::validate($d);throw new Exception('Duplicate storage marks accepted');}catch(InvalidArgumentException $e){}
 echo "PASS storage zero marks, schema and duplicate rejection\n";
-$q=(object)['immediateMinutes'=>60,'proofEnabled'=>false,'proofLimit'=>0,'laterHours'=>72,'fixPrice'=>true,'fixHours'=>72,'reasons'=>['Approval','Other'],'immediateHint'=>'Now','laterHint'=>'Later','expiryNotice'=>'Expired','cancellationNotice'=>'Cancel'];
+$q=(object)['immediateMinutes'=>60,'laterHours'=>72,'fixPrice'=>true,'fixHours'=>72,'immediateHint'=>'Now','laterHint'=>'Later'];
 $p=(object)['texts'=>(object)array_fill_keys(['title','intro','time','note','cancel','apply'],'Text'),'help'=>(object)[],'rules'=>(object)[],'allowBudget'=>true,'requireDescription'=>false,'payment'=>$q];
 $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'payment','processWindow'=>$p]]]];
 AdditionalServices::validate($d);
-foreach(['proof','hours','reason'] as $case){$bad=unserialize(serialize($d));$q=$bad->form->fields[0]->processWindow->payment;if($case==='proof')$q->proofEnabled=true;if($case==='hours')$q->laterHours=0;if($case==='reason')$q->reasons=[''];try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Invalid payment accepted: '.$case);}
-echo "PASS payment policy proof limit, intervals and reasons\n";
+foreach(['legacyProof','hours','legacyReason'] as $case){$bad=unserialize(serialize($d));$q=$bad->form->fields[0]->processWindow->payment;if($case==='legacyProof')$q->proofEnabled=false;if($case==='hours')$q->laterHours=0;if($case==='legacyReason')$q->reasons=[''];try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Invalid payment accepted: '.$case);}
+echo "PASS current pilot payment policy contract\n";
 
 $rp=(object)['texts'=>$texts,'help'=>(object)[],'rules'=>(object)[],'allowBudget'=>true,'requireDescription'=>false,'deliverySlots'=>[(object)['from'=>'10:00','to'=>'14:00'],(object)['from'=>'14:00','to'=>'18:00']]];
 $receipt=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'receipt','processWindow'=>$rp]]]];
