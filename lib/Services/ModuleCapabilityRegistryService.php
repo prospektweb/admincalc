@@ -25,7 +25,10 @@ class ModuleCapabilityRegistryService
                     'id' => 'admin.orderterms.calendar_preview',
                     'name' => 'Производственные календари',
                     'description' => 'Настройте варианты рабочих графиков',
-                    'surface' => 'admin', 'defaultEnabled' => true, 'mutable' => false,
+                    'surface' => 'admin', 'defaultEnabled' => true, 'mutable' => true,
+                    'optionModule' => 'prospektweb.orderterms',
+                    'optionName' => 'PRODUCTION_CALENDARS_ENABLED',
+                    'optionDefault' => 'Y',
                     'state' => 'managed', 'risk' => 'low', 'requiresReload' => false,
                 ],
                 [

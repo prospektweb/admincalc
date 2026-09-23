@@ -130,9 +130,9 @@ namespace {
     $assert($commercialPreview['enabled'] && !$commercialPreview['mutable'], 'Commercial preview cannot enable working policies');
     $calendarPreview = $findCapability($initial, 'admin.orderterms.calendar_preview');
     $ordertermsEnrollment = $findCapability($initial, 'storefront.orderterms.enrollment');
-    $assert($calendarPreview['enabled'] && !$calendarPreview['mutable'], 'Calendar preview is available without enrollment');
+    $assert($calendarPreview['enabled'] && $calendarPreview['mutable'], 'Production calendars must have a module-owned switch');
     $assert(!$ordertermsEnrollment['enabled'] && !$ordertermsEnrollment['mutable'], 'Stage02 cannot enable orderterms writer');
-    $assert($initial['summary']['mutableCapabilities'] === 16, 'Provider-owned feature guards must be mutable');
+    $assert($initial['summary']['mutableCapabilities'] === 17, 'Provider-owned feature guards must be mutable');
 
     $moduleIds = array_column($initial['modules'], 'id');
     $assert(in_array('prospektweb.layoutfiles', $moduleIds, true), 'Canonical layoutfiles module ID must be used');
@@ -232,6 +232,11 @@ namespace {
         $assert($exception->getMessage() === 'Capability audit failed and option change was rolled back', 'Audit failures must be explicit');
         $assert(Option::$values['prospektweb.propvalmanager']['ENABLED'] === 'N', 'Audit failure must roll the provider option back');
     }
+
+    CEventLog::$fail = false;
+    $calendarDisabled = $service->setCapability('admin.orderterms.calendar_preview', false, (string)$galleryEnabled['revision'], 42);
+    $assert(Option::get('prospektweb.orderterms', 'PRODUCTION_CALENDARS_ENABLED', 'Y') === 'N', 'Calendar switch must use the orderterms option');
+    $assert(!$findCapability($calendarDisabled, 'admin.orderterms.calendar_preview')['enabled'], 'Disabled calendar state must be visible in catalog');
 
     echo "Module capability registry service tests passed\n";
 }
