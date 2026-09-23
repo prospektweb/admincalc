@@ -18,7 +18,7 @@ class ModuleCapabilityRegistryService
     private const MODULES = [
         [
             'id' => 'prospektweb.orderterms',
-            'name' => 'Сроки и готовность заказов',
+            'name' => 'Управление сроками',
             'description' => 'Версии календарей и preview для администратора. Рабочие сроки заказов выключены; корзина использует прежние правила.',
             'capabilities' => [
                 [
