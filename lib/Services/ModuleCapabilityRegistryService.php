@@ -19,12 +19,12 @@ class ModuleCapabilityRegistryService
         [
             'id' => 'prospektweb.orderterms',
             'name' => 'Управление сроками',
-            'description' => 'Версии календарей и preview для администратора. Рабочие сроки заказов выключены; корзина использует прежние правила.',
+            'description' => 'Модуль позволяет использовать производственные календари и планировать сроки осуществления этапов заказа.',
             'capabilities' => [
                 [
                     'id' => 'admin.orderterms.calendar_preview',
-                    'name' => 'Календарь: версии и диагностический preview',
-                    'description' => 'Диагностика: /bitrix/admin/prospektweb_orderterms_diagnostic.php. Импорт старых настроек создаёт только проверяемый проект календаря.',
+                    'name' => 'Производственные календари',
+                    'description' => 'Настройте варианты рабочих графиков',
                     'surface' => 'admin', 'defaultEnabled' => true, 'mutable' => false,
                     'state' => 'managed', 'risk' => 'low', 'requiresReload' => false,
                 ],
