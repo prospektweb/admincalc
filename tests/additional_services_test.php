@@ -39,6 +39,14 @@ $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'payment','process
 AdditionalServices::validate($d);$before=json_encode($d);AdditionalServices::validate($d);if(json_encode($d)!==$before)throw new Exception('Process settings mutated');
 foreach(['days','wrongField','help'] as $case){$bad=unserialize(serialize($d));if($case==='days')$bad->form->fields[0]->processWindow->rules->immediate->days=-1;if($case==='wrongField')$bad->form->fields[0]->systemKey='urgency';if($case==='help')$bad->form->fields[0]->processWindow->help->unknown=(object)['enabled'=>true,'text'=>'x'];try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Invalid process accepted: '.$case);}
 echo "PASS process windows storage, rules and field boundary\n";
+$design=(object)['texts'=>(object)array_fill_keys(['title','task','budget','timeline','description','placeholder','upload','uploadHint','verification','approval','total','cancel','apply'],'Text'),'help'=>(object)[],'rules'=>(object)['later'=>(object)['days'=>0,'serviceId'=>'']],'allowBudget'=>true,'requireDescription'=>false];
+$designDocument=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'design','processWindow'=>$design]]]];
+AdditionalServices::validate($designDocument);
+$design->texts->laterTitle='Когда предоставите макет?';$design->texts->laterTime='Время';$design->help->laterTitle=(object)['enabled'=>true,'text'=>'Подготовьте макет'];
+AdditionalServices::validate($designDocument);
+$invalidDesign=unserialize(serialize($designDocument));$invalidDesign->form->fields[0]->processWindow->texts->unknown='x';
+try{AdditionalServices::validate($invalidDesign);throw new Exception('Unknown design text accepted');}catch(InvalidArgumentException $e){}
+echo "PASS design later window text and help storage\n";
 
 $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'payment','dateSelection'=>(object)['calendarId'=>'qa','weekend'=>(object)['allowed'=>true,'source'=>'global','from'=>540,'to'=>1080],'holiday'=>(object)['allowed'=>false,'source'=>'global','from'=>540,'to'=>1080],'overtime'=>(object)['allowed'=>true,'source'=>'individual','from'=>0,'to'=>1200]]]]]];
 AdditionalServices::validate($d);

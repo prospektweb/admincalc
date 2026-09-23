@@ -30,10 +30,10 @@ final class AdditionalServices
                     $money=static fn($n)=>is_numeric($n)&&!is_string($n)&&is_finite((float)$n)&&$n>=0&&$n<=1e12&&abs($n*100-round($n*100))<0.0001;
                     if(!in_array($s->mode,['anchors','daily'],true)||!$money($s->daily)||($s->maxAmount!==null&&(!$money($s->maxAmount)||$s->maxAmount<=0))||!is_array($s->anchors)||count($s->anchors)<2||count($s->anchors)>5)self::fail('Некорректные настройки хранения');
                     $day=0;$amount=0;foreach($s->anchors as $index=>$a){self::shape($a,['days','value']);if(!is_int($a->days)||$a->days<1||$a->days>365||$a->days<=$day||!$money($a->value)||($index===0&&$a->value!=0)||$a->value<$amount||($s->mode==='daily'&&$index<2&&$a->value!=0))self::fail('Некорректные отметки хранения');$day=$a->days;$amount=$a->value;}
-                }self::shape($p->texts,$keys[$kind]);
+                }$textKeys=$keys[$kind];if($kind==='design')foreach(['laterTitle','laterTime'] as $key)if(property_exists($p->texts,$key))$textKeys[]=$key;self::shape($p->texts,$textKeys);
                 if(!is_bool($p->allowBudget)||!is_bool($p->requireDescription)||!$p->help instanceof \stdClass||!$p->rules instanceof \stdClass)self::fail('Некорректные настройки процесса');
                 foreach(get_object_vars($p->texts) as $text)if(!is_string($text)||mb_strlen($text)>10000)self::fail('Некорректный текст процесса');
-                foreach(get_object_vars($p->help) as $key=>$help){if(!in_array($key,$keys[$kind],true))self::fail('Неизвестная подсказка');self::shape($help,['enabled','text']);if(!is_bool($help->enabled)||!is_string($help->text)||mb_strlen($help->text)>10000)self::fail('Некорректная подсказка');}
+                foreach(get_object_vars($p->help) as $key=>$help){if(!in_array($key,$textKeys,true))self::fail('Неизвестная подсказка');self::shape($help,['enabled','text']);if(!is_bool($help->enabled)||!is_string($help->text)||mb_strlen($help->text)>10000)self::fail('Некорректная подсказка');}
                 if(count(get_object_vars($p->rules))>50)self::fail('Слишком много вариантов');
                 foreach(get_object_vars($p->rules) as $key=>$rule){self::shape($rule,['days','serviceId']);if(!preg_match('/^[a-zA-Z0-9_.-]{1,100}$/D',(string)$key)||!is_int($rule->days)||$rule->days<0||$rule->days>365||!is_string($rule->serviceId)||strlen($rule->serviceId)>100)self::fail('Некорректное правило процесса');}
             }
