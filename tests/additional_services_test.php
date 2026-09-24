@@ -42,6 +42,8 @@ echo "PASS process windows storage, rules and field boundary\n";
 $design=(object)['texts'=>(object)array_fill_keys(['title','task','budget','timeline','description','placeholder','upload','uploadHint','verification','approval','total','cancel','apply'],'Text'),'help'=>(object)[],'rules'=>(object)['later'=>(object)['days'=>0,'serviceId'=>'']],'allowBudget'=>true,'requireDescription'=>false];
 $designDocument=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'design','processWindow'=>$design]]]];
 AdditionalServices::validate($designDocument);
+$design->texts->chooseFiles='Добавить файлы';$design->help->chooseFiles=(object)['enabled'=>true,'text'=>'Прикрепите исходный макет'];
+AdditionalServices::validate($designDocument);
 $design->texts->laterTitle='Когда предоставите макет?';$design->texts->laterTime='Время';$design->help->laterTitle=(object)['enabled'=>true,'text'=>'Подготовьте макет'];
 $design->designLaterHours=72;
 AdditionalServices::validate($designDocument);
