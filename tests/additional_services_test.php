@@ -43,7 +43,10 @@ $design=(object)['texts'=>(object)array_fill_keys(['title','task','budget','time
 $designDocument=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'design','processWindow'=>$design]]]];
 AdditionalServices::validate($designDocument);
 $design->texts->laterTitle='Когда предоставите макет?';$design->texts->laterTime='Время';$design->help->laterTitle=(object)['enabled'=>true,'text'=>'Подготовьте макет'];
+$design->designLaterHours=72;
 AdditionalServices::validate($designDocument);
+$invalidHours=unserialize(serialize($designDocument));$invalidHours->form->fields[0]->processWindow->designLaterHours=0;
+try{AdditionalServices::validate($invalidHours);throw new Exception('Invalid design waiting limit accepted');}catch(InvalidArgumentException $e){}
 $invalidDesign=unserialize(serialize($designDocument));$invalidDesign->form->fields[0]->processWindow->texts->unknown='x';
 try{AdditionalServices::validate($invalidDesign);throw new Exception('Unknown design text accepted');}catch(InvalidArgumentException $e){}
 echo "PASS design later window text and help storage\n";
