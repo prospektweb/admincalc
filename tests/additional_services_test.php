@@ -62,15 +62,21 @@ $d->form->fields[0]->dateSelection->overtime->from=540;
 try{AdditionalServices::validate($d);throw new Exception('Invalid overtime start accepted');}catch(InvalidArgumentException $e){}
 echo "PASS payment calendar rules and locked overtime start\n";
 
-$storage=(object)['mode'=>'anchors','daily'=>0,'maxAmount'=>1000,'anchors'=>[(object)['days'=>1,'value'=>0],(object)['days'=>3,'value'=>0],(object)['days'=>30,'value'=>2000]],'notice'=>'Правила хранения'];
+$storage=(object)['freeDays'=>3,'dailyPrice'=>125.5,'calendarId'=>'production'];
 $texts=(object)array_fill_keys(['title','method','addresses','address','addressHint','comment','recipient','name','phone','carrier','terminal','consent','note','total','cancel','apply'],'text');
 $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'receipt','processWindow'=>(object)['texts'=>$texts,'help'=>(object)[],'rules'=>(object)[],'allowBudget'=>true,'requireDescription'=>false,'storage'=>$storage]]]]];
 AdditionalServices::validate($d);
-$bad=unserialize(serialize($d));$bad->form->fields[0]->processWindow->storage->anchors[0]->value=50;$bad->form->fields[0]->processWindow->storage->anchors[1]->value=100;
-try{AdditionalServices::validate($bad);throw new Exception('Paid first storage day accepted');}catch(InvalidArgumentException $e){}
-$d->form->fields[0]->processWindow->storage->anchors[2]->days=3;
-try{AdditionalServices::validate($d);throw new Exception('Duplicate storage marks accepted');}catch(InvalidArgumentException $e){}
-echo "PASS storage zero marks, schema and duplicate rejection\n";
+$bad=unserialize(serialize($d));$bad->form->fields[0]->processWindow->storage->freeDays=-1;
+try{AdditionalServices::validate($bad);throw new Exception('Negative free storage accepted');}catch(InvalidArgumentException $e){}
+$bad=unserialize(serialize($d));$bad->form->fields[0]->processWindow->storage->dailyPrice=12.345;
+try{AdditionalServices::validate($bad);throw new Exception('Fractional kopecks accepted');}catch(InvalidArgumentException $e){}
+$bad=unserialize(serialize($d));$bad->form->fields[0]->processWindow->storage->calendarId=str_repeat('x',65);
+try{AdditionalServices::validate($bad);throw new Exception('Oversized calendar ID accepted');}catch(InvalidArgumentException $e){}
+$legacy=unserialize(serialize($d));$legacy->form->fields[0]->processWindow->storage=(object)['mode'=>'anchors','daily'=>0,'maxAmount'=>1350,'anchors'=>[(object)['days'=>1,'value'=>0],(object)['days'=>3,'value'=>0],(object)['days'=>30,'value'=>2700]]];
+AdditionalServices::validate($legacy);
+$legacy->form->fields[0]->processWindow->storage->anchors[1]->days=1;
+try{AdditionalServices::validate($legacy);throw new Exception('Invalid old storage scale accepted');}catch(InvalidArgumentException $e){}
+echo "PASS pickup storage days, price and optional calendar\n";
 $q=(object)['immediateMinutes'=>60,'laterHours'=>72,'fixPrice'=>true,'fixHours'=>72,'immediateHint'=>'Now','laterHint'=>'Later'];
 $p=(object)['texts'=>(object)array_fill_keys(['title','intro','time','note','cancel','apply'],'Text'),'help'=>(object)[],'rules'=>(object)[],'allowBudget'=>true,'requireDescription'=>false,'payment'=>$q];
 $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'payment','processWindow'=>$p]]]];

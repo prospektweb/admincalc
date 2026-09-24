@@ -27,10 +27,18 @@ final class AdditionalServices
                 }
                 if(property_exists($p,'storage')){
                     if($kind!=='receipt')self::fail('Хранение допустимо только для получения');
-                    $s=$p->storage;self::shape($s,array_merge(['mode','daily','maxAmount','anchors'],property_exists($s,'notice')?['notice']:[]));if(property_exists($s,'notice')&&(!is_string($s->notice)||mb_strlen($s->notice)>10000))self::fail('Некорректное описание хранения');
-                    $money=static fn($n)=>is_numeric($n)&&!is_string($n)&&is_finite((float)$n)&&$n>=0&&$n<=1e12&&abs($n*100-round($n*100))<0.0001;
-                    if(!in_array($s->mode,['anchors','daily'],true)||!$money($s->daily)||($s->maxAmount!==null&&(!$money($s->maxAmount)||$s->maxAmount<=0))||!is_array($s->anchors)||count($s->anchors)<2||count($s->anchors)>5)self::fail('Некорректные настройки хранения');
-                    $day=0;$amount=0;foreach($s->anchors as $index=>$a){self::shape($a,['days','value']);if(!is_int($a->days)||$a->days<1||$a->days>365||$a->days<=$day||!$money($a->value)||($index===0&&$a->value!=0)||$a->value<$amount||($s->mode==='daily'&&$index<2&&$a->value!=0))self::fail('Некорректные отметки хранения');$day=$a->days;$amount=$a->value;}
+                     $s=$p->storage;
+                     $money=static fn($n)=>is_numeric($n)&&!is_string($n)&&is_finite((float)$n)&&$n>=0&&$n<=1e12&&abs($n*100-round($n*100))<0.0001;
+                     if(property_exists($s,'anchors')){
+                         // Existing pilot documents stay editable until their pickup settings are replaced.
+                         self::shape($s,array_merge(['mode','daily','maxAmount','anchors'],property_exists($s,'notice')?['notice']:[]));
+                         if(property_exists($s,'notice')&&(!is_string($s->notice)||mb_strlen($s->notice)>10000))self::fail('Некорректное описание хранения');
+                         if(!in_array($s->mode,['anchors','daily'],true)||!$money($s->daily)||($s->maxAmount!==null&&(!$money($s->maxAmount)||$s->maxAmount<=0))||!is_array($s->anchors)||count($s->anchors)<2||count($s->anchors)>5)self::fail('Некорректные настройки хранения');
+                         $day=0;$amount=0;foreach($s->anchors as $index=>$a){self::shape($a,['days','value']);if(!is_int($a->days)||$a->days<1||$a->days>365||$a->days<=$day||!$money($a->value)||($index===0&&$a->value!=0)||$a->value<$amount||($s->mode==='daily'&&$index<2&&$a->value!=0))self::fail('Некорректные отметки хранения');$day=$a->days;$amount=$a->value;}
+                     }else{
+                         self::shape($s,['freeDays','dailyPrice','calendarId']);
+                         if(!is_int($s->freeDays)||$s->freeDays<0||$s->freeDays>3650||!$money($s->dailyPrice)||!is_string($s->calendarId)||strlen($s->calendarId)>64)self::fail('Некорректные настройки хранения');
+                     }
                 }$textKeys=$keys[$kind];if($kind==='design')foreach(['laterTitle','laterTime','chooseFiles'] as $key)if(property_exists($p->texts,$key))$textKeys[]=$key;self::shape($p->texts,$textKeys);
                 if(!is_bool($p->allowBudget)||!is_bool($p->requireDescription)||!$p->help instanceof \stdClass||!$p->rules instanceof \stdClass)self::fail('Некорректные настройки процесса');
                 foreach(get_object_vars($p->texts) as $text)if(!is_string($text)||mb_strlen($text)>10000)self::fail('Некорректный текст процесса');
