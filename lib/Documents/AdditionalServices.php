@@ -80,7 +80,10 @@ final class AdditionalServices
                 }
                 unset($v->labelHelp);
             }
-            self::shape($v, ['paymentTitle','paymentDefault','paymentAfterLabel','paymentAfterHint','paymentImmediateLabel','paymentImmediateHint','title','desiredLabel','desiredPlaceholder','desiredHelp','amountLabel','minimum','step','explanation','allocation','refundTitle','refundLabel','refundHint','balanceLabel','balanceHint','refundNote','cancelLabel','doneLabel']);
+            // New windows use the shared dialog actions; keep older per-window labels readable.
+            $keys = ['paymentTitle','paymentDefault','paymentAfterLabel','paymentAfterHint','paymentImmediateLabel','paymentImmediateHint','title','desiredLabel','desiredPlaceholder','desiredHelp','amountLabel','minimum','step','explanation','allocation','refundTitle','refundLabel','refundHint','balanceLabel','balanceHint','refundNote'];
+            foreach (['cancelLabel','doneLabel'] as $key) if (property_exists($v, $key)) $keys[] = $key;
+            self::shape($v, $keys);
             foreach (get_object_vars($v) as $text) if (!is_string($text) || mb_strlen($text)>10000) self::fail('Некорректный текст окна срочности');
             if (!in_array($v->paymentDefault,['after_confirmation','immediate'],true)) self::fail('Неизвестный порядок оплаты');
             self::money($v->minimum); self::money($v->step);

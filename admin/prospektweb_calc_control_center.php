@@ -262,6 +262,22 @@ body {
 
         var queryStart = hash.indexOf('?');
         var params = new URLSearchParams(queryStart >= 0 ? hash.slice(queryStart + 1) : '');
+        // Native document editors use the catalog route with an exact document/version target.
+        // Keep these keys isolated from the legacy preset list and numeric-id routes.
+        if (params.has('document') || params.has('tab')) {
+            var nativeKeys = ['document', 'version', 'tab'];
+            var nativeValid = queryStart >= 0 && hash.slice(0, queryStart) === '#/presets';
+            params.forEach(function (value, key) {
+                if (nativeKeys.indexOf(key) === -1 || value.length > 128 || /\s/.test(value)) nativeValid = false;
+            });
+            nativeKeys.forEach(function (key) {
+                if (params.getAll(key).length !== 1) nativeValid = false;
+            });
+            if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(params.get('document') || '')
+                || !/^v_(?:[a-f0-9]{32}|[a-f0-9]{40})$/.test(params.get('version') || '')
+                || params.get('tab') !== 'form') nativeValid = false;
+            return nativeValid ? hash : '';
+        }
         var allowedKeys = ['q', 'status', 'sort', 'field', 'version'];
         var valid = true;
         params.forEach(function (value, key) {

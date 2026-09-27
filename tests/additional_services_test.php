@@ -20,6 +20,16 @@ $keys=['paymentTitle','paymentAfterLabel','paymentAfterHint','paymentImmediateLa
 $v=(object)array_fill_keys($keys,'Text');$v->minimum='1000';$v->step='100';$v->paymentDefault='after_confirmation';
 $d=(object)['form'=>(object)['fields'=>[(object)['systemKey'=>'urgency','urgencyWindow'=>$v]]]];
 AdditionalServices::validate($d);
+foreach ([['cancelLabel','doneLabel'], ['cancelLabel'], ['doneLabel']] as $omitted) {
+ $current=unserialize(serialize($d));
+ foreach ($omitted as $key) unset($current->form->fields[0]->urgencyWindow->$key);
+ $beforeCurrent=json_encode($current); AdditionalServices::validate($current);
+ if (json_encode($current)!==$beforeCurrent) throw new Exception('Current urgency window mutated');
+ $invalid=unserialize(serialize($current)); unset($invalid->form->fields[0]->urgencyWindow->title);
+ try { AdditionalServices::validate($invalid); throw new Exception('Required urgency title accepted as missing'); } catch (InvalidArgumentException $e) {}
+}
+$invalid=unserialize(serialize($d));$invalid->form->fields[0]->urgencyWindow->cancelLabel=false;
+try { AdditionalServices::validate($invalid); throw new Exception('Invalid legacy urgency label accepted'); } catch (InvalidArgumentException $e) {}
 foreach(['step','paymentDefault','extra'] as $key){$bad=unserialize(serialize($d));$bad->form->fields[0]->urgencyWindow->$key='0';try{AdditionalServices::validate($bad);}catch(InvalidArgumentException $e){continue;}throw new Exception('Accepted invalid urgency '.$key);}
 echo "PASS urgency window persistence validation\n";
 $v->labelHelp=(object)['paymentTitle'=>(object)['enabled'=>false,'text'=>'Описание сохранено']];
