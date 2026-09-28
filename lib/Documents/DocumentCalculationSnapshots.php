@@ -25,7 +25,7 @@ final class DocumentCalculationSnapshots
             }
             $result = [];
             foreach ($value as $key => $item) {
-                if (in_array($key, ['name', 'label', 'title', 'description', 'help', 'hint', 'tooltip', 'sort', 'order', 'layout', 'columns', 'linkedColumns', 'showHelpOnSite', 'showLabel', 'showUnit', 'pdfContourHint', 'image', 'icon', 'placeholder', 'className', 'style', 'displayMode', 'initiallyOpen', 'showTitle', 'showModeFrame', 'displayKeys', 'display_preset_xml_ids', 'display_mode', 'value_labels', 'show_label', 'show_unit', 'show_presets', 'pdf_contour_hint', 'open_popup_chip_label', 'group_delimiter', 'deadline_adjustments'], true)) continue;
+            if (in_array($key, ['name', 'label', 'title', 'description', 'help', 'hint', 'tooltip', 'sort', 'order', 'layout', 'columns', 'linkedColumns', 'showHelpOnSite', 'showLabel', 'showUnit', 'pdfContourHint', 'image', 'icon', 'placeholder', 'className', 'style', 'displayMode', 'initiallyOpen', 'showTitle', 'showTitleInTimeline', 'showModeFrame', 'displayKeys', 'display_preset_xml_ids', 'display_mode', 'value_labels', 'show_label', 'show_unit', 'show_presets', 'pdf_contour_hint', 'open_popup_chip_label', 'group_delimiter', 'deadline_adjustments'], true)) continue;
                 $next = $clean($item, $key);
                 if ($parent === 'field_patches' && $next === []) continue;
                 $result[$key] = $next;

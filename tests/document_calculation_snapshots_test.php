@@ -32,6 +32,7 @@ $saved=$repo->snapshots()->command('loadCalculationSnapshot','test',$version,'BA
 $check($saved['payload']['values']['qty']===100 && $saved['payload']['response']['result']['basePrice']===17,'full input/result preserved');
 $check($saved['name']==='Exact report title','name taken from server report');
 $cosmetic=$body;$cosmetic['name']='Renamed';$cosmetic['form']['fields'][0]['label']='New label';$cosmetic['form']['fields'][0]['help']='Help';
+$cosmetic['form']['sections'][0]['showTitleInTimeline']=true;
 $cosmetic['form']['fields']=array_reverse($cosmetic['form']['fields']);$cosmetic['form']['sections'][0]['fieldIds']=array_reverse($cosmetic['form']['sections'][0]['fieldIds']);
 $cosmetic['calculations'][0]['formulas']['price']=20;
 $repo->versions()->save('test',$version,1,$json($cosmetic));
