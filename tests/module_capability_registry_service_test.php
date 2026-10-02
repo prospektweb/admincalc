@@ -124,8 +124,8 @@ namespace {
     $assert($initial['contract'] === 'prospektweb.control-plane/catalog/v1', 'Catalog contract must be versioned');
     $assert(strlen((string)$initial['revision']) === 64, 'Catalog revision must be SHA-256');
     $assert($repeat['revision'] === $initial['revision'], 'Unchanged catalogs must have a stable revision');
-    $assert(count($initial['modules']) === 10, 'Catalog must expose ten canonical modules');
-    $assert($initial['summary']['capabilities'] === 27, 'Catalog capability summary must match the allowlist');
+    $assert(count($initial['modules']) === 13, 'Catalog must expose thirteen canonical modules');
+    $assert($initial['summary']['capabilities'] === 30, 'Catalog capability summary must match the allowlist');
     $commercialPreview = $findCapability($initial, 'admin.calculator.commercial_policy_preview');
     $assert($commercialPreview['enabled'] && !$commercialPreview['mutable'], 'Commercial preview cannot enable working policies');
     $calendarPreview = $findCapability($initial, 'admin.orderterms.calendar_preview');
@@ -135,6 +135,11 @@ namespace {
     $assert($initial['summary']['mutableCapabilities'] === 17, 'Provider-owned feature guards must be mutable');
 
     $moduleIds = array_column($initial['modules'], 'id');
+    foreach (['storefront.design.files', 'storefront.design.online_editor', 'storefront.design.designer'] as $id) {
+        $provider=$findCapability($initial,$id);
+        $assert(!$provider['enabled'] && $provider['state']==='unavailable', 'Uninstalled design provider must stay unavailable');
+    }
+
     $assert(in_array('prospektweb.layoutfiles', $moduleIds, true), 'Canonical layoutfiles module ID must be used');
     $assert(in_array('prospektweb.partnermanager', $moduleIds, true), 'Canonical partner manager module ID must be used');
     $assert(in_array('prospektweb.storefrontui', $moduleIds, true), 'Dedicated public UI module must be exposed');

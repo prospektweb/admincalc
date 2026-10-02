@@ -17,6 +17,37 @@ class ModuleCapabilityRegistryService
 
     private const MODULES = [
         [
+            'id'=>'prospektweb.designfiles', 'name'=>'Собственные файлы',
+            'description'=>'Подсистема Дизайн-макет: Собственные файлы.',
+            'capabilities'=>[[
+                'id'=>'storefront.design.files', 'name'=>'Собственные файлы',
+                'description'=>'Открывает соответствующий способ подготовки в калькуляторе.',
+                'surface'=>'storefront+admin', 'defaultEnabled'=>true, 'mutable'=>false,
+                'state'=>'managed-in-workspace', 'risk'=>'low', 'requiresReload'=>true,
+            ]],
+        ],
+        [
+            'id'=>'prospektweb.designeditor', 'name'=>'Онлайн-редактор',
+            'description'=>'Подсистема Дизайн-макет: Онлайн-редактор.',
+            'capabilities'=>[[
+                'id'=>'storefront.design.online_editor', 'name'=>'Онлайн-редактор',
+                'description'=>'Открывает соответствующий способ подготовки в калькуляторе.',
+                'surface'=>'storefront+admin', 'defaultEnabled'=>true, 'mutable'=>false,
+                'state'=>'managed-in-workspace', 'risk'=>'low', 'requiresReload'=>true,
+            ]],
+        ],
+        [
+            'id'=>'prospektweb.designservice', 'name'=>'Услуги дизайнера',
+            'description'=>'Подсистема Дизайн-макет: Услуги дизайнера.',
+            'capabilities'=>[[
+                'id'=>'storefront.design.designer', 'name'=>'Услуги дизайнера',
+                'description'=>'Открывает соответствующий способ подготовки в калькуляторе.',
+                'surface'=>'storefront+admin', 'defaultEnabled'=>true, 'mutable'=>false,
+                'state'=>'managed-in-workspace', 'risk'=>'low', 'requiresReload'=>true,
+            ]],
+        ],
+
+        [
             'id' => 'prospektweb.orderterms',
             'name' => 'Управление сроками',
             'description' => 'Модуль позволяет использовать производственные календари и планировать сроки осуществления этапов заказа.',
