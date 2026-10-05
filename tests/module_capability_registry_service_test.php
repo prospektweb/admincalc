@@ -20,8 +20,11 @@ namespace Bitrix\Main\Config {
 namespace Bitrix\Main {
     class Loader
     {
+        public static array $included = [];
+
         public static function includeModule(string $moduleId): bool
         {
+            self::$included[] = $moduleId;
             return $moduleId === 'prospektweb.layoutfiles';
         }
     }
@@ -117,6 +120,8 @@ namespace {
         throw new RuntimeException('Capability not found in fixture: ' . $capabilityId);
     };
 
+    Option::$values['prospektweb.bitrix24'] = ['delivery_active'=>'Y', 'technical_delivery_id'=>'6', 'technical_delivery_owned_id'=>'6'];
+    Option::$values['prospektweb.receipt'] = ['saved_settings'=>'keep'];
     $service = new ModuleCapabilityRegistryService();
     $initial = $service->getCatalog();
     $repeat = $service->getCatalog();
@@ -124,8 +129,8 @@ namespace {
     $assert($initial['contract'] === 'prospektweb.control-plane/catalog/v1', 'Catalog contract must be versioned');
     $assert(strlen((string)$initial['revision']) === 64, 'Catalog revision must be SHA-256');
     $assert($repeat['revision'] === $initial['revision'], 'Unchanged catalogs must have a stable revision');
-    $assert(count($initial['modules']) === 13, 'Catalog must expose thirteen canonical modules');
-    $assert($initial['summary']['capabilities'] === 30, 'Catalog capability summary must match the allowlist');
+    $assert(count($initial['modules']) === 14, 'Catalog must expose fourteen canonical modules');
+    $assert($initial['summary']['capabilities'] === 31, 'Catalog capability summary must match the allowlist');
     $commercialPreview = $findCapability($initial, 'admin.calculator.commercial_policy_preview');
     $assert($commercialPreview['enabled'] && !$commercialPreview['mutable'], 'Commercial preview cannot enable working policies');
     $calendarPreview = $findCapability($initial, 'admin.orderterms.calendar_preview');
@@ -163,6 +168,33 @@ namespace {
     $assert($massProperties['mutable'] === true && $massProperties['enabled'] === true, 'Mass offer property editor must be guarded and enabled by default');
     $assert($contactsGallery['mutable'] === true && $contactsGallery['enabled'] === false, 'Contacts gallery must be manageable and disabled by default');
     $assert($yandexMaps['mutable'] === false && $yandexMaps['enabled'] === true, 'Yandex Maps settings must be installed and read-only from the capability switch');
+
+    $receipt = $findCapability($initial, 'storefront.receipt');
+    $assert(!$receipt['enabled'] && !$receipt['mutable'] && $receipt['state'] === 'unavailable', 'Uninstalled receipt module must stay unavailable');
+    $beforeReceiptOptions = Option::$values;
+    $beforeReceiptEvents = CEventLog::$events;
+    $beforeReceiptIncludes = Bitrix\Main\Loader::$included;
+    Bitrix\Main\ModuleManager::$versions['prospektweb.receipt'] = '0.1.0';
+    $receiptInstalled = $service->getCatalog();
+    $receipt = $findCapability($receiptInstalled, 'storefront.receipt');
+    $assert($receipt['enabled'] && $receipt['defaultEnabled'] && !$receipt['mutable'], 'Receipt installation must enable its immutable capability');
+    $assert($receipt['state'] === 'managed-in-workspace' && $receipt['requiresReload'], 'Installed receipt state must match the independent design providers');
+    $assert($receiptInstalled['revision'] !== $initial['revision'], 'Receipt installation must refresh the catalog revision');
+    try {
+        $service->setCapability('storefront.receipt', false, (string)$receiptInstalled['revision'], 42);
+        throw new RuntimeException('Receipt installation capability was changed');
+    } catch (InvalidArgumentException $exception) {
+        $assert(strpos($exception->getMessage(), 'read-only') !== false, 'Receipt availability must be owned by installation, not a switch');
+    }
+    $installedVersions = Bitrix\Main\ModuleManager::$versions;
+    Bitrix\Main\ModuleManager::$versions = ['prospektweb.receipt'=>'0.1.0'];
+    $assert($findCapability($service->getCatalog(), 'storefront.receipt')['enabled'], 'Receipt catalog availability must not depend on calc, controlcenter, orderterms, or business modules');
+    Bitrix\Main\ModuleManager::$versions = $installedVersions;
+    unset(Bitrix\Main\ModuleManager::$versions['prospektweb.receipt']);
+    $receiptRemoved = $service->getCatalog();
+    $assert(!$findCapability($receiptRemoved, 'storefront.receipt')['enabled'] && $receiptRemoved['revision'] === $initial['revision'], 'Receipt removal must restore the unavailable catalog state');
+    $assert(Option::$values === $beforeReceiptOptions, 'Receipt catalog and rejected switch must preserve all options, including business delivery and saved receipt settings');
+    $assert(CEventLog::$events === $beforeReceiptEvents && Bitrix\Main\Loader::$included === $beforeReceiptIncludes, 'Receipt catalog must not load providers or trigger business/sale lifecycle and audit side effects');
 
     $updated = $service->setCapability(
         'storefront.property_descriptions',

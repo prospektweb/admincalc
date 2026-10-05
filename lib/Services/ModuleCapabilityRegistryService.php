@@ -17,6 +17,16 @@ class ModuleCapabilityRegistryService
 
     private const MODULES = [
         [
+            'id'=>'prospektweb.receipt', 'name'=>'Получение',
+            'description'=>'Самовывоз, курьерская доставка и доставка транспортной компанией.',
+            'capabilities'=>[[
+                'id'=>'storefront.receipt', 'name'=>'Получение',
+                'description'=>'Открывает раздел получения и все три способа в калькуляторе.',
+                'surface'=>'storefront+admin', 'defaultEnabled'=>true, 'mutable'=>false,
+                'state'=>'managed-in-workspace', 'risk'=>'low', 'requiresReload'=>true,
+            ]],
+        ],
+        [
             'id'=>'prospektweb.designfiles', 'name'=>'Собственные файлы',
             'description'=>'Подсистема Дизайн-макет: Собственные файлы.',
             'capabilities'=>[[
