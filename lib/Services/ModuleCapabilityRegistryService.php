@@ -17,10 +17,10 @@ class ModuleCapabilityRegistryService
 
     private const MODULES = [
         [
-            'id'=>'prospektweb.receipt', 'name'=>'Получение',
+            'id'=>'prospektweb.receipt', 'name'=>'Доставка и получение',
             'description'=>'Самовывоз, курьерская доставка и доставка транспортной компанией.',
             'capabilities'=>[[
-                'id'=>'storefront.receipt', 'name'=>'Получение',
+                'id'=>'storefront.receipt', 'name'=>'Доставка и получение',
                 'description'=>'Открывает раздел получения и все три способа в калькуляторе.',
                 'surface'=>'storefront+admin', 'defaultEnabled'=>true, 'mutable'=>false,
                 'state'=>'managed-in-workspace', 'risk'=>'low', 'requiresReload'=>true,
