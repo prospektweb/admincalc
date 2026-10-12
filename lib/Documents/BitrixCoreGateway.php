@@ -17,7 +17,9 @@ final class BitrixCoreGateway
         if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https' || empty($parts['host']) || isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])) {
             throw new \RuntimeException('Invalid configured calculation server URL.');
         }
-        $client = trim((string)(getenv('PROSPEKTWEB_CALC_SERVER_CLIENT_ID') ?: getenv('PROSPEKTWEB_FRONTCALC_CLIENT_ID') ?: 'prospektprint-production'));
+        $configuredClient = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('CALC_SERVER_CLIENT_ID', '');
+        $client = trim((string)(getenv('PROSPEKTWEB_CALC_SERVER_CLIENT_ID') ?: getenv('PROSPEKTWEB_FRONTCALC_CLIENT_ID') ?: $configuredClient ?: 'prospektprint-production'));
+        if (!preg_match('/^[A-Za-z0-9._:-]{1,128}$/D', $client)) { throw new \RuntimeException('Invalid configured calculation server client identity.'); }
         $secret = trim((string)(getenv('PROSPEKTWEB_CALC_SERVER_SHARED_SECRET') ?: getenv('PROSPEKTWEB_FRONTCALC_SHARED_SECRET') ?: ''));
         if ($secret === '') {
             $file = trim((string)(getenv('PROSPEKTWEB_CALC_SERVER_SECRET_FILE') ?: getenv('PROSPEKTWEB_FRONTCALC_SECRET_FILE') ?: dirname(rtrim($_SERVER['DOCUMENT_ROOT'], '/')) . '/.frontcalc-secret'));

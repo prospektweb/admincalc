@@ -3,8 +3,9 @@ declare(strict_types=1);
 namespace Prospektweb\Calc\Install;
 require_once dirname(__DIR__) . '/Documents/ResourceCatalogRegistry.php';
 require_once __DIR__ . '/SupplierDirectorySchemaService.php';
+require_once __DIR__ . '/ResourceDirectoryIdentity.php';
 
-/** Schema only; existing resources are checked, never moved or populated. */
+/** Schema only; unique material identities retain IDs during historical type repair. */
 final class ResourceDirectoryInstaller
 {
     public static function definitions(): array
@@ -58,8 +59,8 @@ final class ResourceDirectoryInstaller
         foreach (\Prospektweb\Calc\Documents\ResourceCatalogRegistry::LABELS as $code => $name) {
             $cursor = \CIBlock::GetList(['ID' => 'ASC'], ['CODE' => $code, 'CHECK_PERMISSIONS' => 'N']);
             $rows = []; while ($row = $cursor->Fetch()) { $rows[] = $row; }
-            if (count($rows) > 1 || ($rows && ($rows[0]['CODE'] !== $code || $rows[0]['IBLOCK_TYPE_ID'] !== 'calculator_catalog'))) { throw new \RuntimeException('Resource directory conflicts: ' . $code); }
-            if ($rows) { $ids[$code] = (int)$rows[0]['ID']; continue; }
+            $existingId = ResourceDirectoryIdentity::reconcile($code, $rows);
+            if ($existingId !== null) { $ids[$code] = $existingId; continue; }
             $fields = ['ACTIVE' => 'Y', 'NAME' => $name, 'CODE' => $code, 'IBLOCK_TYPE_ID' => 'calculator_catalog',
                 'SITE_ID' => [(string)\CSite::GetDefSite()], 'VERSION' => 2, 'WORKFLOW' => 'N', 'BIZPROC' => 'N',
                 'GROUP_ID' => ['1' => 'X', '2' => 'D'], 'FIELDS' => ['CODE' => ['IS_REQUIRED' => 'Y', 'DEFAULT_VALUE' => ['UNIQUE' => 'Y']]]];
