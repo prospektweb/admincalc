@@ -72,7 +72,14 @@ final class DocumentCalculationSnapshots
                 if ($load) {
                     if (!$compatible) throw new DocumentConflict('Форма изменилась. Снимок сохранён, но восстановить ввод в несовместимую форму нельзя.');
                     if (!hash_equals($row['payload_hash'], hash('sha256', $row['payload_json']))) throw new \RuntimeException('Snapshot integrity check failed.');
-                    return $item + ['payload' => json_decode($row['payload_json'], true, 64, JSON_THROW_ON_ERROR), 'currentSource' => ['revision' => $source['revision'], 'bodyHash' => $source['bodyHash']]];
+                    $payload = json_decode($row['payload_json'], true, 64, JSON_THROW_ON_ERROR);
+                    // These are maps on the browser contract. Associative decoding
+                    // loses an empty object's shape; restoring [] then makes a
+                    // subsequent batch candidate invalid. Preserve stored bytes.
+                    foreach (['values', 'activation'] as $map) {
+                        if (($payload[$map] ?? null) === []) $payload[$map] = new \stdClass();
+                    }
+                    return $item + ['payload' => $payload, 'currentSource' => ['revision' => $source['revision'], 'bodyHash' => $source['bodyHash']]];
                 }
                 $items[] = $item;
             }

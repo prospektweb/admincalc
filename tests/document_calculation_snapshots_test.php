@@ -31,6 +31,23 @@ $reject(fn()=>$other->snapshots()->command('loadCalculationSnapshot','test',$ver
 $saved=$repo->snapshots()->command('loadCalculationSnapshot','test',$version,'BASE',$key);
 $check($saved['payload']['values']['qty']===100 && $saved['payload']['response']['result']['basePrice']===17,'full input/result preserved');
 $check($saved['name']==='Exact report title','name taken from server report');
+$source=$repo->versions()->load('test',$version);
+$emptyKey=$repo->snapshots()->capture('test',$version,$source,$saved['payload']['response'],
+    ['values'=>(object)[], 'sectionActivation'=>(object)[], 'execution'=>(object)['unitCount'=>100], 'storefrontId'=>'BASE'], []);
+$empty=$repo->snapshots()->command('loadCalculationSnapshot','test',$version,'BASE',$emptyKey);
+$wire=json_decode(json_encode($empty,JSON_THROW_ON_ERROR));
+$check(is_object($wire->payload->values) && is_object($wire->payload->activation),'reopened empty maps remain objects for batch candidates');
+// Existing snapshots may already contain []. Normalize the response only,
+// leaving their immutable payload and hash untouched.
+$stored=$db->rows('SELECT payload_json, payload_hash FROM b_pw_calc_snapshot WHERE id = ?',[$emptyKey])[0];
+$legacy=json_decode($stored['payload_json'],true);$legacy['activation']=[];
+$legacyJson=json_encode($legacy,JSON_THROW_ON_ERROR);$legacyHash=hash('sha256',$legacyJson);
+$db->execute('UPDATE b_pw_calc_snapshot SET payload_json = ?, payload_hash = ? WHERE id = ?',[$legacyJson,$legacyHash,$emptyKey]);
+$legacyWire=json_decode(json_encode($repo->snapshots()->command('loadCalculationSnapshot','test',$version,'BASE',$emptyKey),JSON_THROW_ON_ERROR));
+$check(is_object($legacyWire->payload->activation),'legacy empty activation reopens as an object');
+$stored=$db->rows('SELECT payload_json, payload_hash FROM b_pw_calc_snapshot WHERE id = ?',[$emptyKey])[0];
+$check($stored['payload_json']===$legacyJson && $stored['payload_hash']===$legacyHash,'map normalization never rewrites immutable snapshot bytes');
+$repo->snapshots()->command('deleteCalculationSnapshot','test',$version,'BASE',$emptyKey);
 $cosmetic=$body;$cosmetic['name']='Renamed';$cosmetic['form']['fields'][0]['label']='New label';$cosmetic['form']['fields'][0]['help']='Help';
 $cosmetic['form']['sections'][0]['showTitleInTimeline']=true;
 $cosmetic['form']['fields']=array_reverse($cosmetic['form']['fields']);$cosmetic['form']['sections'][0]['fieldIds']=array_reverse($cosmetic['form']['sections'][0]['fieldIds']);
