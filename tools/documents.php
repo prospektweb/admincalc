@@ -40,6 +40,7 @@ try {
     require_once $module . '/lib/Documents/DocumentApplication.php';
     require_once $module . '/lib/Documents/BitrixCoreGateway.php';
     require_once $module . '/lib/Documents/BitrixResourceProvider.php';
+    require_once $module . '/lib/Config/ModuleOptions.php';
     $catalogWrite = in_array($request->command->action ?? '', ['previewCatalogWrite', 'applyCatalogWrite'], true);
     $preparationCatalog = ($request->command->action ?? '') === 'preparationCatalog';
     $resourceCardWrite = ($request->command->action ?? '') === 'saveResourceCard';
@@ -53,7 +54,7 @@ try {
         $templates = new \Prospektweb\Calc\Documents\PriceTemplateApplication($connection, $scope, $actor);
         $respond(200, ['success' => true, 'data' => $templates->command(get_object_vars($request->command))]);
     }
-    $provider = (string)(new \Prospektweb\Calc\Config\ConfigManager())->getOption('DOCUMENT_RESOURCE_PROVIDER', '');
+    $provider = (string)(new \Prospektweb\Calc\Config\ModuleOptions())->get('document_resource_provider', '');
     if (($request->command->action ?? '') === 'previewCommercialPolicy') {
         require_once $module . '/lib/Documents/CommercialPolicyPreview.php';
         $respond(200, ['success'=>true,'data'=>\Prospektweb\Calc\Documents\CommercialPolicyPreview::run(get_object_vars($request->command),$repository,new \Prospektweb\Calc\Documents\BitrixResourceProvider($provider),$siteId)]);

@@ -6,6 +6,7 @@ foreach (['POST_REQUIRED', 'ADMIN_REQUIRED', 'INVALID_SESSION', 'check_bitrix_se
     if (!str_contains($source, $anchor)) { throw new RuntimeException('Missing document HTTP authority: ' . $anchor); }
     $checks++;
 }
+if (!str_contains($source, "ModuleOptions())->get('document_resource_provider', '')")) { throw new RuntimeException('Native resource provider must use case-safe installed option authority.'); }
 if (strpos($source, 'check_bitrix_sessid()') > strpos($source, 'new \\Prospektweb\\Calc\\Documents\\DocumentApplication') || str_contains($source, 'DocumentSchema::install')) { throw new RuntimeException('Access checks must precede commands; DDL cannot run in the endpoint.'); }
 $logStart = strpos($source, "error_log('[prospektweb.documents] '");
 $logEnd = $logStart === false ? false : strpos($source, 'JSON_UNESCAPED_SLASHES));', $logStart);
