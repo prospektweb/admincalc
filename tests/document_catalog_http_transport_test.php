@@ -19,6 +19,8 @@ $remove = static function (string $path) use (&$remove): void {
 try {
     mkdir($www . '/bitrix/modules/main/include', 0700, true);
     mkdir($module . '/lib/Documents', 0700, true);
+    mkdir($module . '/lib/Config', 0700, true);
+    file_put_contents($module . '/lib/Config/ModuleOptions.php', '<?php');
     foreach (['BitrixConnection', 'DocumentApplication', 'BitrixCoreGateway', 'BitrixResourceProvider', 'DocumentCatalogWriteService', 'BitrixDocumentCatalogWritePort', 'BitrixDocumentCatalogTargets', 'DocumentResourceCard'] as $file) {
         file_put_contents($module . '/lib/Documents/' . $file . '.php', '<?php');
     }
@@ -34,9 +36,9 @@ namespace Bitrix\Main {
     }
 }
 namespace Prospektweb\Calc\Config {
-    class ConfigManager {
-        public function getOption(string $key, string $default): string {
-            if ($key !== 'DOCUMENT_RESOURCE_PROVIDER') throw new \LogicException('Wrong provider source');
+    class ModuleOptions {
+        public function get(string $key, string $default): string {
+            if ($key !== 'document_resource_provider') throw new \LogicException('Wrong native provider source');
             return 'bitrix:server';
         }
     }

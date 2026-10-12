@@ -2,7 +2,7 @@
 declare(strict_types=1);
 // Pass the canonical orderterms module directory; optional second argument exports Node fixtures.
 require_once dirname(__DIR__).'/lib/Documents/CommercialPolicyQuote.php';
-foreach(['Contract','Calendar','Diagnostics']as$name)require_once $argv[1].'/lib/'.$name.'.php';
+foreach(['Contract','DateSelection','Calendar','Diagnostics']as$name)require_once $argv[1].'/lib/'.$name.'.php';
 use Prospektweb\Calc\Documents\CommercialPolicyQuote;
 use Prospektweb\OrderTerms\{Calendar,Diagnostics};
 $base=json_decode(file_get_contents(__DIR__.'/fixtures/commercial-execution.json'),true,64,JSON_THROW_ON_ERROR);

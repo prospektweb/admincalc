@@ -47,7 +47,13 @@ $assert(strpos($service, "'name' => 'Обычная сортировка'") !== 
 $assert(strpos($service, "'optionModule' => 'prospektweb.propvalmanager'") !== false && strpos($service, "'optionName' => 'ENABLED'") !== false && strpos($service, "'optionDefault' => 'Y'") !== false, 'Property descriptions must reuse the existing provider option and default');
 $assert(strpos($service, "'id' => 'storefront.checkout.company_suggestions'") !== false, 'Company suggestions capability must be stable');
 $assert(strpos($service, "'optionModule' => 'prospektweb.companyrequisites'") !== false && strpos($service, "'optionName' => 'enabled'") !== false, 'Company suggestions must reuse the existing provider option');
-$assert(substr_count($service, "'mutable' => true") === 16, 'Every mutable capability must be backed by a provider-owned runtime guard');
+require_once $root . '/lib/Services/ModuleCapabilityRegistryService.php';
+$definitions = (new ReflectionClass(\Prospektweb\Calc\Services\ModuleCapabilityRegistryService::class))->getConstant('MODULES');
+foreach ($definitions as $definition) {
+    foreach ($definition['capabilities'] as $capability) {
+        if ($capability['mutable']) { $assert(!empty($capability['optionModule']) && !empty($capability['optionName']), 'Every mutable capability must identify its provider-owned option'); }
+    }
+}
 $assert(strpos($service, "'id' => 'prospektweb.storefrontui'") !== false && strpos($service, "'optionModule' => 'prospektweb.storefrontui'") !== false, 'Public cosmetics must have one dedicated provider module');
 $assert(strpos($service, "'optionName' => 'CHARACTERISTICS_PRESENTATION'") !== false && strpos($service, "'optionName' => 'CATALOG_IMAGE_COVER'") !== false && strpos($service, "'optionName' => 'MOBILE_SECTION_DESCRIPTION'") !== false, 'Affected catalog UI features must expose separate control-center switches');
 $assert(strpos($service, "'optionName' => 'MOBILE_CATALOG_OVERFLOW_GUARD'") !== false, 'Mobile catalog overflow containment must have its own control-center switch');

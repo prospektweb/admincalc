@@ -1162,10 +1162,10 @@ $expectInvalid(static function () use ($formFirstService, $aggregateRevision, $b
     $formFirstService->saveFormFirstDraft(
         41,
         $aggregateRevision,
-        ['version' => 1, 'padding' => str_repeat('x', 60001)],
+        ['version' => 1, 'padding' => str_repeat('x', 2000001)],
         $bindingDefinition
     );
-}, 'Form-first documents must be rejected above the 60 KB service cap');
+}, 'Form-first documents must be rejected above the current 2 MB service cap');
 $expectInvalid(static function () use ($formFirstService, $aggregateRevision): void {
     $formFirstService->rollbackFormFirst(41, $aggregateRevision, -1);
 }, 'Form-first rollback must reject negative published revisions');
