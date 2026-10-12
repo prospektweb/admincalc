@@ -31,6 +31,10 @@ $reject(fn()=>$other->snapshots()->command('loadCalculationSnapshot','test',$ver
 $saved=$repo->snapshots()->command('loadCalculationSnapshot','test',$version,'BASE',$key);
 $check($saved['payload']['values']['qty']===100 && $saved['payload']['response']['result']['basePrice']===17,'full input/result preserved');
 $check($saved['name']==='Exact report title','name taken from server report');
+$savedWire=json_decode(json_encode($saved,JSON_THROW_ON_ERROR));
+$check(is_object($savedWire->payload->values) && $savedWire->payload->values->qty===100
+    && is_object($savedWire->payload->activation) && $savedWire->payload->activation->main===true
+    && is_array($savedWire->payload->document->calculations),'nonempty maps and real document lists retain their shapes');
 $source=$repo->versions()->load('test',$version);
 $emptyKey=$repo->snapshots()->capture('test',$version,$source,$saved['payload']['response'],
     ['values'=>(object)[], 'sectionActivation'=>(object)[], 'execution'=>(object)['unitCount'=>100], 'storefrontId'=>'BASE'], []);

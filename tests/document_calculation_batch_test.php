@@ -70,6 +70,8 @@ $inter=$repo->batches()->command(['id'=>'batch-test','versionId'=>$version,'oper
 $check($inter['valid']===3&&$inter['items'][3]['status']==='invalid'&&str_contains($inter['items'][3]['error'],'Зависимое поле'),'all cross-product projections checked including joint interaction');
 $reads=0;
 $prepare=function($key,$items)use($command,$repo,$version){return $command(['operation'=>'prepare','packetId'=>$key,'revision'=>$repo->versions()->load('batch-test',$version)['revision'],'storefrontId'=>'BASE','candidates'=>$items]);};
+$invalidList=$candidate(1);$invalidList->activation=[true];
+$reject(fn()=>$prepare('invalid-list-0001',[$invalidList]));
 $p=$prepare('packet-key-000001',[$candidate(1),$candidate(1),$candidate(2),$candidate(-1)]);
 $check($p['total']===3&&$p['valid']===2&&$p['items'][2]['status']==='invalid','server candidate validation and typed dedup: '.json_encode($p));
 $again=$prepare('packet-key-000001',[$candidate(1),$candidate(1),$candidate(2),$candidate(-1)]);$check($again===$p&&$reads===1,'duplicate prepare no resource reload');
