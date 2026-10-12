@@ -6,7 +6,19 @@ if (!$USER || !$USER->IsAdmin() || ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST'
     http_response_code(403); ShowError('Удаление модуля требует подтверждённый POST администратора.'); return;
 }
 if (\Bitrix\Main\ModuleManager::isModuleInstalled('prospektweb.frontcalc')) {
-    ShowError('Сначала отключите зависимый модуль FrontCalc. Документы и настройки не изменены.'); return;
+    // Old FrontCalc can use cached quotes after Calc is unregistered. Keep it
+    // installed only when its registration-first dependency guard is present.
+    $dependencyGuard = '\\Prospektweb\\Frontcalc\\Service\\CalcDependencyAvailability';
+    try {
+        $safeConsumer = \Bitrix\Main\Loader::includeModule('prospektweb.frontcalc')
+            && class_exists($dependencyGuard)
+            && is_callable([$dependencyGuard, 'assertAvailable'])
+            && defined($dependencyGuard . '::ERROR_CODE')
+            && constant($dependencyGuard . '::ERROR_CODE') === 'FRONTCALC_CALC_UNAVAILABLE';
+    } catch (\Throwable $error) { $safeConsumer = false; }
+    if (!$safeConsumer) {
+        ShowError('Обновите FrontCalc до версии с защитой при отсутствии Calc. Документы и настройки не изменены.'); return;
+    }
 }
 require_once __DIR__ . '/index.php';
 try {

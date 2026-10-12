@@ -15,7 +15,7 @@ $uninstall = $read('install/unstep2.php');
 foreach (['CIBlock::Delete', 'CIBlockElement::Delete', 'Option::delete', 'HighloadBlockTable::delete', 'DROP TABLE'] as $forbidden) {
     $assert(!str_contains($uninstall, $forbidden), 'Uninstall destroys retained data');
 }
-$assert(str_contains($uninstall, "isModuleInstalled('prospektweb.frontcalc')"), 'Uninstall must enforce the dependent public adapter');
+$assert(str_contains($uninstall, "isModuleInstalled('prospektweb.frontcalc')") && str_contains($uninstall, 'FRONTCALC_CALC_UNAVAILABLE'), 'Uninstall must require the dependent public adapter guard, not remove the adapter');
 $events = $read('install/index.php');
 $installEvents = substr($events, strpos($events, 'public function installEvents'), strpos($events, 'public function uninstallEvents') - strpos($events, 'public function installEvents'));
 $assert(!str_contains($installEvents, 'DependencyHandler') && !str_contains($installEvents, 'PresetProductAssignmentMutationGuardService'), 'Fresh installation must not register legacy graph events');
