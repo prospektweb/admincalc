@@ -6,7 +6,8 @@ class Cursor { public function __construct(private array $row) {} public functio
 class CIBlock {
     public static array $rows = [], $writes = [];
     public function Update(int $id, array $fields): bool { self::$writes[] = [$id, $fields]; self::$rows[$id] = array_replace(self::$rows[$id], $fields); return true; }
-    public static function GetByID(int $id): Cursor { return new Cursor(self::$rows[$id]); }
+    public static function GetByID(int $id): Cursor { return new Cursor([]); }
+    public static function GetList(array $sort, array $filter): Cursor { return new Cursor(($filter['CHECK_PERMISSIONS'] ?? '') === 'N' ? self::$rows[$filter['ID']] : []); }
 }
 $check = static function(bool $value): void { if (!$value) throw new RuntimeException('Identity regression'); };
 $fails = static function(callable $fn) use ($check): void { try { $fn(); } catch (RuntimeException $e) { return; } $check(false); };

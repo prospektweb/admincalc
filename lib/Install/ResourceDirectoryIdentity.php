@@ -15,7 +15,9 @@ final class ResourceDirectoryIdentity
         if (($row['IBLOCK_TYPE_ID'] ?? '') !== 'calculator_catalog') {
             if (!in_array($code, ['CALC_MATERIALS', 'CALC_MATERIALS_VARIANTS'], true)) { throw new \RuntimeException('Resource directory conflicts: ' . $code); }
             if (!(new \CIBlock())->Update($id, ['IBLOCK_TYPE_ID' => 'calculator_catalog'])) { throw new \RuntimeException('Cannot repair material directory type: ' . $code); }
-            $after = \CIBlock::GetByID($id)->Fetch();
+            // The installer already owns authentication. CLI migrations have no
+            // public-user directory permissions; read the exact internal row.
+            $after = \CIBlock::GetList([], ['ID' => $id, 'CHECK_PERMISSIONS' => 'N'])->Fetch();
             if (!$after || (int)$after['ID'] !== $id || $after['CODE'] !== $code || $after['IBLOCK_TYPE_ID'] !== 'calculator_catalog') { throw new \RuntimeException('Material directory repair readback failed: ' . $code); }
         }
         return $id;
