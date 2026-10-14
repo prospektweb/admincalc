@@ -64,6 +64,12 @@ final class CatalogSchemaDeploymentService
         }
 
         $plan = $this->analyze();
+        foreach ($plan['operations'] as $operation) {
+            $code = $operation['desired']['fields']['CODE'] ?? $operation['code'] ?? '';
+            if (preg_match('/^(CALC|FRONTCALC)_/', $code)) {
+                throw new \RuntimeException('Свойства Calc управляются в ЦУ → Калькуляции PROSPEKT; служебное свойство FrontCalc — собственным установщиком FrontCalc. Старый профиль их не изменяет.',409);
+            }
+        }
         if ($expectedPlanHash === '' || !hash_equals((string)$plan['plan_hash'], $expectedPlanHash)) {
             throw new \RuntimeException('Схема каталога изменилась после анализа. Выполните dry-run повторно.', 409);
         }
@@ -195,6 +201,7 @@ final class CatalogSchemaDeploymentService
 
     private function createProperty(string $role, array $desired): int
     {
+        if (preg_match('/^(CALC|FRONTCALC)_/', $desired['fields']['CODE'] ?? '')) { throw new \LogicException('Legacy profile cannot write Calc or FrontCalc property schema.'); }
         $iblockId = $this->roleIblockId($role);
         $fields = $this->propertyWriteFields((array)$desired['fields'], $iblockId, $desired['link_target'] ?? null);
         $this->assertUserTypeAvailable((string)($fields['USER_TYPE'] ?? ''));
@@ -210,6 +217,7 @@ final class CatalogSchemaDeploymentService
 
     private function updateProperty(int $propertyId, string $role, array $desired): void
     {
+        if (preg_match('/^(CALC|FRONTCALC)_/', $desired['fields']['CODE'] ?? '')) { throw new \LogicException('Legacy profile cannot write Calc or FrontCalc property schema.'); }
         if ($propertyId <= 0) {
             throw new \InvalidArgumentException('Некорректный ID свойства для обновления.');
         }

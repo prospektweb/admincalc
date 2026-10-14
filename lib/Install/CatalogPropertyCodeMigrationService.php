@@ -65,22 +65,7 @@ class CatalogPropertyCodeMigrationService
             return ['status' => 'skipped', 'reason' => 'legacy_property_not_found'];
         }
 
-        $propertyApi = new \CIBlockProperty();
-        if (!$propertyApi->Update((int)$legacy['ID'], ['CODE' => self::TARGET_CODE])) {
-            throw new \RuntimeException(
-                'Не удалось переименовать свойство ' . (string)$legacy['CODE']
-                . ': ' . (string)$propertyApi->LAST_ERROR
-            );
-        }
-
-        return [
-            'status' => 'ok',
-            'propertyId' => (int)$legacy['ID'],
-            'oldCode' => (string)$legacy['CODE'],
-            'newCode' => self::TARGET_CODE,
-            'updatedStages' => $this->migrateStageOptionReferences(),
-            'changed' => true,
-        ];
+        return ['status'=>'requires_central_update','reason'=>'Обновите свойства торговых инфоблоков в ЦУ → Калькуляции PROSPEKT.','changed'=>false];
     }
 
     public static function rewriteJsonReferences(string $raw): ?string

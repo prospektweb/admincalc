@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace Prospektweb\Calc\Documents;
 
-/** Additive setup, called only by an administrator's explicit form setup action. */
+/** Compatibility reader. Schema writes belong to Catalog\TradePropertyService. */
 final class UrgencyProperty
 {
     public static function ensure(int $iblock): void
@@ -15,10 +15,7 @@ final class UrgencyProperty
         $p=$matches[0]??null;
         if($p && ($p['PROPERTY_TYPE']!=='L'||$p['MULTIPLE']==='Y')) throw new \RuntimeException('Существующее свойство срочности должно быть одиночным списком. Данные не изменены.');
         if(!$p){
-            $api=new \CIBlockProperty();
-            $id=$api->Add(['IBLOCK_ID'=>$iblock,'NAME'=>'Срочное изготовление','CODE'=>'CALC_PROP_URGENCY','PROPERTY_TYPE'=>'L','MULTIPLE'=>'N','ACTIVE'=>'Y','SORT'=>550,'VALUES'=>[['VALUE'=>'Включено','XML_ID'=>'on','SORT'=>100],['VALUE'=>'Не включено','XML_ID'=>'off','SORT'=>200,'DEF'=>'Y']]]);
-            if(!$id)throw new \RuntimeException((string)$api->LAST_ERROR);
-            return;
+            throw new \RuntimeException('Создайте свойства в ЦУ → Калькуляции PROSPEKT → Свойства торговых инфоблоков.',409);
         }
         $values=[];$cursor=\CIBlockPropertyEnum::GetList([],['PROPERTY_ID'=>$p['ID']]);
         while($v=$cursor->Fetch()) $values[]=$v;
@@ -30,7 +27,7 @@ final class UrgencyProperty
         foreach(['on'=>'Включено','off'=>'Не включено'] as $xml=>$label){
             $found=array_filter($values,static fn($v)=>mb_strtolower(trim($v['VALUE']))===mb_strtolower($label));
             if(count($found)>1)throw new \RuntimeException('Неоднозначные значения срочности.');
-            if(!$found){$api=new \CIBlockPropertyEnum();if(!$api->Add(['PROPERTY_ID'=>$p['ID'],'VALUE'=>$label,'XML_ID'=>$xml,'SORT'=>$xml==='on'?100:200,'DEF'=>$xml==='off'?'Y':'N']))throw new \RuntimeException('Не удалось добавить вариант срочности.');}
+            if(!$found)throw new \RuntimeException('Обновите свойства в ЦУ → Калькуляции PROSPEKT → Свойства торговых инфоблоков.',409);
         }
     }
 }

@@ -2198,20 +2198,7 @@ class BatchRecalculateService
         )->Fetch();
 
         if (!$property) {
-            $ibp = new \CIBlockProperty();
-            $ibp->Add([
-                'IBLOCK_ID' => $iblockId,
-                'NAME' => 'Хеш состояния расчёта',
-                'ACTIVE' => 'Y',
-                'CODE' => 'CALC_STATE_HASH',
-                'PROPERTY_TYPE' => 'S',
-                'USER_TYPE' => null,
-                'MULTIPLE' => 'N',
-                'IS_REQUIRED' => 'N',
-                'SEARCHABLE' => 'N',
-                'FILTERABLE' => 'N',
-                'WITH_DESCRIPTION' => 'N',
-            ]);
+            throw new \RuntimeException('Создайте CALC_STATE_HASH в ЦУ → Калькуляции PROSPEKT → Свойства торговых инфоблоков.',409);
         }
 
         $checked[$iblockId] = true;

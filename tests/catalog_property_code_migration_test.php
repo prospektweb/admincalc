@@ -78,7 +78,8 @@ foreach (['CALC_COLORS', 'CALC_COLOR', 'CALC_PROP_COLOR'] as $code) {
     }
 }
 if (
-    strpos($serviceSource, "Update((int)\$legacy['ID'], ['CODE' => self::TARGET_CODE])") === false
+    strpos($serviceSource, 'new \\CIBlockProperty()') !== false
+    || strpos($serviceSource, 'requires_central_update') === false
     || strpos($serviceSource, 'migrateStageOptionReferences()') === false
     || strpos($payloadSource, 'prepareNeutralInitPayloadReadOnly') === false
     || strpos($payloadSource, 'CatalogPropertyCodeMigrationService') !== false

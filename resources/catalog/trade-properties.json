@@ -1,0 +1,2649 @@
+{
+  "contract": "prospektweb.calc.trade-properties/v1",
+  "revision": 1,
+  "properties": [
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Способ печати",
+        "ACTIVE": "Y",
+        "SORT": 110,
+        "CODE": "CALC_METHOD",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Цифровая печать",
+          "XML_ID": "DIGITAL",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Офсетная печать",
+          "XML_ID": "OFSET",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Сборный тираж",
+          "XML_ID": "OFSET_SBORKA",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "УФ-печать",
+          "XML_ID": "UF_PECHAT",
+          "SORT": "400",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Экосольвентная печать",
+          "XML_ID": "ECO_SOLVENT",
+          "SORT": "410",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Шелкография",
+          "XML_ID": "SHELKOGRAFIA",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Пресс-ламинация",
+          "XML_ID": "PVC",
+          "SORT": "600",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Заливка в макете",
+        "ACTIVE": "Y",
+        "SORT": 114,
+        "CODE": "CALC_FILLING",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Стандартное заполнение",
+          "XML_ID": "standart",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Текст и графика",
+          "XML_ID": "text",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Разрешение печати",
+        "ACTIVE": "Y",
+        "SORT": 115,
+        "CODE": "CALC_PRINT_RESOLUTION",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "1440 DPI",
+          "XML_ID": "1440",
+          "SORT": "10",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1080 DPI",
+          "XML_ID": "1080",
+          "SORT": "20",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "720 DPI",
+          "XML_ID": "720",
+          "SORT": "30",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "600 DPI",
+          "XML_ID": "600",
+          "SORT": "40",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "480 DPI",
+          "XML_ID": "480",
+          "SORT": "50",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Материал",
+        "ACTIVE": "Y",
+        "SORT": 120,
+        "CODE": "CALC_TYPE_BASE",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Бумага",
+          "XML_ID": "paper",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Плёнка",
+          "XML_ID": "film",
+          "SORT": "150",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Картон",
+          "XML_ID": "cardboard",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Пластик",
+          "XML_ID": "plastic",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Стекло",
+          "XML_ID": "glass",
+          "SORT": "400",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Тип бумаги",
+        "ACTIVE": "Y",
+        "SORT": 121,
+        "CODE": "CALC_TYPE_PAPER",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Офсетная бумага",
+          "XML_ID": "vhi-paper",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Мелованный двухсторонний картон",
+          "XML_ID": "mel-card-1",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Бумага без покрытия Color Fine",
+          "XML_ID": "color-fine",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Самоклеящаяся бумага",
+          "XML_ID": "sticker-paper",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Дизайнерская бумага",
+          "XML_ID": "design-paper",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Мелованная бумага",
+          "XML_ID": "mel-paper",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Мелованный односторонний картон",
+          "XML_ID": "mel-card-2",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Мелованная матовая бумага",
+          "XML_ID": "mel-mat-paper",
+          "SORT": "510",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Обложка на мелованной бумаге | Блок на офсетной бумаге",
+          "XML_ID": "cover-mel-block-ofset",
+          "SORT": "600",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Обложка на мелованной бумаге | Блок на мелованной бумаге",
+          "XML_ID": "cover-mel-block-mel",
+          "SORT": "600",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Тип картона",
+        "ACTIVE": "Y",
+        "SORT": 122,
+        "CODE": "CALC_TYPE_CARDBOARD",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Упаковочный картон",
+          "XML_ID": "packing-cardboard",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Мелованный односторонний картон",
+          "XML_ID": "mel-one-side-cardboard",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Мелованный двухсторонний картон",
+          "XML_ID": "mel-two-side-cardboard",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Немелованный картон",
+          "XML_ID": "uncoated-cardboard",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Переплётный картон",
+          "XML_ID": "bookbinding-cardboard",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Дизайнерский картон",
+          "XML_ID": "design-cardboard",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Тип плёнки",
+        "ACTIVE": "Y",
+        "SORT": 123,
+        "CODE": "CALC_TYPE_FILM",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Виниловая белая плёнка",
+          "XML_ID": "vinyl_film_white",
+          "SORT": "10",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Виниловая прозрачная плёнка",
+          "XML_ID": "vinyl_film_transparent",
+          "SORT": "20",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Виниловая цветная плёнка",
+          "XML_ID": "vinyl_film_color",
+          "SORT": "30",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Дополнительная защита",
+        "ACTIVE": "Y",
+        "SORT": 130,
+        "CODE": "CALC_PROTECTION",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Не предусмотрена",
+          "XML_ID": "empty",
+          "SORT": "100",
+          "DEF": "Y"
+        },
+        {
+          "VALUE": "Ламинация пакетная",
+          "XML_ID": "lamination-pocket",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Ламинация рулонная",
+          "XML_ID": "lamination-rulon",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "УФ-лак",
+          "XML_ID": "uf-lak",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Сборка",
+        "ACTIVE": "Y",
+        "SORT": 140,
+        "CODE": "CALC_BINDING",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Сборка не требуется",
+          "XML_ID": "empty",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Пружина по длинной стороне",
+          "XML_ID": "SPRING-LONG",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Пружина по короткой стороне",
+          "XML_ID": "SPRING-SHORT",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Сборка на 2 скобы по длинной стороне",
+          "XML_ID": "STAPLE-LONG",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Сборка на 2 скобы по короткой стороне",
+          "XML_ID": "STAPLE-SHORT",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Опции",
+        "ACTIVE": "Y",
+        "SORT": 140,
+        "CODE": "CALC_ADD_OPTIONS",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Без опций",
+          "XML_ID": "empty",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Скругление углов",
+          "XML_ID": "round-corners",
+          "SORT": "110",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Биговка",
+          "XML_ID": "bigs",
+          "SORT": "115",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Фальцовка",
+          "XML_ID": "falzovka",
+          "SORT": "117",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Переменные данные",
+          "XML_ID": "variable-data",
+          "SORT": "120",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Нумерация",
+          "XML_ID": "numbering",
+          "SORT": "125",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Индивидуальные QR-коды",
+          "XML_ID": "ind-qr",
+          "SORT": "130",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Круглое отверстие d = 4 мм",
+          "XML_ID": "holes",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Евро отверстие",
+          "XML_ID": "euroholes",
+          "SORT": "210",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Пикколо",
+          "XML_ID": "piccolo",
+          "SORT": "215",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Чипирование",
+          "XML_ID": " chipping",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Контурная резка",
+          "XML_ID": " contour-cutting",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "NAME": "Форма резки",
+        "ACTIVE": "Y",
+        "SORT": 142,
+        "CODE": "CALC_FROM_CUTTING",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Круглая форма",
+          "XML_ID": "round-shape",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Овальная форма",
+          "XML_ID": "oval-shape",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Прямоугольная форма",
+          "XML_ID": "rectangular-shape",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Квадратная форма",
+          "XML_ID": "square-shape",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Другая форма",
+          "XML_ID": "another-form",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Количество в тираже",
+        "ACTIVE": "Y",
+        "SORT": 10,
+        "CODE": "CALC_PROP_VOLUME",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "1",
+          "XML_ID": "1",
+          "SORT": "10",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "2",
+          "XML_ID": "2",
+          "SORT": "20",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "3",
+          "XML_ID": "3",
+          "SORT": "30",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "4",
+          "XML_ID": "4",
+          "SORT": "40",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "5",
+          "XML_ID": "5",
+          "SORT": "50",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "10",
+          "XML_ID": "10",
+          "SORT": "60",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "15",
+          "XML_ID": "15",
+          "SORT": "70",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "20",
+          "XML_ID": "20",
+          "SORT": "80",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "30",
+          "XML_ID": "30",
+          "SORT": "90",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "40",
+          "XML_ID": "40",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "50",
+          "XML_ID": "50",
+          "SORT": "110",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "75",
+          "XML_ID": "75",
+          "SORT": "120",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "100",
+          "XML_ID": "100",
+          "SORT": "130",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "150",
+          "XML_ID": "150",
+          "SORT": "140",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "200",
+          "XML_ID": "200",
+          "SORT": "150",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "250",
+          "XML_ID": "250",
+          "SORT": "160",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "300",
+          "XML_ID": "300",
+          "SORT": "170",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "400",
+          "XML_ID": "400",
+          "SORT": "180",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "500",
+          "XML_ID": "500",
+          "SORT": "190",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "600",
+          "XML_ID": "600",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "750",
+          "XML_ID": "750",
+          "SORT": "210",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1 000",
+          "XML_ID": "1000",
+          "SORT": "220",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1 500",
+          "XML_ID": "1500",
+          "SORT": "230",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "2 000",
+          "XML_ID": "2000",
+          "SORT": "240",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "3 000",
+          "XML_ID": "3000",
+          "SORT": "250",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "4 000",
+          "XML_ID": "4000",
+          "SORT": "260",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "5 000",
+          "XML_ID": "5000",
+          "SORT": "270",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "6 000",
+          "XML_ID": "6000",
+          "SORT": "280",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "7 000",
+          "XML_ID": "7000",
+          "SORT": "290",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "8 000",
+          "XML_ID": "8000",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "9 000",
+          "XML_ID": "9000",
+          "SORT": "310",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "10 000",
+          "XML_ID": "10000",
+          "SORT": "320",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "12 000",
+          "XML_ID": "12000",
+          "SORT": "330",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "15 000",
+          "XML_ID": "15000",
+          "SORT": "340",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "20 000",
+          "XML_ID": "20000",
+          "SORT": "350",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "24 000",
+          "XML_ID": "24000",
+          "SORT": "351",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "36 000",
+          "XML_ID": "36000",
+          "SORT": "352",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "48 000",
+          "XML_ID": "48000",
+          "SORT": "353",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "25 000",
+          "XML_ID": "25000",
+          "SORT": "360",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "30 000",
+          "XML_ID": "30000",
+          "SORT": "370",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "35 000",
+          "XML_ID": "35000",
+          "SORT": "380",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "40 000",
+          "XML_ID": "40000",
+          "SORT": "390",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "45 000",
+          "XML_ID": "45000",
+          "SORT": "400",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "50 000",
+          "XML_ID": "50000",
+          "SORT": "410",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "60 000",
+          "XML_ID": "60000",
+          "SORT": "420",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "70 000",
+          "XML_ID": "70000",
+          "SORT": "430",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "80 000",
+          "XML_ID": "80000",
+          "SORT": "440",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "90 000",
+          "XML_ID": "90000",
+          "SORT": "450",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "100 000",
+          "XML_ID": "100000",
+          "SORT": "460",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "120 000",
+          "XML_ID": "120000",
+          "SORT": "470",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "150 000",
+          "XML_ID": "150000",
+          "SORT": "480",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "180 000",
+          "XML_ID": "180000",
+          "SORT": "490",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "200 000",
+          "XML_ID": "200000",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "250 000",
+          "XML_ID": "250000",
+          "SORT": "510",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "300 000",
+          "XML_ID": "300000",
+          "SORT": "520",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "400 000",
+          "XML_ID": "400000",
+          "SORT": "530",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "500 000",
+          "XML_ID": "500000",
+          "SORT": "540",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Формат",
+        "ACTIVE": "Y",
+        "SORT": 100,
+        "CODE": "CALC_PROP_FORMAT",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "40 × 40 мм",
+          "XML_ID": "40x40",
+          "SORT": "1",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "A2 420 × 594 мм",
+          "XML_ID": "420x594",
+          "SORT": "60",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "A1 594 × 841 мм",
+          "XML_ID": "594x841",
+          "SORT": "70",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "A0 841 × 1188 мм",
+          "XML_ID": "841x1188",
+          "SORT": "80",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1000 × 1000 мм",
+          "XML_ID": "1000x1000",
+          "SORT": "90",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Евро 210 × 99 мм",
+          "XML_ID": "210x99",
+          "SORT": "110",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "85 × 55 мм",
+          "XML_ID": "85x55",
+          "SORT": "399",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "90 × 50 мм",
+          "XML_ID": "90x50",
+          "SORT": "400",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "A7 74 × 105 мм",
+          "XML_ID": "74x105",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "A6 105 × 148 мм",
+          "XML_ID": "105x148",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "A5 148 × 210 мм",
+          "XML_ID": "148x210",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "A4 210 × 297 мм",
+          "XML_ID": "210x297",
+          "SORT": "500",
+          "DEF": "Y"
+        },
+        {
+          "VALUE": "A3 297 × 420 мм",
+          "XML_ID": "297x420",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "210 × 210 мм",
+          "XML_ID": "210x210",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "310 × 440мм",
+          "XML_ID": "310x440",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "70 × 70 мм",
+          "XML_ID": "70x70",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "63 × 88 мм",
+          "XML_ID": "63x88",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "198 × 210 мм",
+          "XML_ID": "198x210",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "167 × 209 мм",
+          "XML_ID": "167x209",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "160 × 220 мм",
+          "XML_ID": "160x220",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "100 × 50 мм",
+          "XML_ID": "100x50",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "180 × 80 мм",
+          "XML_ID": "180x80",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "176 × 250 мм",
+          "XML_ID": "176x250",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Размер макета с вылетами",
+        "ACTIVE": "Y",
+        "SORT": 102,
+        "CODE": "CALC_PROP_MAKET_FORMAT_WITH_BLEED",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "94 × 54 мм",
+          "XML_ID": "94x54",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "89 × 59 мм",
+          "XML_ID": "89x59",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "44 × 44 мм",
+          "XML_ID": "44x44",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "109 × 152 мм",
+          "XML_ID": "109x152",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "214 × 301 мм",
+          "XML_ID": "214x301",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1004 × 1004 мм",
+          "XML_ID": "1004x1004",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Стороны печати",
+        "ACTIVE": "Y",
+        "SORT": 112,
+        "CODE": "CALC_PROP_PRINT_SIDES",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Односторонняя печать",
+          "XML_ID": "4+0",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Двухсторонняя печать",
+          "XML_ID": "4+4",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Красочность печати",
+        "ACTIVE": "Y",
+        "SORT": 113,
+        "CODE": "CALC_PROP_COLOR_SCHEME",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "4+0",
+          "XML_ID": "4+0",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "4+4",
+          "XML_ID": "4+4",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "4+1",
+          "XML_ID": "4+1",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1+0",
+          "XML_ID": "1+0",
+          "SORT": "400",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1+1",
+          "XML_ID": "1+1",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "2+0",
+          "XML_ID": "2+0",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "2+2",
+          "XML_ID": "2+2",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Обложка | Красочность печати",
+        "ACTIVE": "Y",
+        "SORT": 116,
+        "CODE": "CALC_PROP_COVER_COLOR_SCHEME",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "4+0",
+          "XML_ID": "4+0",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "4+4",
+          "XML_ID": "4+4",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "4+1",
+          "XML_ID": "4+1",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1+0",
+          "XML_ID": "1+0",
+          "SORT": "400",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1+1",
+          "XML_ID": "1+1",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Блок | Красочность печати",
+        "ACTIVE": "Y",
+        "SORT": 118,
+        "CODE": "CALC_PROP_BLOCK_COLOR_SCHEME",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "4+0",
+          "XML_ID": "4+0",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "4+4",
+          "XML_ID": "4+4",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "4+1",
+          "XML_ID": "4+1",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1+0",
+          "XML_ID": "1+0",
+          "SORT": "400",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1+1",
+          "XML_ID": "1+1",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Марка материала",
+        "ACTIVE": "Y",
+        "SORT": 122,
+        "CODE": "CALC_PROP_BRAND",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Шайн (Shyne)",
+          "XML_ID": "shyne",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Аквeрелло (Acquerello)",
+          "XML_ID": "acquerello",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "МайПлайк (myPlike)",
+          "XML_ID": "myPlike",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "СиЭмПиСи Нейчерал Крафт (CMPC Natural Kraft)",
+          "XML_ID": "cmpc_natural_kraft",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Гмунд Коттон (Gmund Cotton)",
+          "XML_ID": "gmund_cotton",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Цвет",
+        "ACTIVE": "Y",
+        "SORT": 123,
+        "CODE": "CALC_PROP_COLOR",
+        "PROPERTY_TYPE": "S",
+        "USER_TYPE": "directory",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L",
+        "USER_TYPE_SETTINGS": {
+          "TABLE_NAME": "b_hlbd_basecolors"
+        }
+      },
+      "enums": [],
+      "description": "Параметр витрины и источник сопоставления формы.",
+      "aliases": [
+        "CALC_COLOR",
+        "CALC_COLORS"
+      ]
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Плотность бумаги",
+        "ACTIVE": "Y",
+        "SORT": 124,
+        "CODE": "CALC_PROP_DENSITY_PAPER",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Тонкая",
+          "XML_ID": "LOW",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Средняя",
+          "XML_ID": "MEDIUM",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Плотная",
+          "XML_ID": "HIGH",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Очень плотная",
+          "XML_ID": "MAX",
+          "SORT": "400",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Диапазон плотности",
+        "ACTIVE": "Y",
+        "SORT": 125,
+        "CODE": "CALC_PROP_DENSITY_INTERVAL",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "C"
+      },
+      "enums": [
+        {
+          "VALUE": "70 г/м²",
+          "XML_ID": "70",
+          "SORT": "70",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "80 г/м²",
+          "XML_ID": "80",
+          "SORT": "80",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "90 г/м²",
+          "XML_ID": "90",
+          "SORT": "90",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "105 г/м²",
+          "XML_ID": "105",
+          "SORT": "105",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "115 г/м²",
+          "XML_ID": "115",
+          "SORT": "115",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "120 г/м²",
+          "XML_ID": "120",
+          "SORT": "120",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "130 г/м²",
+          "XML_ID": "130",
+          "SORT": "130",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "135 г/м²",
+          "XML_ID": "135",
+          "SORT": "135",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "140 г/м²",
+          "XML_ID": "140",
+          "SORT": "140",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "150 г/м²",
+          "XML_ID": "150",
+          "SORT": "150",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "160 г/м²",
+          "XML_ID": "160",
+          "SORT": "160",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "170 г/м²",
+          "XML_ID": "170",
+          "SORT": "170",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "180 г/м²",
+          "XML_ID": "180",
+          "SORT": "180",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "200 г/м²",
+          "XML_ID": "200",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "230 г/м²",
+          "XML_ID": "230",
+          "SORT": "230",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "240 г/м²",
+          "XML_ID": "240",
+          "SORT": "240",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "250 г/м²",
+          "XML_ID": "250",
+          "SORT": "250",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "270 г/м²",
+          "XML_ID": "270",
+          "SORT": "270",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "280 г/м²",
+          "XML_ID": "280",
+          "SORT": "280",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "285 г/м²",
+          "XML_ID": "285",
+          "SORT": "285",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "290 г/м²",
+          "XML_ID": "290",
+          "SORT": "290",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "300 г/м²",
+          "XML_ID": "300",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "330 г/м²",
+          "XML_ID": "330",
+          "SORT": "330",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "350 г/м²",
+          "XML_ID": "350",
+          "SORT": "350",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Обложка | Плотность бумаги",
+        "ACTIVE": "Y",
+        "SORT": 126,
+        "CODE": "CALC_PROP_COVER_DENSITY_PAPER",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Тонкая",
+          "XML_ID": "LOW",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Средняя",
+          "XML_ID": "MEDIUM",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Плотная",
+          "XML_ID": "HIGH",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Очень плотная",
+          "XML_ID": "MAX",
+          "SORT": "400",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Блок | Плотность бумаги",
+        "ACTIVE": "Y",
+        "SORT": 128,
+        "CODE": "CALC_PROP_BLOCK_DENSITY_PAPER",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Тонкая",
+          "XML_ID": "LOW",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Средняя",
+          "XML_ID": "MEDIUM",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Плотная",
+          "XML_ID": "HIGH",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Очень плотная",
+          "XML_ID": "MAX",
+          "SORT": "400",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Тип ламинации",
+        "ACTIVE": "Y",
+        "SORT": 132,
+        "CODE": "CALC_PROP_LAMINATION",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Матовая стандарт",
+          "XML_ID": "mat-low",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Матовая плотная",
+          "XML_ID": "mat-medium",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Глянцевая стандарт",
+          "XML_ID": "gloss-low",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Глянцевая плотная",
+          "XML_ID": "glow-medium",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Бархатная Soft-Touch",
+          "XML_ID": "soft-touch",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Матовая Ultra Bond",
+          "XML_ID": "ultra-bond",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Диапазон толщины",
+        "ACTIVE": "Y",
+        "SORT": 133,
+        "CODE": "CALC_PROP_LAMINATION_THICKNESS",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "30 мкм",
+          "XML_ID": "30",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "34 мкм",
+          "XML_ID": "34",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "43 мкм",
+          "XML_ID": "43",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "75 мкм",
+          "XML_ID": "75",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Стороны ламинации",
+        "ACTIVE": "Y",
+        "SORT": 134,
+        "CODE": "CALC_PROP_LAMINATION_SIDES",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Односторонняя ламинация",
+          "XML_ID": "1",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Двухсторонняя ламинация",
+          "XML_ID": "2",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Количество листов",
+        "ACTIVE": "Y",
+        "SORT": 150,
+        "CODE": "CALC_PROP_SHEETS",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "10",
+          "XML_ID": "10",
+          "SORT": "1",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "20",
+          "XML_ID": "20",
+          "SORT": "2",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "30",
+          "XML_ID": "30",
+          "SORT": "3",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "40",
+          "XML_ID": "40",
+          "SORT": "4",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "50",
+          "XML_ID": "50",
+          "SORT": "5",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "60",
+          "XML_ID": "60",
+          "SORT": "6",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "70",
+          "XML_ID": "70",
+          "SORT": "7",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "80",
+          "XML_ID": "80",
+          "SORT": "8",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "90",
+          "XML_ID": "90",
+          "SORT": "9",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "100",
+          "XML_ID": "100",
+          "SORT": "10",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "120",
+          "XML_ID": "120",
+          "SORT": "11",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "150",
+          "XML_ID": "150",
+          "SORT": "12",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "200",
+          "XML_ID": "200",
+          "SORT": "13",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "206",
+          "XML_ID": "206",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "73",
+          "XML_ID": "73",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "137",
+          "XML_ID": "137",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "12",
+          "XML_ID": "12",
+          "SORT": "610",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "18",
+          "XML_ID": "18",
+          "SORT": "612",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "24",
+          "XML_ID": "24",
+          "SORT": "614",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "36",
+          "XML_ID": "36",
+          "SORT": "616",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "48",
+          "XML_ID": "48",
+          "SORT": "618",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "96",
+          "XML_ID": "96",
+          "SORT": "624",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Другое",
+          "XML_ID": "value",
+          "SORT": "999",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Количество страниц",
+        "ACTIVE": "Y",
+        "SORT": 152,
+        "CODE": "CALC_PROP_STRIPS",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "4",
+          "XML_ID": "4",
+          "SORT": "104",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "8",
+          "XML_ID": "8",
+          "SORT": "108",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "12",
+          "XML_ID": "12",
+          "SORT": "112",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "16",
+          "XML_ID": "16",
+          "SORT": "116",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "20",
+          "XML_ID": "20",
+          "SORT": "120",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "24",
+          "XML_ID": "24",
+          "SORT": "124",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "28",
+          "XML_ID": "28",
+          "SORT": "128",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "32",
+          "XML_ID": "32",
+          "SORT": "132",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "36",
+          "XML_ID": "36",
+          "SORT": "136",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "40",
+          "XML_ID": "40",
+          "SORT": "140",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "44",
+          "XML_ID": "44",
+          "SORT": "144",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "48",
+          "XML_ID": "48",
+          "SORT": "148",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "52",
+          "XML_ID": "52",
+          "SORT": "152",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "56",
+          "XML_ID": "56",
+          "SORT": "156",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "60",
+          "XML_ID": "60",
+          "SORT": "160",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "64",
+          "XML_ID": "64",
+          "SORT": "164",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "68",
+          "XML_ID": "68",
+          "SORT": "168",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "72",
+          "XML_ID": "72",
+          "SORT": "172",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "76",
+          "XML_ID": "76",
+          "SORT": "176",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "80",
+          "XML_ID": "80",
+          "SORT": "180",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "84",
+          "XML_ID": "84",
+          "SORT": "184",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "88",
+          "XML_ID": "88",
+          "SORT": "188",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "92",
+          "XML_ID": "92",
+          "SORT": "192",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "96",
+          "XML_ID": "96",
+          "SORT": "196",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "100",
+          "XML_ID": "100",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "146",
+          "XML_ID": "146",
+          "SORT": "204",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "137",
+          "XML_ID": "137",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Другое",
+          "XML_ID": "value",
+          "SORT": "999",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Количество карточек в комплекте",
+        "ACTIVE": "Y",
+        "SORT": 154,
+        "CODE": "CALC_QTY_ITEMS",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "24",
+          "XML_ID": "24",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "32",
+          "XML_ID": "32",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "36",
+          "XML_ID": "36",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "52",
+          "XML_ID": "52",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "54",
+          "XML_ID": "54",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "78",
+          "XML_ID": "78",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Тип чипа",
+        "ACTIVE": "Y",
+        "SORT": 155,
+        "CODE": "CALC_CHIP_TYPE",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Em Marine (чтение)",
+          "XML_ID": "CHIP_EMMARINE",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Mifare (чтение и запись)",
+          "XML_ID": "CHIP_MIFARE",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Тип фактуры",
+        "ACTIVE": "Y",
+        "SORT": 156,
+        "CODE": "CALC_TEXTURE_TYPE",
+        "PROPERTY_TYPE": "S",
+        "USER_TYPE": "directory",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L",
+        "USER_TYPE_SETTINGS": {
+          "TABLE_NAME": "b_hlbd_texture"
+        }
+      },
+      "enums": [],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Тип поверхности",
+        "ACTIVE": "Y",
+        "SORT": 157,
+        "CODE": "CALC_SURFACE_TYPE",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Глянцевая",
+          "XML_ID": "surface_gloss",
+          "SORT": "10",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Матовая",
+          "XML_ID": "surface_ matte",
+          "SORT": "20",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Цвет плёнки",
+        "ACTIVE": "Y",
+        "SORT": 158,
+        "CODE": "CALC_FILM_COLOR",
+        "PROPERTY_TYPE": "S",
+        "USER_TYPE": "directory",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L",
+        "USER_TYPE_SETTINGS": {
+          "TABLE_NAME": "b_hlbd_filmcolors"
+        }
+      },
+      "enums": [],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Толщина плёнки",
+        "ACTIVE": "Y",
+        "SORT": 159,
+        "CODE": "CALC_FILM_THICKNESS",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "80 мкм",
+          "XML_ID": "film80",
+          "SORT": "10",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "90 мкм",
+          "XML_ID": "film90",
+          "SORT": "20",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "100 мкм",
+          "XML_ID": "film100",
+          "SORT": "30",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Опция УФ-печати",
+        "ACTIVE": "Y",
+        "SORT": 160,
+        "CODE": "CALC_UV_OPTION",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Без подложки",
+          "XML_ID": "UV_notwhite",
+          "SORT": "10",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "С белой подложкой",
+          "XML_ID": "UV_white",
+          "SORT": "20",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Разрешение печати",
+        "ACTIVE": "N",
+        "SORT": 500,
+        "CODE": "CALC_PRINT_RESOLUTION",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "1440 DPI",
+          "XML_ID": "63c6f8e5ae21657b53eb7c0d722286e6",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "1080 DPI",
+          "XML_ID": "c8f23f87b571ad9c0c3893c6ec257ad1",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "720 DPI",
+          "XML_ID": "c087f9ab211a0657c305b7452f9da138",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "600 DPI",
+          "XML_ID": "510e9b2e43276279893037e834e4e584",
+          "SORT": "500",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "480 DPI",
+          "XML_ID": "3a8473d3edce48882abd4e1b91a76bec",
+          "SORT": "500",
+          "DEF": "N"
+        }
+      ],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Хеш состояния расчёта",
+        "ACTIVE": "Y",
+        "SORT": 900,
+        "CODE": "CALC_STATE_HASH",
+        "PROPERTY_TYPE": "S",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [],
+      "description": "Параметр витрины и источник сопоставления формы."
+    },
+    {
+      "role": "offers",
+      "fields": {
+        "NAME": "Значение плотности",
+        "ACTIVE": "Y",
+        "SORT": 125,
+        "CODE": "CALC_PROP_DENSITY_PAPER_NUM",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "WITH_DESCRIPTION": "N",
+        "IS_REQUIRED": "N",
+        "LIST_TYPE": "C"
+      },
+      "enums": [
+        {
+          "VALUE": "70 г/м²",
+          "XML_ID": "70",
+          "SORT": "70",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "80 г/м²",
+          "XML_ID": "80",
+          "SORT": "80",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "90 г/м²",
+          "XML_ID": "90",
+          "SORT": "90",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "105 г/м²",
+          "XML_ID": "105",
+          "SORT": "105",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "115 г/м²",
+          "XML_ID": "115",
+          "SORT": "115",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "120 г/м²",
+          "XML_ID": "120",
+          "SORT": "120",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "130 г/м²",
+          "XML_ID": "130",
+          "SORT": "130",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "135 г/м²",
+          "XML_ID": "135",
+          "SORT": "135",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "140 г/м²",
+          "XML_ID": "140",
+          "SORT": "140",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "150 г/м²",
+          "XML_ID": "150",
+          "SORT": "150",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "160 г/м²",
+          "XML_ID": "160",
+          "SORT": "160",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "170 г/м²",
+          "XML_ID": "170",
+          "SORT": "170",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "180 г/м²",
+          "XML_ID": "180",
+          "SORT": "180",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "200 г/м²",
+          "XML_ID": "200",
+          "SORT": "200",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "230 г/м²",
+          "XML_ID": "230",
+          "SORT": "230",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "240 г/м²",
+          "XML_ID": "240",
+          "SORT": "240",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "250 г/м²",
+          "XML_ID": "250",
+          "SORT": "250",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "270 г/м²",
+          "XML_ID": "270",
+          "SORT": "270",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "280 г/м²",
+          "XML_ID": "280",
+          "SORT": "280",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "285 г/м²",
+          "XML_ID": "285",
+          "SORT": "285",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "290 г/м²",
+          "XML_ID": "290",
+          "SORT": "290",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "300 г/м²",
+          "XML_ID": "300",
+          "SORT": "300",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "330 г/м²",
+          "XML_ID": "330",
+          "SORT": "330",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "350 г/м²",
+          "XML_ID": "350",
+          "SORT": "350",
+          "DEF": "N"
+        }
+      ],
+      "description": "Плотность бумаги: список, несмотря на суффикс NUM."
+    },
+    {
+      "role": "products",
+      "fields": {
+        "CODE": "CALC_PROP_URGENCY",
+        "NAME": "Срочное изготовление",
+        "PROPERTY_TYPE": "L",
+        "USER_TYPE": "",
+        "MULTIPLE": "N",
+        "ACTIVE": "Y",
+        "SORT": 550,
+        "IS_REQUIRED": "N",
+        "WITH_DESCRIPTION": "N",
+        "LIST_TYPE": "L"
+      },
+      "enums": [
+        {
+          "VALUE": "Включено",
+          "XML_ID": "on",
+          "SORT": "100",
+          "DEF": "N"
+        },
+        {
+          "VALUE": "Не включено",
+          "XML_ID": "off",
+          "SORT": "200",
+          "DEF": "Y"
+        }
+      ],
+      "description": "Сопоставление системного поля срочности."
+    }
+  ]
+}
